@@ -1,2 +1,2 @@
 # ump
-IMGUI MPV player and Image Sequence Flipbook.
+IMGUI mpv video player and image sequence (EXR, PNG, JPEG, TIFF) flipbook.
