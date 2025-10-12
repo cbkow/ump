@@ -7,6 +7,7 @@
 #include <shellapi.h>
 #include <dwmapi.h>
 #include <VersionHelpers.h>
+#include <shobjidl.h>
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -10925,6 +10926,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 #endif
 
 int main(int argc, char* argv[]) {
+    // Set AppUserModelID for Windows 11 taskbar/start menu integration
+    #ifdef _WIN32
+    SetCurrentProcessExplicitAppUserModelID(L"cbkow.ump");
+    #endif
+
     // Set working directory to executable's directory
     // This ensures assets are found regardless of how the app is launched
     try {
