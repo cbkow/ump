@@ -1,0 +1,14 @@
+libmpv - LGPL v2.1+ License
+
+Copyright © 2000-2024 mpv/MPlayer/mplayer2 projects
+
+libmpv is licensed under the GNU Lesser General Public License version 2.1
+or later (LGPLv2.1+).
+
+The full text of the LGPL v2.1 license can be found at:
+https://www.gnu.org/licenses/lgpl-2.1.html
+
+The libmpv client API specifically uses the ISC license to ease
+interoperability with other licenses.
+
+For more information, see: https://github.com/mpv-player/mpv

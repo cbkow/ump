@@ -1,0 +1,286 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_exporter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_io.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_serializer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_toolbar.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\stroke_smoother.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\gpu_compute_processor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_client.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_converter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_url_parser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\safety_overlay_system.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\dummy_video_generator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_loaders.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_player.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exr_layer_detector.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_exporter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_io.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_note.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_serializer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_toolbar.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\stroke_smoother.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\gpu_compute_processor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes_internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_client.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_converter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_url_parser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\safety_overlay_system.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dummy_video_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_loader_interface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_loaders.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_player.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\media_item.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\debug_utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\exr_layer_detector.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\frame_indexing.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{22A91275-2E9D-375B-AF92-E238D9CAA772}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ump.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\assets\icons\ump.ico" />
+  </ItemGroup>
+</Project>

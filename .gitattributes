@@ -1,0 +1,2 @@
+source/external/ffmpeg/bin/avcodec-62.dll filter=lfs diff=lfs merge=lfs -text
+source/external/mpv/bin/libmpv-2.dll filter=lfs diff=lfs merge=lfs -text

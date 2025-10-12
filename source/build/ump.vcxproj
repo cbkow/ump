@@ -1,0 +1,1629 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{C1C409C7-D15E-3C3A-A3B2-5A5D0850DE3F}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>ump</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\z_DevTemp\UnionPlayer\build\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ump.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">ump</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
+    <LocalDebuggerWorkingDirectory Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:/z_DevTemp/UnionPlayer</LocalDebuggerWorkingDirectory>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\z_DevTemp\UnionPlayer\build\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ump.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">ump</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
+    <LocalDebuggerWorkingDirectory Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:/z_DevTemp/UnionPlayer</LocalDebuggerWorkingDirectory>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\z_DevTemp\UnionPlayer\build\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">ump.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">ump</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
+    <LocalDebuggerWorkingDirectory Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:/z_DevTemp/UnionPlayer</LocalDebuggerWorkingDirectory>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\z_DevTemp\UnionPlayer\build\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">ump.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">ump</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
+    <LocalDebuggerWorkingDirectory Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:/z_DevTemp/UnionPlayer</LocalDebuggerWorkingDirectory>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ForceConformanceInForLoopScope>
+      </ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild>
+      </MinimalRebuild>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData>
+      </RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <SupportJustMyCode>
+      </SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType>
+      </TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Command>setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Debug/assets
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/Debug
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/ffmpeg.exe D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avcodec-62.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avdevice-62.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avfilter-11.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avformat-62.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avutil-60.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swresample-6.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Iex-3_3.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/IlmThread-3_3.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Imath-3_2.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXR-3_3.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRCore-3_3.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRUtil-3_3.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/bz2.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/deflate.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/exiv2.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/fmt.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/jpeg62.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libexpat.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/liblzma.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libpng16.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/tiff.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/turbojpeg.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/yaml-cpp.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zlib1.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zstd.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3.lib;external\Debug\glad.lib;external\Debug\imgui.lib;external\Debug\implot.lib;_deps\nfd-build\src\Debug\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Debug\imgui.lib;external\glfw\src\Debug\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers>
+      </ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Debug/ump.lib</ImportLibrary>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+      <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Debug/ump.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ForceConformanceInForLoopScope>
+      </ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild>
+      </MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData>
+      </RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode>
+      </SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType>
+      </TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Command>setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Release/assets
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/Release
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/ffmpeg.exe D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avcodec-62.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avdevice-62.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avfilter-11.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avformat-62.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avutil-60.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swresample-6.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Iex-3_3.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/IlmThread-3_3.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Imath-3_2.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXR-3_3.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRCore-3_3.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRUtil-3_3.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/bz2.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/deflate.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/exiv2.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/fmt.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/jpeg62.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libexpat.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/liblzma.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libpng16.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/tiff.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/turbojpeg.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/yaml-cpp.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zlib1.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zstd.dll D:/z_DevTemp/UnionPlayer/build/Release/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers>
+      </ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Release/ump.lib</ImportLibrary>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+      <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Release/ump.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ForceConformanceInForLoopScope>
+      </ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild>
+      </MinimalRebuild>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData>
+      </RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode>
+      </SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType>
+      </TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Command>setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/MinSizeRel/assets
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/ffmpeg.exe D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avcodec-62.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avdevice-62.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avfilter-11.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avformat-62.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avutil-60.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swresample-6.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Iex-3_3.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/IlmThread-3_3.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Imath-3_2.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXR-3_3.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRCore-3_3.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRUtil-3_3.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/bz2.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/deflate.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/exiv2.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/fmt.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/jpeg62.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libexpat.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/liblzma.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libpng16.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/tiff.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/turbojpeg.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/yaml-cpp.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zlib1.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zstd.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers>
+      </ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.lib</ImportLibrary>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+      <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4996</DisableSpecificWarnings>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ForceConformanceInForLoopScope>
+      </ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <MinimalRebuild>
+      </MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData>
+      </RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <SupportJustMyCode>
+      </SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType>
+      </TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <PostBuildEvent>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Command>setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/assets
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/ffmpeg.exe D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avcodec-62.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avdevice-62.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avfilter-11.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avformat-62.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/avutil-60.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swresample-6.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Iex-3_3.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/IlmThread-3_3.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/Imath-3_2.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXR-3_3.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRCore-3_3.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenEXRUtil-3_3.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/bz2.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/deflate.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/exiv2.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/fmt.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/jpeg62.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libexpat.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/liblzma.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/libpng16.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/tiff.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/turbojpeg.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/yaml-cpp.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zlib1.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/zstd.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+    </PostBuildEvent>
+    <Link>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention>
+      </DataExecutionPrevention>
+      <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers>
+      </ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.lib</ImportLibrary>
+      <LinkErrorReporting>
+      </LinkErrorReporting>
+      <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress>
+      </RandomizedBaseAddress>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/z_DevTemp/UnionPlayer -BD:/z_DevTemp/UnionPlayer/build --check-stamp-file D:/z_DevTemp/UnionPlayer/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindOpenGL.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\WindowsPaths.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCXXCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeRCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\z_DevTemp\UnionPlayer\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/z_DevTemp/UnionPlayer -BD:/z_DevTemp/UnionPlayer/build --check-stamp-file D:/z_DevTemp/UnionPlayer/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindOpenGL.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\WindowsPaths.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCXXCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeRCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\z_DevTemp\UnionPlayer\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/z_DevTemp/UnionPlayer -BD:/z_DevTemp/UnionPlayer/build --check-stamp-file D:/z_DevTemp/UnionPlayer/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindOpenGL.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\WindowsPaths.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCXXCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeRCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\z_DevTemp\UnionPlayer\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/z_DevTemp/UnionPlayer -BD:/z_DevTemp/UnionPlayer/build --check-stamp-file D:/z_DevTemp/UnionPlayer/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckCSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckIncludeFile.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\CheckLibraryExists.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindOpenGL.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\FindThreads.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Internal\CheckSourceCompiles.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-C.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.1\Modules\Platform\WindowsPaths.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeCXXCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeRCCompiler.cmake;D:\z_DevTemp\UnionPlayer\build\CMakeFiles\4.1.0\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\z_DevTemp\UnionPlayer\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_exporter.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_exporter.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_io.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_io.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_manager.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_manager.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_note.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_renderer.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_renderer.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_serializer.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_serializer.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_toolbar.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\annotation_toolbar.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\stroke_smoother.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\stroke_smoother.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\gpu_compute_processor.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\gpu_compute_processor.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes_internal.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_client.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_client.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_converter.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_converter.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_url_parser.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\integrations\frameio_url_parser.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\main.cpp" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_manager.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_manager.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\safety_overlay_system.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\safety_overlay_system.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\dummy_video_generator.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dummy_video_generator.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_loader_interface.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_loaders.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_loaders.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_player.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_player.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\media_item.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\debug_utils.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exr_layer_detector.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\exr_layer_detector.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\frame_indexing.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
+    <ClInclude Include="resource.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ump.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ZERO_CHECK.vcxproj">
+      <Project>{F99B75F5-D6EE-3496-8558-11C0AAA6FBF9}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\external\glad.vcxproj">
+      <Project>{DF38255A-D9A0-3506-AAEE-F1A06AA4B33B}</Project>
+      <Name>glad</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\external\glfw\src\glfw.vcxproj">
+      <Project>{A590EC9B-5B60-39DE-B556-F9976BCB4A1B}</Project>
+      <Name>glfw</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\src\hpdf.vcxproj">
+      <Project>{F9989056-3F00-3108-9A93-2AF25849AAA0}</Project>
+      <Name>hpdf</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\external\imgui.vcxproj">
+      <Project>{13299C7F-F8A1-37CA-A2CD-AE353C910790}</Project>
+      <Name>imgui</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\external\implot.vcxproj">
+      <Project>{280CFC10-6DAE-3E57-B90C-A1A600C23E2A}</Project>
+      <Name>implot</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\nfd-build\src\nfd.vcxproj">
+      <Project>{34B72ED6-7976-31CC-B1EA-2A77E896F919}</Project>
+      <Name>nfd</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\assets\icons\ump.ico" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
