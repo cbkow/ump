@@ -1,0 +1,14 @@
+// Custom dark theme with blue links (extends dark theme)
+
+// Use dark theme as base
+@import "./dark";
+
+// Override link colors to blue instead of purple
+$link-color: #5B9EFF;
+$btn-primary-color: #5B9EFF;
+
+// Override any purple accents
+$purple-000: #5B9EFF;
+$purple-100: #4A8EEF;
+$purple-200: #397EDF;
+$purple-300: #286ECF;

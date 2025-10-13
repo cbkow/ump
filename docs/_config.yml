@@ -5,4 +5,4 @@ remote_theme: just-the-docs/just-the-docs
 logo: "/images/ump512.png"
 
 # Color scheme
-color_scheme: dark
+color_scheme: custom_dark
