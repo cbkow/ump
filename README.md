@@ -2,7 +2,7 @@
 
 ![ump image](docs/images/ump_HceQxrXtfQ.png)
 
-**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences. Basic features include:
+**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
 
  - a spiraling seek/scrubbing cache for videos
  - a separate live playback memory cache for image sequences 

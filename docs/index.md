@@ -2,7 +2,7 @@
 
 ![ump image](images/ump_HceQxrXtfQ.png)
 
-**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences. Basic features include:
+**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
 
  - a spiraling seek/scrubbing cache for videos
  - a separate live playback memory cache for image sequences 
@@ -28,8 +28,6 @@ To install, download the latest `.exe` installer from [releases.](https://github
 The basic app flow places the mpv and image-sequence FBO between the interface and a separate OCIO FBO. This flow allows for real-time background color/pattern swapping (try toggling `B` on the keyboard) and real-time OCIO shader generation on top of all videos and image sequences. 
 
 ![app flow 1](images/appflow1.png)
-
----
 
 #### Image Sequences
 
