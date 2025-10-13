@@ -4,4 +4,6 @@
 
 **u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences. Basic features include a spiraling Seek/Scrubbing cache for videos, a separate live playback memory cache for image sequences, a [Thumbfast-inspired](https://github.com/po5/thumbfast) thumbnail system for all media, Frame-stepping, cache-enhanced RW/FF, live [OCIO-based](https://opencolorio.org/) color correction with a node-based interface, live background switching for alpha-channel visibility, an annotation/notes system with PDF/Markdown/HTML export + [Frame.io](https://frame.io/home) import, and title-safety guides for standard broadcast and social-media deliverables. 
 
-## [Manual and Docs](https://cbkow.github.io/ump/)
+## Manual and documentation
+
+A feature walk-through and usage guide: [https://cbkow.github.io/ump/](https://cbkow.github.io/ump/).
