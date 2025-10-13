@@ -1,0 +1,15 @@
+<nav class="site-nav">
+  <ul>
+    {% assign nav_pages = site.pages | sort: 'order' %}
+    {% for p in nav_pages %}
+      {% if p.title and p.nav_exclude != true %}
+        <li>
+          <a href="{{ p.url | relative_url }}"
+             {% if p.url == page.url %}class="active"{% endif %}>
+             {{ p.title }}
+          </a>
+        </li>
+      {% endif %}
+    {% endfor %}
+  </ul>
+</nav>

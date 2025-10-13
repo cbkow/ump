@@ -1,0 +1,16 @@
+.site-nav ul {
+  list-style: none;
+  display: flex;
+  gap: 1em;
+  padding: 0;
+}
+
+.site-nav a {
+  text-decoration: none;
+  color: #444;
+}
+
+.site-nav a.active {
+  font-weight: bold;
+  border-bottom: 2px solid #000;
+}
