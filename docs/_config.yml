@@ -7,5 +7,5 @@ just_the_docs:
   show_sidebar: true
   sidebar:
     nav_order:
-      - index.md
-      - interface.md
+      - Home
+      - Interface
