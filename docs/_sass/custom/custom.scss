@@ -1,0 +1,21 @@
+// Custom CSS overrides
+
+// Change all links to blue instead of purple
+a {
+  color: #5B9EFF !important;
+}
+
+a:hover,
+a:focus {
+  color: #7AB3FF !important;
+}
+
+// Override button colors
+.btn-primary {
+  background-color: #3182CE !important;
+  border-color: #3182CE !important;
+}
+
+.btn-primary:hover {
+  background-color: #4A9EFF !important;
+}
