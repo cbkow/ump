@@ -1,0 +1,27 @@
+---
+---
+
+@import "{{ site.theme }}";
+
+// Override link colors to blue
+$link-color: #4A9EFF;
+$link-color-dark: #6BB3FF;
+
+a {
+  color: $link-color-dark !important;
+}
+
+a:hover,
+a:focus {
+  color: lighten($link-color-dark, 10%) !important;
+}
+
+// Override any purple accents
+.btn-primary {
+  background-color: #2C5282 !important;
+  border-color: #2C5282 !important;
+}
+
+.btn-primary:hover {
+  background-color: #3C6BA2 !important;
+}

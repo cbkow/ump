@@ -3,3 +3,6 @@ description: Docs and manual
 remote_theme: just-the-docs/just-the-docs
 
 logo: "/images/ump512.png"
+
+# Color scheme
+color_scheme: dark
