@@ -15,7 +15,7 @@
  - title-safety guides for standard broadcast and social-media deliverables
 
 
-## Installation
+## How to install
 
 To install, download the latest `.exe` installer from [releases.](https://github.com/cbkow/ump/releases/)
 
