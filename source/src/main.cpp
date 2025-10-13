@@ -564,6 +564,10 @@ public:
 
             // Load existing strokes from JSON if they exist
             current_annotation_strokes_.clear();
+            // Clear undo/redo stacks when entering edit mode
+            annotation_undo_stack_.clear();
+            annotation_redo_stack_.clear();
+
             if (!annotation_data.empty()) {
                 current_annotation_strokes_ = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
                 Debug::Log("Loaded " + std::to_string(current_annotation_strokes_.size()) + " existing strokes");
@@ -1079,6 +1083,10 @@ private:
     // Current annotation editing state
     std::vector<ump::Annotations::ActiveStroke> current_annotation_strokes_;
     std::string current_editing_timecode_;
+
+    // Undo/redo stacks for annotation editing
+    std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_undo_stack_;
+    std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_redo_stack_;
 
     bool first_time_setup;
     std::string layout_ini_path;  // Persistent storage for ImGui ini filename
@@ -4289,12 +4297,46 @@ private:
                     // Process drawing input
                     viewport_annotator->ProcessInput(display_pos, display_size);
 
+                    // Handle keyboard shortcuts for undo/redo
+                    ImGuiIO& io = ImGui::GetIO();
+                    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z, false)) {
+                        // Ctrl+Z - Undo
+                        if (!annotation_undo_stack_.empty()) {
+                            // Save current state to redo stack
+                            annotation_redo_stack_.push_back(current_annotation_strokes_);
+
+                            // Restore previous state
+                            current_annotation_strokes_ = annotation_undo_stack_.back();
+                            annotation_undo_stack_.pop_back();
+
+                            Debug::Log("Undo (Ctrl+Z) - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+                        }
+                    }
+                    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) {
+                        // Ctrl+Y - Redo
+                        if (!annotation_redo_stack_.empty()) {
+                            // Save current state to undo stack
+                            annotation_undo_stack_.push_back(current_annotation_strokes_);
+
+                            // Restore next state
+                            current_annotation_strokes_ = annotation_redo_stack_.back();
+                            annotation_redo_stack_.pop_back();
+
+                            Debug::Log("Redo (Ctrl+Y) - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+                        }
+                    }
+
                     // Check if a stroke was just completed
                     const auto* active_stroke = viewport_annotator->GetActiveStroke();
                     if (active_stroke && active_stroke->is_complete) {
                         // Stroke is complete - add it to our collection
                         auto finalized_stroke = viewport_annotator->FinalizeStroke();
                         if (finalized_stroke) {
+                            // Save current state to undo stack before adding new stroke
+                            annotation_undo_stack_.push_back(current_annotation_strokes_);
+                            // Clear redo stack when a new action is performed
+                            annotation_redo_stack_.clear();
+
                             current_annotation_strokes_.push_back(*finalized_stroke);
                             Debug::Log("Stroke completed and added to annotation");
                         }
@@ -8539,17 +8581,39 @@ private:
         };
 
         callbacks.on_undo = [this]() {
-            Debug::Log("Undo - not yet implemented");
-            // TODO: Implement undo
+            if (!annotation_undo_stack_.empty()) {
+                // Save current state to redo stack
+                annotation_redo_stack_.push_back(current_annotation_strokes_);
+
+                // Restore previous state
+                current_annotation_strokes_ = annotation_undo_stack_.back();
+                annotation_undo_stack_.pop_back();
+
+                Debug::Log("Undo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+            }
         };
 
         callbacks.on_redo = [this]() {
-            Debug::Log("Redo - not yet implemented");
-            // TODO: Implement redo
+            if (!annotation_redo_stack_.empty()) {
+                // Save current state to undo stack
+                annotation_undo_stack_.push_back(current_annotation_strokes_);
+
+                // Restore next state
+                current_annotation_strokes_ = annotation_redo_stack_.back();
+                annotation_redo_stack_.pop_back();
+
+                Debug::Log("Redo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+            }
         };
 
         callbacks.on_clear_all = [this]() {
             Debug::Log("Clear all - clearing all strokes");
+            // Save current state to undo stack before clearing
+            if (!current_annotation_strokes_.empty()) {
+                annotation_undo_stack_.push_back(current_annotation_strokes_);
+                // Clear redo stack when a new action is performed
+                annotation_redo_stack_.clear();
+            }
             // Clear all strokes
             current_annotation_strokes_.clear();
             viewport_annotator->ClearActiveStroke();
@@ -8558,8 +8622,8 @@ private:
         annotation_toolbar->SetCallbacks(callbacks);
 
         // Render the toolbar
-        bool can_undo = false; // TODO: Track undo state
-        bool can_redo = false; // TODO: Track redo state
+        bool can_undo = !annotation_undo_stack_.empty();
+        bool can_redo = !annotation_redo_stack_.empty();
 
         // Get system accent colors
         ImVec4 accent_regular = GetWindowsAccentColor();

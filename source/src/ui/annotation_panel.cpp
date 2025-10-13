@@ -267,16 +267,23 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // Check if this note is currently being edited
     bool is_currently_editing = is_editing_callback_ ? is_editing_callback_(note.timecode) : false;
 
-    // Edit button - use regular accent if editing, muted-dark if not
+    // Edit button colors
     ImVec4 accent_bright = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
     // Convert bright accent to regular by reducing intensity
     ImVec4 accent_regular = ImVec4(accent_bright.x * 0.7f, accent_bright.y * 0.7f, accent_bright.z * 0.7f, accent_bright.w);
     ImVec4 accent_muted_dark = ImVec4(accent_bright.x * 0.35f, accent_bright.y * 0.35f, accent_bright.z * 0.35f, accent_bright.w * 0.7f);
 
-    ImVec4 button_color = is_currently_editing ? accent_regular : accent_muted_dark;
-    ImGui::PushStyleColor(ImGuiCol_Button, button_color);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(button_color.x * 1.2f, button_color.y * 1.2f, button_color.z * 1.2f, button_color.w));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(button_color.x * 0.8f, button_color.y * 0.8f, button_color.z * 0.8f, button_color.w));
+    if (is_currently_editing) {
+        // Currently editing this note - use accent color
+        ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+    } else {
+        // Not editing - use normal colors with muted-dark for active
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+    }
 
     if (icon_font) ImGui::PushFont(icon_font);
     bool edit_clicked = ImGui::Button(icon_font ? ICON_EDIT : "Edit", ImVec2(button_width, button_height));

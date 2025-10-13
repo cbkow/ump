@@ -62,12 +62,7 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
 
     if (icon_font) ImGui::PushFont(icon_font);
 
-    // Push accent color for selected tool buttons
-    ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(accent_regular.x * 0.8f, accent_regular.y * 0.8f, accent_regular.z * 0.8f, accent_regular.w));
-
-    if (ToolButton(icon_font ? ICON_DRAW : "Freehand", DrawingTool::FREEHAND, "Draw freehand strokes (F)")) {
+    if (ToolButton(icon_font ? ICON_DRAW : "Freehand", DrawingTool::FREEHAND, "Draw freehand strokes (F)", accent_regular)) {
         selected_tool_ = DrawingTool::FREEHAND;
         if (callbacks_.on_tool_changed) {
             callbacks_.on_tool_changed(DrawingTool::FREEHAND);
@@ -75,7 +70,7 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
     }
 
     ImGui::SameLine();
-    if (ToolButton(icon_font ? ICON_RECTANGLE : "Rectangle", DrawingTool::RECTANGLE, "Draw rectangles (R)")) {
+    if (ToolButton(icon_font ? ICON_RECTANGLE : "Rectangle", DrawingTool::RECTANGLE, "Draw rectangles (R)", accent_regular)) {
         selected_tool_ = DrawingTool::RECTANGLE;
         if (callbacks_.on_tool_changed) {
             callbacks_.on_tool_changed(DrawingTool::RECTANGLE);
@@ -83,7 +78,7 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
     }
 
     ImGui::SameLine();
-    if (ToolButton(icon_font ? ICON_CIRCLE : "Oval", DrawingTool::OVAL, "Draw ovals/circles (O)")) {
+    if (ToolButton(icon_font ? ICON_CIRCLE : "Oval", DrawingTool::OVAL, "Draw ovals/circles (O)", accent_regular)) {
         selected_tool_ = DrawingTool::OVAL;
         if (callbacks_.on_tool_changed) {
             callbacks_.on_tool_changed(DrawingTool::OVAL);
@@ -91,7 +86,7 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
     }
 
     ImGui::SameLine();
-    if (ToolButton(icon_font ? ICON_ARROW_FORWARD : "Arrow", DrawingTool::ARROW, "Draw arrows (A)")) {
+    if (ToolButton(icon_font ? ICON_ARROW_FORWARD : "Arrow", DrawingTool::ARROW, "Draw arrows (A)", accent_regular)) {
         selected_tool_ = DrawingTool::ARROW;
         if (callbacks_.on_tool_changed) {
             callbacks_.on_tool_changed(DrawingTool::ARROW);
@@ -99,14 +94,12 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
     }
 
     ImGui::SameLine();
-    if (ToolButton(icon_font ? ICON_REMOVE : "Line", DrawingTool::LINE, "Draw straight lines (L)")) {
+    if (ToolButton(icon_font ? ICON_REMOVE : "Line", DrawingTool::LINE, "Draw straight lines (L)", accent_regular)) {
         selected_tool_ = DrawingTool::LINE;
         if (callbacks_.on_tool_changed) {
             callbacks_.on_tool_changed(DrawingTool::LINE);
         }
     }
-
-    ImGui::PopStyleColor(3);
 
     if (icon_font) ImGui::PopFont();
 
@@ -161,45 +154,47 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     #define ICON_CANCEL         u8"\uE5C9"
 
     // Undo button
-    if (icon_font) ImGui::PushFont(icon_font);
-    bool undo_clicked = ImGui::Button(icon_font ? ICON_UNDO : "Undo");
     if (!can_undo) {
         ImGui::BeginDisabled();
-        undo_clicked = false;
     }
+
+    if (icon_font) ImGui::PushFont(icon_font);
+    bool undo_clicked = ImGui::Button(icon_font ? ICON_UNDO : "Undo");
     if (icon_font) ImGui::PopFont();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Undo last action (Ctrl+Z)");
     }
 
-    if (undo_clicked && can_undo && callbacks_.on_undo) {
-        callbacks_.on_undo();
-    }
     if (!can_undo) {
         ImGui::EndDisabled();
+    }
+
+    if (undo_clicked && can_undo && callbacks_.on_undo) {
+        callbacks_.on_undo();
     }
 
     ImGui::SameLine();
 
     // Redo button
-    if (icon_font) ImGui::PushFont(icon_font);
-    bool redo_clicked = ImGui::Button(icon_font ? ICON_REDO : "Redo");
     if (!can_redo) {
         ImGui::BeginDisabled();
-        redo_clicked = false;
     }
+
+    if (icon_font) ImGui::PushFont(icon_font);
+    bool redo_clicked = ImGui::Button(icon_font ? ICON_REDO : "Redo");
     if (icon_font) ImGui::PopFont();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Redo last undone action (Ctrl+Y)");
     }
 
-    if (redo_clicked && can_redo && callbacks_.on_redo) {
-        callbacks_.on_redo();
-    }
     if (!can_redo) {
         ImGui::EndDisabled();
+    }
+
+    if (redo_clicked && can_redo && callbacks_.on_redo) {
+        callbacks_.on_redo();
     }
 
     ImGui::SameLine();
@@ -291,23 +286,25 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     #undef ICON_CANCEL
 }
 
-bool AnnotationToolbar::ToolButton(const char* label, DrawingTool tool, const char* tooltip) {
+bool AnnotationToolbar::ToolButton(const char* label, DrawingTool tool, const char* tooltip, ImVec4 accent_regular) {
     bool is_selected = (selected_tool_ == tool);
 
-    // Note: Colors are already pushed in RenderToolButtons for selected state
-    // Just need to pop them temporarily for unselected buttons
-    if (!is_selected) {
-        ImGui::PopStyleColor(3);
+    // Push colors based on selection state
+    if (is_selected) {
+        // Selected tool - use accent color
+        ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(accent_regular.x * 0.8f, accent_regular.y * 0.8f, accent_regular.z * 0.8f, accent_regular.w));
+    } else {
+        // Not selected - use default button colors from style
+        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
     }
 
     bool clicked = ImGui::Button(label);
 
-    if (!is_selected) {
-        // Re-push for next button
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.26f, 0.59f, 0.98f, 0.4f));  // Default button color
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.26f, 0.59f, 0.98f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.06f, 0.53f, 0.98f, 1.0f));
-    }
+    ImGui::PopStyleColor(3);
 
     // Pop icon font before showing tooltip
     ImFont* current_font = ImGui::GetFont();

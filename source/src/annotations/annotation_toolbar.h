@@ -92,7 +92,7 @@ private:
     /**
      * Helper to render a tool button with icon.
      */
-    bool ToolButton(const char* label, DrawingTool tool, const char* tooltip);
+    bool ToolButton(const char* label, DrawingTool tool, const char* tooltip, ImVec4 accent_regular);
 
     /**
      * Helper to render an action button.
