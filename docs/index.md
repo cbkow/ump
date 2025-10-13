@@ -22,3 +22,6 @@ nav_order: 1
  - embedded timecode for supported media
  - title-safety guides for standard broadcast and social-media deliverables
 
+## Opening media
+
+Open a file, click `File > Open Media` or the keyboard command `Ctrl + O`. Additionally, you can drag in one or more media items at a time, right into the app window. If you drag in one, it will open as usual. If you drag in more than one, it will populate the Project Manager Panel with the options. See the **Project Manager** page for more details.
