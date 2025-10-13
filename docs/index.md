@@ -1,6 +1,6 @@
 ---
 layout: default
-title: Index
+title: Home
 permalink: /
 order: 1
 ---
