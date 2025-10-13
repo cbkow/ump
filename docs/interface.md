@@ -20,12 +20,10 @@ This interface is created with ImGui's docking branch, which allows for dynamic 
 ![window](images/ump_inZlpyUcCJ.png)
 You can click on the tiny triangle in the top left corner of any panel and undock it or re-dock it elsewhere.
 
----
-
 ### System accent colors
 
 ![window](images/TabTip_x9kxLzwOyT.png)
-Toggle this option if you would like to use your Windows system accent color in u.m.p.
+Toggle this option if you would like to use your Windows system accent color in u.m.p. This will replace the default yellow color scheme.
 
 ---
 
@@ -36,7 +34,21 @@ Background colors for the viewport will also be saved as a user preference and w
 
 ---
 
-### OCIO color presets
+## OCIO color presets
 
 ![window](images/TabTip_kzavM40mf9.png)
 There are a few common OCIO presets available for quick toggling in the OCIO preset panel--cover basic rec.709-to-sRGB and typical ACES and Blender workflows. See the color panel page for more options.
+
+---
+
+## Title safety guides
+
+![window](images/TabTip_NbmkwGOwqc.png)
+Clicking on the title-safety button will open up a panel with different broadcast and social media safety overlays. You can change the color, line-width, and line-opacity in the panel.
+
+---
+
+## Full screen
+
+![window](images/TabTip_A66uLfJWL3.png)
+Clicking on the full-screen button triggers a full-screen mode. This is not a proper full-screen mode; it cheats by filling the screen and turning off most of ImGui's interface. Note: This means that title safety guides are not available in this mode either. You can also toggle this mode with `F`.
