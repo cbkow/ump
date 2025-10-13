@@ -1,7 +1,7 @@
 ---
 layout: default
 title: Index
-permalink: /index/
+permalink: /
 order: 1
 ---
 
