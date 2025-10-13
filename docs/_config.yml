@@ -1,0 +1,11 @@
+title: u.m.p.
+description: Docs and manual
+theme: jekyll-theme-just-the-docs
+
+just_the_docs:
+  logo: "/images/ump512.png"
+  show_sidebar: true
+  sidebar:
+    nav_order:
+      - index.md
+      - interface.md
