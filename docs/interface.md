@@ -14,25 +14,29 @@ Panels can be toggled on and off in both the main menu and with buttons in the t
 
 ![window](images/ump_wXBDg2Ew4W.png)
 
+![window](images/ump_iESj94rTHh.png)
 This interface is created with ImGui's docking branch, which allows for dynamic resizing of panels. 
 
-![window](images/ump_iESj94rTHh.png)
-
+![window](images/ump_inZlpyUcCJ.png)
 You can click on the tiny triangle in the top left corner of any panel and undock it or re-dock it elsewhere.
 
-![window](images/ump_inZlpyUcCJ.png)
+---
 
 ### System accent colors
 
 ![window](images/TabTip_x9kxLzwOyT.png)
 Toggle this option if you would like to use your Windows system accent color in u.m.p.
 
+---
+
 ### Viewport background color/pattern
 
 ![window](images/TabTip_rw4JnktPoi.png)
 Background colors for the viewport will also be saved as a user preference and will be remembered on the next app load. To change the viewport background color, press `B` to toggle through the options, or press `Ctrl + Shift + B` to open the background color panel. You can also access the background color panel with a button in the timeline and transport area.
 
+---
+
 ### OCIO color presets
 
 ![window](images/TabTip_kzavM40mf9.png)
-
+There are a few common OCIO presets available for quick toggling in the OCIO preset panel--cover basic rec.709-to-sRGB and typical ACES and Blender workflows. See the color panel page for more options.
