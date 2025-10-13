@@ -1,0 +1,14 @@
+# Basic site info
+title: u.m.p.
+description: Manual and Docs
+baseurl: "/repo-name/docs"
+url: "https://cbkow.github.io/ump/"
+
+# Jekyll settings
+markdown: kramdown
+theme: minima
+
+# Include GitHub Pages–safe plugins
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
