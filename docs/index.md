@@ -23,7 +23,7 @@ To install, download the latest `.exe` installer from [releases.](https://github
 
 ## Basic app flow
 
-### Video
+#### Video
 
 The basic app flow places the mpv and image-sequence FBO between the interface and a separate OCIO FBO. This flow allows for real-time background color/pattern swapping (try toggling `B` on the keyboard) and real-time OCIO shader generation on top of all videos and image sequences. 
 
@@ -31,7 +31,7 @@ The basic app flow places the mpv and image-sequence FBO between the interface a
 
 ---
 
-### Image Sequences
+#### Image Sequences
 
 Image sequences use mpv for control and playback indirectly. When loading an image sequence, u.m.p. will create a dummy video for mpv to use for control, but instead directly extract images to memory straight to the OpenGL FBO. This process bypasses mpv for playback and provides a faster image sequence flipbook for review. It also allows for layer extraction from multi-layer EXRs. It includes the option to transcode larger (think 4k EXRs at DWAB and uncompressed TIFFs) to lower resolution/compression for smoother playback. See the Images page for more info on best practices and IO/decompression limitations with these formats.
 
