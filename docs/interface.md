@@ -9,38 +9,36 @@ nav_order: 4
 ## Windows and Panels
 
 ![window](images/TabTip_QyoZxa5U2u.png)
-1. **The Viewport:** Video and image sequence playback
+**The Viewport:** Video and image sequence playback
 
 
 ![window](images/TabTip_j458ssO1lq.png)
-2. **The Timeline and Transport Panel:** Timeline, transport controls, and various other shorcut and toggle buttons for state management (see below.)
+**The Timeline and Transport Panel:** Timeline, transport controls, and various other shorcut and toggle buttons for state management (see below.)
 
 
 ![window](images/TabTip_iCda3qgdkT.png)
-3. **The Project Manager:** Bins for loaded media and playlists.
+**The Project Manager:** Bins for loaded media and playlists.
 
 
 ![window](images/TabTip_Xan3Fd6Far.png)
-4. **The Inspector Panel:** Media metatdata/information + playlist management
+**The Inspector Panel:** Media metatdata/information + playlist management
 
 
 ![window](images/TabTip_sYoWcinduE.png)
-5. **Color Panels:** OCIO configs, OCIO presets, OCIO node interface.
+**Color Panels:** OCIO configs, OCIO presets, OCIO node interface.
 
 
 ![window](images/TabTip_hd2a72E16d.png)
-6. **The Annotations Panel:** Manages notes and annotations for media.
+**The Annotations Panel:** Manages notes and annotations for media.
 
 
 ![window](images/TabTip_s790kwrxGw.png)
-7. **The Annotations Toolbar:** Drawing toolbar for annoations. (This only appears when in annotation edit mode.)
+**The Annotations Toolbar:** Drawing toolbar for annoations. (This only appears when in annotation edit mode.)
 
 
 ![window](images/TabTip_z05dCXBv2l.png)
-8. **The Thumbnail Panel:** Appears when hovering over the timeline.
+**The Thumbnail Panel:** Appears when hovering over the timeline.
 
 
 ![window](images/TabTip_k9bmGGNa92.png)
-8. **The System Stats Panel:** Basic system-wide stats monitoring. Will appear automatically if system RAM is past 92% capacity.
-
-## The Timeline and Transport Panel
+**The System Stats Panel:** Basic system-wide stats monitoring. Will appear automatically if system RAM is past 92% capacity.
