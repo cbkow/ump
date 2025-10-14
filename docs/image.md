@@ -21,4 +21,4 @@ There are some considerations to smooth playback, though:
 
 ![Window](images/ump_wpyAlk8npd.png)
 
-With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. DWAA/DWAB because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.
+With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. `DWAA/DWAB` because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.
