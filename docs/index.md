@@ -25,9 +25,10 @@ nav_order: 1
 
 ## Notes and Bugs:
 
-- Thumbails are not showing the right video on playlist mode yet (working on this next.)
+- Thumbails are not showing the right video on playlist mode yet.
 - PNG Thumbnails are the wrong color.
-- Currently the playlist function uses mpv's playlist, but eventually I might look at an OTIO integration that uses mpv's EDL setup instead. This may be overkill for this app, but I am curious if basic trim and edit functions would be useful in a review tool.
 - Timeline mode is currently only looking for QT Start time and XMP timecode in the metdata, but I am sure there are other metadata I can look for. I need to test more media.
 - I have only tested Octane and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
 - I have a few RAM and GPU safety features built it, but the app needs further testing under system load to ensure it doesn't compete with other apps--it probably needs more "good citizen" logic.
+- Audio loading is currently broken.
+- After opening a project, the "new playlist" button is missing.
