@@ -38,6 +38,8 @@ The transport controls are as follows:
 ### Video mode
 In video mode there is a colored cache bar at the bottom of the timeline. This represents a fast-seek cache. Most useful for shorter videos, this cache has stored all the marked frames in memory for fast timeline scrubbing and seeking. It only runs when the video is paused--preventing playback interference. Fask scrubbing the timeline will quickly shuttle these frames stored in memory for precise seeks.
 
+**Note:** *Seek cache is disabled for h.264 and h.265 videos. Because of b-frames inherent in those formats, true frame accuracy is impossible.*
+
 
 ### Image sequence mode
 
