@@ -1,5 +1,5 @@
 ---
-title: Cache Settigns
+title: Cache Settings
 permalink: /cache settings/
 nav_order: 11
 ---
