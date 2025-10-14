@@ -6,6 +6,12 @@ nav_order: 4
 
 # Interface
 
+## Opening media
+
+Open a file, click `File > Open Media` or the keyboard command `Ctrl + O`. Additionally, you can drag in one or more media items at a time, right into the app window. If you drag in one, it will open as usual. If you drag in more than one, it will populate the Project Manager Panel with the options. See the **Project Manager** page for more details.
+
+---
+
 ## Windows and state management
 
 Panels can be toggled on and off in both the main menu and with buttons in the timeline and transport area. The app has basic state management. After a successful shutdown, it will save your window size, position, and panel arrangement for the next app instance.
@@ -52,9 +58,3 @@ Clicking on the title-safety button will open up a panel with different broadcas
 
 ![window](images/TabTip_A66uLfJWL3.png)
 Clicking on the full-screen button triggers a full-screen mode. This is not a proper full-screen mode; it cheats by filling the screen and turning off most of ImGui's interface. Note: This means that title safety guides are not available in this mode either. You can also toggle this mode with `F`.
-
----
-
-## Opening media
-
-Open a file, click `File > Open Media` or the keyboard command `Ctrl + O`. Additionally, you can drag in one or more media items at a time, right into the app window. If you drag in one, it will open as usual. If you drag in more than one, it will populate the Project Manager Panel with the options. See the **Project Manager** page for more details.
