@@ -488,13 +488,31 @@ void VideoPlayer::LoadFile(const std::string& path) {
     is_image_sequence = false;
     image_sequence_frame_rate = 24.0;
 
+    // Detect if this is an audio file for special handling (shorter timeout)
+    bool is_audio_file = false;
+    size_t dot_pos = path.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        std::string ext = path.substr(dot_pos);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        is_audio_file = (ext == ".wav" || ext == ".mp3" || ext == ".aac" ||
+                        ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a");
+    }
+
+    Debug::Log("LoadFile: Loading " + std::string(is_audio_file ? "AUDIO" : "VIDEO") +
+               " file: " + path);
+    Debug::Log("LoadFile: Path length: " + std::to_string(path.length()) + " bytes");
+    Debug::Log("LoadFile: Path (raw): " + path);
+    Debug::Log("LoadFile: Sending 'loadfile' command to MPV...");
+
     const char* cmd[] = { "loadfile", path.c_str(), nullptr };
     if (mpv_command(mpv, cmd) < 0) {
-        std::cout << "Failed to send loadfile command" << std::endl;
+        Debug::Log("LoadFile: ERROR - Failed to send loadfile command");
         return;
     }
 
-    WaitForFileLoad();
+    Debug::Log("LoadFile: MPV loadfile command sent successfully");
+
+    WaitForFileLoad(is_audio_file);  // Pass audio flag for shorter timeout
     FinalizeLoad();
 
     // Additional verification for post-EXR transitions
@@ -504,8 +522,9 @@ void VideoPlayer::LoadFile(const std::string& path) {
         Debug::Log("Successfully loaded regular video after EXR transition");
     }
 
-    // Initialize ThumbnailCache for regular video files
-    if (has_video) {
+    // Initialize ThumbnailCache for regular video files (not audio-only files)
+    // Reuse is_audio_file from above (already detected)
+    if (has_video && !is_audio_file) {
         ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
         if (thumb_config.enabled) {
             double fps = GetFrameRate();
@@ -521,7 +540,7 @@ void VideoPlayer::LoadFile(const std::string& path) {
             // Create VideoImageLoader
             auto video_loader = std::make_unique<ump::VideoImageLoader>(path, fps, duration);
 
-            // Create synthetic frame list ("0", "1", "2", etc.)
+            // Create synthetic frame list ("0", "1", "2", etc.")
             std::vector<std::string> frame_list;
             frame_list.reserve(frame_count);
             for (int i = 0; i < frame_count; ++i) {
@@ -544,6 +563,8 @@ void VideoPlayer::LoadFile(const std::string& path) {
         } else {
             Debug::Log("VideoPlayer: ThumbnailCache disabled by configuration");
         }
+    } else if (is_audio_file) {
+        Debug::Log("VideoPlayer: Skipping ThumbnailCache for audio file (no video frames)");
     }
 }
 
@@ -596,6 +617,100 @@ void VideoPlayer::LoadSequence(const ump::Sequence& sequence) {
 
     LoadPlaylist(edl);
 }
+
+void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
+    if (new_file_path.empty()) return;
+
+    Debug::Log("OnPlaylistItemChanged: Handling playlist switch to: " + new_file_path);
+
+    // Detect if this is an audio file
+    bool is_audio_file = false;
+    size_t dot_pos = new_file_path.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        std::string ext = new_file_path.substr(dot_pos);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        is_audio_file = (ext == ".wav" || ext == ".mp3" || ext == ".aac" ||
+                        ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a");
+    }
+
+    Debug::Log("OnPlaylistItemChanged: File type: " + std::string(is_audio_file ? "AUDIO" : "VIDEO"));
+
+    // Clear old thumbnail cache (always - either we're switching from video, or it shouldn't exist for audio)
+    if (thumbnail_cache_) {
+        Debug::Log("OnPlaylistItemChanged: Clearing old thumbnail cache");
+        thumbnail_cache_->ClearCache();
+        thumbnail_cache_.reset();
+    }
+
+    // Handle audio visualization filter
+    bool was_audio_enabled = audio_visualization_enabled;
+
+    if (was_audio_enabled && !is_audio_file) {
+        // Switching from audio to video - clear audio filter
+        Debug::Log("OnPlaylistItemChanged: Switching from audio to video - clearing audio filter");
+        mpv_set_property_string(mpv, "af", "");
+        audio_visualization_enabled = false;
+    } else if (!was_audio_enabled && is_audio_file) {
+        // Switching from video to audio - setup audio filter
+        Debug::Log("OnPlaylistItemChanged: Switching from video to audio - setting up audio filter");
+        SetupAudioVisualization();
+    }
+
+    // Create new thumbnail cache for video files only
+    if (!is_audio_file) {
+        // Wait a moment for MPV to load the new file properties
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+        // Update properties to get new file duration and dimensions
+        UpdateProperties();
+
+        double duration = cached_duration;
+        double fps = GetFrameRate();
+
+        if (fps <= 0) fps = 24.0;  // Default fallback
+        int frame_count = static_cast<int>(duration * fps);
+
+        Debug::Log("OnPlaylistItemChanged: Creating thumbnail cache (fps=" + std::to_string(fps) +
+                   ", duration=" + std::to_string(duration) + "s, frames=" + std::to_string(frame_count) + ")");
+
+        ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
+        if (thumb_config.enabled && duration > 0) {
+            // Create VideoImageLoader for the new file
+            auto video_loader = std::make_unique<ump::VideoImageLoader>(new_file_path, fps, duration);
+
+            // Create synthetic frame list
+            std::vector<std::string> frame_list;
+            frame_list.reserve(frame_count);
+            for (int i = 0; i < frame_count; ++i) {
+                frame_list.push_back(std::to_string(i));
+            }
+
+            // Create ThumbnailCache
+            thumbnail_cache_ = std::make_unique<ump::ThumbnailCache>(
+                std::move(frame_list),
+                std::move(video_loader),
+                thumb_config
+            );
+
+            Debug::Log("OnPlaylistItemChanged: ThumbnailCache created, " +
+                       std::to_string(thumb_config.width) + "x" + std::to_string(thumb_config.height));
+
+            // Prefetch strategic frames
+            thumbnail_cache_->PrefetchStrategicFrames(frame_count);
+        } else {
+            Debug::Log("OnPlaylistItemChanged: ThumbnailCache disabled or no duration");
+        }
+
+        // UpdateProperties() already handled dimension changes above
+    } else {
+        Debug::Log("OnPlaylistItemChanged: Skipping thumbnail cache for audio file");
+        // Reset has_video for audio-only files
+        has_video = false;
+    }
+
+    Debug::Log("OnPlaylistItemChanged: Playlist item change complete");
+}
+
 // ============================================================================
 // Playback control methods
 // ============================================================================
@@ -742,9 +857,16 @@ float VideoPlayer::GetVolume() const {
 }
 
 void VideoPlayer::SetupAudioVisualization() {
-    if (!mpv || audio_visualization_enabled) return;
+    Debug::Log("SetupAudioVisualization: Called (mpv=" +
+               std::string(mpv ? "valid" : "null") +
+               ", enabled=" + std::string(audio_visualization_enabled ? "true" : "false") + ")");
 
-    std::cout << "Setting up real-time audio visualization filter..." << std::endl;
+    if (!mpv || audio_visualization_enabled) {
+        Debug::Log("SetupAudioVisualization: Skipping (early return)");
+        return;
+    }
+
+    Debug::Log("SetupAudioVisualization: Attempting to enable audio filter...");
 
     // Set up lavfi showvolume filter for real-time audio level detection
     // This creates a 1x1 pixel output that represents the current audio level
@@ -752,12 +874,12 @@ void VideoPlayer::SetupAudioVisualization() {
 
     if (mpv_set_property_string(mpv, "af", af_filter) == 0) {
         audio_visualization_enabled = true;
-        std::cout << "Audio visualization filter enabled successfully" << std::endl;
+        Debug::Log("SetupAudioVisualization: SUCCESS - Audio filter enabled");
 
         // Enable property change notifications for audio data
         mpv_observe_property(mpv, 0, "af-metadata", MPV_FORMAT_NODE);
     } else {
-        std::cout << "Failed to enable audio visualization filter" << std::endl;
+        Debug::Log("SetupAudioVisualization: FAILED - Could not enable audio filter");
     }
 }
 
@@ -1369,6 +1491,10 @@ void VideoPlayer::UpdateProperties() {
 }
 
 void VideoPlayer::ResetState() {
+    Debug::Log("ResetState: Starting (has_video=" +
+               std::string(has_video ? "true" : "false") +
+               ", audio_viz=" + std::string(audio_visualization_enabled ? "true" : "false") + ")");
+
     has_video = false;
     cached_duration = 0.0;
     cached_position = 0.0;
@@ -1383,6 +1509,15 @@ void VideoPlayer::ResetState() {
     if (mpv) {
         const char* cmd[] = { "stop", nullptr };
         mpv_command(mpv, cmd);
+    }
+
+    // Clear audio filter if it was previously enabled
+    if (audio_visualization_enabled && mpv) {
+        Debug::Log("ResetState: Clearing audio visualization filter");
+        mpv_set_property_string(mpv, "af", "");  // Clear audio filter
+        audio_visualization_enabled = false;
+    } else {
+        audio_visualization_enabled = false;  // Reset audio filter state for reload
     }
 
     // Clean up EXR/image sequence state if active
@@ -1432,42 +1567,74 @@ void VideoPlayer::ResetState() {
     Debug::Log("ResetState: State reset complete");
 }
 
-void VideoPlayer::WaitForFileLoad() {
-    const int max_attempts = 100;
+void VideoPlayer::WaitForFileLoad(bool is_audio_file) {
+    // Shorter timeout for audio files that might have Windows audio init issues
+    const int max_attempts = is_audio_file ? 30 : 100;  // 3s vs 10s
     int attempts = 0;
+
+    Debug::Log("WaitForFileLoad: Starting (audio=" + std::string(is_audio_file ? "true" : "false") +
+               ", max_wait=" + std::to_string(max_attempts * 0.1) + "s)");
 
     while (attempts < max_attempts) {
         mpv_event* event = mpv_wait_event(mpv, 0.1);
 
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
-            std::cout << "File loaded event received" << std::endl;
+            Debug::Log("WaitForFileLoad: FILE_LOADED event received");
             break;
+        }
+
+        // Check for errors that indicate we should stop waiting
+        if (event->event_id == MPV_EVENT_END_FILE) {
+            mpv_event_end_file* end_file = (mpv_event_end_file*)event->data;
+            if (end_file && end_file->error < 0) {
+                Debug::Log("WaitForFileLoad: END_FILE error: " +
+                          std::string(mpv_error_string(end_file->error)));
+                break;
+            }
         }
 
         attempts++;
 
+        // For audio files, don't require duration to continue
+        // Audio might initialize async and duration comes later
         double duration = 0.0;
         if (mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &duration) == 0 && duration > 0) {
-            std::cout << "Duration became available: " << duration << std::endl;
+            Debug::Log("WaitForFileLoad: Duration available: " + std::to_string(duration) + "s");
             break;
         }
+
+        // Log progress every second for troubleshooting
+        if (attempts % 10 == 0 && attempts > 0) {
+            Debug::Log("WaitForFileLoad: Still waiting... (" + std::to_string(attempts/10) + "s elapsed)");
+        }
+    }
+
+    if (attempts >= max_attempts) {
+        Debug::Log("WaitForFileLoad: TIMEOUT after " + std::to_string(attempts * 0.1) +
+                   "s - proceeding anyway");
+    } else {
+        Debug::Log("WaitForFileLoad: Completed in " + std::to_string(attempts * 0.1) + "s");
     }
 }
 
 void VideoPlayer::FinalizeLoad() {
+    Debug::Log("FinalizeLoad: Starting");
     UpdateProperties();
 
     if (cached_duration > 0) {
         has_video = true;
-        std::cout << "Successfully loaded video with duration: " << cached_duration << std::endl;
+        Debug::Log("FinalizeLoad: Media loaded successfully (duration=" +
+                   std::to_string(cached_duration) + "s, has_video=true)");
     }
     else {
-        std::cout << "Warning: Video loaded but no duration available" << std::endl;
+        Debug::Log("FinalizeLoad: WARNING - No duration available (has_video=false)");
         has_video = false;
     }
 
     // Set up audio visualization for the loaded content
+    Debug::Log("FinalizeLoad: Setting up audio visualization...");
     SetupAudioVisualization();
+    Debug::Log("FinalizeLoad: Complete");
 }
 
 std::vector<std::string> VideoPlayer::ParseEDLContent(const std::string& edl_content) {

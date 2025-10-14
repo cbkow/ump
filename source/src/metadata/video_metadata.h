@@ -19,7 +19,7 @@ struct VideoMetadata {
     std::string source_format;
     bool timecode_checked = false;
 
-    // Video properties  
+    // Video properties
     int width = 0;
     int height = 0;
     double frame_rate = 0.0;

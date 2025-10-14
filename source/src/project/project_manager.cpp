@@ -112,7 +112,7 @@ namespace ump {
         CreateNewBin("Videos");
         CreateNewBin("Audio");
         CreateNewBin("Images");
-        CreateNewBin("Playlists");
+        CreateNewBin("Sequences");
 
         CreateNewSequence("Main Playlist");
 
@@ -429,6 +429,9 @@ namespace ump {
                 UpdateSequenceInBin(seq.id);
             }
 
+            // Update ID counter to prevent duplicate IDs when adding new items
+            UpdateIDCounter();
+
             // Load current sequence into player if exists (but don't auto-play)
             if (!current_sequence_id.empty()) {
                 Sequence* seq = GetCurrentSequence();
@@ -605,7 +608,7 @@ namespace ump {
         if (ImGui::BeginChild("MediaPool", ImVec2(0, 0), true)) {
             for (auto& bin : bins) {
                 CreateBinUI(bin);
-                if (bin.name == "Playlists" && bin.is_open) {
+                if (bin.name == "Sequences" && bin.is_open) {
                     CreateSequencesBinToolbar();
                 }
             }
@@ -1374,6 +1377,12 @@ namespace ump {
         item.path = *current_file_path;
         item.type = GetMediaType(*current_file_path);
 
+        Debug::Log("AddCurrentVideoToProject: Adding media to project");
+        Debug::Log("  - ID: " + item.id);
+        Debug::Log("  - Name: " + item.name);
+        Debug::Log("  - Path: " + item.path);
+        Debug::Log("  - Type: " + std::to_string(static_cast<int>(item.type)));
+
         double detected_duration = 0.0;
         if (video_player && video_player->HasVideo()) {
             detected_duration = video_player->GetDuration();
@@ -1395,6 +1404,17 @@ namespace ump {
     }
 
     void ProjectManager::LoadSingleMediaItem(const MediaItem& item) {
+        Debug::Log("=== LoadSingleMediaItem CALLED ===");
+        Debug::Log("MediaItem details:");
+        Debug::Log("  - ID: " + item.id);
+        Debug::Log("  - Name: " + item.name);
+        Debug::Log("  - Path: " + item.path);
+        Debug::Log("  - Type: " + std::to_string(static_cast<int>(item.type)));
+        Debug::Log("  - Duration: " + std::to_string(item.duration));
+        Debug::Log("  - FFmpeg pattern: " + (item.ffmpeg_pattern.empty() ? "(empty)" : item.ffmpeg_pattern));
+        Debug::Log("  - Sequence pattern: " + (item.sequence_pattern.empty() ? "(empty)" : item.sequence_pattern));
+        Debug::Log("  - EXR layer: " + (item.exr_layer.empty() ? "(empty)" : item.exr_layer));
+
         ClearSelection();
         current_sequence_id.clear();
         UpdateSequenceActiveStates("");
@@ -1563,7 +1583,12 @@ namespace ump {
         }
 
         // === NOTIFY VIDEO CACHE MANAGER ===
-        NotifyVideoChanged(item.path);
+        // Skip frame cache for audio files (no video frames to cache)
+        if (item.type != MediaType::AUDIO) {
+            NotifyVideoChanged(item.path);
+        } else {
+            Debug::Log("LoadSingleMediaItem: Skipping cache notification for audio file");
+        }
 
         // Select this item in the project panel
         SelectMediaItem(item.id, false, false);
@@ -1809,9 +1834,71 @@ namespace ump {
     }
 
     void ProjectManager::ShowInExplorer(const std::string& file_path) {
+        if (file_path.empty()) return;
+
+        std::string resolved_path = file_path;
+
+        // Handle mf:// URLs (image sequences)
+        if (file_path.substr(0, 5) == "mf://") {
+            // Extract directory from mf:// URL
+            // Format: mf://directory/basename*extension or mf://path/sequence_%04d.exr:fps=24
+            std::string path_part = file_path.substr(5); // Remove "mf://"
+
+            // Remove fps parameter if present
+            size_t fps_pos = path_part.find(":fps=");
+            if (fps_pos != std::string::npos) {
+                path_part = path_part.substr(0, fps_pos);
+            }
+
+            // Extract directory (everything up to the last /)
+            size_t last_slash = path_part.find_last_of("/\\");
+            if (last_slash != std::string::npos) {
+                resolved_path = path_part.substr(0, last_slash);
+                Debug::Log("ShowInExplorer: Resolved mf:// URL to directory: " + resolved_path);
+            } else {
+                resolved_path = path_part; // Fallback: use whole path
+            }
+        }
+        // Handle exr:// URLs (EXR sequences with layers)
+        else if (file_path.substr(0, 6) == "exr://") {
+            // Format: exr://path/to/sequence.exr?layer=beauty
+            std::string path_part = file_path.substr(6); // Remove "exr://"
+
+            // Remove layer parameter if present
+            size_t query_pos = path_part.find('?');
+            if (query_pos != std::string::npos) {
+                path_part = path_part.substr(0, query_pos);
+            }
+
+            // Extract directory for sequence, or use file directly
+            size_t last_slash = path_part.find_last_of("/\\");
+            if (last_slash != std::string::npos) {
+                resolved_path = path_part.substr(0, last_slash);
+                Debug::Log("ShowInExplorer: Resolved exr:// URL to directory: " + resolved_path);
+            } else {
+                resolved_path = path_part;
+            }
+        }
+
 #ifdef _WIN32
-        std::string command = "explorer /select,\"" + file_path + "\"";
-        system(command.c_str());
+        // Launch explorer in a separate thread to avoid blocking the UI
+        std::thread([resolved_path]() {
+            std::string windows_path = resolved_path;
+            std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
+
+            // Use /select for files, plain path for directories
+            std::filesystem::path fs_path(windows_path);
+            std::string command;
+
+            if (std::filesystem::is_directory(fs_path)) {
+                command = "explorer \"" + windows_path + "\"";
+            } else {
+                command = "explorer /select,\"" + windows_path + "\"";
+            }
+
+            Debug::Log("ShowInExplorer: Executing command: " + command);
+            system(command.c_str());
+        }).detach();
 #endif
     }
 
@@ -2304,6 +2391,12 @@ namespace ump {
                         if (*current_file_path != new_file_path) {
                             *current_file_path = new_file_path;
                             QueueVideoMetadataExtraction(new_file_path, true);  // High priority for current clip
+
+                            // === NOTIFY VIDEO PLAYER OF PLAYLIST ITEM CHANGE ===
+                            // This handles thumbnail cache updates and audio filter switching
+                            if (video_player) {
+                                video_player->OnPlaylistItemChanged(new_file_path);
+                            }
 
                             // === NOTIFY CACHE SYSTEM FOR PLAYLIST SWITCHES ===
                             // Note: Image sequences (mf://) are automatically skipped by NotifyVideoChanged (they use DirectEXRCache only)
@@ -2894,24 +2987,35 @@ namespace ump {
 
     void ProjectManager::DisplayVideoMetadata(const VideoMetadata* video_meta) {
         if (!video_meta || !video_meta->is_loaded) {
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No video metadata available");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No metadata available");
             return;
         }
 
+        bool is_audio_only = IsAudioOnlyFile(video_meta);
+
+        // Always show file information
         if (ImGui::CollapsingHeader("File Information", ImGuiTreeNodeFlags_DefaultOpen)) {
             DisplayFileInfoTable(video_meta);
         }
 
-        if (ImGui::CollapsingHeader("Video Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-            DisplayVideoPropertiesTable(video_meta);
-        }
+        // For audio-only files, prioritize audio properties
+        if (is_audio_only) {
+            if (HasAudioInfo(video_meta) && ImGui::CollapsingHeader("Audio Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+                DisplayAudioPropertiesTable(video_meta);
+            }
+        } else {
+            // For video files, show video properties first
+            if (ImGui::CollapsingHeader("Video Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+                DisplayVideoPropertiesTable(video_meta);
+            }
 
-        if (HasColorInfo(video_meta) && ImGui::CollapsingHeader("Color Properties")) {
-            DisplayColorPropertiesTable(video_meta);
-        }
+            if (HasColorInfo(video_meta) && ImGui::CollapsingHeader("Color Properties")) {
+                DisplayColorPropertiesTable(video_meta);
+            }
 
-        if (HasAudioInfo(video_meta) && ImGui::CollapsingHeader("Audio Properties")) {
-            DisplayAudioPropertiesTable(video_meta);
+            if (HasAudioInfo(video_meta) && ImGui::CollapsingHeader("Audio Properties")) {
+                DisplayAudioPropertiesTable(video_meta);
+            }
         }
     }
 
@@ -3346,6 +3450,68 @@ namespace ump {
         return "item_" + std::to_string(++counter);
     }
 
+    void ProjectManager::UpdateIDCounter() {
+        // Scan all loaded IDs to find the maximum counter value
+        // IDs have the format "item_N" where N is an integer
+        int max_counter = 0;
+
+        // Scan media_pool items
+        for (const auto& item : media_pool) {
+            if (item.id.substr(0, 5) == "item_") {
+                try {
+                    int id_num = std::stoi(item.id.substr(5));
+                    if (id_num > max_counter) {
+                        max_counter = id_num;
+                    }
+                } catch (...) {
+                    // Skip malformed IDs
+                }
+            }
+        }
+
+        // Scan sequence IDs
+        for (const auto& seq : sequences) {
+            if (seq.id.substr(0, 5) == "item_") {
+                try {
+                    int id_num = std::stoi(seq.id.substr(5));
+                    if (id_num > max_counter) {
+                        max_counter = id_num;
+                    }
+                } catch (...) {
+                    // Skip malformed IDs
+                }
+            }
+
+            // Also scan clip IDs within sequences
+            for (const auto& clip : seq.clips) {
+                if (clip.id.substr(0, 5) == "item_") {
+                    try {
+                        int id_num = std::stoi(clip.id.substr(5));
+                        if (id_num > max_counter) {
+                            max_counter = id_num;
+                        }
+                    } catch (...) {
+                        // Skip malformed IDs
+                    }
+                }
+            }
+        }
+
+        // Update the static counter in GenerateUniqueID
+        // We need to access the static variable, so we'll call GenerateUniqueID max_counter times
+        // Actually, we can't easily access the static variable from here.
+        // Better approach: Make the counter accessible or generate IDs until we reach max_counter
+
+        // Generate dummy IDs to advance the counter to max_counter
+        if (max_counter > 0) {
+            for (int i = 0; i < max_counter; i++) {
+                std::string dummy = GenerateUniqueID();
+            }
+            Debug::Log("UpdateIDCounter: Advanced ID counter to " + std::to_string(max_counter) +
+                       " (next ID will be item_" + std::to_string(max_counter + 1) + ")");
+        }
+    }
+
     std::string ProjectManager::GetProjectName(const std::string& path) {
         std::filesystem::path file_path(path);
         return file_path.stem().string();
@@ -3394,7 +3560,7 @@ namespace ump {
         return false;
     }
 
-    MediaType ProjectManager::GetMediaType(const std::string& path) {
+    MediaType ProjectManager::GetMediaType(const std::string& path) const {
         std::filesystem::path file_path(path);
         std::string ext = file_path.extension().string();
         std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
@@ -3495,15 +3661,14 @@ namespace ump {
             video_meta->audio_sample_rate > 0 || video_meta->audio_channels > 0;
     }
 
-    void ProjectManager::OpenFileInExplorer(const std::string& file_path) {
-        if (file_path.empty()) return;
+    bool ProjectManager::IsAudioOnlyFile(const VideoMetadata* video_meta) {
+        // Audio-only file: has audio info but no video dimensions
+        return HasAudioInfo(video_meta) && (video_meta->width == 0 || video_meta->height == 0);
+    }
 
-#ifdef _WIN32
-        std::string windows_path = file_path;
-        std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
-        std::string command = "explorer /select,\"" + windows_path + "\"";
-        system(command.c_str());
-#endif
+    void ProjectManager::OpenFileInExplorer(const std::string& file_path) {
+        // Delegate to the main ShowInExplorer implementation (non-blocking + handles special URLs)
+        ShowInExplorer(file_path);
     }
 
     void ProjectManager::CopyToClipboard(const std::string& text) {
@@ -3535,6 +3700,13 @@ namespace ump {
         if (!video_cache_manager || !current_file_path || current_file_path->empty()) {
             return nullptr;
         }
+
+        // Skip cache for audio files (no video frames to cache)
+        MediaType media_type = GetMediaType(*current_file_path);
+        if (media_type == MediaType::AUDIO) {
+            return nullptr;
+        }
+
         return video_cache_manager->GetCacheForVideo(*current_file_path);
     }
 
@@ -3555,6 +3727,13 @@ namespace ump {
         // Skip FFMPEG-based FrameCache for TIFF/PNG/JPEG image sequences - they use DirectEXRCache
         if (video_path.substr(0, 5) == "mf://") {
             Debug::Log("ProjectManager: Skipping FFMPEG cache for TIFF/PNG/JPEG image sequence (uses DirectEXRCache with universal loaders)");
+            return;
+        }
+
+        // Skip frame cache for audio-only files (no video frames to cache)
+        MediaType media_type = GetMediaType(video_path);
+        if (media_type == MediaType::AUDIO) {
+            Debug::Log("ProjectManager: Skipping FrameCache for audio file (no video frames)");
             return;
         }
 
@@ -3834,6 +4013,17 @@ namespace ump {
         // Skip FFMPEG-based FrameCache for EXR sequences - they use DirectEXRCache only
         if (video_path.substr(0, 6) == "exr://") {
             return nullptr;
+        }
+
+        // Skip cache for audio files (no video frames to cache)
+        size_t dot_pos = video_path.find_last_of('.');
+        if (dot_pos != std::string::npos) {
+            std::string ext = video_path.substr(dot_pos);
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".wav" || ext == ".mp3" || ext == ".aac" ||
+                ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a") {
+                return nullptr;
+            }
         }
 
         {
@@ -4120,7 +4310,7 @@ namespace ump {
     // IMAGE SEQUENCE DETECTION
     // ============================================================================
 
-    bool ProjectManager::IsPartOfImageSequence(const std::string& file_path) {
+    bool ProjectManager::IsPartOfImageSequence(const std::string& file_path) const {
         try {
             std::filesystem::path path(file_path);
             std::string filename = path.stem().string(); // filename without extension

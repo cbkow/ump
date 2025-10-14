@@ -65,6 +65,7 @@ public:
     void LoadPlaylist(const std::string& edl_content);
     void LoadSequence(const ump::Sequence& sequence);
     void InitializeForEmptySequence(double default_duration = 60.0);
+    void OnPlaylistItemChanged(const std::string& new_file_path);  // Handle playlist item changes without full reload
 
     // Image sequence support
     void SetMFFrameRate(double fps);
@@ -390,7 +391,7 @@ private:
 
     // File loading helpers
     void ResetState();
-    void WaitForFileLoad();
+    void WaitForFileLoad(bool is_audio_file = false);
     void FinalizeLoad();
     std::vector<std::string> ParseEDLContent(const std::string& edl_content);
     void LoadPlaylistFiles(const std::vector<std::string>& file_paths);

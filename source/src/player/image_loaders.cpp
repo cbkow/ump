@@ -808,18 +808,23 @@ std::shared_ptr<PixelData> PNGImageLoader::LoadThumbnail(const std::string& path
                std::to_string(thumb_width) + "x" + std::to_string(thumb_height) +
                ", skip=" + std::to_string(skip_factor) + ", " + std::to_string(bitDepth) + "-bit)");
 
-    // Apply minimal transformations for speed (no fancy color conversions)
-    png_set_expand(png);                  // Expand palette/grayscale
-    png_set_palette_to_rgb(png);          // Palette → RGB
-    png_set_gray_to_rgb(png);             // Grayscale → RGB
+    // Match the full-size loader transformations EXACTLY
+    png_set_expand(png);              // Expand palette/grayscale
+    png_set_palette_to_rgb(png);      // Palette → RGB
+    png_set_tRNS_to_alpha(png);       // tRNS → alpha channel
+    png_set_gray_to_rgb(png);         // Grayscale → RGB
 
-    // For 16-bit PNG: Keep as 16-bit for now, we'll downsample to 8-bit later
-    // Skip byte swap - we'll do simple >>8 conversion anyway
-
-    // Add alpha if missing
+    // Add alpha channel if missing (RGB → RGBA)
     int channels = png_get_channels(png, info_png);
     if (channels == 3 || (channels == 1 && bitDepth == 8)) {
         png_set_add_alpha(png, (bitDepth == 16) ? 0xFFFF : 0xFF, PNG_FILLER_AFTER);
+    }
+
+    // Endian swap for 16-bit (PNG stores in network byte order = big-endian)
+    if (bitDepth == 16) {
+#if defined(_WIN32) || defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+        png_set_swap(png);  // Swap bytes for little-endian systems
+#endif
     }
 
     png_read_update_info(png, info_png);

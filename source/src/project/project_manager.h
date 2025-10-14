@@ -257,7 +257,7 @@ namespace ump {
         bool IsValidMediaFile(const std::string& file_path);
 
         // Image sequence handling
-        bool IsPartOfImageSequence(const std::string& file_path);
+        bool IsPartOfImageSequence(const std::string& file_path) const;
         std::vector<std::string> DetectImageSequence(const std::string& file_path);
         void ShowFrameRateDialog(const std::string& sequence_path);
         void ProcessImageSequence(const std::string& sequence_path, double frame_rate, const std::string& exr_layer = "");
@@ -460,14 +460,16 @@ namespace ump {
 
         void CreateNewBin(const std::string& name = "");
         std::string GenerateUniqueID();
+        void UpdateIDCounter();  // Update counter after loading project to avoid duplicate IDs
         std::string GetProjectName(const std::string& path);
         std::string GetFileName(const std::string& path);
-        MediaType GetMediaType(const std::string& path);
+        MediaType GetMediaType(const std::string& path) const;
         int GetBinIndexForMediaType(MediaType type);
         double GetDefaultDurationForType(MediaType type);
         std::vector<std::string> ParsePayloadString(const std::string& payload_string);
         bool HasColorInfo(const VideoMetadata* video_meta);
         bool HasAudioInfo(const VideoMetadata* video_meta);
+        bool IsAudioOnlyFile(const VideoMetadata* video_meta);
         void OpenFileInExplorer(const std::string& file_path);
         void CopyToClipboard(const std::string& text);
         std::function<void(const std::string&)> video_change_callback;

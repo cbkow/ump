@@ -10341,12 +10341,29 @@ private:
         Debug::Log("Video changed to: " + new_file_path);
         ResetTimecodeStateForNewVideo();
 
+        // Check if this is an audio file (no video frames to cache)
+        bool is_audio_file = false;
+        if (project_manager) {
+            // Use file extension to check if audio
+            size_t dot_pos = new_file_path.find_last_of('.');
+            if (dot_pos != std::string::npos) {
+                std::string ext = new_file_path.substr(dot_pos);
+                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                is_audio_file = (ext == ".wav" || ext == ".mp3" || ext == ".aac" ||
+                                ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a");
+            }
+        }
+
         // Notify timeline manager about the new video file for cache handling
         // But avoid redundant calls for the same file to prevent performance issues
+        // Skip for audio files (no video frames to cache)
         static std::string last_notified_path;
-        if (timeline_manager && new_file_path != last_notified_path) {
+        if (timeline_manager && new_file_path != last_notified_path && !is_audio_file) {
             timeline_manager->SetVideoFile(new_file_path);
             last_notified_path = new_file_path;
+        } else if (is_audio_file) {
+            Debug::Log("OnVideoChanged: Skipping timeline cache for audio file");
+            last_notified_path = new_file_path; // Still update to avoid redundant checks
         }
 
         // Load annotations for the new media file
