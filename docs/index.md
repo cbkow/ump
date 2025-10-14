@@ -29,3 +29,7 @@ nav_order: 1
 - I have only tested Octane and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
 - Image sequence info is barebones in the inspector panel at the moment. I would like to add to this--especially with EXRs.
 - Audio has very basic visualization currently. I would like to rethink this.
+
+## Source Code
+
+u.m.p. is open souce. It's a personal, in-house app, but hopefully useful for others. [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
