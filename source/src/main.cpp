@@ -150,7 +150,16 @@ static struct {
     int thumbnail_width = 320;            // Thumbnail width in pixels (160-640)
     int thumbnail_height = 180;           // Thumbnail height in pixels (90-360)
     int thumbnail_cache_size = 100;       // Number of thumbnails to keep in RAM (50-500)
+
+    // PLAYBACK SETTINGS
+    bool auto_play_on_load = false;       // Auto-play videos after loading (with 500ms delay)
 } cache_settings;
+
+// ============================================================================
+// AUTO-PLAY ON LOAD STATE
+// ============================================================================
+bool pending_auto_play = false;
+std::chrono::steady_clock::time_point auto_play_timer;
 
 // ============================================================================
 // EXR TRANSCODE PROGRESS STATE
@@ -854,6 +863,22 @@ public:
             if (pending_fullscreen_toggle) {
                 pending_fullscreen_toggle = false;
                 ToggleFullscreen();
+            }
+
+            // Process delayed auto-play (500ms after video load)
+            if (pending_auto_play && cache_settings.auto_play_on_load) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - auto_play_timer).count();
+                if (elapsed >= 500) {
+                    pending_auto_play = false;
+                    if (video_player && video_player->HasVideo() && !video_player->IsPlaying()) {
+                        video_player->Play();
+                        if (project_manager) {
+                            project_manager->NotifyPlaybackState(true);
+                        }
+                        Debug::Log("Auto-play: Started playback after 500ms delay");
+                    }
+                }
             }
 
             // Check system pressure (atomic read - no blocking)
@@ -2688,7 +2713,19 @@ private:
                     ToggleMute();
                 }
 
+                ImGui::Separator();
 
+                // ==============================================
+                // PLAYBACK OPTIONS
+                // ==============================================
+
+                ImGui::TextDisabled("Options:");
+
+                if (ImGui::MenuItem("Auto-Play on Load", nullptr, cache_settings.auto_play_on_load)) {
+                    cache_settings.auto_play_on_load = !cache_settings.auto_play_on_load;
+                    SaveSettings();
+                    Debug::Log(cache_settings.auto_play_on_load ? "Auto-play on load enabled" : "Auto-play on load disabled");
+                }
 
                 ImGui::EndMenu();
             }
@@ -2714,12 +2751,12 @@ private:
                 // Disable all controls when in EXR mode
                 if (is_exr_mode) ImGui::BeginDisabled();
 
-                const char* cache_text = cache_enabled ? "Disable Video Seek Cache" : "Enable Video Seek Cache";
-                if (ImGui::MenuItem(cache_text)) {
+                if (ImGui::MenuItem("Enable Video Seek Cache", nullptr, cache_enabled)) {
                     cache_enabled = !cache_enabled;
                     if (project_manager) {
                         project_manager->SetCacheEnabled(cache_enabled);
                     }
+                    Debug::Log(cache_enabled ? "Video seek cache enabled" : "Video seek cache disabled");
                 }
 
                 if (ImGui::MenuItem("Clear Video Seek Cache")) {
@@ -3605,6 +3642,36 @@ private:
                     // === TAB 1: Video Settings ===
                     if (ImGui::BeginTabItem("Video Settings")) {
 
+            // Master cache enable/disable toggle
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video Seek Cache:");
+            if (ImGui::Checkbox("Enable Video Seek Cache", &cache_enabled)) {
+                settings_changed = true;
+                // Apply immediately to project manager
+                if (project_manager) {
+                    project_manager->SetCacheEnabled(cache_enabled);
+                }
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Enable/disable background video frame caching.\n\n"
+                    "When enabled:\n"
+                    "  - Frames are pre-cached around current position for smooth scrubbing\n"
+                    "  - Uses RAM based on duration limit below\n\n"
+                    "When disabled:\n"
+                    "  - No caching, direct playback only\n"
+                    "  - Lower memory usage but less responsive scrubbing\n\n"
+                    "Note: Automatically disabled for H.264/H.265 codecs");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Disable cache settings when cache is disabled
+            ImGui::BeginDisabled(!cache_enabled);
+
             // Cache duration limit (NEW: replaces memory limit)
             ImGui::Text("Cache Duration Limit:");
             int min_seconds = 1;    // 1 second minimum
@@ -3755,6 +3822,8 @@ private:
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Number of parallel extraction threads.\nMore threads = faster caching but higher CPU/memory usage.\nRecommended: 4-8 threads for best performance.");
             }
+
+            ImGui::EndDisabled(); // End cache_enabled disable block
 
                         ImGui::EndTabItem();
                     } // End Video Cache tab
@@ -9076,6 +9145,9 @@ private:
 
             // Video cache settings
             if (j.contains("video_cache")) {
+                if (j["video_cache"].contains("cache_enabled")) {
+                    cache_enabled = j["video_cache"]["cache_enabled"].get<bool>();
+                }
                 if (j["video_cache"].contains("max_cache_seconds")) {
                     cache_settings.max_cache_seconds = j["video_cache"]["max_cache_seconds"].get<int>();
                 }
@@ -9146,6 +9218,13 @@ private:
                 }
                 if (j["thumbnails"].contains("cache_size")) {
                     cache_settings.thumbnail_cache_size = j["thumbnails"]["cache_size"].get<int>();
+                }
+            }
+
+            // Playback settings
+            if (j.contains("playback")) {
+                if (j["playback"].contains("auto_play_on_load")) {
+                    cache_settings.auto_play_on_load = j["playback"]["auto_play_on_load"].get<bool>();
                 }
             }
 
@@ -9232,6 +9311,7 @@ private:
             }
 
             // Video cache settings
+            j["video_cache"]["cache_enabled"] = cache_enabled;
             j["video_cache"]["max_cache_seconds"] = cache_settings.max_cache_seconds;
             j["video_cache"]["enable_nvidia_decode"] = cache_settings.enable_nvidia_decode;
             j["video_cache"]["max_batch_size"] = cache_settings.max_batch_size;
@@ -9258,6 +9338,9 @@ private:
             j["thumbnails"]["width"] = cache_settings.thumbnail_width;
             j["thumbnails"]["height"] = cache_settings.thumbnail_height;
             j["thumbnails"]["cache_size"] = cache_settings.thumbnail_cache_size;
+
+            // Playback settings
+            j["playback"]["auto_play_on_load"] = cache_settings.auto_play_on_load;
 
             // Save ImGui layout to memory
             size_t ini_size = 0;
@@ -10312,6 +10395,14 @@ private:
         current_file_path.clear();
     }
 
+    void TriggerAutoPlay() {
+        if (cache_settings.auto_play_on_load) {
+            pending_auto_play = true;
+            auto_play_timer = std::chrono::steady_clock::now();
+            Debug::Log("Auto-play: Timer started (500ms delay)");
+        }
+    }
+
     void AddToRecentFiles(const std::string& file_path) {
         recent_files.erase(
             std::remove(recent_files.begin(), recent_files.end(), file_path),
@@ -10376,6 +10467,9 @@ private:
             annotation_manager->LoadNotesForMedia(annotation_path);
             Debug::Log("Loaded annotations for: " + annotation_path);
         }
+
+        // Trigger auto-play if enabled (with 500ms delay)
+        TriggerAutoPlay();
     }
 
     std::string FormatTime(double seconds) {
