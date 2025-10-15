@@ -483,8 +483,9 @@ public:
         // Initialize project manager after video player
         project_manager = std::make_unique<ump::ProjectManager>(
             video_player.get(),  // VideoPlayer*
-            &current_file_path,  // std::string* 
-            &show_inspector_panel // bool*
+            &current_file_path,  // std::string*
+            &show_inspector_panel, // bool*
+            cache_enabled        // bool - user's cache preference
         );
 
         project_manager->SetVideoChangeCallback([this](const std::string& file_path) {
@@ -2754,7 +2755,7 @@ private:
                 if (ImGui::MenuItem("Enable Video Seek Cache", nullptr, cache_enabled)) {
                     cache_enabled = !cache_enabled;
                     if (project_manager) {
-                        project_manager->SetCacheEnabled(cache_enabled);
+                        project_manager->SetUserCachePreference(cache_enabled);
                     }
                     Debug::Log(cache_enabled ? "Video seek cache enabled" : "Video seek cache disabled");
                 }
@@ -3648,7 +3649,7 @@ private:
                 settings_changed = true;
                 // Apply immediately to project manager
                 if (project_manager) {
-                    project_manager->SetCacheEnabled(cache_enabled);
+                    project_manager->SetUserCachePreference(cache_enabled);
                 }
             }
             ImGui::SameLine();

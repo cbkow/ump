@@ -144,7 +144,7 @@ namespace ump {
         // CONSTRUCTION / DESTRUCTION
         // ========================================================================
 
-        ProjectManager(VideoPlayer* player, std::string* current_file, bool* inspector_panel_flag);
+        ProjectManager(VideoPlayer* player, std::string* current_file, bool* inspector_panel_flag, bool cache_preference);
         ~ProjectManager();
 
         // ========================================================================
@@ -293,6 +293,7 @@ namespace ump {
         void RestartCache();  // Emphatic restart for current video
         // ClearCurrentVideoCache() removed - use ClearAllCaches() instead
         void SetCacheEnabled(bool enabled);
+        void SetUserCachePreference(bool enabled);  // Update user's saved preference
         bool IsCacheEnabled() const;
         void NotifyPlaybackState(bool is_playing);  // Delegate to video cache
         FrameCache::CacheStats GetCacheStats() const;
@@ -320,8 +321,9 @@ namespace ump {
         
         // Video cache management
         std::unique_ptr<VideoCache> video_cache_manager;
-        bool cache_enabled = true;
-        bool cache_auto_disabled_for_codec = false;  // Track if cache was auto-disabled for H.264/H.265
+        bool cache_enabled = true;                    // Current runtime cache state
+        bool user_cache_preference = true;            // User's saved preference (for restoration after codec auto-disable)
+        bool cache_auto_disabled_for_codec = false;   // Track if cache was auto-disabled for H.264/H.265
         std::string current_video_codec = "";         // Track current video codec for logging
 
         // Project data

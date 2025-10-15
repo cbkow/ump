@@ -103,8 +103,9 @@ namespace ump {
     // CONSTRUCTION / DESTRUCTION
     // ============================================================================
 
-    ProjectManager::ProjectManager(VideoPlayer* player, std::string* current_file, bool* inspector_panel_flag)
-        : video_player(player), current_file_path(current_file), show_inspector_panel(inspector_panel_flag) {
+    ProjectManager::ProjectManager(VideoPlayer* player, std::string* current_file, bool* inspector_panel_flag, bool cache_preference)
+        : video_player(player), current_file_path(current_file), show_inspector_panel(inspector_panel_flag),
+          user_cache_preference(cache_preference), cache_enabled(cache_preference) {
 
         // Initialize video cache manager
         video_cache_manager = std::make_unique<VideoCache>();
@@ -465,6 +466,13 @@ namespace ump {
         if (video_change_callback) {
             video_change_callback(file_path);
         }
+
+        // === DELAY BEFORE CACHE INITIALIZATION ===
+        // Wait 600ms to allow:
+        // 1. MPV to decode and display the first frame (especially for large 4K+ videos)
+        // 2. Auto-play to start (500ms delay) before cache extraction begins
+        // This prevents seek cache from competing with initial frame decode
+        std::this_thread::sleep_for(std::chrono::milliseconds(600));
 
         // === NOTIFY VIDEO CACHE MANAGER ===
         NotifyVideoChanged(file_path);
@@ -1577,17 +1585,16 @@ namespace ump {
         video_player->LoadFile(item.path);
         *current_file_path = item.path;
 
-        // === NOTIFY MAIN ABOUT VIDEO CHANGE ===
-        if (video_change_callback) {
-            video_change_callback(item.path);
-        }
-
-        // === NOTIFY VIDEO CACHE MANAGER ===
-        // Skip frame cache for audio files (no video frames to cache)
+        // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
+        // This ensures the 600ms delay before cache starts, preventing first frame competition
         if (item.type != MediaType::AUDIO) {
-            NotifyVideoChanged(item.path);
+            OnVideoLoaded(item.path);
         } else {
-            Debug::Log("LoadSingleMediaItem: Skipping cache notification for audio file");
+            Debug::Log("LoadSingleMediaItem: Skipping OnVideoLoaded for audio file");
+            // For audio, just notify main (no cache needed)
+            if (video_change_callback) {
+                video_change_callback(item.path);
+            }
         }
 
         // Select this item in the project panel
@@ -2390,7 +2397,6 @@ namespace ump {
                         std::string new_file_path = sorted_clips[current_pos].file_path;
                         if (*current_file_path != new_file_path) {
                             *current_file_path = new_file_path;
-                            QueueVideoMetadataExtraction(new_file_path, true);  // High priority for current clip
 
                             // === NOTIFY VIDEO PLAYER OF PLAYLIST ITEM CHANGE ===
                             // This handles thumbnail cache updates and audio filter switching
@@ -2398,12 +2404,10 @@ namespace ump {
                                 video_player->OnPlaylistItemChanged(new_file_path);
                             }
 
-                            // === NOTIFY CACHE SYSTEM FOR PLAYLIST SWITCHES ===
+                            // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
+                            // This ensures the 600ms delay before cache starts, preventing first frame competition
                             // Note: Image sequences (mf://) are automatically skipped by NotifyVideoChanged (they use DirectEXRCache only)
-                            if (video_change_callback) {
-                                video_change_callback(new_file_path);
-                            }
-                            NotifyVideoChanged(new_file_path);
+                            OnVideoLoaded(new_file_path);
                         }
                     }
                 }
@@ -2605,16 +2609,9 @@ namespace ump {
         *current_file_path = file_path;
         /*video_player->Play();*/
 
-        // === NOTIFY MAIN ABOUT VIDEO CHANGE === (same as LoadSingleMediaItem)
-        if (video_change_callback) {
-            video_change_callback(file_path);
-        }
-
-        // === NOTIFY VIDEO CACHE MANAGER ===
-        NotifyVideoChanged(file_path);
-
-        // Extract metadata in background to avoid playback blocking
-        QueueVideoMetadataExtraction(file_path, true);  // High priority for loaded video
+        // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
+        // This ensures the 600ms delay before cache starts, preventing first frame competition
+        OnVideoLoaded(file_path);
     }
 
     void ProjectManager::LoadMultipleFilesFromDrop(const std::vector<std::string>& file_paths) {
@@ -3768,17 +3765,17 @@ namespace ump {
                     Debug::Log("=== NEW MEDIA LOADED ===");
                     Debug::Log("Previous video codec: " + current_video_codec);
                     Debug::Log("New codec: " + codec);
-                    Debug::Log("Re-enabling cache for non-H.264/H.265 media");
-                    SetCacheEnabled(true);
+                    Debug::Log("Restoring cache to user preference (" + std::string(user_cache_preference ? "enabled" : "disabled") + ") for non-H.264/H.265 media");
+                    SetCacheEnabled(user_cache_preference);
                     cache_auto_disabled_for_codec = false;
                     current_video_codec = "";
                 }
             } else {
-                // No cached metadata - re-enable and check when metadata arrives
+                // No cached metadata - restore user preference and check codec when metadata arrives
                 Debug::Log("=== NEW MEDIA LOADED ===");
                 Debug::Log("Previous video codec: " + current_video_codec);
-                Debug::Log("Re-enabling cache for new media (will check codec when metadata arrives)");
-                SetCacheEnabled(true);
+                Debug::Log("Restoring cache to user preference (" + std::string(user_cache_preference ? "enabled" : "disabled") + ") for new media (will check codec when metadata arrives)");
+                SetCacheEnabled(user_cache_preference);
                 cache_auto_disabled_for_codec = false;
                 current_video_codec = "";
             }
@@ -3937,6 +3934,16 @@ namespace ump {
         if (video_player) {
             video_player->SetEXRCacheEnabled(enabled);
             Debug::Log("ProjectManager: Cache " + std::string(enabled ? "enabled" : "disabled") + " (EXR pattern - threads still running)");
+        }
+    }
+
+    void ProjectManager::SetUserCachePreference(bool enabled) {
+        user_cache_preference = enabled;
+        Debug::Log("ProjectManager: User cache preference updated to " + std::string(enabled ? "enabled" : "disabled"));
+
+        // Apply immediately if not auto-disabled for codec
+        if (!cache_auto_disabled_for_codec) {
+            SetCacheEnabled(enabled);
         }
     }
 

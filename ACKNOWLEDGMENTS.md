@@ -22,6 +22,19 @@ I drew significant inspiration from tlRender's architecture and design patterns,
 
 I am grateful to Darby Johnston and tlRender for creating an excellent open-source reference implementation that helped me better understand OpenEXR usage in general. Still, I also want to ensure that none of my mistakes or amateur coding are attributed to his project.
 
+### thumbfast
+
+**Website:** https://github.com/po5/thumbfast
+**License:** MPL-2.0
+
+Thumbfast's efficient thumbnail generation and caching approach for mpv inspired design aspects of u.m.p.'s timeline scrubbing system, particularly:
+
+- **On-demand thumbnail generation** - The concept of generating thumbnails as needed during timeline hover
+- **Lightweight caching strategy** - Efficient memory management for thumbnail cache
+- **mpv integration patterns** - Best practices for thumbnail extraction from video files
+
+**Important Note:** No actual code from thumbfast was copied or used in u.m.p. All implementations were written from scratch based on understanding the design concepts. I acknowledge thumbfast as an inspiration for efficient timeline thumbnail systems.
+
 ## Community
 
 Special thanks to:
@@ -36,4 +49,4 @@ Special thanks to:
 
 *This document acknowledges design inspiration only. For actual code dependencies and their licenses, see `LICENSES/THIRD_PARTY_NOTICES.txt`.*
 
-*Last updated: 2025-10-12*
+*Last updated: 2025-10-15*
