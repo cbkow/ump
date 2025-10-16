@@ -18,7 +18,6 @@
 #include "media_item.h"
 #include "../metadata/adobe_metadata.h"
 #include "../metadata/video_metadata.h"
-#include "../metadata/exr_metadata.h"
 #include "../player/frame_cache.h"
 #include "../player/image_sequence_config.h"
 #include "../utils/exr_layer_detector.h"
@@ -116,7 +115,6 @@ namespace ump {
         struct CombinedMetadata {
             std::unique_ptr<VideoMetadata> video_meta;
             std::unique_ptr<AdobeMetadata> adobe_meta;
-            std::unique_ptr<EXRMetadata> exr_meta;  // EXR sequence metadata
             MetadataState state = MetadataState::NOT_STARTED;
             std::chrono::steady_clock::time_point start_time;
 
@@ -124,7 +122,6 @@ namespace ump {
             CombinedMetadata(CombinedMetadata&& other) noexcept
                 : video_meta(std::move(other.video_meta)),
                 adobe_meta(std::move(other.adobe_meta)),
-                exr_meta(std::move(other.exr_meta)),
                 state(other.state),
                 start_time(other.start_time) {
             }
@@ -133,7 +130,6 @@ namespace ump {
                 if (this != &other) {
                     video_meta = std::move(other.video_meta);
                     adobe_meta = std::move(other.adobe_meta);
-                    exr_meta = std::move(other.exr_meta);
                     state = other.state;
                     start_time = other.start_time;
                 }
@@ -200,11 +196,6 @@ namespace ump {
         void CreatePlaylistFromSelection();
         void SetVideoChangeCallback(std::function<void(const std::string&)> callback) {
             video_change_callback = callback;
-        }
-
-        // Color preset callback for auto 1-2-1 detection
-        void SetColorPresetCallback(std::function<void(const std::string&)> callback) {
-            color_preset_callback = callback;
         }
 
         // ========================================================================
@@ -464,11 +455,6 @@ namespace ump {
         void DisplayAdobeProjectRow(const std::string& app_name, const std::string& project_path, const std::string& button_suffix);
         void DisplayTimecodeTable(const AdobeMetadata* adobe_meta);
 
-        // EXR sequence metadata display
-        void DisplayEXRMetadata(const EXRMetadata* exr_meta);
-        void DisplayEXRFileInfoTable(const EXRMetadata* exr_meta);
-        void DisplayEXRImagePropertiesTable(const EXRMetadata* exr_meta);
-        void DisplayEXRChannelsTable(const EXRMetadata* exr_meta);  // Displays layers (RGB/RGBA groupings)
 
         // ========================================================================
         // UTILITY HELPERS
@@ -489,7 +475,6 @@ namespace ump {
         void OpenFileInExplorer(const std::string& file_path);
         void CopyToClipboard(const std::string& text);
         std::function<void(const std::string&)> video_change_callback;
-        std::function<void(const std::string&)> color_preset_callback;  // Callback for auto 1-2-1 OCIO preset
 
         // Cloud sync helper - waits for file to become readable
         bool WaitForFileReadable(const std::string& file_path, int timeout_seconds = 30);

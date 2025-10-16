@@ -1568,15 +1568,15 @@ void VideoPlayer::ResetState() {
 }
 
 void VideoPlayer::WaitForFileLoad(bool is_audio_file) {
-    // Faster polling (50ms) for more responsive loading
-    const int max_attempts = is_audio_file ? 60 : 200;  // 3s vs 10s with 50ms polls
+    // Shorter timeout for audio files that might have Windows audio init issues
+    const int max_attempts = is_audio_file ? 30 : 100;  // 3s vs 10s
     int attempts = 0;
 
     Debug::Log("WaitForFileLoad: Starting (audio=" + std::string(is_audio_file ? "true" : "false") +
-               ", max_wait=" + std::to_string(max_attempts * 0.05) + "s)");
+               ", max_wait=" + std::to_string(max_attempts * 0.1) + "s)");
 
     while (attempts < max_attempts) {
-        mpv_event* event = mpv_wait_event(mpv, 0.05);
+        mpv_event* event = mpv_wait_event(mpv, 0.1);
 
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             Debug::Log("WaitForFileLoad: FILE_LOADED event received");
@@ -1603,17 +1603,17 @@ void VideoPlayer::WaitForFileLoad(bool is_audio_file) {
             break;
         }
 
-        // Log progress every second for troubleshooting (20 attempts = 1s at 50ms)
-        if (attempts % 20 == 0 && attempts > 0) {
-            Debug::Log("WaitForFileLoad: Still waiting... (" + std::to_string(attempts/20) + "s elapsed)");
+        // Log progress every second for troubleshooting
+        if (attempts % 10 == 0 && attempts > 0) {
+            Debug::Log("WaitForFileLoad: Still waiting... (" + std::to_string(attempts/10) + "s elapsed)");
         }
     }
 
     if (attempts >= max_attempts) {
-        Debug::Log("WaitForFileLoad: TIMEOUT after " + std::to_string(attempts * 0.05) +
+        Debug::Log("WaitForFileLoad: TIMEOUT after " + std::to_string(attempts * 0.1) +
                    "s - proceeding anyway");
     } else {
-        Debug::Log("WaitForFileLoad: Completed in " + std::to_string(attempts * 0.05) + "s");
+        Debug::Log("WaitForFileLoad: Completed in " + std::to_string(attempts * 0.1) + "s");
     }
 }
 
@@ -1711,12 +1711,6 @@ VideoMetadata VideoPlayer::ExtractMetadata() const {
     // NEW: Add color range extraction
     metadata.range_type = GetColorRange();
 
-    // NEW: Cache 4:1:1 and 4:2:1 format detection
-    metadata.is_411_format = metadata.Is411Format();
-    metadata.is_421_format = metadata.Is421Format();
-
-    // NOTE: NCLC detection moved to lazy evaluation in DisplayColorPropertiesTable()
-
     // Populate audio properties
     metadata.audio_codec = GetAudioCodec();
     metadata.audio_sample_rate = GetSampleRate();
@@ -1776,10 +1770,6 @@ VideoMetadata VideoPlayer::ExtractMetadataFast() const {
     if (mpv_get_property(mpv, "video-params/pixelformat", MPV_FORMAT_STRING, &pixel_format_result) == 0 && pixel_format_result) {
         metadata.pixel_format = std::string(pixel_format_result);
         mpv_free(pixel_format_result);
-
-        // NEW: Cache 4:1:1 and 4:2:1 format detection immediately after pixel format extraction
-        metadata.is_411_format = metadata.Is411Format();
-        metadata.is_421_format = metadata.Is421Format();
     }
 
     // Color properties (skip if not essential)
@@ -1829,81 +1819,7 @@ VideoMetadata VideoPlayer::ExtractMetadataFast() const {
     // PERFORMANCE FIX: Cache-specific properties will be detected lazily when needed
     // This avoids expensive regex operations during synchronous metadata loading
 
-    // NOTE: NCLC detection moved to lazy evaluation in DisplayColorPropertiesTable()
-
     metadata.is_loaded = true;
-    return metadata;
-}
-
-// NEW: Minimal critical metadata extraction for cache initialization
-// Only extracts the 6 properties needed by ConversionStrategy::FromMetadata()
-// Optional fields (audio, color primaries/transfer, file size, etc.) are deferred
-VideoMetadata VideoPlayer::ExtractCriticalMetadata() const {
-    VideoMetadata metadata;
-
-    if (!mpv) {
-        return metadata;
-    }
-
-    // CRITICAL FIELD 1-2: Dimensions (cached, instant)
-    metadata.width = GetVideoWidth();
-    metadata.height = GetVideoHeight();
-
-    // CRITICAL FIELD 3: Pixel format (needed for 4444/422/420 detection)
-    char* pixel_format_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/pixelformat", MPV_FORMAT_STRING, &pixel_format_result) == 0 && pixel_format_result) {
-        metadata.pixel_format = std::string(pixel_format_result);
-        mpv_free(pixel_format_result);
-
-        // Cache format detection immediately (needed for ConversionStrategy)
-        metadata.is_411_format = metadata.Is411Format();
-        metadata.is_421_format = metadata.Is421Format();
-    }
-
-    // CRITICAL FIELD 4: Colorspace/matrix (needed for color space conversion)
-    char* colorspace_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/colormatrix", MPV_FORMAT_STRING, &colorspace_result) == 0 && colorspace_result) {
-        metadata.colorspace = std::string(colorspace_result);
-        mpv_free(colorspace_result);
-    }
-
-    // CRITICAL FIELD 5: Color range (needed for limited vs full range)
-    char* range_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/colorrange", MPV_FORMAT_STRING, &range_result) == 0 && range_result) {
-        metadata.range_type = std::string(range_result);
-        mpv_free(range_result);
-    } else {
-        metadata.range_type = "unknown";
-    }
-
-    // CRITICAL FIELD 6: Video codec (needed for H.264/H.265 cache disable detection)
-    char* video_codec_result = nullptr;
-    if (mpv_get_property(mpv, "video-codec", MPV_FORMAT_STRING, &video_codec_result) == 0 && video_codec_result) {
-        metadata.video_codec = std::string(video_codec_result);
-        mpv_free(video_codec_result);
-    }
-
-    // Get file path for basic info
-    char* path_result = nullptr;
-    if (mpv_get_property(mpv, "path", MPV_FORMAT_STRING, &path_result) == 0 && path_result) {
-        metadata.file_path = std::string(path_result);
-        metadata.file_name = std::filesystem::path(metadata.file_path).filename().string();
-        mpv_free(path_result);
-    }
-
-    // PERFORMANCE NOTE: Lazy detections will happen in ConversionStrategy::FromMetadata():
-    // - bit_depth (regex on pixel_format)
-    // - has_alpha (regex on pixel_format)
-    // - is_hdr_content (from colorspace)
-    // These are DEFERRED to avoid blocking video load
-
-    metadata.is_loaded = true;
-
-    Debug::Log("ExtractCriticalMetadata: Extracted 6 critical fields - " +
-               std::to_string(metadata.width) + "x" + std::to_string(metadata.height) + " " +
-               metadata.pixel_format + " " + metadata.colorspace + " " +
-               metadata.range_type + " " + metadata.video_codec);
-
     return metadata;
 }
 

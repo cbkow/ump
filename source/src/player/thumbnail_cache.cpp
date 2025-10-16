@@ -340,8 +340,8 @@ void ThumbnailCache::ProcessPendingUploads() {
         return;  // Nothing to process
     }
 
-   /* Debug::Log("ThumbnailCache::ProcessPendingUploads: Processing " +
-               std::to_string(uploads_to_process.size()) + " pending thumbnails");*/
+    Debug::Log("ThumbnailCache::ProcessPendingUploads: Processing " +
+               std::to_string(uploads_to_process.size()) + " pending thumbnails");
 
     // Process uploads (create GL textures and add to cache)
     int uploaded_count = 0;
@@ -368,13 +368,13 @@ void ThumbnailCache::ProcessPendingUploads() {
             cache_[pending->frame] = std::move(entry);
             uploaded_count++;
 
-            /*Debug::Log("ThumbnailCache: Uploaded frame " + std::to_string(pending->frame) +
-                       " -> GL texture " + std::to_string(texture_id));*/
+            Debug::Log("ThumbnailCache: Uploaded frame " + std::to_string(pending->frame) +
+                       " -> GL texture " + std::to_string(texture_id));
         }
     }
 
-   /* Debug::Log("ThumbnailCache::ProcessPendingUploads: Uploaded " + std::to_string(uploaded_count) +
-               " thumbnails, cache now has " + std::to_string(cache_.size()) + " entries");*/
+    Debug::Log("ThumbnailCache::ProcessPendingUploads: Uploaded " + std::to_string(uploaded_count) +
+               " thumbnails, cache now has " + std::to_string(cache_.size()) + " entries");
 }
 
 void ThumbnailCache::EvictLRU() {

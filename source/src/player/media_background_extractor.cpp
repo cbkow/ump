@@ -270,11 +270,11 @@ void MediaBackgroundExtractor::StopBackgroundExtraction() {
     // Clear pending work
     ClearPendingRequests();
 
-    //Debug::Log("MediaBackgroundExtractor: Background extraction stopped");
+    Debug::Log("MediaBackgroundExtractor: Background extraction stopped");
 }
 
 void MediaBackgroundExtractor::WorkerThread() {
-    //Debug::Log("MediaBackgroundExtractor: Worker thread started");
+    Debug::Log("MediaBackgroundExtractor: Worker thread started");
 
     // Wait for initialization to complete
     while (!initialized.load() && !shutdown_requested.load()) {
@@ -282,7 +282,7 @@ void MediaBackgroundExtractor::WorkerThread() {
     }
 
     if (shutdown_requested.load()) {
-        //Debug::Log("MediaBackgroundExtractor: Worker thread shutting down before initialization");
+        Debug::Log("MediaBackgroundExtractor: Worker thread shutting down before initialization");
         return;
     }
 
@@ -336,7 +336,7 @@ void MediaBackgroundExtractor::WorkerThread() {
     if (frame) {
         av_frame_free(&frame);
     }
-    //Debug::Log("MediaBackgroundExtractor: Worker thread finished");
+    Debug::Log("MediaBackgroundExtractor: Worker thread finished");
 }
 
 ExtractionBatch MediaBackgroundExtractor::BuildNextBatch() {
@@ -934,7 +934,7 @@ void MediaBackgroundExtractor::RequestWindowAroundPlayhead(double center_timesta
     double fps = frame_rate.load();
     int center_frame = static_cast<int>(center_timestamp * fps);
 
-    //Debug::Log("MediaBackgroundExtractor: Starting RAM-bounded spiral from frame " + std::to_string(center_frame));
+    Debug::Log("MediaBackgroundExtractor: Starting RAM-bounded spiral from frame " + std::to_string(center_frame));
 
     // Determine spiral limits for videos
     int max_spiral_distance = 1000; // Default limit for videos

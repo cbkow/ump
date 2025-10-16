@@ -123,7 +123,7 @@ bool VideoMetadata::Is4444Format() const {
     std::string format_lower = pixel_format;
     std::transform(format_lower.begin(), format_lower.end(), format_lower.begin(), ::tolower);
 
-    //Debug::Log("Is4444Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
+    Debug::Log("Is4444Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
 
     // Detect 4444 formats specifically - these are the formats that benefit from color matrix correction
     bool is_4444 = (format_lower.find("4444") != std::string::npos ||        // yuv444p, yuva444p variants
@@ -140,7 +140,7 @@ bool VideoMetadata::Is4444Format() const {
                    format_lower.find("yuva444") != std::string::npos);   // yuva444p, yuva444p12le, etc.
     }
 
-    //Debug::Log("Is4444Format: Result = " + std::string(is_4444 ? "TRUE (4444 format)" : "FALSE (standard format)"));
+    Debug::Log("Is4444Format: Result = " + std::string(is_4444 ? "TRUE (4444 format)" : "FALSE (standard format)"));
     return is_4444;
 }
 
@@ -165,173 +165,4 @@ bool VideoMetadata::Is422Or420Format() const {
 
     Debug::Log("Is422Or420Format: Result = " + std::string(is_422_420 ? "TRUE (422/420 format)" : "FALSE (not 422/420)"));
     return is_422_420;
-}
-
-// NEW: Detect 4:1:1 formats
-bool VideoMetadata::Is411Format() const {
-    if (pixel_format.empty()) {
-        Debug::Log("Is411Format: pixel_format is empty");
-        return false;
-    }
-
-    std::string format_lower = pixel_format;
-    std::transform(format_lower.begin(), format_lower.end(), format_lower.begin(), ::tolower);
-
-    Debug::Log("Is411Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
-
-    // Detect 4:1:1 formats - horizontal chroma subsampling by 4
-    // Common in DV NTSC (yuv411p)
-    bool is_411 = (format_lower.find("411") != std::string::npos ||
-                   format_lower.find("yuv411p") != std::string::npos);
-
-    Debug::Log("Is411Format: Result = " + std::string(is_411 ? "TRUE (4:1:1 format)" : "FALSE (not 4:1:1)"));
-    return is_411;
-}
-
-// NEW: Detect 4:2:1 formats (rare)
-bool VideoMetadata::Is421Format() const {
-    if (pixel_format.empty()) {
-        Debug::Log("Is421Format: pixel_format is empty");
-        return false;
-    }
-
-    std::string format_lower = pixel_format;
-    std::transform(format_lower.begin(), format_lower.end(), format_lower.begin(), ::tolower);
-
-    Debug::Log("Is421Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
-
-    // Detect 4:2:1 formats - rare, but exists in some DVCPro variants
-    // Less common than 411 but worth detecting
-    bool is_421 = (format_lower.find("421") != std::string::npos);
-
-    Debug::Log("Is421Format: Result = " + std::string(is_421 ? "TRUE (4:2:1 format)" : "FALSE (not 4:2:1)"));
-    return is_421;
-}
-
-// NEW: Detect and cache NCLC (nclx) color tag triplet
-void VideoMetadata::DetectAndCacheNCLC() {
-    // Reset values
-    nclc_primaries = 0;
-    nclc_transfer = 0;
-    nclc_matrix = 0;
-    nclc_tag = "";
-
-    // Map color_primaries to NCLC ColorPrimaries index
-    std::string primaries_lower = color_primaries;
-    std::transform(primaries_lower.begin(), primaries_lower.end(), primaries_lower.begin(), ::tolower);
-
-    if (primaries_lower.find("bt709") != std::string::npos ||
-        primaries_lower.find("bt.709") != std::string::npos ||
-        primaries_lower.find("rec709") != std::string::npos ||
-        primaries_lower.find("rec.709") != std::string::npos) {
-        nclc_primaries = 1;  // BT.709
-    } else if (primaries_lower.find("bt470m") != std::string::npos) {
-        nclc_primaries = 4;  // BT.470M
-    } else if (primaries_lower.find("bt470bg") != std::string::npos) {
-        nclc_primaries = 5;  // BT.470BG
-    } else if (primaries_lower.find("smpte170m") != std::string::npos ||
-               primaries_lower.find("smpte 170m") != std::string::npos) {
-        nclc_primaries = 6;  // SMPTE 170M (NTSC)
-    } else if (primaries_lower.find("smpte240m") != std::string::npos) {
-        nclc_primaries = 7;  // SMPTE 240M
-    } else if (primaries_lower.find("film") != std::string::npos) {
-        nclc_primaries = 8;  // Generic film
-    } else if (primaries_lower.find("bt2020") != std::string::npos ||
-               primaries_lower.find("bt.2020") != std::string::npos) {
-        nclc_primaries = 9;  // BT.2020
-    } else if (primaries_lower.find("p3") != std::string::npos ||
-               primaries_lower.find("dci-p3") != std::string::npos ||
-               primaries_lower.find("display-p3") != std::string::npos) {
-        nclc_primaries = 12; // P3 D65 (Display P3) - commonly used
-    }
-
-    // Map color_transfer to NCLC TransferCharacteristics index
-    std::string transfer_lower = color_transfer;
-    std::transform(transfer_lower.begin(), transfer_lower.end(), transfer_lower.begin(), ::tolower);
-
-    if (transfer_lower.find("bt709") != std::string::npos ||
-        transfer_lower.find("bt.709") != std::string::npos ||
-        transfer_lower.find("bt1886") != std::string::npos ||
-        transfer_lower.find("bt.1886") != std::string::npos) {
-        nclc_transfer = 1;  // BT.709 / BT.1886 (both use same NCLC code)
-    } else if (transfer_lower.find("unknown") != std::string::npos ||
-               transfer_lower.find("unspecified") != std::string::npos) {
-        nclc_transfer = 2;  // Unspecified
-    } else if (transfer_lower.find("gamma22") != std::string::npos) {
-        nclc_transfer = 4;  // Gamma 2.2
-    } else if (transfer_lower.find("gamma28") != std::string::npos) {
-        nclc_transfer = 5;  // Gamma 2.8
-    } else if (transfer_lower.find("smpte170m") != std::string::npos) {
-        nclc_transfer = 6;  // SMPTE 170M
-    } else if (transfer_lower.find("smpte240m") != std::string::npos) {
-        nclc_transfer = 7;  // SMPTE 240M
-    } else if (transfer_lower.find("linear") != std::string::npos) {
-        nclc_transfer = 8;  // Linear
-    } else if (transfer_lower.find("log100") != std::string::npos) {
-        nclc_transfer = 9;  // Log 100:1
-    } else if (transfer_lower.find("log316") != std::string::npos) {
-        nclc_transfer = 10; // Log 316.22:1
-    } else if (transfer_lower.find("iec61966") != std::string::npos ||
-               transfer_lower.find("srgb") != std::string::npos) {
-        nclc_transfer = 13; // sRGB (IEC 61966-2-1)
-    } else if (transfer_lower.find("bt2020") != std::string::npos &&
-               transfer_lower.find("10") != std::string::npos) {
-        nclc_transfer = 14; // BT.2020 10-bit
-    } else if (transfer_lower.find("bt2020") != std::string::npos &&
-               transfer_lower.find("12") != std::string::npos) {
-        nclc_transfer = 15; // BT.2020 12-bit
-    } else if (transfer_lower.find("pq") != std::string::npos ||
-               transfer_lower.find("smpte2084") != std::string::npos ||
-               transfer_lower.find("smpte 2084") != std::string::npos) {
-        nclc_transfer = 16; // SMPTE ST 2084 (PQ)
-    } else if (transfer_lower.find("hlg") != std::string::npos ||
-               transfer_lower.find("arib-std-b67") != std::string::npos) {
-        nclc_transfer = 18; // ARIB STD-B67 (HLG)
-    }
-
-    // Map colorspace (matrix coefficients) to NCLC MatrixCoefficients index
-    std::string matrix_lower = colorspace;
-    std::transform(matrix_lower.begin(), matrix_lower.end(), matrix_lower.begin(), ::tolower);
-
-    if (matrix_lower.find("bt709") != std::string::npos ||
-        matrix_lower.find("bt.709") != std::string::npos) {
-        nclc_matrix = 1;  // BT.709
-    } else if (matrix_lower.find("unknown") != std::string::npos ||
-               matrix_lower.find("unspecified") != std::string::npos) {
-        nclc_matrix = 2;  // Unspecified
-    } else if (matrix_lower.find("fcc") != std::string::npos) {
-        nclc_matrix = 4;  // FCC
-    } else if (matrix_lower.find("bt470bg") != std::string::npos) {
-        nclc_matrix = 5;  // BT.470BG
-    } else if (matrix_lower.find("smpte170m") != std::string::npos ||
-               matrix_lower.find("bt601") != std::string::npos) {
-        nclc_matrix = 6;  // SMPTE 170M / BT.601
-    } else if (matrix_lower.find("smpte240m") != std::string::npos) {
-        nclc_matrix = 7;  // SMPTE 240M
-    } else if (matrix_lower.find("ycgco") != std::string::npos) {
-        nclc_matrix = 8;  // YCgCo
-    } else if (matrix_lower.find("bt2020") != std::string::npos &&
-               matrix_lower.find("ncl") != std::string::npos) {
-        nclc_matrix = 9;  // BT.2020 non-constant luminance
-    } else if (matrix_lower.find("bt2020") != std::string::npos &&
-               matrix_lower.find("cl") != std::string::npos) {
-        nclc_matrix = 10; // BT.2020 constant luminance
-    } else if (matrix_lower.find("rgb") != std::string::npos ||
-               matrix_lower.find("identity") != std::string::npos ||
-               matrix_lower.find("gbr") != std::string::npos) {
-        nclc_matrix = 0;  // Identity (RGB)
-    }
-
-    // Construct the NCLC tag string
-    if (nclc_primaries > 0 || nclc_transfer > 0 || nclc_matrix >= 0) {
-        nclc_tag = std::to_string(nclc_primaries) + "-" +
-                   std::to_string(nclc_transfer) + "-" +
-                   std::to_string(nclc_matrix);
-
-        Debug::Log("DetectAndCacheNCLC: Detected NCLC tag: " + nclc_tag +
-                   " (P:" + color_primaries + ", T:" + color_transfer + ", M:" + colorspace + ")");
-    } else {
-        nclc_tag = "Unknown";
-        Debug::Log("DetectAndCacheNCLC: Could not determine NCLC tag from metadata");
-    }
 }

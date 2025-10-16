@@ -30,14 +30,6 @@ struct VideoMetadata {
     std::string color_primaries;
     std::string color_transfer;
 
-    // NEW: NCLC (nclx) color tag components for QuickTime
-    // Format: ColorPrimaries-TransferCharacteristics-MatrixCoefficients
-    // Example: 1-1-1 (BT.709), 1-2-1 (BT.709 primaries, unspecified transfer, BT.709 matrix)
-    int nclc_primaries = 0;        // ColorPrimaries index
-    int nclc_transfer = 0;         // TransferCharacteristics index
-    int nclc_matrix = 0;           // MatrixCoefficients index
-    std::string nclc_tag;          // Cached string representation "1-1-1", "1-2-1", etc.
-
     // Audio properties
     std::string audio_codec;
     int audio_sample_rate = 0;
@@ -48,10 +40,6 @@ struct VideoMetadata {
     bool has_alpha = false;               // yuva vs yuv formats
     bool is_hdr_content = false;          // Derived from transfer + bit_depth + colorspace
     std::string range_type;               // "limited", "full", or "unknown"
-
-    // NEW: Chroma subsampling detection (cached for later use)
-    bool is_411_format = false;           // 4:1:1 chroma subsampling
-    bool is_421_format = false;           // 4:2:1 chroma subsampling (rare, some DVCPro)
 
     bool is_loaded = false;
 
@@ -67,11 +55,6 @@ struct VideoMetadata {
     // NEW: Format detection for conditional color matrix application
     bool Is4444Format() const;
     bool Is422Or420Format() const;  // NEW: 422/420 format detection
-    bool Is411Format() const;       // NEW: 411 format detection (4:1:1)
-    bool Is421Format() const;       // NEW: 421 format detection (4:2:1)
-
-    // NEW: NCLC tag detection from color properties
-    void DetectAndCacheNCLC();      // Detects NCLC triplet from color_primaries, color_transfer, colorspace
 
     // Utility method to populate from file path
     void PopulateBasicFileInfo(const std::string& path) {

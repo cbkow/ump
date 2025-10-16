@@ -1486,8 +1486,8 @@ std::shared_ptr<PixelData> VideoImageLoader::LoadThumbnail(const std::string& pa
         return nullptr;
     }
 
-    //Debug::Log("VideoImageLoader::LoadThumbnail: Extracting frame " + std::to_string(frame_number) +
-    //           " at max_size=" + std::to_string(max_size));
+    Debug::Log("VideoImageLoader::LoadThumbnail: Extracting frame " + std::to_string(frame_number) +
+               " at max_size=" + std::to_string(max_size));
 
     // Extract at thumbnail resolution
     return ExtractFrame(frame_number, PipelineMode::NORMAL, max_size);
@@ -1532,9 +1532,9 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
         return nullptr;
     }
 
-    /*Debug::Log("VideoImageLoader::ExtractFrame: Successfully extracted frame " + std::to_string(frame_number) +
+    Debug::Log("VideoImageLoader::ExtractFrame: Successfully extracted frame " + std::to_string(frame_number) +
                " -> " + std::to_string(result->width) + "x" + std::to_string(result->height) +
-               ", " + std::to_string(result->pixels.size()) + " bytes");*/
+               ", " + std::to_string(result->pixels.size()) + " bytes");
 
     av_frame_free(&frame);
     return result;
