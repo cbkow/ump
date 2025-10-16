@@ -270,6 +270,7 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource6.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -281,5 +282,11 @@
     <Filter Include="Source Files">
       <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
     </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="ump6.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
 </Project>
