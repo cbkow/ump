@@ -264,7 +264,10 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+<<<<<<< HEAD
     <ClInclude Include="resource.h" />
+=======
+>>>>>>> parent of a803492 (v0.1.4fix)
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -277,6 +280,7 @@
       <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
+<<<<<<< HEAD
   <ItemGroup>
     <ResourceCompile Include="ump.rc" />
   </ItemGroup>
@@ -284,3 +288,6 @@
     <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
 </Project>
+=======
+</Project>
+>>>>>>> parent of a803492 (v0.1.4fix)

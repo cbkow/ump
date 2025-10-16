@@ -1,0 +1,149 @@
+#pragma once
+
+#include "opencl_exr_processor.h"
+
+// Only include CUDA headers if available
+#ifdef CUDA_AVAILABLE
+#include <cuda_runtime.h>
+#include <cuda_gl_interop.h>
+#include <device_launch_parameters.h>
+#endif
+
+namespace UnionPlayer {
+
+    // CUDA-specific configuration
+    struct CUDAConfig : public OpenCLConfig {
+        bool enable_cuda_streams = true;      // Use CUDA streams for async processing
+        bool enable_gl_interop = true;        // Direct CUDA-OpenGL interoperability
+        int cuda_device_id = 0;               // CUDA device to use
+        size_t cuda_memory_pool_mb = 1024;    // CUDA memory pool size
+
+        bool IsValidCUDA() const {
+            return IsValid() && cuda_device_id >= 0 && cuda_memory_pool_mb >= 128;
+        }
+    };
+
+    // CUDA device information
+    struct CUDADeviceInfo {
+        int device_id = -1;
+        std::string name;
+        size_t total_memory = 0;
+        int compute_capability_major = 0;
+        int compute_capability_minor = 0;
+        int multiprocessor_count = 0;
+        bool supports_gl_interop = false;
+        bool is_available = false;
+    };
+
+    // CUDA processing statistics
+    struct CUDAStats {
+        size_t frames_processed_cuda = 0;
+        size_t cuda_processing_time_ms = 0;
+        size_t cuda_memory_used_bytes = 0;
+        size_t gl_interop_transfers = 0;
+        bool cuda_streams_active = false;
+        float cuda_utilization_percent = 0.0f;
+    };
+
+    class CUDAEXRProcessor : public OpenCLEXRProcessor {
+    public:
+        CUDAEXRProcessor();
+        ~CUDAEXRProcessor() override;
+
+        // CUDA-specific initialization
+        bool InitializeWithCUDA(const CUDAConfig& config);
+        bool IsCUDAAvailable() const;
+        bool IsCUDAActive() const { return cuda_initialized_; }
+
+        // Override base class methods for CUDA optimization
+        bool ProcessFrame(const EXRProcessedData& cpu_data, GLuint& gpu_texture) override;
+        bool ProcessFrameAsync(const EXRProcessedData& cpu_data, GLuint& gpu_texture) override;
+
+        // CUDA-specific methods
+        std::vector<CUDADeviceInfo> GetCUDADevices() const;
+        bool SelectCUDADevice(int device_id);
+        CUDAStats GetCUDAStats() const;
+        void ResetCUDAStats();
+
+        // Configuration
+        void SetCUDAConfig(const CUDAConfig& config);
+        CUDAConfig GetCUDAConfig() const { return cuda_config_; }
+
+        // Static utility methods
+        static bool IsSystemCUDACapable();
+        static std::vector<std::string> GetCUDADeviceNames();
+        static int GetRecommendedCUDADevice();
+
+    private:
+        bool cuda_initialized_ = false;
+        CUDAConfig cuda_config_;
+
+#ifdef CUDA_AVAILABLE
+        // CUDA resources
+        cudaStream_t processing_stream_ = nullptr;
+        cudaStream_t upload_stream_ = nullptr;
+
+        // Device memory buffers
+        half* cuda_input_buffer_ = nullptr;
+        float* cuda_output_buffer_ = nullptr;
+        size_t cuda_buffer_size_ = 0;
+
+        // OpenGL interop resources
+        cudaGraphicsResource_t texture_resource_ = nullptr;
+        bool gl_interop_registered_ = false;
+
+        // CUDA device info
+        CUDADeviceInfo cuda_device_;
+        int active_cuda_device_ = -1;
+
+        // Statistics
+        mutable CUDAStats cuda_stats_;
+#endif
+
+        // CUDA initialization and cleanup
+        bool InitializeCUDAResources();
+        void CleanupCUDAResources();
+        bool CreateCUDAStreams();
+        bool AllocateCUDABuffers(size_t buffer_size);
+
+        // CUDA processing implementation
+        bool ProcessWithCUDA(const EXRProcessedData& cpu_data, GLuint& gpu_texture);
+        bool ProcessPixelsWithCUDA(const EXRProcessedData& cpu_data, float* output_pixels);
+
+        // OpenGL interop methods
+        bool RegisterGLTexture(GLuint texture_id);
+        bool UnregisterGLTexture();
+        bool DirectCUDAToGL(const float* processed_pixels, int width, int height, GLuint texture_id);
+
+        // CUDA utilities
+        bool CheckCUDAError(const std::string& operation) const;
+        void UpdateCUDAStats(size_t processing_time_ms);
+        bool SetOptimalCUDADevice();
+
+        // Fallback to OpenCL when CUDA fails
+        bool FallbackToOpenCL(const EXRProcessedData& cpu_data, GLuint& gpu_texture);
+    };
+
+    // CUDA kernel declarations (implemented in .cu file)
+#ifdef CUDA_AVAILABLE
+    extern "C" {
+        void launch_process_exr_pixels_cuda(
+            const half* input_pixels,
+            float* output_pixels,
+            int width,
+            int height,
+            float exposure_multiplier,
+            cudaStream_t stream
+        );
+
+        void launch_direct_texture_upload_cuda(
+            const float* processed_pixels,
+            cudaArray_t texture_array,
+            int width,
+            int height,
+            cudaStream_t stream
+        );
+    }
+#endif
+
+} // namespace UnionPlayer
