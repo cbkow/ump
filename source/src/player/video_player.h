@@ -175,6 +175,7 @@ public:
     // Metadata
     VideoMetadata ExtractMetadata() const;
     VideoMetadata ExtractMetadataFast() const;  // Optimized version for background processing
+    VideoMetadata ExtractCriticalMetadata() const;  // NEW: Minimal extraction for cache initialization only (6 properties)
     VideoMetadata ExtractEXRMetadata(const std::vector<std::string>& sequence_files,
                                     const std::string& layer_name,
                                     double fps) const;  // EXR-specific metadata extraction

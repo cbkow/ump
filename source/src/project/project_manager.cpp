@@ -468,11 +468,10 @@ namespace ump {
         }
 
         // === DELAY BEFORE CACHE INITIALIZATION ===
-        // Wait 600ms to allow:
-        // 1. MPV to decode and display the first frame (especially for large 4K+ videos)
-        // 2. Auto-play to start (500ms delay) before cache extraction begins
-        // This prevents seek cache from competing with initial frame decode
-        std::this_thread::sleep_for(std::chrono::milliseconds(600));
+        // Wait 300ms for auto-play to start before cache extraction begins
+        // No longer need to wait for first frame decode - cache can start immediately
+        // Cache background thread can safely compete with decode
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
 
         // === NOTIFY VIDEO CACHE MANAGER ===
         NotifyVideoChanged(file_path);
@@ -1113,99 +1112,138 @@ namespace ump {
         bool is_exr_sequence = current_file_path->substr(0, 6) == "exr://";
 
         if (is_image_sequence || is_exr_sequence) {
-            // Show basic sequence info from video player
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), is_exr_sequence ? "EXR sequence loaded" : "Image sequence loaded");
+            // For EXR sequences, use the new EXR metadata structure
+            if (is_exr_sequence) {
+                // Try to get cached EXR metadata
+                const CombinedMetadata* cached_meta = GetCachedMetadata(*current_file_path);
+                if (cached_meta && cached_meta->exr_meta) {
+                    DisplayEXRMetadata(cached_meta->exr_meta.get());
+                } else {
+                    // Create basic EXR metadata from video player if available
+                    if (video_player && video_player->HasVideo()) {
+                        auto exr_meta = std::make_unique<EXRMetadata>();
 
-            // Display basic properties from video player
-            if (video_player && video_player->HasVideo()) {
-                ImGui::Spacing();
+                        // Populate basic info from video player
+                        exr_meta->width = video_player->GetVideoWidth();
+                        exr_meta->height = video_player->GetVideoHeight();
+                        exr_meta->frame_rate = video_player->GetFrameRate();
+                        exr_meta->total_frames = video_player->GetTotalFrames();
+                        exr_meta->start_frame = video_player->GetImageSequenceStartFrame();
+                        exr_meta->end_frame = exr_meta->start_frame + exr_meta->total_frames - 1;
 
-                if (ImGui::CollapsingHeader("Sequence Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-                    // Determine image type from file path
-                    std::string image_type = "Unknown";
-                    if (is_exr_sequence) {
-                        image_type = "EXR";
-                    } else if (!current_file_path->empty()) {
-                        // Extract from mf:// URL or from first file
-                        std::string path_to_check = *current_file_path;
-                        if (path_to_check.substr(0, 5) == "mf://") {
-                            path_to_check = path_to_check.substr(5); // Remove mf:// prefix
+                        // Extract first file path for metadata extraction
+                        std::string url = *current_file_path;
+                        if (url.substr(0, 6) == "exr://") {
+                            std::string path_part = url.substr(6);
+                            size_t layer_pos = path_part.find("?layer=");
+                            if (layer_pos != std::string::npos) {
+                                exr_meta->file_path = path_part.substr(0, layer_pos);
+                                exr_meta->layer_name = path_part.substr(layer_pos + 7);
+                            } else {
+                                exr_meta->file_path = path_part;
+                            }
                         }
-                        size_t dot_pos = path_to_check.find_last_of('.');
-                        if (dot_pos != std::string::npos) {
-                            std::string ext = path_to_check.substr(dot_pos + 1);
-                            std::transform(ext.begin(), ext.end(), ext.begin(), ::toupper);
-                            image_type = ext;
+
+                        if (fs::exists(exr_meta->file_path)) {
+                            exr_meta->file_name = fs::path(exr_meta->file_path).filename().string();
+                            exr_meta->file_size = fs::file_size(exr_meta->file_path);
                         }
-                    }
 
-                    ImGui::Columns(2, "SequenceProps", false);
-                    ImGui::SetColumnWidth(0, 120);
+                        exr_meta->is_loaded = true;
 
-                    // Use monospace font for values
-                    extern ImFont* font_mono;
+                        // Cache the metadata for future use
+                        {
+                            std::lock_guard<std::mutex> lock(queue_mutex);
+                            auto& cached = metadata_cache[*current_file_path];
+                            cached.exr_meta = std::move(exr_meta);
+                        }
 
-                    // Image type
-                    ImGui::Text("Image Type:");
-                    ImGui::NextColumn();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    ImGui::Text("%s", image_type.c_str());
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::NextColumn();
-
-                    // Dimensions
-                    ImGui::Text("Resolution:");
-                    ImGui::NextColumn();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    ImGui::Text("%d x %d", video_player->GetVideoWidth(), video_player->GetVideoHeight());
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::NextColumn();
-
-                    // Duration
-                    ImGui::Text("Duration:");
-                    ImGui::NextColumn();
-                    double duration = video_player->GetDuration();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    if (duration > 0) {
-                        ImGui::Text("%.2f seconds", duration);
+                        // Display it
+                        const CombinedMetadata* cached_meta_new = GetCachedMetadata(*current_file_path);
+                        if (cached_meta_new && cached_meta_new->exr_meta) {
+                            DisplayEXRMetadata(cached_meta_new->exr_meta.get());
+                        }
                     } else {
-                        ImGui::Text("Unknown");
+                        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "EXR sequence properties will be available when loaded");
                     }
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::NextColumn();
-
-                    // Frame rate
-                    ImGui::Text("Frame Rate:");
-                    ImGui::NextColumn();
-                    double fps = video_player->GetFrameRate();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    if (fps > 0) {
-                        ImGui::Text("%.3f fps", fps);
-                    } else {
-                        ImGui::Text("Unknown");
-                    }
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::NextColumn();
-
-                    // Frame range (replace Total Frames)
-                    ImGui::Text("Frame Range:");
-                    ImGui::NextColumn();
-                    int total_frames = video_player->GetTotalFrames();
-                    int start_frame = video_player->GetImageSequenceStartFrame();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    if (total_frames > 0) {
-                        int end_frame = start_frame + total_frames - 1;
-                        ImGui::Text("%d-%d", start_frame, end_frame);
-                    } else {
-                        ImGui::Text("Unknown");
-                    }
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::NextColumn();
-
-                    ImGui::Columns(1);
                 }
             } else {
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Sequence properties will be available when loaded");
+                // For non-EXR image sequences (PNG/TIFF/JPEG), keep simplified display
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Image sequence loaded");
+
+                if (video_player && video_player->HasVideo()) {
+                    ImGui::Spacing();
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Sequence Properties");
+                    ImGui::Separator();
+
+                    if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit)) {
+                        ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                        ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+
+                        // Image type
+                        std::string image_type = "Unknown";
+                        if (!current_file_path->empty()) {
+                            std::string path_to_check = *current_file_path;
+                            if (path_to_check.substr(0, 5) == "mf://") {
+                                path_to_check = path_to_check.substr(5);
+                            }
+                            size_t dot_pos = path_to_check.find_last_of('.');
+                            if (dot_pos != std::string::npos) {
+                                std::string ext = path_to_check.substr(dot_pos + 1);
+                                std::transform(ext.begin(), ext.end(), ext.begin(), ::toupper);
+                                image_type = ext;
+                            }
+                        }
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Image Type:");
+                        ImGui::TableSetColumnIndex(1);
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        ImGui::Text("%s", image_type.c_str());
+                        if (font_mono) ImGui::PopFont();
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Resolution:");
+                        ImGui::TableSetColumnIndex(1);
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        ImGui::Text("%d x %d", video_player->GetVideoWidth(), video_player->GetVideoHeight());
+                        if (font_mono) ImGui::PopFont();
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Frame Rate:");
+                        ImGui::TableSetColumnIndex(1);
+                        double fps = video_player->GetFrameRate();
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (fps > 0) {
+                            ImGui::Text("%.3f fps", fps);
+                        } else {
+                            ImGui::Text("Unknown");
+                        }
+                        if (font_mono) ImGui::PopFont();
+
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("Frame Range:");
+                        ImGui::TableSetColumnIndex(1);
+                        int total_frames = video_player->GetTotalFrames();
+                        int start_frame = video_player->GetImageSequenceStartFrame();
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (total_frames > 0) {
+                            int end_frame = start_frame + total_frames - 1;
+                            ImGui::Text("%d-%d", start_frame, end_frame);
+                        } else {
+                            ImGui::Text("Unknown");
+                        }
+                        if (font_mono) ImGui::PopFont();
+
+                        ImGui::EndTable();
+                    }
+                } else {
+                    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Sequence properties will be available when loaded");
+                }
             }
             return;
         }
@@ -1228,9 +1266,7 @@ namespace ump {
             DisplayAdobeMetadata(cached_meta->adobe_meta.get());
 
             ImGui::Spacing();
-            if (ImGui::CollapsingHeader("Timecode Information", ImGuiTreeNodeFlags_DefaultOpen)) {
-                DisplayTimecodeTable(cached_meta->adobe_meta.get());
-            }
+            DisplayTimecodeTable(cached_meta->adobe_meta.get());
         }
     }
 
@@ -2914,24 +2950,22 @@ namespace ump {
     void ProjectManager::ProcessVideoMetadata(const std::string& file_path) {
         // Debug removed
 
-        // Extract MPV metadata (non-blocking approach)
+        // PHASE 1: Extract critical metadata for cache initialization (FAST - only 6 properties)
         if (video_player && video_player->HasVideo()) {
-            // Small delay to ensure video is stable, but much shorter than before
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            // MPV is stable after WaitForFileLoad() completes - no delay needed
 
-            auto video_meta = std::make_unique<VideoMetadata>(video_player->ExtractMetadataFast());
+            // Extract critical metadata first (minimal - for cache only)
+            auto critical_meta = std::make_unique<VideoMetadata>(video_player->ExtractCriticalMetadata());
 
-            // Store video metadata and update state
+            // Store critical metadata immediately
             {
                 std::lock_guard<std::mutex> lock(queue_mutex);
                 auto& cached_meta = metadata_cache[file_path];
-                cached_meta.video_meta = std::move(video_meta);
-                cached_meta.state = MetadataState::VIDEO_READY;
+                cached_meta.video_meta = std::move(critical_meta);
+                cached_meta.state = MetadataState::LOADING_VIDEO;  // Will be updated to VIDEO_READY after full extraction
             }
 
-            // Debug removed
-
-            // Update cache system with new metadata
+            // Update cache system with critical metadata immediately
             if (video_cache_manager && video_cache_manager->IsCachingEnabled()) {
                 const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
                 if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
@@ -2968,6 +3002,37 @@ namespace ump {
                 }
             }
 
+            // PHASE 2: Extract full metadata for inspector UI (happens in background, doesn't block cache)
+            Debug::Log("Phase 2: Extracting full metadata for inspector UI...");
+            auto full_meta = std::make_unique<VideoMetadata>(video_player->ExtractMetadataFast());
+
+            // Update with full metadata
+            {
+                std::lock_guard<std::mutex> lock(queue_mutex);
+                auto& cached_meta = metadata_cache[file_path];
+                cached_meta.video_meta = std::move(full_meta);
+                cached_meta.state = MetadataState::VIDEO_READY;
+            }
+
+            Debug::Log("Phase 2 complete: Full metadata extracted");
+
+            // Auto 1-2-1 detection (non-blocking background processing)
+            if (color_preset_callback) {
+                const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
+                if (cached_meta && cached_meta->video_meta) {
+                    // Trigger lazy NCLC detection if not already done
+                    if (cached_meta->video_meta->nclc_tag.empty()) {
+                        const_cast<VideoMetadata*>(cached_meta->video_meta.get())->DetectAndCacheNCLC();
+                    }
+
+                    // Check if it's a 1-2-1 video and invoke callback
+                    if (cached_meta->video_meta->nclc_tag == "1-2-1") {
+                        Debug::Log("Auto 1-2-1: Detected 1-2-1 NCLC tag, invoking color preset callback");
+                        color_preset_callback("1-2-1");
+                    }
+                }
+            }
+
             // Queue Adobe metadata for later processing (no additional delay)
             QueueAdobeMetadata(file_path);
         }
@@ -2991,26 +3056,37 @@ namespace ump {
         bool is_audio_only = IsAudioOnlyFile(video_meta);
 
         // Always show file information
-        if (ImGui::CollapsingHeader("File Information", ImGuiTreeNodeFlags_DefaultOpen)) {
-            DisplayFileInfoTable(video_meta);
-        }
+        ImGui::Spacing();
+        ImGui::TextColored(Bright(GetWindowsAccentColor()), "File Information");
+        ImGui::Separator();
+        DisplayFileInfoTable(video_meta);
 
         // For audio-only files, prioritize audio properties
         if (is_audio_only) {
-            if (HasAudioInfo(video_meta) && ImGui::CollapsingHeader("Audio Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (HasAudioInfo(video_meta)) {
+                ImGui::Spacing();
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio Properties");
+                ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
         } else {
             // For video files, show video properties first
-            if (ImGui::CollapsingHeader("Video Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-                DisplayVideoPropertiesTable(video_meta);
-            }
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video Properties");
+            ImGui::Separator();
+            DisplayVideoPropertiesTable(video_meta);
 
-            if (HasColorInfo(video_meta) && ImGui::CollapsingHeader("Color Properties")) {
+            if (HasColorInfo(video_meta)) {
+                ImGui::Spacing();
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Color Properties");
+                ImGui::Separator();
                 DisplayColorPropertiesTable(video_meta);
             }
 
-            if (HasAudioInfo(video_meta) && ImGui::CollapsingHeader("Audio Properties")) {
+            if (HasAudioInfo(video_meta)) {
+                ImGui::Spacing();
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio Properties");
+                ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
         }
@@ -3027,9 +3103,10 @@ namespace ump {
             return;
         }
 
-        if (ImGui::CollapsingHeader("Adobe Projects", ImGuiTreeNodeFlags_DefaultOpen)) {
-            DisplayAdobeProjectsTable(adobe_meta);
-        }
+        ImGui::Spacing();
+        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Adobe Projects");
+        ImGui::Separator();
+        DisplayAdobeProjectsTable(adobe_meta);
     }
 
     void ProjectManager::DisplayTimecodeTable(const AdobeMetadata* adobe_meta) {
@@ -3042,6 +3119,10 @@ namespace ump {
             ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No timecode found in metadata");
             return;
         }
+
+        ImGui::Spacing();
+        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timecode");
+        ImGui::Separator();
 
         if (ImGui::BeginTable("TimecodeTable", 3, ImGuiTableFlags_SizingFixedFit)) {
             ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 120.0f);
@@ -3096,6 +3177,296 @@ namespace ump {
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", adobe_meta->qt_media_create_date.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    // ============================================================================
+    // EXR SEQUENCE METADATA DISPLAY
+    // ============================================================================
+
+    void ProjectManager::DisplayEXRMetadata(const EXRMetadata* exr_meta) {
+        if (!exr_meta || !exr_meta->is_loaded) {
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No metadata available");
+            return;
+        }
+
+        // Show file information
+        ImGui::Spacing();
+        ImGui::TextColored(Bright(GetWindowsAccentColor()), "File Information");
+        ImGui::Separator();
+        DisplayEXRFileInfoTable(exr_meta);
+
+        // Show image properties
+        ImGui::Spacing();
+        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Properties");
+        ImGui::Separator();
+        DisplayEXRImagePropertiesTable(exr_meta);
+
+        // Show layer information (lazy loaded)
+        if (exr_meta->extended_properties_detected && exr_meta->total_layers > 0) {
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "EXR Layers");
+            ImGui::Separator();
+            DisplayEXRChannelsTable(exr_meta);
+        }
+    }
+
+    void ProjectManager::DisplayEXRFileInfoTable(const EXRMetadata* exr_meta) {
+        if (ImGui::BeginTable("EXRFileInfoTable", 3, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+
+            // File Name
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::Text("Name:");
+            ImGui::TableSetColumnIndex(1);
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::TextWrapped("%s", exr_meta->file_name.c_str());
+            if (font_mono) ImGui::PopFont();
+
+            // Sequence Pattern
+            if (!exr_meta->sequence_pattern.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Sequence:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%s", exr_meta->sequence_pattern.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Frame Range
+            if (exr_meta->total_frames > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Frame Range:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d-%d (%d frames)", exr_meta->start_frame, exr_meta->end_frame, exr_meta->total_frames);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Frame Rate
+            if (exr_meta->frame_rate > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Frame Rate:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%.3f fps", exr_meta->frame_rate);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Duration
+            if (exr_meta->total_frames > 0 && exr_meta->frame_rate > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Duration:");
+                ImGui::TableSetColumnIndex(1);
+                double duration = exr_meta->total_frames / exr_meta->frame_rate;
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%.2f seconds", duration);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // File Size (first frame)
+            if (exr_meta->file_size > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("File Size:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                double size_mb = exr_meta->file_size / (1024.0 * 1024.0);
+                ImGui::Text("%.2f MB (per frame)", size_mb);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    void ProjectManager::DisplayEXRImagePropertiesTable(const EXRMetadata* exr_meta) {
+        if (ImGui::BeginTable("EXRImagePropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+
+            // Resolution
+            if (exr_meta->width > 0 && exr_meta->height > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Resolution:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d x %d", exr_meta->width, exr_meta->height);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Trigger lazy metadata extraction when properties are displayed
+            if (!exr_meta->extended_properties_detected) {
+                const_cast<EXRMetadata*>(exr_meta)->DetectAndCacheExtendedProperties();
+            }
+
+            // Display Window (if different from resolution)
+            if (exr_meta->extended_properties_detected &&
+                (exr_meta->display_width != exr_meta->width || exr_meta->display_height != exr_meta->height)) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Display Window:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d x %d", exr_meta->display_width, exr_meta->display_height);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Data Window
+            if (exr_meta->extended_properties_detected && exr_meta->data_width > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Data Window:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d x %d", exr_meta->data_width, exr_meta->data_height);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Pixel Format
+            if (exr_meta->extended_properties_detected && !exr_meta->pixel_format.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Pixel Format:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%s", exr_meta->pixel_format.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Bit Depth
+            if (exr_meta->extended_properties_detected && exr_meta->bit_depth > 0) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Bit Depth:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d-bit", exr_meta->bit_depth);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Compression
+            if (exr_meta->extended_properties_detected && !exr_meta->compression.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Compression:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->compression.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Tiled format
+            if (exr_meta->extended_properties_detected && exr_meta->is_tiled) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Format:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("Tiled");
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Multi-part
+            if (exr_meta->extended_properties_detected && exr_meta->is_multi_part) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Multi-Part:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("Yes (%d parts)", exr_meta->part_count);
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Selected Layer
+            if (!exr_meta->layer_name.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Layer:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            // Color space (if present)
+            if (exr_meta->extended_properties_detected && !exr_meta->colorspace.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Colorspace:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%s", exr_meta->colorspace.c_str());
+                if (font_mono) ImGui::PopFont();
+            }
+
+            ImGui::EndTable();
+        }
+    }
+
+    void ProjectManager::DisplayEXRChannelsTable(const EXRMetadata* exr_meta) {
+        if (ImGui::BeginTable("EXRLayersTable", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+            ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+            ImGui::TableSetupColumn("Channels", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+            ImGui::TableHeadersRow();
+
+            // Show layer summary first
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_summary.c_str());
+            if (font_mono) ImGui::PopFont();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(3);
+
+            // Show individual layers (all of them, typically not more than 10-15)
+            for (size_t i = 0; i < exr_meta->layers.size(); i++) {
+                const EXRLayerInfo& layer = exr_meta->layers[i];
+
+                ImGui::TableNextRow();
+
+                // Layer name/display name
+                ImGui::TableSetColumnIndex(0);
+                if (font_mono) ImGui::PushFont(font_mono);
+                if (layer.is_main_layer) {
+                    // Highlight main layer
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", layer.display_name.c_str());
+                } else {
+                    ImGui::Text("%s", layer.display_name.c_str());
+                }
+                if (font_mono) ImGui::PopFont();
+
+                // Channel types (RGB, RGBA, etc.)
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%s", layer.channel_types.c_str());
+                if (font_mono) ImGui::PopFont();
+
+                // Pixel type
+                ImGui::TableSetColumnIndex(2);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%s", layer.pixel_type.c_str());
+                if (font_mono) ImGui::PopFont();
+
+                // Channel count
+                ImGui::TableSetColumnIndex(3);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%d", layer.channel_count);
                 if (font_mono) ImGui::PopFont();
             }
 
@@ -3206,6 +3577,30 @@ namespace ump {
                 if (font_mono) ImGui::PopFont();
             }
 
+            // NEW: Display total duration in multiple formats
+            if (video_meta->total_frames > 0 && video_meta->frame_rate > 0) {
+                double duration_seconds = video_meta->total_frames / video_meta->frame_rate;
+                int64_t duration_ms = static_cast<int64_t>(duration_seconds * 1000.0);
+
+                // Calculate timecode (HH:MM:SS:FF)
+                int total_frames_tc = video_meta->total_frames;
+                int fps_rounded = static_cast<int>(video_meta->frame_rate + 0.5);
+                int frames = total_frames_tc % fps_rounded;
+                int total_seconds = total_frames_tc / fps_rounded;
+                int seconds = total_seconds % 60;
+                int minutes = (total_seconds / 60) % 60;
+                int hours = total_seconds / 3600;
+
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("Duration:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("%.3fs | %lldms | %02d:%02d:%02d:%02d",
+                    duration_seconds, duration_ms, hours, minutes, seconds, frames);
+                if (font_mono) ImGui::PopFont();
+            }
+
             if (!video_meta->video_codec.empty() && video_meta->video_codec != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
@@ -3222,7 +3617,20 @@ namespace ump {
                 ImGui::Text("Pixel Format:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
-                ImGui::Text("%s", video_meta->pixel_format.c_str());
+
+                // Display pixel format with chroma subsampling indicator
+                if (video_meta->is_411_format) {
+                    ImGui::Text("%s ", video_meta->pixel_format.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "(4:1:1)");
+                } else if (video_meta->is_421_format) {
+                    ImGui::Text("%s ", video_meta->pixel_format.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "(4:2:1)");
+                } else {
+                    ImGui::Text("%s", video_meta->pixel_format.c_str());
+                }
+
                 if (font_mono) ImGui::PopFont();
             }
 
@@ -3231,6 +3639,11 @@ namespace ump {
     }
 
     void ProjectManager::DisplayColorPropertiesTable(const VideoMetadata* video_meta) {
+        // Lazy NCLC detection - only compute when color properties are being displayed
+        if (video_meta->nclc_tag.empty()) {
+            const_cast<VideoMetadata*>(video_meta)->DetectAndCacheNCLC();
+        }
+
         if (ImGui::BeginTable("ColorPropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -3276,6 +3689,30 @@ namespace ump {
                 if (font_mono) ImGui::PopFont();
             }
 
+            // NEW: Display NCLC tag (ColorPrimaries-TransferCharacteristics-MatrixCoefficients)
+            if (!video_meta->nclc_tag.empty() && video_meta->nclc_tag != "Unknown") {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("NCLC Tag:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+
+                // Highlight common NCLC tags
+                if (video_meta->nclc_tag == "1-1-1") {
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (BT.709)", video_meta->nclc_tag.c_str());
+                } else if (video_meta->nclc_tag == "1-2-1") {
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (BT.709 Unspec)", video_meta->nclc_tag.c_str());
+                } else if (video_meta->nclc_tag == "9-16-9") {
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (BT.2020 PQ)", video_meta->nclc_tag.c_str());
+                } else if (video_meta->nclc_tag == "9-18-9") {
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (BT.2020 HLG)", video_meta->nclc_tag.c_str());
+                } else {
+                    ImGui::Text("%s", video_meta->nclc_tag.c_str());
+                }
+
+                if (font_mono) ImGui::PopFont();
+            }
+
             // NEW: Display color matrix status for 4444 formats
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
@@ -3284,8 +3721,8 @@ namespace ump {
 
             // Debug: Log when this is called
             bool is_4444 = video_meta->Is4444Format();
-            Debug::Log("Inspector: Is4444Format() returned " + std::string(is_4444 ? "true" : "false") +
-                      " for pixel_format: '" + video_meta->pixel_format + "'");
+           /* Debug::Log("Inspector: Is4444Format() returned " + std::string(is_4444 ? "true" : "false") +
+                      " for pixel_format: '" + video_meta->pixel_format + "'");*/
             if (font_mono) ImGui::PushFont(font_mono);
             if (is_4444) {
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "4444 Color Matrix Applied");

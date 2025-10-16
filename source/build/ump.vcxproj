@@ -97,21 +97,16 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>Disabled</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
@@ -406,19 +401,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3.lib;external\Debug\glad.lib;external\Debug\imgui.lib;external\Debug\implot.lib;_deps\nfd-build\src\Debug\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Debug\imgui.lib;external\glfw\src\Debug\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Debug/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Debug/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -433,21 +424,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
@@ -744,19 +730,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Release/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Release/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -771,21 +753,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MinSpace</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
@@ -1082,19 +1059,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -1110,21 +1083,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
       <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
@@ -1419,19 +1387,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -1533,6 +1497,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\main.cpp" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.cpp" />
@@ -1583,11 +1549,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
-    <ClInclude Include="resource.h" />
   </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="ump.rc" />
-  </ItemGroup>
+  <ItemGroup />
   <ItemGroup>
     <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ZERO_CHECK.vcxproj">
       <Project>{F99B75F5-D6EE-3496-8558-11C0AAA6FBF9}</Project>
@@ -1619,9 +1582,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{34B72ED6-7976-31CC-B1EA-2A77E896F919}</Project>
       <Name>nfd</Name>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

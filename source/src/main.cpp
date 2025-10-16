@@ -153,6 +153,9 @@ static struct {
 
     // PLAYBACK SETTINGS
     bool auto_play_on_load = false;       // Auto-play videos after loading (with 500ms delay)
+
+    // COLOR MANAGEMENT SETTINGS
+    bool auto_121_enabled = true;         // Auto-apply Rec.709 -> sRGB OCIO when 1-2-1 NCLC detected
 } cache_settings;
 
 // ============================================================================
@@ -491,6 +494,21 @@ public:
         project_manager->SetVideoChangeCallback([this](const std::string& file_path) {
             this->OnVideoChanged(file_path);
             });
+
+        // Set up color preset callback for auto 1-2-1 detection
+        project_manager->SetColorPresetCallback([this](const std::string& nclc_tag) {
+            if (cache_settings.auto_121_enabled && nclc_tag == "1-2-1") {
+                Debug::Log("Auto 1-2-1: Applying Rec.709 -> sRGB preset");
+                ApplyPreset(R"({
+                    "name": "Rec.709 to sRGB Standard",
+                    "nodes": [
+                        {"type": "INPUT_COLORSPACE", "data": "Rec.1886", "position": [100, 100]},
+                        {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "Standard", "position": [400, 100]}
+                    ],
+                    "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+                })");
+            }
+        });
 
         // Set up cache clear callback for cross-cache eviction (EXR <-> Video)
         video_player->SetCacheClearCallback([this]() {
@@ -2887,6 +2905,18 @@ private:
                     show_cache_settings = true;
                 }
 
+                // Color Management
+                if (ImGui::MenuItem("Auto 1-2-1", nullptr, &cache_settings.auto_121_enabled)) {
+                    Debug::Log(cache_settings.auto_121_enabled ?
+                        "Auto 1-2-1 enabled: Will auto-apply Rec.709 -> sRGB for 1-2-1 videos" :
+                        "Auto 1-2-1 disabled");
+                    SaveSettings();  // Persist user preference
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Auto-apply Rec.709 -> sRGB OCIO preset when 1-2-1 NCLC tag detected\n"
+                                     "(BT.709 primaries with Unspecified transfer)");
+                }
+
                 ImGui::Separator();
 
                 // MPV Status Info
@@ -2915,12 +2945,16 @@ private:
             }
 
             if (ImGui::BeginMenu("Help")) {
-                if (ImGui::MenuItem("About u.m.p.")) {
-                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/blob/main/README.md", NULL, NULL, SW_SHOWNORMAL);
+                if (ImGui::MenuItem("About u.m.p. v0.1.4")) {
+                    ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
                 }
 
                 if (ImGui::MenuItem("License")) {
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/blob/main/LICENSE", NULL, NULL, SW_SHOWNORMAL);
+                }
+
+                if (ImGui::MenuItem("Check for Updates")) {
+                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/releases/", NULL, NULL, SW_SHOWNORMAL);
                 }
 
                 ImGui::Separator();
@@ -9229,6 +9263,13 @@ private:
                 }
             }
 
+            // Color management settings
+            if (j.contains("color_management")) {
+                if (j["color_management"].contains("auto_121_enabled")) {
+                    cache_settings.auto_121_enabled = j["color_management"]["auto_121_enabled"].get<bool>();
+                }
+            }
+
             // Store ImGui layout to load after ImGui is initialized
             if (j.contains("imgui_layout")) {
                 saved_imgui_layout = j["imgui_layout"].get<std::string>();
@@ -9342,6 +9383,9 @@ private:
 
             // Playback settings
             j["playback"]["auto_play_on_load"] = cache_settings.auto_play_on_load;
+
+            // Color management settings
+            j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;
 
             // Save ImGui layout to memory
             size_t ini_size = 0;
