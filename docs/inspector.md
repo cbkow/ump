@@ -8,7 +8,7 @@ nav_order: 7
 
 ## The Inspector Panel
 
-The Inspector Panel curates useful file information.
+The Inspector Panel curates useful file information. Currently, Image sequences are bare-bones, but video information is thorough. 
 
 ![Window](images/ump_zWNgCtPedQ.png)
 
