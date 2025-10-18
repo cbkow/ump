@@ -21,6 +21,8 @@ namespace ump {
         // Node creation
         int CreateInputColorSpaceNode(const std::string& colorspace_name, ImVec2 position = ImVec2(0, 0));
         int CreateLookNode(const std::string& look_name, ImVec2 position = ImVec2(0, 0));
+        int CreateSceneLUTNode(const std::string& lut_path, ImVec2 position = ImVec2(0, 0));
+        int CreateDisplayLUTNode(const std::string& lut_path, ImVec2 position = ImVec2(0, 0));
         int CreateOutputDisplayNode(const std::string& display_name, ImVec2 position = ImVec2(0, 0));
 
         // Node management

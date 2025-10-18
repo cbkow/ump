@@ -54,6 +54,32 @@ namespace ump {
         return node_id;
     }
 
+    int NodeManager::CreateSceneLUTNode(const std::string& lut_path, ImVec2 position) {
+        int node_id = next_node_id++;
+        auto node = std::make_unique<SceneLUTNode>(node_id, lut_path);
+
+        // Set node position if specified
+        if (position.x != 0 || position.y != 0) {
+            ImNodes::SetNodeGridSpacePos(node_id, position);
+        }
+
+        nodes[node_id] = std::move(node);
+        return node_id;
+    }
+
+    int NodeManager::CreateDisplayLUTNode(const std::string& lut_path, ImVec2 position) {
+        int node_id = next_node_id++;
+        auto node = std::make_unique<DisplayLUTNode>(node_id, lut_path);
+
+        // Set node position if specified
+        if (position.x != 0 || position.y != 0) {
+            ImNodes::SetNodeGridSpacePos(node_id, position);
+        }
+
+        nodes[node_id] = std::move(node);
+        return node_id;
+    }
+
     int NodeManager::CreateOutputDisplayNode(const std::string& display_name, ImVec2 position) {
 
         int node_id = next_node_id++;
@@ -293,6 +319,12 @@ namespace ump {
             break;
         case NodeType::LOOK:
             CreateLookNode(pending_node_data, pending_node_position);
+            break;
+        case NodeType::SCENE_LUT:
+            CreateSceneLUTNode(pending_node_data, pending_node_position);
+            break;
+        case NodeType::DISPLAY_LUT:
+            CreateDisplayLUTNode(pending_node_data, pending_node_position);
             break;
         case NodeType::OUTPUT_DISPLAY:
             CreateOutputDisplayNode(pending_node_data, pending_node_position);

@@ -1224,6 +1224,7 @@ private:
         char name[256];
     };
 
+    // Custom LUT library
     // ------------------------------------------------------------------------
     // SETUP & CONFIGURATION METHODS
     // ------------------------------------------------------------------------
@@ -2945,7 +2946,7 @@ private:
             }
 
             if (ImGui::BeginMenu("Help")) {
-                if (ImGui::MenuItem("About u.m.p. v0.1.4")) {
+                if (ImGui::MenuItem("About u.m.p. v0.1.5")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
                 }
 
@@ -7483,6 +7484,66 @@ private:
             ImGui::TreePop();
         }
 
+        // LUT
+        if (ImGui::TreeNode("LUT")) {
+            // Scene-Referred LUT (applied before display transform)
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::Selectable("Scene-Referred LUT");
+            if (font_mono) ImGui::PopFont();
+
+            // Double-click to create node
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (node_manager) {
+                    node_manager->SetPendingNodeCreation(ump::NodeType::SCENE_LUT, "");
+                    Debug::Log("Double-clicked to create Scene LUT node");
+                }
+            }
+
+            // Drag source
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                struct DragPayload {
+                    ump::NodeType type;
+                    char path[512];
+                };
+                DragPayload payload;
+                payload.type = ump::NodeType::SCENE_LUT;
+                payload.path[0] = '\0';  // Empty path
+
+                ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
+                ImGui::Text("Creating: Scene LUT");
+                ImGui::EndDragDropSource();
+            }
+
+            // Display-Referred LUT (applied after display transform)
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::Selectable("Display-Referred LUT");
+            if (font_mono) ImGui::PopFont();
+
+            // Double-click to create node
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                if (node_manager) {
+                    node_manager->SetPendingNodeCreation(ump::NodeType::DISPLAY_LUT, "");
+                    Debug::Log("Double-clicked to create Display LUT node");
+                }
+            }
+
+            // Drag source
+            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                struct DragPayload {
+                    ump::NodeType type;
+                    char path[512];
+                };
+                DragPayload payload;
+                payload.type = ump::NodeType::DISPLAY_LUT;
+                payload.path[0] = '\0';  // Empty path
+
+                ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
+                ImGui::Text("Creating: Display LUT");
+                ImGui::EndDragDropSource();
+            }
+            ImGui::TreePop();
+        }
+
         // Output displays
         auto displays = ocio_manager->GetDisplays();
         if (!displays.empty() && ImGui::TreeNode("Output Displays")) {
@@ -7741,6 +7802,24 @@ private:
                         }
                         break;
                     }
+                    case ump::NodeType::SCENE_LUT: {
+                        auto* lut_node = dynamic_cast<ump::SceneLUTNode*>(node);
+                        if (lut_node) {
+                            node_obj["type"] = "SCENE_LUT";
+                            node_obj["data"] = lut_node->GetLUTPath();
+                            Debug::Log("  - Node " + std::to_string(index-1) + ": SCENE_LUT " + lut_node->GetLUTFileName());
+                        }
+                        break;
+                    }
+                    case ump::NodeType::DISPLAY_LUT: {
+                        auto* lut_node = dynamic_cast<ump::DisplayLUTNode*>(node);
+                        if (lut_node) {
+                            node_obj["type"] = "DISPLAY_LUT";
+                            node_obj["data"] = lut_node->GetLUTPath();
+                            Debug::Log("  - Node " + std::to_string(index-1) + ": DISPLAY_LUT " + lut_node->GetLUTFileName());
+                        }
+                        break;
+                    }
                     case ump::NodeType::OUTPUT_DISPLAY: {
                         auto* output_node = dynamic_cast<ump::OutputDisplayNode*>(node);
                         if (output_node) {
@@ -7900,6 +7979,10 @@ private:
         }
     }
 
+    // ------------------------------------------------------------------------
+    // CUSTOM LUT LIBRARY MANAGEMENT
+    // ------------------------------------------------------------------------
+
     void CreateCustomPresets() {
         // Show custom presets
         if (font_mono) ImGui::PushFont(font_mono);
@@ -7987,7 +8070,7 @@ private:
                 }
 
                 // Get data based on node type
-                if (node_data.type == "INPUT_COLORSPACE" || node_data.type == "LOOK") {
+                if (node_data.type == "INPUT_COLORSPACE" || node_data.type == "LOOK" || node_data.type == "SCENE_LUT" || node_data.type == "DISPLAY_LUT") {
                     node_data.data = node_json["data"].get<std::string>();
                 }
                 else if (node_data.type == "OUTPUT_DISPLAY") {
@@ -8039,6 +8122,14 @@ private:
             else if (node_data.type == "LOOK") {
                 node_id = node_manager->CreateLookNode(node_data.data, node_data.position);
                 Debug::Log("Created Look node: " + node_data.data);
+            }
+            else if (node_data.type == "SCENE_LUT") {
+                node_id = node_manager->CreateSceneLUTNode(node_data.data, node_data.position);
+                Debug::Log("Created Scene LUT node: " + node_data.data);
+            }
+            else if (node_data.type == "DISPLAY_LUT") {
+                node_id = node_manager->CreateDisplayLUTNode(node_data.data, node_data.position);
+                Debug::Log("Created Display LUT node: " + node_data.data);
             }
 
             node_ids.push_back(node_id);
@@ -8275,11 +8366,7 @@ private:
             }
         }
 
-        // Footer area (inside scrollable region)
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::Spacing();
-
+        // Footer area (inside scrollable region) - ONLY show for Output Display nodes
         // Check if output display node is selected
         bool output_node_selected = false;
         if (num_selected == 1) {
@@ -8289,46 +8376,48 @@ private:
             output_node_selected = (node && node->GetType() == ump::NodeType::OUTPUT_DISPLAY);
         }
 
-        // Only enable button if output node selected AND pipeline ready
-        bool pipeline_ready = output_node_selected && CheckPipelineReadiness();
+        // Only show footer controls when Output Display node is selected
+        if (output_node_selected) {
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
 
-        if (!pipeline_ready) {
-            ImGui::BeginDisabled();
-        }
+            // Only enable button if pipeline ready
+            bool pipeline_ready = CheckPipelineReadiness();
 
-        if (pipeline_ready) {
+            if (!pipeline_ready) {
+                ImGui::BeginDisabled();
+            }
+
+            if (pipeline_ready) {
+                ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
+            }
+
+            if (ImGui::Button("Generate Shader", ImVec2(-1, 30.0f))) {
+                GenerateOCIOPipeline();
+            }
+
+            if (pipeline_ready) {
+                ImGui::PopStyleColor(2);
+            }
+
+            // Add Remove OCIO button - always available
+            ImGui::Spacing();
             ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
-        }
-
-        if (ImGui::Button("Generate Shader", ImVec2(-1, 30.0f))) {
-            GenerateOCIOPipeline();
-        }
-
-        if (pipeline_ready) {
+            if (ImGui::Button("Remove Shader", ImVec2(-1, 25.0f))) {
+                Debug::Log("User requested OCIO pipeline removal");
+                video_player->ClearColorPipeline();
+            }
             ImGui::PopStyleColor(2);
-        }
 
-        // Add Remove OCIO button - always available
-        ImGui::Spacing();
-        ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
-        if (ImGui::Button("Remove Shader", ImVec2(-1, 25.0f))) {
-            Debug::Log("User requested OCIO pipeline removal");
-            video_player->ClearColorPipeline();
-        }
-        ImGui::PopStyleColor(2);
-
-        if (!pipeline_ready) {
-            ImGui::EndDisabled();
-            ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
-            if (!output_node_selected) {
-                ImGui::TextWrapped("Select Output Display node");
-            }
-            else {
+            if (!pipeline_ready) {
+                ImGui::EndDisabled();
+                ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                 ImGui::TextWrapped("Connect Input to Output");
+                ImGui::PopStyleColor();
             }
-            ImGui::PopStyleColor();
         }
 
         ImGui::EndChild();
@@ -8357,6 +8446,14 @@ private:
 
         case ump::NodeType::LOOK:
             RenderLookProperties(node);
+            break;
+
+        case ump::NodeType::SCENE_LUT:
+            RenderSceneLUTProperties(node);
+            break;
+
+        case ump::NodeType::DISPLAY_LUT:
+            RenderDisplayLUTProperties(node);
             break;
 
         default:
@@ -8482,6 +8579,152 @@ private:
             "Type: Creative Look/LUT");
     }
 
+    void RenderSceneLUTProperties(ump::NodeBase* node) {
+        auto* lut_node = dynamic_cast<ump::SceneLUTNode*>(node);
+        if (!lut_node) return;
+
+        ImGui::Text("Scene-Referred LUT Settings");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        std::string current_path = lut_node->GetLUTPath();
+        std::string current_filename = lut_node->GetLUTFileName();
+
+        // Check if LUT is set
+        bool is_lut_set = !current_path.empty();
+
+        if (is_lut_set) {
+            // Display current file
+            ImGui::Text("File:");
+            ImGui::SameLine();
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", current_filename.c_str());
+            if (font_mono) ImGui::PopFont();
+
+            ImGui::Spacing();
+
+            // Show full path (small text)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            ImGui::TextWrapped("%s", current_path.c_str());
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        } else {
+            // No LUT set yet
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+            ImGui::TextWrapped("No LUT file selected. Click the button below to select a LUT file.");
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
+
+        // Select/Change LUT button
+        const char* button_label = is_lut_set ? "Change LUT File" : "Select LUT File";
+        if (ImGui::Button(button_label, ImVec2(-1, 0))) {
+            nfdchar_t* out_path = nullptr;
+            nfdfilteritem_t filters[2] = {
+                { "LUT Files", "cube,3dl,spi1d,spi3d,csp,lut" },
+                { "All Files", "*" }
+            };
+
+            nfdresult_t result = NFD_OpenDialog(&out_path, filters, 2, nullptr);
+
+            if (result == NFD_OKAY) {
+                lut_node->SetLUTPath(std::string(out_path));
+                Debug::Log("Set Scene LUT file: " + std::string(out_path));
+                NFD_FreePath(out_path);
+
+                // Regenerate pipeline
+                GenerateOCIOPipeline();
+            } else if (result == NFD_ERROR) {
+                Debug::Log("NFD Error: " + std::string(NFD_GetError()));
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+            "Type: Scene-Referred File Transform");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+            "Applied before display transform");
+    }
+
+    void RenderDisplayLUTProperties(ump::NodeBase* node) {
+        auto* lut_node = dynamic_cast<ump::DisplayLUTNode*>(node);
+        if (!lut_node) return;
+
+        ImGui::Text("Display-Referred LUT Settings");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        std::string current_path = lut_node->GetLUTPath();
+        std::string current_filename = lut_node->GetLUTFileName();
+
+        // Check if LUT is set
+        bool is_lut_set = !current_path.empty();
+
+        if (is_lut_set) {
+            // Display current file
+            ImGui::Text("File:");
+            ImGui::SameLine();
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", current_filename.c_str());
+            if (font_mono) ImGui::PopFont();
+
+            ImGui::Spacing();
+
+            // Show full path (small text)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+            ImGui::TextWrapped("%s", current_path.c_str());
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        } else {
+            // No LUT set yet
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
+            ImGui::TextWrapped("No LUT file selected. Click the button below to select a LUT file.");
+            ImGui::PopStyleColor();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+        }
+
+        // Select/Change LUT button
+        const char* button_label = is_lut_set ? "Change LUT File" : "Select LUT File";
+        if (ImGui::Button(button_label, ImVec2(-1, 0))) {
+            nfdchar_t* out_path = nullptr;
+            nfdfilteritem_t filters[2] = {
+                { "LUT Files", "cube,3dl,spi1d,spi3d,csp,lut" },
+                { "All Files", "*" }
+            };
+
+            nfdresult_t result = NFD_OpenDialog(&out_path, filters, 2, nullptr);
+
+            if (result == NFD_OKAY) {
+                lut_node->SetLUTPath(std::string(out_path));
+                Debug::Log("Set Display LUT file: " + std::string(out_path));
+                NFD_FreePath(out_path);
+
+                // Regenerate pipeline
+                GenerateOCIOPipeline();
+            } else if (result == NFD_ERROR) {
+                Debug::Log("NFD Error: " + std::string(NFD_GetError()));
+            }
+        }
+
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+            "Type: Display-Referred File Transform");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+            "Applied after display transform");
+    }
+
     bool CheckPipelineReadiness() {
         auto nodes = node_manager->GetAllNodes();
 
@@ -8519,7 +8762,9 @@ private:
         std::string src_colorspace;
         std::string display;
         std::string view;
-        std::vector<std::string> look_chain; // Proper chain of looks, not concatenated string
+        std::vector<std::string> look_chain;        // Proper chain of looks, not concatenated string
+        std::vector<std::string> scene_lut_files;   // Scene-referred LUT file paths (before display transform)
+        std::vector<std::string> display_lut_files; // Display-referred LUT file paths (after display transform)
 
         // Process nodes in connection order
         for (size_t i = 0; i < pipeline_nodes.size(); ++i) {
@@ -8541,6 +8786,24 @@ private:
                 if (lookNode && !lookNode->GetLook().empty()) {
                     look_chain.push_back(lookNode->GetLook());
                     Debug::Log("  Look #" + std::to_string(look_chain.size()) + ": " + lookNode->GetLook());
+                }
+                break;
+            }
+
+            case ump::NodeType::SCENE_LUT: {
+                auto* lutNode = dynamic_cast<ump::SceneLUTNode*>(node);
+                if (lutNode && !lutNode->GetLUTPath().empty()) {
+                    scene_lut_files.push_back(lutNode->GetLUTPath());
+                    Debug::Log("  Scene LUT: " + lutNode->GetLUTFileName());
+                }
+                break;
+            }
+
+            case ump::NodeType::DISPLAY_LUT: {
+                auto* lutNode = dynamic_cast<ump::DisplayLUTNode*>(node);
+                if (lutNode && !lutNode->GetLUTPath().empty()) {
+                    display_lut_files.push_back(lutNode->GetLUTPath());
+                    Debug::Log("  Display LUT: " + lutNode->GetLUTFileName());
                 }
                 break;
             }
@@ -8575,7 +8838,7 @@ private:
             }
 
             auto ocio_pipeline = std::make_unique<OCIOPipeline>();
-            if (ocio_pipeline->BuildFromDescription(src_colorspace, display, view, looks)) {
+            if (ocio_pipeline->BuildFromDescription(src_colorspace, display, view, looks, scene_lut_files, display_lut_files)) {
                 video_player->SetColorPipeline(std::move(ocio_pipeline));
                 Debug::Log("Pipeline generated successfully!");
             }

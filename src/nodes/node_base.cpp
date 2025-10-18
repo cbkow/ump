@@ -128,8 +128,10 @@ namespace ump {
         // Set initial title
         UpdateTitle();
 
-        // Output nodes only have input pins (they're sinks)
+        // Output nodes have input pin (receives scene-referred data)
         AddInputPin("Color", NodeEditorTheme::Colors::OUTPUT_NODE_TITLE);
+        // And output pin (outputs display-referred data for display LUTs)
+        AddOutputPin("Color", NodeEditorTheme::Colors::OUTPUT_NODE_TITLE);
     }
 
     void OutputDisplayNode::UpdateTitle() {
@@ -156,6 +158,12 @@ namespace ump {
             ImNodes::EndInputAttribute();
         }
 
+        // Output pin - no label needed (for display LUTs)
+        for (const auto& pin : output_pins) {
+            ImNodes::BeginOutputAttribute(pin.id);
+            ImNodes::EndOutputAttribute();
+        }
+
         ImNodes::EndNode();
     }
 
@@ -174,6 +182,163 @@ namespace ump {
 
     ImU32 OutputDisplayNode::GetTitleColorSelected() const {
         return NodeEditorTheme::Colors::OUTPUT_NODE_TITLE_SELECTED;
+    }
+
+    // SceneLUTNode Implementation (scene-referred, applied before display transform)
+    SceneLUTNode::SceneLUTNode(int node_id, const std::string& lut_path)
+        : NodeBase(node_id, NodeType::SCENE_LUT, "Scene LUT")
+        , lut_file_path(lut_path) {
+
+        // Handle empty path case
+        if (lut_path.empty()) {
+            lut_filename = "";
+            title = "Scene LUT: (not set)";
+        } else {
+            // Extract filename from path
+            size_t last_slash = lut_path.find_last_of("/\\");
+            lut_filename = (last_slash != std::string::npos)
+                ? lut_path.substr(last_slash + 1) : lut_path;
+
+            // Update title with filename
+            title = "Scene LUT: " + lut_filename;
+        }
+
+        // Scene LUT nodes have both input and output (like Look nodes)
+        AddInputPin("Color", IM_COL32(160, 100, 200, 255));   // Purple
+        AddOutputPin("Color", IM_COL32(160, 100, 200, 255));  // Purple
+    }
+
+    void SceneLUTNode::Render() {
+        ImNodes::BeginNode(id);
+
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted(title.c_str());
+        ImNodes::EndNodeTitleBar();
+
+        ImGui::Dummy(ImVec2(120.0f, 0.0f));  // Set minimum node width (wider for file names)
+
+        // Input pin - no label needed
+        for (const auto& pin : input_pins) {
+            ImNodes::BeginInputAttribute(pin.id);
+            ImNodes::EndInputAttribute();
+        }
+
+        // Output pin - no label needed
+        for (const auto& pin : output_pins) {
+            ImNodes::BeginOutputAttribute(pin.id);
+            ImNodes::EndOutputAttribute();
+        }
+
+        ImNodes::EndNode();
+    }
+
+    void SceneLUTNode::UpdateProperties() {
+        ImGui::Text("Scene-Referred LUT Node");
+        ImGui::Separator();
+        ImGui::Text("File: %s", lut_filename.c_str());
+        ImGui::TextWrapped("Path: %s", lut_file_path.c_str());
+        ImGui::Text("Type: Scene-Referred File Transform");
+    }
+
+    void SceneLUTNode::SetLUTPath(const std::string& path) {
+        lut_file_path = path;
+
+        // Handle empty path case
+        if (path.empty()) {
+            lut_filename = "";
+            title = "Scene LUT: (not set)";
+        } else {
+            // Extract filename from new path
+            size_t last_slash = path.find_last_of("/\\");
+            lut_filename = (last_slash != std::string::npos)
+                ? path.substr(last_slash + 1) : path;
+
+            // Update title
+            title = "Scene LUT: " + lut_filename;
+        }
+    }
+
+    ImU32 SceneLUTNode::GetTitleColor() const {
+        return IM_COL32(160, 100, 200, 255);  // Purple
+    }
+
+    ImU32 SceneLUTNode::GetTitleColorSelected() const {
+        return IM_COL32(180, 120, 220, 255);  // Lighter purple
+    }
+
+    // DisplayLUTNode Implementation (display-referred, applied after display transform)
+    DisplayLUTNode::DisplayLUTNode(int node_id, const std::string& lut_path)
+        : NodeBase(node_id, NodeType::DISPLAY_LUT, "Display LUT")
+        , lut_file_path(lut_path) {
+
+        // Handle empty path case
+        if (lut_path.empty()) {
+            lut_filename = "";
+            title = "Display LUT: (not set)";
+        } else {
+            // Extract filename from path
+            size_t last_slash = lut_path.find_last_of("/\\");
+            lut_filename = (last_slash != std::string::npos)
+                ? lut_path.substr(last_slash + 1) : lut_path;
+
+            // Update title with filename
+            title = "Display LUT: " + lut_filename;
+        }
+
+        // Display LUT nodes only have input pin (terminal node, no passthrough)
+        AddInputPin("Color", IM_COL32(200, 120, 80, 255));   // Orange
+    }
+
+    void DisplayLUTNode::Render() {
+        ImNodes::BeginNode(id);
+
+        ImNodes::BeginNodeTitleBar();
+        ImGui::TextUnformatted(title.c_str());
+        ImNodes::EndNodeTitleBar();
+
+        ImGui::Dummy(ImVec2(120.0f, 0.0f));  // Set minimum node width (wider for file names)
+
+        // Input pin only - no label needed
+        for (const auto& pin : input_pins) {
+            ImNodes::BeginInputAttribute(pin.id);
+            ImNodes::EndInputAttribute();
+        }
+
+        ImNodes::EndNode();
+    }
+
+    void DisplayLUTNode::UpdateProperties() {
+        ImGui::Text("Display-Referred LUT Node");
+        ImGui::Separator();
+        ImGui::Text("File: %s", lut_filename.c_str());
+        ImGui::TextWrapped("Path: %s", lut_file_path.c_str());
+        ImGui::Text("Type: Display-Referred File Transform");
+    }
+
+    void DisplayLUTNode::SetLUTPath(const std::string& path) {
+        lut_file_path = path;
+
+        // Handle empty path case
+        if (path.empty()) {
+            lut_filename = "";
+            title = "Display LUT: (not set)";
+        } else {
+            // Extract filename from new path
+            size_t last_slash = path.find_last_of("/\\");
+            lut_filename = (last_slash != std::string::npos)
+                ? path.substr(last_slash + 1) : path;
+
+            // Update title
+            title = "Display LUT: " + lut_filename;
+        }
+    }
+
+    ImU32 DisplayLUTNode::GetTitleColor() const {
+        return IM_COL32(200, 120, 80, 255);  // Orange
+    }
+
+    ImU32 DisplayLUTNode::GetTitleColorSelected() const {
+        return IM_COL32(220, 140, 100, 255);  // Lighter orange
     }
 
 }

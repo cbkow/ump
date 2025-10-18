@@ -18,7 +18,9 @@ public:
     bool BuildFromDescription(const std::string& src_colorspace,
         const std::string& display,
         const std::string& view,
-        const std::string& looks = "");
+        const std::string& looks = "",
+        const std::vector<std::string>& scene_lut_files = {},
+        const std::vector<std::string>& display_lut_files = {});
 
     // Generate and compile GLSL shader
     bool GenerateAndCompileShader();

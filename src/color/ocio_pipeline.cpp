@@ -25,7 +25,9 @@ OCIOPipeline::~OCIOPipeline() {
 bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
     const std::string& display,
     const std::string& view,
-    const std::string& looks) {
+    const std::string& looks,
+    const std::vector<std::string>& scene_lut_files,
+    const std::vector<std::string>& display_lut_files) {
     // Check if OCIO manager has a config
     if (!ocio_manager || !ocio_manager->IsConfigLoaded()) {
         Debug::Log("ERROR: No OCIO config loaded");
@@ -105,8 +107,8 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
 
         //Debug::Log("Display and view validated: " + display + " - " + view);
 
-        // Create processor with or without looks
-        if (!looks.empty()) {
+        // Create processor with or without looks/LUT files
+        if (!looks.empty() || !scene_lut_files.empty() || !display_lut_files.empty()) {
             //Debug::Log("Applying LOOKS: " + looks);
 
             // Verify the looks exist in the config
@@ -194,6 +196,20 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
                     groupTransform->appendTransform(lookTransform);
                     //Debug::Log("Appended LookTransform to GroupTransform");
 
+                    // Insert Scene-Referred FileTransforms after looks (applied before display transform)
+                    for (const auto& lut_path : scene_lut_files) {
+                        try {
+                            OCIO::FileTransformRcPtr fileTransform = OCIO::FileTransform::Create();
+                            fileTransform->setSrc(lut_path.c_str());
+                            fileTransform->setInterpolation(OCIO::INTERP_BEST);  // Let OCIO choose best method
+                            fileTransform->setDirection(OCIO::TRANSFORM_DIR_FORWARD);
+                            groupTransform->appendTransform(fileTransform);
+                            Debug::Log("Added Scene-Referred FileTransform: " + lut_path);
+                        } catch (OCIO::Exception& e) {
+                            Debug::Log("ERROR loading scene LUT file '" + lut_path + "': " + std::string(e.what()));
+                        }
+                    }
+
                     // Second: Apply display-view transform from look result colorspace
                     OCIO::DisplayViewTransformRcPtr displayTransform = OCIO::DisplayViewTransform::Create();
                     displayTransform->setSrc(lookResultColorSpace);
@@ -214,6 +230,20 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
                     groupTransform->appendTransform(displayTransform);
                     //Debug::Log("Appended DisplayViewTransform to GroupTransform");
 
+                    // Third: Apply Display-Referred FileTransforms (applied after display transform)
+                    for (const auto& lut_path : display_lut_files) {
+                        try {
+                            OCIO::FileTransformRcPtr fileTransform = OCIO::FileTransform::Create();
+                            fileTransform->setSrc(lut_path.c_str());
+                            fileTransform->setInterpolation(OCIO::INTERP_BEST);  // Let OCIO choose best method
+                            fileTransform->setDirection(OCIO::TRANSFORM_DIR_FORWARD);
+                            groupTransform->appendTransform(fileTransform);
+                            Debug::Log("Added Display-Referred FileTransform: " + lut_path);
+                        } catch (OCIO::Exception& e) {
+                            Debug::Log("ERROR loading display LUT file '" + lut_path + "': " + std::string(e.what()));
+                        }
+                    }
+
                     // Create processor from grouped transform
                     processor = config->getProcessor(groupTransform);
                     //Debug::Log("SUCCESS: Applied looks with GroupTransform: " + looks_validated);
@@ -229,9 +259,67 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
                     transform->setView(view.c_str());
                     processor = config->getProcessor(transform);
                 }
+            } else if (!scene_lut_files.empty() || !display_lut_files.empty()) {
+                // No looks, but we have LUT files - create GroupTransform
+                int total_luts = scene_lut_files.size() + display_lut_files.size();
+                Debug::Log("No looks found, but applying " + std::to_string(total_luts) + " LUT file(s)");
+                try {
+                    OCIO::GroupTransformRcPtr groupTransform = OCIO::GroupTransform::Create();
+
+                    // Add ColorSpace transform from source to working space (scene_linear)
+                    OCIO::ColorSpaceTransformRcPtr csTransform = OCIO::ColorSpaceTransform::Create();
+                    csTransform->setSrc(src_colorspace.c_str());
+                    csTransform->setDst("scene_linear");  // Standard working space
+                    groupTransform->appendTransform(csTransform);
+
+                    // Add Scene-Referred FileTransforms (before display transform)
+                    for (const auto& lut_path : scene_lut_files) {
+                        try {
+                            OCIO::FileTransformRcPtr fileTransform = OCIO::FileTransform::Create();
+                            fileTransform->setSrc(lut_path.c_str());
+                            fileTransform->setInterpolation(OCIO::INTERP_BEST);  // Let OCIO choose best method
+                            fileTransform->setDirection(OCIO::TRANSFORM_DIR_FORWARD);
+                            groupTransform->appendTransform(fileTransform);
+                            Debug::Log("Added Scene-Referred FileTransform: " + lut_path);
+                        } catch (OCIO::Exception& e) {
+                            Debug::Log("ERROR loading scene LUT file '" + lut_path + "': " + std::string(e.what()));
+                        }
+                    }
+
+                    // Add DisplayViewTransform
+                    OCIO::DisplayViewTransformRcPtr displayTransform = OCIO::DisplayViewTransform::Create();
+                    displayTransform->setSrc("scene_linear");
+                    displayTransform->setDisplay(display.c_str());
+                    displayTransform->setView(view.c_str());
+                    groupTransform->appendTransform(displayTransform);
+
+                    // Add Display-Referred FileTransforms (after display transform)
+                    for (const auto& lut_path : display_lut_files) {
+                        try {
+                            OCIO::FileTransformRcPtr fileTransform = OCIO::FileTransform::Create();
+                            fileTransform->setSrc(lut_path.c_str());
+                            fileTransform->setInterpolation(OCIO::INTERP_BEST);  // Let OCIO choose best method
+                            fileTransform->setDirection(OCIO::TRANSFORM_DIR_FORWARD);
+                            groupTransform->appendTransform(fileTransform);
+                            Debug::Log("Added Display-Referred FileTransform: " + lut_path);
+                        } catch (OCIO::Exception& e) {
+                            Debug::Log("ERROR loading display LUT file '" + lut_path + "': " + std::string(e.what()));
+                        }
+                    }
+
+                    processor = config->getProcessor(groupTransform);
+                } catch (OCIO::Exception& e) {
+                    Debug::Log("ERROR creating LUT-only pipeline: " + std::string(e.what()));
+                    // Fallback to simple display transform
+                    OCIO::DisplayViewTransformRcPtr transform = OCIO::DisplayViewTransform::Create();
+                    transform->setSrc(src_colorspace.c_str());
+                    transform->setDisplay(display.c_str());
+                    transform->setView(view.c_str());
+                    processor = config->getProcessor(transform);
+                }
             } else {
-                Debug::Log("WARNING: No valid looks found, falling back to display-view only");
-                // Create DisplayViewTransform without additional looks
+                Debug::Log("WARNING: No valid looks or LUT files found, using display-view only");
+                // Create DisplayViewTransform without additional looks or LUTs
                 OCIO::DisplayViewTransformRcPtr transform = OCIO::DisplayViewTransform::Create();
                 transform->setSrc(src_colorspace.c_str());
                 transform->setDisplay(display.c_str());

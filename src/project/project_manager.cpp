@@ -3582,8 +3582,8 @@ namespace ump {
                 double duration_seconds = video_meta->total_frames / video_meta->frame_rate;
                 int64_t duration_ms = static_cast<int64_t>(duration_seconds * 1000.0);
 
-                // Calculate timecode (HH:MM:SS:FF)
-                int total_frames_tc = video_meta->total_frames;
+                // Calculate timecode (HH:MM:SS:FF) - show last frame's timecode (0-indexed)
+                int total_frames_tc = video_meta->total_frames - 1;
                 int fps_rounded = static_cast<int>(video_meta->frame_rate + 0.5);
                 int frames = total_frames_tc % fps_rounded;
                 int total_seconds = total_frames_tc / fps_rounded;

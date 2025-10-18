@@ -11,6 +11,8 @@ namespace ump {
     enum class NodeType {
         INPUT_COLORSPACE,
         LOOK,
+        SCENE_LUT,      // LUT applied before display transform (scene-referred)
+        DISPLAY_LUT,    // LUT applied after display transform (display-referred)
         TRANSFORM,
         CDL,
         OUTPUT_DISPLAY
@@ -125,6 +127,44 @@ namespace ump {
         std::string view_name;
 
         void UpdateTitle();
+    };
+
+    // Scene-Referred LUT (applied before display transform)
+    class SceneLUTNode : public NodeBase {
+    public:
+        SceneLUTNode(int node_id, const std::string& lut_path);
+
+        void Render() override;
+        void UpdateProperties() override;
+        ImU32 GetTitleColor() const override;
+        ImU32 GetTitleColorSelected() const override;
+
+        const std::string& GetLUTPath() const { return lut_file_path; }
+        const std::string& GetLUTFileName() const { return lut_filename; }
+        void SetLUTPath(const std::string& path);
+
+    private:
+        std::string lut_file_path;   // Full path
+        std::string lut_filename;    // Display name (filename only)
+    };
+
+    // Display-Referred LUT (applied after display transform)
+    class DisplayLUTNode : public NodeBase {
+    public:
+        DisplayLUTNode(int node_id, const std::string& lut_path);
+
+        void Render() override;
+        void UpdateProperties() override;
+        ImU32 GetTitleColor() const override;
+        ImU32 GetTitleColorSelected() const override;
+
+        const std::string& GetLUTPath() const { return lut_file_path; }
+        const std::string& GetLUTFileName() const { return lut_filename; }
+        void SetLUTPath(const std::string& path);
+
+    private:
+        std::string lut_file_path;   // Full path
+        std::string lut_filename;    // Display name (filename only)
     };
 
 }
