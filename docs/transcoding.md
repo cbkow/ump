@@ -4,7 +4,7 @@ permalink: /transcoding/
 nav_order: 12
 ---
 
-# Transocoding Image Sequences or Videos
+# Transcoding Image Sequences or Videos
 
 ## Right click to add to Queue
 
@@ -18,8 +18,7 @@ To add a transcode to the **Queue Manager**, right-click on the file or files an
 
 ![Window](images/ump_mvIrWECryx.png)
 
-On the topic of RAM safety, there is also a System-Stats panel that could be helpful to diagnose performance issues. If your system surpasses 92% RAM capacity, this will automatically appear, and all memory options will cease until RAM has safely lowered. This will mean that you will not be able to play image sequences until RAM is free--they are 100% reliant on memory-mapping textures.
+Submitting will add to the **Queue Manager** and automatically begin transcoding.
 
 ![Window](images/ump_8IGPmFFudT.png)
 
-Submitting will add to the **Queue Manager** and automatically begin transcoding.
