@@ -110,6 +110,31 @@ namespace ump {
         // Initialize video cache manager
         video_cache_manager = std::make_unique<VideoCache>();
 
+        // Initialize transcode queue
+        transcode_queue_ = std::make_unique<TranscodeQueue>();
+        transcode_worker_pool_ = std::make_unique<TranscodeWorkerPool>(transcode_queue_.get(), 2);
+        transcode_queue_window_ = std::make_unique<TranscodeQueueWindow>(
+            transcode_queue_.get(),
+            transcode_worker_pool_.get()
+        );
+
+        // Set auto-save path
+        #ifdef _WIN32
+        std::string queue_save_path = std::string(getenv("USERPROFILE")) +
+            "\\.unionplayer\\transcode_queue.json";
+        #else
+        std::string queue_save_path = std::string(getenv("HOME")) +
+            "/.unionplayer/transcode_queue.json";
+        #endif
+
+        transcode_queue_->SetAutoSavePath(queue_save_path);
+        transcode_queue_->LoadQueue(queue_save_path);
+
+        // Start worker pool
+        transcode_worker_pool_->Start();
+
+        Debug::Log("ProjectManager: Transcode queue initialized");
+
         CreateNewBin("Videos");
         CreateNewBin("Audio");
         CreateNewBin("Images");
@@ -128,6 +153,23 @@ namespace ump {
     }
 
     ProjectManager::~ProjectManager() {
+        // Stop transcode workers
+        if (transcode_worker_pool_) {
+            transcode_worker_pool_->Stop();
+        }
+
+        // Save queue
+        if (transcode_queue_) {
+            #ifdef _WIN32
+            std::string queue_save_path = std::string(getenv("USERPROFILE")) +
+                "\\.unionplayer\\transcode_queue.json";
+            #else
+            std::string queue_save_path = std::string(getenv("HOME")) +
+                "/.unionplayer/transcode_queue.json";
+            #endif
+            transcode_queue_->SaveQueue(queue_save_path);
+        }
+
         StopVideoMetadataWorkerThread();
         StopAdobeWorkerThread();
     }
@@ -220,6 +262,7 @@ namespace ump {
                 item_obj["start_frame"] = item.start_frame;
                 item_obj["end_frame"] = item.end_frame;
                 item_obj["frame_rate"] = item.frame_rate;
+                item_obj["pipeline_mode"] = PipelineModeToString(item.pipeline_mode);
 
                 // EXR fields
                 item_obj["exr_layer"] = item.exr_layer;
@@ -350,6 +393,7 @@ namespace ump {
                     item.start_frame = item_json.value("start_frame", 1);
                     item.end_frame = item_json.value("end_frame", 1);
                     item.frame_rate = item_json.value("frame_rate", 24.0);
+                    item.pipeline_mode = StringToPipelineMode(item_json.value("pipeline_mode", "Normal"));
 
                     // EXR fields
                     item.exr_layer = item_json.value("exr_layer", "");
@@ -1082,6 +1126,9 @@ namespace ump {
             show_frame_rate_dialog = false;
             frame_rate_dialog_opened = false;
         }
+
+        // Transcode Settings Dialog
+        RenderTranscodeSettingsDialog();
     }
 
     void ProjectManager::CreatePropertiesSection() {
@@ -1343,6 +1390,28 @@ namespace ump {
         }
         ImGui::Separator();
 
+        // Transcode option - available for image sequences and videos
+        bool can_transcode = false;
+        if (selection_count > 0) {
+            // Check if any selected items are transcodable (sequences or videos)
+            for (const auto& selected_id : selected_media_items) {
+                auto selected_item = GetMediaItem(selected_id);
+                if (selected_item && (selected_item->type == MediaType::IMAGE_SEQUENCE ||
+                                      selected_item->type == MediaType::EXR_SEQUENCE ||
+                                      selected_item->type == MediaType::VIDEO)) {
+                    can_transcode = true;
+                    break;
+                }
+            }
+        }
+
+        if (ImGui::MenuItem("Add to Transcode Queue", "Ctrl+Shift+Q", false, can_transcode)) {
+            AddSelectedItemsToTranscodeQueue();
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::Separator();
+
         if (ImGui::MenuItem("Delete", "Del")) {
             DeleteSelectedItems();
             ImGui::CloseCurrentPopup();
@@ -1531,19 +1600,11 @@ namespace ump {
             Debug::Log("  - item.frame_rate = " + std::to_string(item.frame_rate));
 
             if (!sequence_files.empty() && item.frame_rate > 0.0) {
-                // Determine pipeline mode based on format
-                PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Default
-                size_t dot_pos = sequence_files[0].find_last_of('.');
-                if (dot_pos != std::string::npos) {
-                    std::string ext = sequence_files[0].substr(dot_pos);
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                    if (ext == ".tif" || ext == ".tiff") {
-                        pipeline_mode = PipelineMode::HDR_RES;  // TIFF sequences likely 16-bit
-                    }
-                }
+                // Use stored auto-detected pipeline mode from when sequence was added to project
+                PipelineMode pipeline_mode = item.pipeline_mode;
 
                 Debug::Log("LoadSingleMediaItem: Loading " + std::to_string(sequence_files.size()) +
-                           " files with pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
+                           " files with stored pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
 
                 // Load through DirectEXRCache with universal loader
                 Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
@@ -5144,40 +5205,42 @@ namespace ump {
         // Auto-detect pipeline mode from first image file (for all image sequences)
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Default
 
+        // Auto-detect pipeline mode from first file (for all sequence types)
+        if (!sequence_files.empty()) {
+            ump::ImageInfo img_info;
+            if (ump::GetImageInfo(sequence_files[0], img_info)) {
+                pipeline_mode = img_info.recommended_pipeline;
+                Debug::Log("ProcessImageSequence: Auto-detected pipeline mode: " +
+                          std::string(PipelineModeToString(pipeline_mode)) +
+                          " (" + std::to_string(img_info.bit_depth) + "-bit, " +
+                          (img_info.is_float ? "float" : "int") + ")");
+            } else {
+                // Fallback to safe default (8-bit Normal mode)
+                pipeline_mode = PipelineMode::NORMAL;
+                Debug::Log("ProcessImageSequence: Using safe fallback mode: NORMAL (8-bit)");
+            }
+        }
+
+        // Parse sequence for FFMPEG pattern (for both IMAGE_SEQUENCE and EXR_SEQUENCE)
+        // This is needed for transcode functionality
+        ump::ImageSequenceConfig ffmpeg_config =
+            ump::ImageSequencePatternConverter::ParseSequence(sequence_files, frame_rate, pipeline_mode);
+
+        if (ffmpeg_config.is_valid) {
+            Debug::Log("ProcessImageSequence: FFMPEG pattern: " + ffmpeg_config.ffmpeg_pattern);
+            Debug::Log("ProcessImageSequence: Pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
+
+            // Store the full FFmpeg pattern in MediaItem for transcode support
+            item.ffmpeg_pattern = ffmpeg_config.ffmpeg_pattern;
+            item.pipeline_mode = pipeline_mode;  // Store auto-detected pipeline mode
+        } else {
+            Debug::Log("ProcessImageSequence: Warning - FFMPEG pattern parsing failed");
+        }
+
         // === BRANCH A: FFMPEG CACHE PATH ===
         // For regular image sequences (not EXR), prepare FFMPEG cache configuration
         if (item.type == MediaType::IMAGE_SEQUENCE) {
-            Debug::Log("ProcessImageSequence: Preparing FFMPEG cache configuration");
-
-            // Auto-detect pipeline mode from first file
-            if (!sequence_files.empty()) {
-                ump::ImageInfo img_info;
-                if (ump::GetImageInfo(sequence_files[0], img_info)) {
-                    pipeline_mode = img_info.recommended_pipeline;
-                    Debug::Log("ProcessImageSequence: Auto-detected pipeline mode: " +
-                              std::string(PipelineModeToString(pipeline_mode)) +
-                              " (" + std::to_string(img_info.bit_depth) + "-bit, " +
-                              (img_info.is_float ? "float" : "int") + ")");
-                } else {
-                    // Fallback to safe default (8-bit Normal mode)
-                    pipeline_mode = PipelineMode::NORMAL;
-                    Debug::Log("ProcessImageSequence: Using safe fallback mode: NORMAL (8-bit)");
-                }
-            }
-
-            // Parse sequence for FFMPEG using our robust pattern converter
-            ump::ImageSequenceConfig ffmpeg_config =
-                ump::ImageSequencePatternConverter::ParseSequence(sequence_files, frame_rate, pipeline_mode);
-
-            if (ffmpeg_config.is_valid) {
-                Debug::Log("ProcessImageSequence: FFMPEG pattern: " + ffmpeg_config.ffmpeg_pattern);
-                Debug::Log("ProcessImageSequence: Pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
-
-                // Store the full FFmpeg pattern in MediaItem for later cache reconstruction
-                item.ffmpeg_pattern = ffmpeg_config.ffmpeg_pattern;
-            } else {
-                Debug::Log("ProcessImageSequence: Warning - FFMPEG pattern parsing failed");
-            }
+            Debug::Log("ProcessImageSequence: Preparing FFMPEG cache configuration for IMAGE_SEQUENCE");
         }
 
         // Add to project

@@ -209,7 +209,7 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
 
     if (pixel_data->gl_type == GL_HALF_FLOAT) {
         // EXR thumbnails - keep as half-float to preserve HDR data for OCIO color management
-        Debug::Log("ThumbnailCache: Generating HDR half-float thumbnail for frame " + std::to_string(frame));
+        //Debug::Log("ThumbnailCache: Generating HDR half-float thumbnail for frame " + std::to_string(frame));
 
         thumbnail_pixels.resize(thumb_width * thumb_height * 4 * sizeof(Imath::half));
         thumbnail_gl_type = GL_HALF_FLOAT;
@@ -340,8 +340,8 @@ void ThumbnailCache::ProcessPendingUploads() {
         return;  // Nothing to process
     }
 
-    Debug::Log("ThumbnailCache::ProcessPendingUploads: Processing " +
-               std::to_string(uploads_to_process.size()) + " pending thumbnails");
+   /* Debug::Log("ThumbnailCache::ProcessPendingUploads: Processing " +
+               std::to_string(uploads_to_process.size()) + " pending thumbnails");*/
 
     // Process uploads (create GL textures and add to cache)
     int uploaded_count = 0;
@@ -368,13 +368,13 @@ void ThumbnailCache::ProcessPendingUploads() {
             cache_[pending->frame] = std::move(entry);
             uploaded_count++;
 
-            Debug::Log("ThumbnailCache: Uploaded frame " + std::to_string(pending->frame) +
-                       " -> GL texture " + std::to_string(texture_id));
+            /*Debug::Log("ThumbnailCache: Uploaded frame " + std::to_string(pending->frame) +
+                       " -> GL texture " + std::to_string(texture_id));*/
         }
     }
 
-    Debug::Log("ThumbnailCache::ProcessPendingUploads: Uploaded " + std::to_string(uploaded_count) +
-               " thumbnails, cache now has " + std::to_string(cache_.size()) + " entries");
+   /* Debug::Log("ThumbnailCache::ProcessPendingUploads: Uploaded " + std::to_string(uploaded_count) +
+               " thumbnails, cache now has " + std::to_string(cache_.size()) + " entries");*/
 }
 
 void ThumbnailCache::EvictLRU() {

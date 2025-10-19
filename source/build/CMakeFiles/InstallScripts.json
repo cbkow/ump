@@ -1,0 +1,14 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/z_DevTemp/UnionPlayer/build/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/external/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/external/glfw/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/external/glfw/src/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/_deps/nfd-build/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/_deps/nfd-build/src/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/_deps/libharu-build/cmake_install.cmake",
+		"D:/z_DevTemp/UnionPlayer/build/_deps/libharu-build/src/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

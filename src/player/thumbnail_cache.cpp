@@ -209,7 +209,7 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
 
     if (pixel_data->gl_type == GL_HALF_FLOAT) {
         // EXR thumbnails - keep as half-float to preserve HDR data for OCIO color management
-        Debug::Log("ThumbnailCache: Generating HDR half-float thumbnail for frame " + std::to_string(frame));
+        //Debug::Log("ThumbnailCache: Generating HDR half-float thumbnail for frame " + std::to_string(frame));
 
         thumbnail_pixels.resize(thumb_width * thumb_height * 4 * sizeof(Imath::half));
         thumbnail_gl_type = GL_HALF_FLOAT;

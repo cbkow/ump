@@ -1,0 +1,170 @@
+#pragma once
+
+#include <string>
+#include <vector>
+#include <memory>
+#include <unordered_map>
+#include <chrono>
+
+#ifdef _WIN32
+#include <glad/gl.h>
+#else
+#include <GL/gl.h>
+#endif
+
+// OpenCL headers (optional)
+#ifdef OPENCL_AVAILABLE
+#ifdef __APPLE__
+#include <OpenCL/cl.h>
+#include <OpenCL/cl_gl.h>
+#else
+#include <CL/cl.h>
+#include <CL/cl_gl.h>
+#endif
+#endif
+
+// OpenCL type definitions when not available
+#ifndef OPENCL_AVAILABLE
+typedef void* cl_context;
+typedef void* cl_command_queue;
+typedef void* cl_program;
+typedef void* cl_kernel;
+typedef void* cl_device_id;
+typedef void* cl_mem;
+typedef int cl_int;
+typedef unsigned int cl_uint;
+typedef unsigned long cl_ulong;
+typedef unsigned int cl_device_type;
+#define CL_SUCCESS 0
+#define CL_DEVICE_TYPE_GPU 4
+#endif
+
+#include <half.h>
+
+namespace UnionPlayer {
+
+    // Forward declaration
+    struct EXRProcessedData;
+
+    // OpenCL configuration structure
+    struct OpenCLConfig {
+        bool enable_compute_acceleration = true;  // Enable OpenCL/CUDA processing
+        bool prefer_nvidia_cuda = true;           // Use CUDA when available on NVIDIA
+        int compute_threads = 4;                  // Parallel compute work groups (1-16)
+
+        bool IsValid() const {
+            return compute_threads >= 1 && compute_threads <= 16;
+        }
+    };
+
+    // OpenCL device information
+    struct OpenCLDeviceInfo {
+        cl_device_id device_id = nullptr;
+        std::string name;
+        std::string vendor;
+        std::string version;
+        cl_device_type type = CL_DEVICE_TYPE_GPU;
+        size_t max_work_group_size = 0;
+        cl_uint max_compute_units = 0;
+        cl_ulong global_memory_size = 0;
+        cl_ulong local_memory_size = 0;
+        bool supports_gl_sharing = false;
+        bool is_nvidia = false;
+        bool supports_cuda = false;
+    };
+
+    // OpenCL processing statistics
+    struct OpenCLStats {
+        size_t frames_processed = 0;
+        size_t total_processing_time_ms = 0;
+        size_t average_processing_time_ms = 0;
+        size_t memory_usage_bytes = 0;
+        bool opencl_active = false;
+        bool cuda_active = false;
+        std::string active_device_name;
+    };
+
+    class OpenCLEXRProcessor {
+    public:
+        OpenCLEXRProcessor();
+        virtual ~OpenCLEXRProcessor();
+
+        // Initialization and setup
+        bool Initialize(const OpenCLConfig& config);
+        void Shutdown();
+        bool IsInitialized() const { return is_initialized_; }
+
+        // Device detection and selection
+        std::vector<OpenCLDeviceInfo> GetAvailableDevices() const;
+        bool SelectDevice(const std::string& device_name = "");
+        OpenCLDeviceInfo GetCurrentDevice() const { return current_device_; }
+
+        // Main processing interface
+        virtual bool ProcessFrame(const EXRProcessedData& cpu_data, GLuint& gpu_texture);
+        virtual bool ProcessFrameAsync(const EXRProcessedData& cpu_data, GLuint& gpu_texture);
+
+        // Configuration management
+        void SetConfig(const OpenCLConfig& config);
+        OpenCLConfig GetConfig() const { return config_; }
+
+        // Statistics and monitoring
+        OpenCLStats GetStats() const;
+        void ResetStats();
+
+        // Utility methods
+        static bool IsOpenCLAvailable();
+        static std::vector<std::string> GetAvailableDeviceNames();
+
+    protected:
+        // OpenCL state
+        bool is_initialized_ = false;
+        cl_context context_ = nullptr;
+        cl_command_queue queue_ = nullptr;
+        cl_program program_ = nullptr;
+        cl_device_id device_ = nullptr;
+        OpenCLDeviceInfo current_device_;
+
+        // Configuration
+        OpenCLConfig config_;
+
+        // Kernels
+        cl_kernel pixel_conversion_kernel_ = nullptr;
+        cl_kernel texture_upload_kernel_ = nullptr;
+
+        // Memory buffers
+        cl_mem input_buffer_ = nullptr;   // Half-precision RGBA from CPU
+        cl_mem output_buffer_ = nullptr;  // Float-precision for GPU texture
+        size_t buffer_size_ = 0;
+
+        // Statistics
+        mutable OpenCLStats stats_;
+        mutable std::chrono::steady_clock::time_point last_stats_update_;
+
+        // OpenCL setup methods
+        virtual bool InitializeOpenCL();
+        virtual bool CreateContext();
+        virtual bool CreateCommandQueue();
+        virtual bool LoadKernels();
+        virtual bool CreateBuffers(size_t max_frame_size);
+
+        // Kernel management
+        bool LoadKernelFromSource(const std::string& kernel_source, const std::string& kernel_name, cl_kernel& kernel);
+        std::string GetKernelSource() const;
+
+        // Processing implementation
+        virtual bool ProcessPixelsOnGPU(const EXRProcessedData& cpu_data, float* output_pixels);
+        bool UploadToTexture(const float* processed_pixels, int width, int height, GLuint texture_id);
+
+        // Utility methods
+        void CleanupOpenCL();
+        void UpdateStats(size_t processing_time_ms);
+        std::string GetOpenCLErrorString(cl_int error) const;
+        bool CheckOpenCLError(cl_int error, const std::string& operation) const;
+
+        // Device selection helpers
+        bool IsDeviceNVIDIA(cl_device_id device) const;
+        bool SupportsGLSharing(cl_device_id device) const;
+        cl_device_id SelectBestDevice(const std::vector<cl_device_id>& devices) const;
+    };
+
+} // namespace UnionPlayer

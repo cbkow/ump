@@ -1,0 +1,103 @@
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <device_launch_parameters.h>
+
+// CUDA kernel for processing EXR pixels (half to float conversion with exposure)
+__global__ void process_exr_pixels_kernel(
+    const half* input_pixels,
+    float* output_pixels,
+    int width,
+    int height,
+    float exposure_multiplier
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int total_pixels = width * height;
+
+    if (idx >= total_pixels) return;
+
+    // Input pixels are stored as RGBA half-precision
+    int input_base = idx * 4;
+    int output_base = idx * 4;
+
+    // Convert half to float with exposure adjustment
+    output_pixels[output_base + 0] = __half2float(input_pixels[input_base + 0]) * exposure_multiplier; // R
+    output_pixels[output_base + 1] = __half2float(input_pixels[input_base + 1]) * exposure_multiplier; // G
+    output_pixels[output_base + 2] = __half2float(input_pixels[input_base + 2]) * exposure_multiplier; // B
+    output_pixels[output_base + 3] = __half2float(input_pixels[input_base + 3]);                       // A (no exposure on alpha)
+}
+
+// CUDA kernel for direct texture upload (when using CUDA-OpenGL interop)
+__global__ void direct_texture_upload_kernel(
+    const float* processed_pixels,
+    cudaSurfaceObject_t surface,
+    int width,
+    int height
+) {
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+
+    if (x >= width || y >= height) return;
+
+    int pixel_idx = (y * width + x) * 4;
+
+    // Load RGBA values
+    float4 pixel;
+    pixel.x = processed_pixels[pixel_idx + 0]; // R
+    pixel.y = processed_pixels[pixel_idx + 1]; // G
+    pixel.z = processed_pixels[pixel_idx + 2]; // B
+    pixel.w = processed_pixels[pixel_idx + 3]; // A
+
+    // Write directly to OpenGL texture surface
+    surf2Dwrite(pixel, surface, x * sizeof(float4), y);
+}
+
+// Host functions (C interface for C++ code)
+extern "C" {
+    void launch_process_exr_pixels_cuda(
+        const half* input_pixels,
+        float* output_pixels,
+        int width,
+        int height,
+        float exposure_multiplier,
+        cudaStream_t stream
+    ) {
+        int total_pixels = width * height;
+        int block_size = 256;
+        int grid_size = (total_pixels + block_size - 1) / block_size;
+
+        process_exr_pixels_kernel<<<grid_size, block_size, 0, stream>>>(
+            input_pixels, output_pixels, width, height, exposure_multiplier
+        );
+    }
+
+    void launch_direct_texture_upload_cuda(
+        const float* processed_pixels,
+        cudaArray_t texture_array,
+        int width,
+        int height,
+        cudaStream_t stream
+    ) {
+        // Create surface object for the texture array
+        cudaResourceDesc res_desc;
+        memset(&res_desc, 0, sizeof(res_desc));
+        res_desc.resType = cudaResourceTypeArray;
+        res_desc.res.array.array = texture_array;
+
+        cudaSurfaceObject_t surface;
+        cudaCreateSurfaceObject(&surface, &res_desc);
+
+        // Launch kernel with 2D blocks
+        dim3 block_size(16, 16);
+        dim3 grid_size(
+            (width + block_size.x - 1) / block_size.x,
+            (height + block_size.y - 1) / block_size.y
+        );
+
+        direct_texture_upload_kernel<<<grid_size, block_size, 0, stream>>>(
+            processed_pixels, surface, width, height
+        );
+
+        // Cleanup
+        cudaDestroySurfaceObject(surface);
+    }
+}

@@ -351,11 +351,11 @@ bool GetInfo(const std::string& path, ImageInfo& info) {
     png_destroy_read_struct(&png, &info_png, nullptr);
     fclose(fp);
 
-    Debug::Log("PNGLoader::GetInfo: " + path + " - " +
+    /*Debug::Log("PNGLoader::GetInfo: " + path + " - " +
                std::to_string(info.width) + "x" + std::to_string(info.height) +
                ", " + std::to_string(info.bit_depth) + "-bit, " +
                std::to_string(info.channels) + " channels -> " +
-               PipelineModeToString(info.recommended_pipeline));
+               PipelineModeToString(info.recommended_pipeline));*/
 
     return true;
 }
@@ -369,7 +369,7 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
 #endif
 
     if (!fp) {
-        Debug::Log("PNGLoader::Load: Failed to open " + path);
+        //Debug::Log("PNGLoader::Load: Failed to open " + path);
         return false;
     }
 
@@ -416,9 +416,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     if (bitDepth == 16) {
 #if defined(_WIN32) || defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         png_set_swap(png);  // Swap bytes for little-endian systems
-        Debug::Log("PNGLoader::Load: Applied png_set_swap() for little-endian 16-bit PNG");
+        //Debug::Log("PNGLoader::Load: Applied png_set_swap() for little-endian 16-bit PNG");
 #else
-        Debug::Log("PNGLoader::Load: No byte swap needed for big-endian system");
+        //Debug::Log("PNGLoader::Load: No byte swap needed for big-endian system");
 #endif
     }
 
@@ -429,9 +429,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     int final_channels = png_get_channels(png, info_png);
     int final_bit_depth = png_get_bit_depth(png, info_png);
     int color_type = png_get_color_type(png, info_png);
-    Debug::Log("PNGLoader::Load: After transformations - channels=" + std::to_string(final_channels) +
+  /*  Debug::Log("PNGLoader::Load: After transformations - channels=" + std::to_string(final_channels) +
                ", bit_depth=" + std::to_string(final_bit_depth) +
-               ", color_type=" + std::to_string(color_type));
+               ", color_type=" + std::to_string(color_type));*/
 
     // Allocate buffer for RGBA output
     size_t rowBytes = png_get_rowbytes(png, info_png);
@@ -450,17 +450,17 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
         bool found_nonzero = false;
         for (size_t i = 0; i < std::min(pixel_data.size() / 8, size_t(100)); i++) {
             if (pixels16[i*4] != 0 || pixels16[i*4+1] != 0 || pixels16[i*4+2] != 0) {
-                Debug::Log("PNGLoader::Load: First non-zero pixel at offset " + std::to_string(i) +
+               /* Debug::Log("PNGLoader::Load: First non-zero pixel at offset " + std::to_string(i) +
                            ": R=" + std::to_string(pixels16[i*4]) +
                            " G=" + std::to_string(pixels16[i*4+1]) +
                            " B=" + std::to_string(pixels16[i*4+2]) +
-                           " A=" + std::to_string(pixels16[i*4+3]));
+                           " A=" + std::to_string(pixels16[i*4+3]));*/
                 found_nonzero = true;
                 break;
             }
         }
         if (!found_nonzero) {
-            Debug::Log("PNGLoader::Load: First 100 pixels are all zeros");
+            //Debug::Log("PNGLoader::Load: First 100 pixels are all zeros");
         }
     }
 
@@ -471,9 +471,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     fclose(fp);
 
     size_t expected_size = width * height * 4 * ((bitDepth > 8) ? 2 : 1);
-    Debug::Log("PNGLoader::Load: Successfully loaded " + path + " -> " +
+ /*   Debug::Log("PNGLoader::Load: Successfully loaded " + path + " -> " +
                PipelineModeToString(mode) + ", pixel_data size: " + std::to_string(pixel_data.size()) +
-               " (expected: " + std::to_string(expected_size) + ")");
+               " (expected: " + std::to_string(expected_size) + ")");*/
 
     return true;
 }
@@ -1231,12 +1231,12 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
             default: break;
         }
 
-        Debug::Log("EXRImageLoader::LoadThumbnail: " + path +
-                   " (" + std::to_string(full_width) + "x" + std::to_string(full_height) + " → " +
-                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height) +
-                   ", skip=" + std::to_string(skip_factor) +
-                   ", " + std::string(is_tiled ? "TILED" : "SCANLINE") +
-                   ", compression=" + compression_name + ")");
+        //Debug::Log("EXRImageLoader::LoadThumbnail: " + path +
+        //           " (" + std::to_string(full_width) + "x" + std::to_string(full_height) + " → " +
+        //           std::to_string(thumb_width) + "x" + std::to_string(thumb_height) +
+        //           ", skip=" + std::to_string(skip_factor) +
+        //           ", " + std::string(is_tiled ? "TILED" : "SCANLINE") +
+        //           ", compression=" + compression_name + ")");
 
         // NOTE: DWAB uses 256-scanline blocks, so scanline-skipping is less efficient
         // (decompresses full blocks but only uses some scanlines). However, loading full
@@ -1270,7 +1270,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
 
         // Fallback to root-level channels if layer not found
         if (!chR && !layer_name_.empty()) {
-            Debug::Log("EXRImageLoader::LoadThumbnail: Layer '" + layer_name_ + "' not found, trying root channels");
+            //Debug::Log("EXRImageLoader::LoadThumbnail: Layer '" + layer_name_ + "' not found, trying root channels");
             channelR = "R";
             channelG = "G";
             channelB = "B";
@@ -1282,7 +1282,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
         }
 
         if (!chR || !chG || !chB) {
-            Debug::Log("EXRImageLoader::LoadThumbnail: Missing RGB channels for layer '" + layer_name_ + "'");
+            //Debug::Log("EXRImageLoader::LoadThumbnail: Missing RGB channels for layer '" + layer_name_ + "'");
             return nullptr;
         }
 
@@ -1335,13 +1335,13 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
             }
         }
 
-        Debug::Log("EXRImageLoader::LoadThumbnail: Success (half-float HDR) - " +
-                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height));
+        /*Debug::Log("EXRImageLoader::LoadThumbnail: Success (half-float HDR) - " +
+                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height));*/
 
         return result;
 
     } catch (const std::exception& e) {
-        Debug::Log("EXRImageLoader::LoadThumbnail: Exception - " + std::string(e.what()));
+        //Debug::Log("EXRImageLoader::LoadThumbnail: Exception - " + std::string(e.what()));
         return nullptr;
     }
 }

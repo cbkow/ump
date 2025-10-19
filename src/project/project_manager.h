@@ -13,7 +13,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
-#include <vector> 
+#include <vector>
 
 #include "media_item.h"
 #include "../metadata/adobe_metadata.h"
@@ -22,6 +22,9 @@
 #include "../player/frame_cache.h"
 #include "../player/image_sequence_config.h"
 #include "../utils/exr_layer_detector.h"
+#include "../transcode/transcode_queue.h"
+#include "../transcode/transcode_worker_pool.h"
+#include "../ui/transcode_queue_window.h"
 
 // Forward declarations
 class VideoPlayer;
@@ -315,6 +318,23 @@ namespace ump {
         // UI Dialog Management
         void HandleProjectDialogs();
 
+        // ========================================================================
+        // TRANSCODE QUEUE MANAGEMENT
+        // ========================================================================
+
+        void ShowTranscodeQueueWindow();
+        void ToggleTranscodeQueueWindow();
+        bool IsTranscodeQueueWindowOpen() const;
+        void RenderTranscodeQueueWindow();  // Call from main render loop
+        void AddSelectedItemsToTranscodeQueue();
+        void ShowTranscodeSettingsDialog();
+        TranscodeQueue* GetTranscodeQueue() { return transcode_queue_.get(); }
+        TranscodeWorkerPool* GetTranscodeWorkerPool() { return transcode_worker_pool_.get(); }
+
+        // OCIO node graph access (for extracting settings during transcode)
+        void SetNodeManager(void* node_mgr) { node_manager_ptr_ = node_mgr; }
+        void* GetNodeManager() const { return node_manager_ptr_; }
+
     private:
         // Constants
         static const int SEQUENCES_BIN_INDEX = 3;
@@ -334,6 +354,14 @@ namespace ump {
         bool user_cache_preference = true;            // User's saved preference (for restoration after codec auto-disable)
         bool cache_auto_disabled_for_codec = false;   // Track if cache was auto-disabled for H.264/H.265
         std::string current_video_codec = "";         // Track current video codec for logging
+
+        // Transcode queue management
+        std::unique_ptr<TranscodeQueue> transcode_queue_;
+        std::unique_ptr<TranscodeWorkerPool> transcode_worker_pool_;
+        std::unique_ptr<TranscodeQueueWindow> transcode_queue_window_;
+
+        // OCIO node manager (for extracting current OCIO settings)
+        void* node_manager_ptr_ = nullptr;
 
         // Project data
         std::string current_project_path;
@@ -381,6 +409,21 @@ namespace ump {
         int exr_transcode_max_width = 0;  // 0 = native
         int exr_transcode_compression = 4; // PIZ_COMPRESSION default
 
+        // Transcode settings dialog state
+        bool show_transcode_settings_dialog = false;
+        bool transcode_settings_dialog_opened = false;
+        struct TranscodeDialogSettings {
+            int codec_index = 0;  // 0=H.264, 1=H.265, 2=ProRes422LT, 3=ProRes422HQ, 4=ProRes4444
+            int crf = 18;
+            int preset_index = 2;  // 0=ultrafast, 1=fast, 2=slow, 3=veryslow
+            int priority_index = 1;  // 0=Low, 1=Normal, 2=High, 3=Urgent
+            int resolution_mode = 0;  // 0=Source, 1=4K, 2=1080p, 3=Custom
+            int custom_width = 1920;
+            int custom_height = 1080;
+            char output_directory[512] = "";
+            bool use_current_ocio = true;
+        } transcode_dialog_settings;
+
         // Metadata management
         std::unordered_map<std::string, CombinedMetadata> metadata_cache;
         std::queue<std::string> adobe_metadata_queue;
@@ -402,6 +445,10 @@ namespace ump {
         void CreateBinUI(ProjectBin& bin);
         void CreateMediaItemUI(const MediaItem& item);
         void CreateSequencesBinToolbar();
+
+        // Transcode dialogs
+        void RenderTranscodeSettingsDialog();
+        void ProcessAddToTranscodeQueue();
 
         // ========================================================================
         // MEDIA ITEM INTERACTION HANDLERS

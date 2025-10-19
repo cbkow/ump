@@ -1,0 +1,475 @@
+#include "cuda_exr_processor.h"
+#include "../utils/debug_utils.h"
+#include <algorithm>
+#include <chrono>
+
+namespace UnionPlayer {
+
+    CUDAEXRProcessor::CUDAEXRProcessor() {
+        Debug::Log("CUDAEXRProcessor: Constructor called");
+    }
+
+    CUDAEXRProcessor::~CUDAEXRProcessor() {
+        CleanupCUDAResources();
+    }
+
+    bool CUDAEXRProcessor::InitializeWithCUDA(const CUDAConfig& config) {
+        if (!config.IsValidCUDA()) {
+            Debug::Log("CUDAEXRProcessor: Invalid CUDA configuration");
+            return false;
+        }
+
+        cuda_config_ = config;
+
+        // Check if CUDA is available
+        if (!IsCUDAAvailable()) {
+            Debug::Log("CUDAEXRProcessor: CUDA not available, falling back to OpenCL");
+            return OpenCLEXRProcessor::Initialize(config);
+        }
+
+        // Initialize OpenCL first as fallback
+        if (!OpenCLEXRProcessor::Initialize(config)) {
+            Debug::Log("CUDAEXRProcessor: Failed to initialize OpenCL fallback");
+            return false;
+        }
+
+        // Initialize CUDA if requested and available
+        if (config.prefer_nvidia_cuda && current_device_.is_nvidia) {
+            if (InitializeCUDAResources()) {
+                cuda_initialized_ = true;
+                Debug::Log("CUDAEXRProcessor: CUDA initialization successful");
+            } else {
+                Debug::Log("CUDAEXRProcessor: CUDA initialization failed, using OpenCL");
+            }
+        }
+
+        return true;
+    }
+
+    bool CUDAEXRProcessor::IsCUDAAvailable() const {
+#ifdef CUDA_AVAILABLE
+        int device_count = 0;
+        cudaError_t error = cudaGetDeviceCount(&device_count);
+        return (error == cudaSuccess && device_count > 0);
+#else
+        return false;
+#endif
+    }
+
+    bool CUDAEXRProcessor::ProcessFrame(const EXRProcessedData& cpu_data, GLuint& gpu_texture) {
+        if (!is_initialized_) {
+            return false;
+        }
+
+        // Use CUDA if available and initialized
+        if (cuda_initialized_ && cuda_config_.prefer_nvidia_cuda) {
+            if (ProcessWithCUDA(cpu_data, gpu_texture)) {
+                return true;
+            } else {
+                Debug::Log("CUDAEXRProcessor: CUDA processing failed, falling back to OpenCL");
+                return FallbackToOpenCL(cpu_data, gpu_texture);
+            }
+        }
+
+        // Use OpenCL
+        return OpenCLEXRProcessor::ProcessFrame(cpu_data, gpu_texture);
+    }
+
+    bool CUDAEXRProcessor::ProcessFrameAsync(const EXRProcessedData& cpu_data, GLuint& gpu_texture) {
+        // CUDA streams provide better async processing
+        if (cuda_initialized_) {
+            return ProcessWithCUDA(cpu_data, gpu_texture);
+        }
+
+        return OpenCLEXRProcessor::ProcessFrameAsync(cpu_data, gpu_texture);
+    }
+
+#ifdef CUDA_AVAILABLE
+    bool CUDAEXRProcessor::InitializeCUDAResources() {
+        // Set optimal CUDA device
+        if (!SetOptimalCUDADevice()) {
+            return false;
+        }
+
+        // Create CUDA streams
+        if (!CreateCUDAStreams()) {
+            return false;
+        }
+
+        // Allocate initial buffers for 4K frames
+        size_t initial_buffer_size = 3840 * 2160 * 4 * sizeof(float);
+        if (!AllocateCUDABuffers(initial_buffer_size)) {
+            return false;
+        }
+
+        Debug::Log("CUDAEXRProcessor: CUDA resources initialized successfully");
+        return true;
+    }
+
+    bool CUDAEXRProcessor::CreateCUDAStreams() {
+        cudaError_t error;
+
+        error = cudaStreamCreate(&processing_stream_);
+        if (!CheckCUDAError("cudaStreamCreate(processing)")) {
+            return false;
+        }
+
+        error = cudaStreamCreate(&upload_stream_);
+        if (!CheckCUDAError("cudaStreamCreate(upload)")) {
+            return false;
+        }
+
+        Debug::Log("CUDAEXRProcessor: CUDA streams created successfully");
+        return true;
+    }
+
+    bool CUDAEXRProcessor::AllocateCUDABuffers(size_t buffer_size) {
+        cudaError_t error;
+
+        // Allocate input buffer for half-precision data
+        error = cudaMalloc(&cuda_input_buffer_, buffer_size / 2); // half precision
+        if (!CheckCUDAError("cudaMalloc(input_buffer)")) {
+            return false;
+        }
+
+        // Allocate output buffer for float-precision data
+        error = cudaMalloc(&cuda_output_buffer_, buffer_size); // float precision
+        if (!CheckCUDAError("cudaMalloc(output_buffer)")) {
+            return false;
+        }
+
+        cuda_buffer_size_ = buffer_size;
+        Debug::Log("CUDAEXRProcessor: CUDA buffers allocated - " + std::to_string(buffer_size) + " bytes");
+        return true;
+    }
+
+    bool CUDAEXRProcessor::ProcessWithCUDA(const EXRProcessedData& cpu_data, GLuint& gpu_texture) {
+        if (!cuda_initialized_) {
+            return false;
+        }
+
+        auto start_time = std::chrono::steady_clock::now();
+
+        // Check if we need to resize buffers
+        size_t required_size = cpu_data.width * cpu_data.height * 4 * sizeof(float);
+        if (required_size > cuda_buffer_size_) {
+            CleanupCUDAResources();
+            if (!AllocateCUDABuffers(required_size * 2)) { // 2x for future growth
+                return false;
+            }
+        }
+
+        // Process pixels with CUDA
+        std::vector<float> output_pixels(cpu_data.width * cpu_data.height * 4);
+        if (!ProcessPixelsWithCUDA(cpu_data, output_pixels.data())) {
+            return false;
+        }
+
+        // TODO: Integrate with texture pool or direct GL interop
+        gpu_texture = 0; // Placeholder
+
+        auto end_time = std::chrono::steady_clock::now();
+        auto processing_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+        UpdateCUDAStats(processing_time);
+        return true;
+    }
+
+    bool CUDAEXRProcessor::ProcessPixelsWithCUDA(const EXRProcessedData& cpu_data, float* output_pixels) {
+        cudaError_t error;
+
+        // Upload input data to GPU asynchronously
+        size_t input_size = cpu_data.pixels.size() * sizeof(half);
+        error = cudaMemcpyAsync(cuda_input_buffer_, cpu_data.pixels.data(), input_size,
+                              cudaMemcpyHostToDevice, processing_stream_);
+        if (!CheckCUDAError("cudaMemcpyAsync(input)")) {
+            return false;
+        }
+
+        // Launch CUDA kernel
+        float exposure_multiplier = 1.0f; // Default exposure
+        launch_process_exr_pixels_cuda(cuda_input_buffer_, cuda_output_buffer_,
+                                     cpu_data.width, cpu_data.height,
+                                     exposure_multiplier, processing_stream_);
+
+        // Check for kernel launch errors
+        error = cudaGetLastError();
+        if (!CheckCUDAError("CUDA kernel launch")) {
+            return false;
+        }
+
+        // Download results asynchronously
+        size_t output_size = cpu_data.width * cpu_data.height * 4 * sizeof(float);
+        error = cudaMemcpyAsync(output_pixels, cuda_output_buffer_, output_size,
+                              cudaMemcpyDeviceToHost, processing_stream_);
+        if (!CheckCUDAError("cudaMemcpyAsync(output)")) {
+            return false;
+        }
+
+        // Wait for completion
+        error = cudaStreamSynchronize(processing_stream_);
+        if (!CheckCUDAError("cudaStreamSynchronize")) {
+            return false;
+        }
+
+        return true;
+    }
+
+    bool CUDAEXRProcessor::SetOptimalCUDADevice() {
+        int device_count = 0;
+        cudaError_t error = cudaGetDeviceCount(&device_count);
+        if (!CheckCUDAError("cudaGetDeviceCount") || device_count == 0) {
+            return false;
+        }
+
+        int best_device = -1;
+        int best_score = -1;
+
+        for (int i = 0; i < device_count; ++i) {
+            cudaDeviceProp prop;
+            error = cudaGetDeviceProperties(&prop, i);
+            if (error != cudaSuccess) {
+                continue;
+            }
+
+            // Calculate device score
+            int score = prop.multiProcessorCount * 10 + prop.major * 100;
+
+            // Prefer devices with more memory
+            if (prop.totalGlobalMem > 2ULL * 1024 * 1024 * 1024) { // > 2GB
+                score += 50;
+            }
+
+            if (score > best_score) {
+                best_score = score;
+                best_device = i;
+            }
+        }
+
+        if (best_device == -1) {
+            return false;
+        }
+
+        error = cudaSetDevice(best_device);
+        if (!CheckCUDAError("cudaSetDevice")) {
+            return false;
+        }
+
+        active_cuda_device_ = best_device;
+
+        // Store device info
+        cudaDeviceProp prop;
+        cudaGetDeviceProperties(&prop, best_device);
+        cuda_device_.device_id = best_device;
+        cuda_device_.name = prop.name;
+        cuda_device_.total_memory = prop.totalGlobalMem;
+        cuda_device_.compute_capability_major = prop.major;
+        cuda_device_.compute_capability_minor = prop.minor;
+        cuda_device_.multiprocessor_count = prop.multiProcessorCount;
+        cuda_device_.is_available = true;
+
+        Debug::Log("CUDAEXRProcessor: Selected CUDA device " + std::to_string(best_device) +
+                   ": " + cuda_device_.name);
+        return true;
+    }
+
+    void CUDAEXRProcessor::CleanupCUDAResources() {
+        if (!cuda_initialized_) {
+            return;
+        }
+
+        if (texture_resource_ && gl_interop_registered_) {
+            cudaGraphicsUnregisterResource(texture_resource_);
+            gl_interop_registered_ = false;
+        }
+
+        if (cuda_input_buffer_) {
+            cudaFree(cuda_input_buffer_);
+            cuda_input_buffer_ = nullptr;
+        }
+
+        if (cuda_output_buffer_) {
+            cudaFree(cuda_output_buffer_);
+            cuda_output_buffer_ = nullptr;
+        }
+
+        if (processing_stream_) {
+            cudaStreamDestroy(processing_stream_);
+            processing_stream_ = nullptr;
+        }
+
+        if (upload_stream_) {
+            cudaStreamDestroy(upload_stream_);
+            upload_stream_ = nullptr;
+        }
+
+        cuda_buffer_size_ = 0;
+        cuda_initialized_ = false;
+
+        Debug::Log("CUDAEXRProcessor: CUDA resources cleaned up");
+    }
+
+    bool CUDAEXRProcessor::CheckCUDAError(const std::string& operation) const {
+        cudaError_t error = cudaGetLastError();
+        if (error != cudaSuccess) {
+            Debug::Log("CUDAEXRProcessor: " + operation + " failed: " + std::string(cudaGetErrorString(error)));
+            return false;
+        }
+        return true;
+    }
+
+    void CUDAEXRProcessor::UpdateCUDAStats(size_t processing_time_ms) {
+        cuda_stats_.frames_processed_cuda++;
+        cuda_stats_.cuda_processing_time_ms += processing_time_ms;
+        cuda_stats_.cuda_streams_active = (processing_stream_ != nullptr);
+
+        // Update memory usage
+        size_t free_memory, total_memory;
+        if (cudaMemGetInfo(&free_memory, &total_memory) == cudaSuccess) {
+            cuda_stats_.cuda_memory_used_bytes = total_memory - free_memory;
+        }
+    }
+
+    CUDAStats CUDAEXRProcessor::GetCUDAStats() const {
+        return cuda_stats_;
+    }
+
+    void CUDAEXRProcessor::ResetCUDAStats() {
+        cuda_stats_ = CUDAStats{};
+    }
+
+#else // !CUDA_AVAILABLE
+
+    bool CUDAEXRProcessor::InitializeCUDAResources() {
+        Debug::Log("CUDAEXRProcessor: CUDA not available at compile time");
+        return false;
+    }
+
+    bool CUDAEXRProcessor::CreateCUDAStreams() { return false; }
+    bool CUDAEXRProcessor::AllocateCUDABuffers(size_t) { return false; }
+    bool CUDAEXRProcessor::ProcessWithCUDA(const EXRProcessedData&, GLuint&) { return false; }
+    bool CUDAEXRProcessor::ProcessPixelsWithCUDA(const EXRProcessedData&, float*) { return false; }
+    bool CUDAEXRProcessor::SetOptimalCUDADevice() { return false; }
+    void CUDAEXRProcessor::CleanupCUDAResources() {}
+    bool CUDAEXRProcessor::CheckCUDAError(const std::string&) const { return false; }
+    void CUDAEXRProcessor::UpdateCUDAStats(size_t) {}
+
+    CUDAStats CUDAEXRProcessor::GetCUDAStats() const {
+        return CUDAStats{};
+    }
+
+    void CUDAEXRProcessor::ResetCUDAStats() {}
+
+#endif // CUDA_AVAILABLE
+
+    bool CUDAEXRProcessor::FallbackToOpenCL(const EXRProcessedData& cpu_data, GLuint& gpu_texture) {
+        Debug::Log("CUDAEXRProcessor: Using OpenCL fallback");
+        return OpenCLEXRProcessor::ProcessFrame(cpu_data, gpu_texture);
+    }
+
+    std::vector<CUDADeviceInfo> CUDAEXRProcessor::GetCUDADevices() const {
+        std::vector<CUDADeviceInfo> devices;
+
+#ifdef CUDA_AVAILABLE
+        int device_count = 0;
+        if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
+            return devices;
+        }
+
+        for (int i = 0; i < device_count; ++i) {
+            cudaDeviceProp prop;
+            if (cudaGetDeviceProperties(&prop, i) == cudaSuccess) {
+                CUDADeviceInfo info;
+                info.device_id = i;
+                info.name = prop.name;
+                info.total_memory = prop.totalGlobalMem;
+                info.compute_capability_major = prop.major;
+                info.compute_capability_minor = prop.minor;
+                info.multiprocessor_count = prop.multiProcessorCount;
+                info.is_available = true;
+                devices.push_back(info);
+            }
+        }
+#endif
+
+        return devices;
+    }
+
+    bool CUDAEXRProcessor::SelectCUDADevice(int device_id) {
+#ifdef CUDA_AVAILABLE
+        if (device_id >= 0 && cudaSetDevice(device_id) == cudaSuccess) {
+            active_cuda_device_ = device_id;
+            return true;
+        }
+#endif
+        return false;
+    }
+
+    void CUDAEXRProcessor::SetCUDAConfig(const CUDAConfig& config) {
+        if (config.IsValidCUDA()) {
+            cuda_config_ = config;
+        }
+    }
+
+    bool CUDAEXRProcessor::IsSystemCUDACapable() {
+#ifdef CUDA_AVAILABLE
+        int device_count = 0;
+        cudaError_t error = cudaGetDeviceCount(&device_count);
+        return (error == cudaSuccess && device_count > 0);
+#else
+        return false;
+#endif
+    }
+
+    std::vector<std::string> CUDAEXRProcessor::GetCUDADeviceNames() {
+        std::vector<std::string> names;
+
+#ifdef CUDA_AVAILABLE
+        int device_count = 0;
+        if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
+            return names;
+        }
+
+        for (int i = 0; i < device_count; ++i) {
+            cudaDeviceProp prop;
+            if (cudaGetDeviceProperties(&prop, i) == cudaSuccess) {
+                names.push_back(prop.name);
+            }
+        }
+#endif
+
+        return names;
+    }
+
+    int CUDAEXRProcessor::GetRecommendedCUDADevice() {
+#ifdef CUDA_AVAILABLE
+        int device_count = 0;
+        if (cudaGetDeviceCount(&device_count) != cudaSuccess || device_count == 0) {
+            return -1;
+        }
+
+        int best_device = -1;
+        int best_score = -1;
+
+        for (int i = 0; i < device_count; ++i) {
+            cudaDeviceProp prop;
+            if (cudaGetDeviceProperties(&prop, i) == cudaSuccess) {
+                int score = prop.multiProcessorCount * 10 + prop.major * 100;
+                if (prop.totalGlobalMem > 2ULL * 1024 * 1024 * 1024) {
+                    score += 50;
+                }
+
+                if (score > best_score) {
+                    best_score = score;
+                    best_device = i;
+                }
+            }
+        }
+
+        return best_device;
+#else
+        return -1;
+#endif
+    }
+
+} // namespace UnionPlayer

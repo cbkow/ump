@@ -1,6 +1,7 @@
 #include "image_loaders.h"
 #include "video_player.h"  // For PipelineModeToString
 #include "direct_exr_cache.h"  // For MemoryMappedIStream
+#include "media_background_extractor.h"  // For ConversionStrategy
 #include "../utils/debug_utils.h"
 
 #include <tiffio.h>
@@ -351,11 +352,11 @@ bool GetInfo(const std::string& path, ImageInfo& info) {
     png_destroy_read_struct(&png, &info_png, nullptr);
     fclose(fp);
 
-    Debug::Log("PNGLoader::GetInfo: " + path + " - " +
+    /*Debug::Log("PNGLoader::GetInfo: " + path + " - " +
                std::to_string(info.width) + "x" + std::to_string(info.height) +
                ", " + std::to_string(info.bit_depth) + "-bit, " +
                std::to_string(info.channels) + " channels -> " +
-               PipelineModeToString(info.recommended_pipeline));
+               PipelineModeToString(info.recommended_pipeline));*/
 
     return true;
 }
@@ -369,7 +370,7 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
 #endif
 
     if (!fp) {
-        Debug::Log("PNGLoader::Load: Failed to open " + path);
+        //Debug::Log("PNGLoader::Load: Failed to open " + path);
         return false;
     }
 
@@ -416,9 +417,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     if (bitDepth == 16) {
 #if defined(_WIN32) || defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
         png_set_swap(png);  // Swap bytes for little-endian systems
-        Debug::Log("PNGLoader::Load: Applied png_set_swap() for little-endian 16-bit PNG");
+        //Debug::Log("PNGLoader::Load: Applied png_set_swap() for little-endian 16-bit PNG");
 #else
-        Debug::Log("PNGLoader::Load: No byte swap needed for big-endian system");
+        //Debug::Log("PNGLoader::Load: No byte swap needed for big-endian system");
 #endif
     }
 
@@ -429,9 +430,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     int final_channels = png_get_channels(png, info_png);
     int final_bit_depth = png_get_bit_depth(png, info_png);
     int color_type = png_get_color_type(png, info_png);
-    Debug::Log("PNGLoader::Load: After transformations - channels=" + std::to_string(final_channels) +
+  /*  Debug::Log("PNGLoader::Load: After transformations - channels=" + std::to_string(final_channels) +
                ", bit_depth=" + std::to_string(final_bit_depth) +
-               ", color_type=" + std::to_string(color_type));
+               ", color_type=" + std::to_string(color_type));*/
 
     // Allocate buffer for RGBA output
     size_t rowBytes = png_get_rowbytes(png, info_png);
@@ -450,17 +451,17 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
         bool found_nonzero = false;
         for (size_t i = 0; i < std::min(pixel_data.size() / 8, size_t(100)); i++) {
             if (pixels16[i*4] != 0 || pixels16[i*4+1] != 0 || pixels16[i*4+2] != 0) {
-                Debug::Log("PNGLoader::Load: First non-zero pixel at offset " + std::to_string(i) +
+               /* Debug::Log("PNGLoader::Load: First non-zero pixel at offset " + std::to_string(i) +
                            ": R=" + std::to_string(pixels16[i*4]) +
                            " G=" + std::to_string(pixels16[i*4+1]) +
                            " B=" + std::to_string(pixels16[i*4+2]) +
-                           " A=" + std::to_string(pixels16[i*4+3]));
+                           " A=" + std::to_string(pixels16[i*4+3]));*/
                 found_nonzero = true;
                 break;
             }
         }
         if (!found_nonzero) {
-            Debug::Log("PNGLoader::Load: First 100 pixels are all zeros");
+            //Debug::Log("PNGLoader::Load: First 100 pixels are all zeros");
         }
     }
 
@@ -471,9 +472,9 @@ bool Load(const std::string& path, std::vector<uint8_t>& pixel_data,
     fclose(fp);
 
     size_t expected_size = width * height * 4 * ((bitDepth > 8) ? 2 : 1);
-    Debug::Log("PNGLoader::Load: Successfully loaded " + path + " -> " +
+ /*   Debug::Log("PNGLoader::Load: Successfully loaded " + path + " -> " +
                PipelineModeToString(mode) + ", pixel_data size: " + std::to_string(pixel_data.size()) +
-               " (expected: " + std::to_string(expected_size) + ")");
+               " (expected: " + std::to_string(expected_size) + ")");*/
 
     return true;
 }
@@ -1231,12 +1232,12 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
             default: break;
         }
 
-        Debug::Log("EXRImageLoader::LoadThumbnail: " + path +
-                   " (" + std::to_string(full_width) + "x" + std::to_string(full_height) + " → " +
-                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height) +
-                   ", skip=" + std::to_string(skip_factor) +
-                   ", " + std::string(is_tiled ? "TILED" : "SCANLINE") +
-                   ", compression=" + compression_name + ")");
+        //Debug::Log("EXRImageLoader::LoadThumbnail: " + path +
+        //           " (" + std::to_string(full_width) + "x" + std::to_string(full_height) + " → " +
+        //           std::to_string(thumb_width) + "x" + std::to_string(thumb_height) +
+        //           ", skip=" + std::to_string(skip_factor) +
+        //           ", " + std::string(is_tiled ? "TILED" : "SCANLINE") +
+        //           ", compression=" + compression_name + ")");
 
         // NOTE: DWAB uses 256-scanline blocks, so scanline-skipping is less efficient
         // (decompresses full blocks but only uses some scanlines). However, loading full
@@ -1270,7 +1271,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
 
         // Fallback to root-level channels if layer not found
         if (!chR && !layer_name_.empty()) {
-            Debug::Log("EXRImageLoader::LoadThumbnail: Layer '" + layer_name_ + "' not found, trying root channels");
+            //Debug::Log("EXRImageLoader::LoadThumbnail: Layer '" + layer_name_ + "' not found, trying root channels");
             channelR = "R";
             channelG = "G";
             channelB = "B";
@@ -1282,7 +1283,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
         }
 
         if (!chR || !chG || !chB) {
-            Debug::Log("EXRImageLoader::LoadThumbnail: Missing RGB channels for layer '" + layer_name_ + "'");
+            //Debug::Log("EXRImageLoader::LoadThumbnail: Missing RGB channels for layer '" + layer_name_ + "'");
             return nullptr;
         }
 
@@ -1335,13 +1336,13 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
             }
         }
 
-        Debug::Log("EXRImageLoader::LoadThumbnail: Success (half-float HDR) - " +
-                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height));
+        /*Debug::Log("EXRImageLoader::LoadThumbnail: Success (half-float HDR) - " +
+                   std::to_string(thumb_width) + "x" + std::to_string(thumb_height));*/
 
         return result;
 
     } catch (const std::exception& e) {
-        Debug::Log("EXRImageLoader::LoadThumbnail: Exception - " + std::string(e.what()));
+        //Debug::Log("EXRImageLoader::LoadThumbnail: Exception - " + std::string(e.what()));
         return nullptr;
     }
 }
@@ -1361,6 +1362,9 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/imgutils.h>
 #include <libswscale/swscale.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
+#include <libavfilter/buffersink.h>
 }
 
 VideoImageLoader::VideoImageLoader(const std::string& video_path, double fps, double duration)
@@ -1385,6 +1389,19 @@ VideoImageLoader::VideoImageLoader(const std::string& video_path, double fps, do
 
 VideoImageLoader::~VideoImageLoader() {
     CleanupFFmpeg();
+}
+
+void VideoImageLoader::SetConversionStrategy(const ConversionStrategy& strategy) {
+    std::lock_guard<std::mutex> lock(ffmpeg_mutex_);
+    conversion_strategy_ = std::make_unique<ConversionStrategy>(strategy);
+    has_conversion_strategy_ = true;
+    Debug::Log("VideoImageLoader::SetConversionStrategy: " + strategy.GetDescription());
+}
+
+void VideoImageLoader::ClearConversionStrategy() {
+    std::lock_guard<std::mutex> lock(ffmpeg_mutex_);
+    conversion_strategy_.reset();
+    has_conversion_strategy_ = false;
 }
 
 bool VideoImageLoader::InitializeFFmpeg() {
@@ -1486,8 +1503,8 @@ std::shared_ptr<PixelData> VideoImageLoader::LoadThumbnail(const std::string& pa
         return nullptr;
     }
 
-    Debug::Log("VideoImageLoader::LoadThumbnail: Extracting frame " + std::to_string(frame_number) +
-               " at max_size=" + std::to_string(max_size));
+    //Debug::Log("VideoImageLoader::LoadThumbnail: Extracting frame " + std::to_string(frame_number) +
+    //           " at max_size=" + std::to_string(max_size));
 
     // Extract at thumbnail resolution
     return ExtractFrame(frame_number, PipelineMode::NORMAL, max_size);
@@ -1532,9 +1549,9 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
         return nullptr;
     }
 
-    Debug::Log("VideoImageLoader::ExtractFrame: Successfully extracted frame " + std::to_string(frame_number) +
+    /*Debug::Log("VideoImageLoader::ExtractFrame: Successfully extracted frame " + std::to_string(frame_number) +
                " -> " + std::to_string(result->width) + "x" + std::to_string(result->height) +
-               ", " + std::to_string(result->pixels.size()) + " bytes");
+               ", " + std::to_string(result->pixels.size()) + " bytes");*/
 
     av_frame_free(&frame);
     return result;
@@ -1590,6 +1607,12 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         return false;
     }
 
+    // Log source frame format
+    const char* format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
+    Debug::Log("VideoImageLoader: Source frame format: " + std::string(format_name ? format_name : "unknown") +
+               ", colorspace=" + std::to_string(frame->colorspace) +
+               ", color_range=" + std::to_string(frame->color_range));
+
     // Calculate output dimensions
     if (max_size > 0) {
         // Scale to fit within max_size
@@ -1632,6 +1655,235 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
     if (!sws_ctx) {
         av_frame_free(&target_frame);
         return false;
+    }
+
+    // ============================================================================
+    // NEW: FILTER_422 mode - Use libavfilter colorspace filter (ProRes 422)
+    // ============================================================================
+    if (has_conversion_strategy_ && conversion_strategy_->ShouldUseFilter422()) {
+        Debug::Log("VideoImageLoader: FILTER_422 mode - using libavfilter colorspace filter");
+
+        // Setup filter graph: buffersrc -> colorspace -> buffersink
+        AVFilterGraph* filter_graph = avfilter_graph_alloc();
+        if (!filter_graph) {
+            Debug::Log("VideoImageLoader: Failed to allocate filter graph");
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Create buffer source (input)
+        const AVFilter* buffersrc = avfilter_get_by_name("buffer");
+        AVFilterContext* buffersrc_ctx = nullptr;
+
+        char args[512];
+        snprintf(args, sizeof(args),
+            "video_size=%dx%d:pix_fmt=%d:time_base=1/1:pixel_aspect=1/1",
+            frame->width, frame->height, frame->format);
+
+        int ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, nullptr, filter_graph);
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to create buffer source: " + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Create buffer sink (output)
+        const AVFilter* buffersink = avfilter_get_by_name("buffersink");
+        AVFilterContext* buffersink_ctx = nullptr;
+
+        ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out", nullptr, nullptr, filter_graph);
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to create buffer sink: " + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Parse filter chain: colorspace + format conversion + optional scale for thumbnails
+        AVFilterInOut* outputs = avfilter_inout_alloc();
+        AVFilterInOut* inputs = avfilter_inout_alloc();
+
+        outputs->name = av_strdup("in");
+        outputs->filter_ctx = buffersrc_ctx;
+        outputs->pad_idx = 0;
+        outputs->next = nullptr;
+
+        inputs->name = av_strdup("out");
+        inputs->filter_ctx = buffersink_ctx;
+        inputs->pad_idx = 0;
+        inputs->next = nullptr;
+
+        // Build filter description with explicit colorspace parameters + format + optional scaling
+        // Be explicit: space (matrix), primaries, transfer (gamma), and range
+        // Input: BT.709 YUV, limited range (64-940 for 10-bit), BT.709 primaries, BT.709 transfer
+        // Output: BT.709 RGB, full range (0-255), BT.709 primaries, BT.709 transfer
+        char filter_descr[512];
+        if (width != frame->width || height != frame->height) {
+            // Need scaling for thumbnails
+            snprintf(filter_descr, sizeof(filter_descr),
+                "colorspace=space=bt709:primaries=bt709:trc=bt709:range=pc:ispace=bt709:iprimaries=bt709:itrc=bt709:irange=tv,format=rgba,scale=%d:%d:flags=bilinear",
+                width, height);
+            Debug::Log("VideoImageLoader: Applying filter chain with scaling: " + std::string(filter_descr));
+        } else {
+            // No scaling needed
+            snprintf(filter_descr, sizeof(filter_descr),
+                "colorspace=space=bt709:primaries=bt709:trc=bt709:range=pc:ispace=bt709:iprimaries=bt709:itrc=bt709:irange=tv,format=rgba");
+            Debug::Log("VideoImageLoader: Applying filter chain: " + std::string(filter_descr));
+        }
+
+        ret = avfilter_graph_parse_ptr(filter_graph, filter_descr, &inputs, &outputs, nullptr);
+        avfilter_inout_free(&inputs);
+        avfilter_inout_free(&outputs);
+
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to parse filter graph: " + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        ret = avfilter_graph_config(filter_graph, nullptr);
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to configure filter graph: " + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Push frame into filter graph
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to push frame to filter: " + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Pull filtered frame from filter graph
+        AVFrame* filtered_frame = av_frame_alloc();
+        ret = av_buffersink_get_frame(buffersink_ctx, filtered_frame);
+        if (ret < 0) {
+            Debug::Log("VideoImageLoader: Failed to pull filtered frame: " + std::to_string(ret));
+            av_frame_free(&filtered_frame);
+            avfilter_graph_free(&filter_graph);
+            sws_freeContext(sws_ctx);
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Copy filtered pixel data to output buffer
+        size_t data_size = width * height * bytes_per_pixel;
+        pixels.resize(data_size);
+
+        if (filtered_frame->format == target_format) {
+            std::memcpy(pixels.data(), filtered_frame->data[0], data_size);
+            Debug::Log("VideoImageLoader: FILTER_422 conversion successful");
+        } else {
+            Debug::Log("VideoImageLoader: WARNING - Filtered frame format mismatch, expected " +
+                      std::to_string(target_format) + ", got " + std::to_string(filtered_frame->format));
+        }
+
+        // Cleanup
+        av_frame_free(&filtered_frame);
+        avfilter_graph_free(&filter_graph);
+        sws_freeContext(sws_ctx);
+        av_frame_free(&target_frame);
+
+        return true;  // FILTER_422 path complete - skip swscale below
+    }
+
+    // ============================================================================
+    // Standard path: Use swscale for other formats (4444, 420, etc.)
+    // ============================================================================
+
+    // NEW: Apply color matrix conversion if strategy exists (ProRes 4444/422 support)
+    if (has_conversion_strategy_ && conversion_strategy_->ShouldApplyColorMatrix()) {
+        const int* src_coefficients = nullptr;
+        const int* dst_coefficients = nullptr;
+
+        // CRITICAL: ProRes 422/4444 data IS limited range (64-940 for 10-bit)
+        // Expand to full-range RGB (swscale always outputs full-range RGB)
+        int src_range = 0;  // Limited range input (AVCOL_RANGE_MPEG, 64-940 for 10-bit)
+        int dst_range = 1;  // Full range output (RGB is always full range 0-255)
+
+        Debug::Log("VideoImageLoader: Limited->Full range expansion - frame->color_range=" +
+                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");
+
+        if (conversion_strategy_->ShouldApplyFullMatrix()) {
+            // FULL_MATRIX mode: YUV→RGB colorspace conversion (4444 formats)
+            // Source: YUV colorspace (BT.709, BT.601, etc.)
+            // Destination: RGB colorspace (SWS_CS_DEFAULT = 2, which is BT.709 RGB)
+            src_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);
+            dst_coefficients = sws_getCoefficients(SWS_CS_DEFAULT);  // RGB output
+            Debug::Log("VideoImageLoader: Applying FULL_MATRIX YUV→RGB conversion (src_colorspace=" +
+                      std::to_string(conversion_strategy_->source_colorspace) +
+                      " [YUV], dst_colorspace=" + std::to_string(SWS_CS_DEFAULT) + " [RGB]" +
+                      ", src_range=" + std::to_string(src_range) + ")");
+        } else if (conversion_strategy_->ShouldApplyMatrixOnly()) {
+            // MATRIX_ONLY mode: Explicit color matrix for ProRes 422
+            // Set the colorspace matrix explicitly (BT.709 YUV -> RGB)
+            // Let swscale handle range conversion automatically
+            src_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);
+            dst_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);  // Same for YUV->RGB
+            Debug::Log("VideoImageLoader: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
+                      std::to_string(conversion_strategy_->source_colorspace) + " [BT.709])");
+        } else if (conversion_strategy_->ShouldApplyRangeOnly()) {
+            // RANGE_ONLY mode: Range conversion only (420 formats)
+            // Let swscale use default YUV->RGB conversion
+            Debug::Log("VideoImageLoader: Applying RANGE_ONLY mode (420 format)");
+        }
+
+        if (src_coefficients && dst_coefficients) {
+            int brightness = 0;
+            int contrast = (1 << 16);     // 65536 = 1.0x contrast
+            int saturation = (1 << 16);   // 65536 = 1.0x saturation
+
+            int result = sws_setColorspaceDetails(
+                sws_ctx,
+                src_coefficients, src_range,
+                dst_coefficients, dst_range,
+                brightness, contrast, saturation
+            );
+
+            if (result < 0) {
+                Debug::Log("VideoImageLoader: WARNING - sws_setColorspaceDetails failed, result=" + std::to_string(result));
+            } else {
+                Debug::Log("VideoImageLoader: Color matrix applied successfully");
+
+                // Verify it was applied by reading it back
+                const int* read_src_coeff = nullptr;
+                const int* read_dst_coeff = nullptr;
+                int read_src_range = -1, read_dst_range = -1;
+                int read_brightness = -1, read_contrast = -1, read_saturation = -1;
+
+                int verify_result = sws_getColorspaceDetails(sws_ctx,
+                    (int**)&read_src_coeff, &read_src_range,
+                    (int**)&read_dst_coeff, &read_dst_range,
+                    &read_brightness, &read_contrast, &read_saturation);
+
+                if (verify_result >= 0) {
+                    Debug::Log("VideoImageLoader: Verified color matrix - src_range=" + std::to_string(read_src_range) +
+                              ", dst_range=" + std::to_string(read_dst_range) +
+                              ", brightness=" + std::to_string(read_brightness) +
+                              ", contrast=" + std::to_string(read_contrast) +
+                              ", saturation=" + std::to_string(read_saturation));
+                } else {
+                    Debug::Log("VideoImageLoader: WARNING - Could not verify color matrix, result=" + std::to_string(verify_result));
+                }
+            }
+        }
+    } else {
+        Debug::Log("VideoImageLoader: NOT applying color matrix - has_strategy=" +
+                  std::string(has_conversion_strategy_ ? "true" : "false") +
+                  ", should_apply=" +
+                  std::string(has_conversion_strategy_ && conversion_strategy_->ShouldApplyColorMatrix() ? "true" : "false"));
     }
 
     // Convert

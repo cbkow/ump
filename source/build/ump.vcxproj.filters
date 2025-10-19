@@ -55,6 +55,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -103,6 +106,30 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager_transcode.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\ffmpeg_video_encoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\ocio_cpu_transform.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\sequential_frame_loader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_job.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_queue.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_worker_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_transcoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -110,6 +137,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\transcode_queue_window.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.cpp">
@@ -183,6 +213,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -237,6 +270,27 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\ffmpeg_video_encoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\ocio_cpu_transform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\sequential_frame_loader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_job.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_queue.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_worker_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_transcoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -244,6 +298,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\transcode_queue_window.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\debug_utils.h">
@@ -264,10 +321,7 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-<<<<<<< HEAD
-    <ClInclude Include="resource.h" />
-=======
->>>>>>> parent of a803492 (v0.1.4fix)
+    <ClInclude Include="resource1.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -280,14 +334,10 @@
       <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
-<<<<<<< HEAD
   <ItemGroup>
-    <ResourceCompile Include="ump.rc" />
+    <ResourceCompile Include="ump1.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
 </Project>
-=======
-</Project>
->>>>>>> parent of a803492 (v0.1.4fix)
