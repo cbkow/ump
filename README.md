@@ -14,6 +14,8 @@
  - embedded timecode for supported media
  - title-safety guides for standard broadcast and social-media deliverables
 
+ ![ump image](docs/images/ump_wNs9DrKMEV.png)
+
 ## Manual and documentation
 
 Feature walk-through and usage guide: [https://cbkow.github.io/ump/](https://cbkow.github.io/ump/).
