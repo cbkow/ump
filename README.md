@@ -14,7 +14,7 @@
  - embedded timecode for supported media
  - title-safety guides for standard broadcast and social-media deliverables
 
- ![ump image](docs/images/ump_wNs9DrKMEV.png)
+ ![ump image](docs/images/ump_i5TvQMwCtu.png)
 
 ## Manual and documentation
 
