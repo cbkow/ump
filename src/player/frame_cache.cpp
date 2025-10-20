@@ -666,6 +666,13 @@ bool FrameCache::TryCacheCurrentFrame(VideoPlayer* video_player) {
         return false;
     }
 
+    // OPTIMIZATION: Don't process frames if caching is disabled
+    // This prevents GL texture creation and cache operations when user disabled seek cache
+    // Fixes stuttering in playlist mode when cache is off
+    if (!caching_enabled.load()) {
+        return false;
+    }
+
     if (background_extractor && background_extractor->IsInitialized()) {
         // Only process completed frames from background extraction
         // Do NOT request new individual frames - let spiral caching handle everything
@@ -1064,6 +1071,13 @@ void FrameCache::SetVideoFile(const std::string& video_path, const VideoMetadata
 
     // Update video path
     current_video_path = video_path;
+
+    // OPTIMIZATION: Only initialize/start extractor if caching is enabled
+    // This prevents spawning 4+ worker threads when user has disabled Seek Cache
+    if (!caching_enabled.load()) {
+        Debug::Log("FrameCache: Caching disabled, skipping background extractor initialization for " + video_path);
+        return;  // Early return when cache disabled - no threads spawned
+    }
 
     // Initialize background extractor with new video
     // metadata can be nullptr - start immediately!

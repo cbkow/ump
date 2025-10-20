@@ -1609,9 +1609,9 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
 
     // Log source frame format
     const char* format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
-    Debug::Log("VideoImageLoader: Source frame format: " + std::string(format_name ? format_name : "unknown") +
-               ", colorspace=" + std::to_string(frame->colorspace) +
-               ", color_range=" + std::to_string(frame->color_range));
+    //Debug::Log("VideoImageLoader: Source frame format: " + std::string(format_name ? format_name : "unknown") +
+    //           ", colorspace=" + std::to_string(frame->colorspace) +
+    //           ", color_range=" + std::to_string(frame->color_range));
 
     // Calculate output dimensions
     if (max_size > 0) {
@@ -1727,12 +1727,12 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
             snprintf(filter_descr, sizeof(filter_descr),
                 "colorspace=space=bt709:primaries=bt709:trc=bt709:range=pc:ispace=bt709:iprimaries=bt709:itrc=bt709:irange=tv,format=rgba,scale=%d:%d:flags=bilinear",
                 width, height);
-            Debug::Log("VideoImageLoader: Applying filter chain with scaling: " + std::string(filter_descr));
+            //Debug::Log("VideoImageLoader: Applying filter chain with scaling: " + std::string(filter_descr));
         } else {
             // No scaling needed
             snprintf(filter_descr, sizeof(filter_descr),
                 "colorspace=space=bt709:primaries=bt709:trc=bt709:range=pc:ispace=bt709:iprimaries=bt709:itrc=bt709:irange=tv,format=rgba");
-            Debug::Log("VideoImageLoader: Applying filter chain: " + std::string(filter_descr));
+            //Debug::Log("VideoImageLoader: Applying filter chain: " + std::string(filter_descr));
         }
 
         ret = avfilter_graph_parse_ptr(filter_graph, filter_descr, &inputs, &outputs, nullptr);
@@ -1740,7 +1740,7 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         avfilter_inout_free(&outputs);
 
         if (ret < 0) {
-            Debug::Log("VideoImageLoader: Failed to parse filter graph: " + std::to_string(ret));
+            //Debug::Log("VideoImageLoader: Failed to parse filter graph: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
             sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
@@ -1749,7 +1749,7 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
 
         ret = avfilter_graph_config(filter_graph, nullptr);
         if (ret < 0) {
-            Debug::Log("VideoImageLoader: Failed to configure filter graph: " + std::to_string(ret));
+            //Debug::Log("VideoImageLoader: Failed to configure filter graph: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
             sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
@@ -1826,8 +1826,8 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         int src_range = 0;  // Limited range input (AVCOL_RANGE_MPEG, 64-940 for 10-bit)
         int dst_range = 1;  // Full range output (RGB is always full range 0-255)
 
-        Debug::Log("VideoImageLoader: Limited->Full range expansion - frame->color_range=" +
-                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");
+       /* Debug::Log("VideoImageLoader: Limited->Full range expansion - frame->color_range=" +
+                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");*/
 
         if (conversion_strategy_->ShouldApplyFullMatrix()) {
             // FULL_MATRIX mode: YUV→RGB colorspace conversion (4444 formats)
@@ -1835,22 +1835,22 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
             // Destination: RGB colorspace (SWS_CS_DEFAULT = 2, which is BT.709 RGB)
             src_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);
             dst_coefficients = sws_getCoefficients(SWS_CS_DEFAULT);  // RGB output
-            Debug::Log("VideoImageLoader: Applying FULL_MATRIX YUV→RGB conversion (src_colorspace=" +
+          /*  Debug::Log("VideoImageLoader: Applying FULL_MATRIX YUV→RGB conversion (src_colorspace=" +
                       std::to_string(conversion_strategy_->source_colorspace) +
                       " [YUV], dst_colorspace=" + std::to_string(SWS_CS_DEFAULT) + " [RGB]" +
-                      ", src_range=" + std::to_string(src_range) + ")");
+                      ", src_range=" + std::to_string(src_range) + ")");*/
         } else if (conversion_strategy_->ShouldApplyMatrixOnly()) {
             // MATRIX_ONLY mode: Explicit color matrix for ProRes 422
             // Set the colorspace matrix explicitly (BT.709 YUV -> RGB)
             // Let swscale handle range conversion automatically
             src_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);
             dst_coefficients = sws_getCoefficients(conversion_strategy_->source_colorspace);  // Same for YUV->RGB
-            Debug::Log("VideoImageLoader: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
-                      std::to_string(conversion_strategy_->source_colorspace) + " [BT.709])");
+          /*  Debug::Log("VideoImageLoader: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
+                      std::to_string(conversion_strategy_->source_colorspace) + " [BT.709])");*/
         } else if (conversion_strategy_->ShouldApplyRangeOnly()) {
             // RANGE_ONLY mode: Range conversion only (420 formats)
             // Let swscale use default YUV->RGB conversion
-            Debug::Log("VideoImageLoader: Applying RANGE_ONLY mode (420 format)");
+           /* Debug::Log("VideoImageLoader: Applying RANGE_ONLY mode (420 format)");*/
         }
 
         if (src_coefficients && dst_coefficients) {
@@ -1866,9 +1866,9 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
             );
 
             if (result < 0) {
-                Debug::Log("VideoImageLoader: WARNING - sws_setColorspaceDetails failed, result=" + std::to_string(result));
+                //Debug::Log("VideoImageLoader: WARNING - sws_setColorspaceDetails failed, result=" + std::to_string(result));
             } else {
-                Debug::Log("VideoImageLoader: Color matrix applied successfully");
+                //Debug::Log("VideoImageLoader: Color matrix applied successfully");
 
                 // Verify it was applied by reading it back
                 const int* read_src_coeff = nullptr;
@@ -1882,21 +1882,21 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
                     &read_brightness, &read_contrast, &read_saturation);
 
                 if (verify_result >= 0) {
-                    Debug::Log("VideoImageLoader: Verified color matrix - src_range=" + std::to_string(read_src_range) +
+                  /*  Debug::Log("VideoImageLoader: Verified color matrix - src_range=" + std::to_string(read_src_range) +
                               ", dst_range=" + std::to_string(read_dst_range) +
                               ", brightness=" + std::to_string(read_brightness) +
                               ", contrast=" + std::to_string(read_contrast) +
-                              ", saturation=" + std::to_string(read_saturation));
+                              ", saturation=" + std::to_string(read_saturation));*/
                 } else {
-                    Debug::Log("VideoImageLoader: WARNING - Could not verify color matrix, result=" + std::to_string(verify_result));
+                    //Debug::Log("VideoImageLoader: WARNING - Could not verify color matrix, result=" + std::to_string(verify_result));
                 }
             }
         }
     } else {
-        Debug::Log("VideoImageLoader: NOT applying color matrix - has_strategy=" +
+     /*   Debug::Log("VideoImageLoader: NOT applying color matrix - has_strategy=" +
                   std::string(has_conversion_strategy_ ? "true" : "false") +
                   ", should_apply=" +
-                  std::string(has_conversion_strategy_ && conversion_strategy_->ShouldApplyColorMatrix() ? "true" : "false"));
+                  std::string(has_conversion_strategy_ && conversion_strategy_->ShouldApplyColorMatrix() ? "true" : "false"));*/
     }
 
     // Convert

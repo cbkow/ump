@@ -241,6 +241,12 @@ void MediaBackgroundExtractor::StartBackgroundExtraction() {
     worker_threads.clear();
     for (int i = 0; i < config.max_concurrent_batches; ++i) {
         worker_threads.emplace_back(&MediaBackgroundExtractor::WorkerThread, this);
+
+        // Set thread priority to avoid competing with MPV for CPU and disk I/O
+        // This prevents hitching during playback startup
+#ifdef _WIN32
+        SetThreadPriority(worker_threads[i].native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
     }
 
     // Start with window-based caching around current position
@@ -759,12 +765,12 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
 
         // Log source frame properties for diagnostics
         const char* format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
-        Debug::Log("MediaBackgroundExtractor: Source frame format: " + std::string(format_name ? format_name : "unknown") +
+       /* Debug::Log("MediaBackgroundExtractor: Source frame format: " + std::string(format_name ? format_name : "unknown") +
                   ", colorspace=" + std::to_string(frame->colorspace) +
                   ", color_range=" + std::to_string(frame->color_range));
 
         Debug::Log("MediaBackgroundExtractor: Limited->Full range expansion - frame->color_range=" +
-                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");
+                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");*/
 
         if (conversion_strategy->ShouldApplyFullMatrix()) {
             // FULL_MATRIX mode: YUV->RGB colorspace conversion (4444 formats)
@@ -773,10 +779,10 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             src_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);
             dst_coefficients = sws_getCoefficients(SWS_CS_DEFAULT);  // RGB output
             processing_type = "FULL_MATRIX";
-            Debug::Log("MediaBackgroundExtractor: Applying FULL_MATRIX YUV->RGB conversion (src_colorspace=" +
+           /* Debug::Log("MediaBackgroundExtractor: Applying FULL_MATRIX YUV->RGB conversion (src_colorspace=" +
                       std::to_string(conversion_strategy->source_colorspace) +
                       " [YUV], dst_colorspace=" + std::to_string(SWS_CS_DEFAULT) + " [RGB]" +
-                      ", src_range=" + std::to_string(src_range) + ")");
+                      ", src_range=" + std::to_string(src_range) + ")");*/
         } else if (conversion_strategy->ShouldApplyMatrixOnly()) {
             // MATRIX_ONLY mode: Explicit color matrix for ProRes 422
             // Set the colorspace matrix explicitly (BT.709 YUV -> RGB)
@@ -784,13 +790,13 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             src_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);
             dst_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);  // Same for YUV->RGB
             processing_type = "MATRIX_ONLY";
-            Debug::Log("MediaBackgroundExtractor: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
-                      std::to_string(conversion_strategy->source_colorspace) + " [BT.709])");
+          /*  Debug::Log("MediaBackgroundExtractor: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
+                      std::to_string(conversion_strategy->source_colorspace) + " [BT.709])");*/
         } else if (conversion_strategy->ShouldApplyRangeOnly()) {
             // RANGE_ONLY mode: Range conversion only (420 formats)
             // Let swscale use default YUV->RGB conversion
             processing_type = "RANGE_ONLY";
-            Debug::Log("MediaBackgroundExtractor: Applying RANGE_ONLY mode (420 format)");
+           /* Debug::Log("MediaBackgroundExtractor: Applying RANGE_ONLY mode (420 format)");*/
         }
 
         if (src_coefficients && dst_coefficients) {
@@ -800,7 +806,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
                 0, 1 << 16, 1 << 16);            // Brightness, contrast, saturation
 
             if (ret >= 0) {
-                Debug::Log("MediaBackgroundExtractor: Color matrix applied successfully");
+              /*  Debug::Log("MediaBackgroundExtractor: Color matrix applied successfully");*/
 
                 // Verify it was applied by reading it back
                 const int* read_src_coeff = nullptr;
@@ -814,21 +820,21 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
                     &read_brightness, &read_contrast, &read_saturation);
 
                 if (verify_result >= 0) {
-                    Debug::Log("MediaBackgroundExtractor: Verified color matrix - src_range=" + std::to_string(read_src_range) +
+                    /*Debug::Log("MediaBackgroundExtractor: Verified color matrix - src_range=" + std::to_string(read_src_range) +
                               ", dst_range=" + std::to_string(read_dst_range) +
                               ", brightness=" + std::to_string(read_brightness) +
                               ", contrast=" + std::to_string(read_contrast) +
-                              ", saturation=" + std::to_string(read_saturation));
+                              ", saturation=" + std::to_string(read_saturation));*/
                 } else {
-                    Debug::Log("MediaBackgroundExtractor: Failed to verify color matrix settings");
+                    //Debug::Log("MediaBackgroundExtractor: Failed to verify color matrix settings");
                 }
             } else {
-                Debug::Log("MediaBackgroundExtractor: Failed to apply " + processing_type + ", ret=" + std::to_string(ret));
+                //Debug::Log("MediaBackgroundExtractor: Failed to apply " + processing_type + ", ret=" + std::to_string(ret));
             }
         } else {
-            Debug::Log("MediaBackgroundExtractor: ERROR - NULL coefficients for " + processing_type + "! src=" +
+           /* Debug::Log("MediaBackgroundExtractor: ERROR - NULL coefficients for " + processing_type + "! src=" +
                       std::string(src_coefficients ? "valid" : "NULL") +
-                      ", dst=" + std::string(dst_coefficients ? "valid" : "NULL"));
+                      ", dst=" + std::string(dst_coefficients ? "valid" : "NULL"));*/
         }
     }
 

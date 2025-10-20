@@ -511,14 +511,20 @@ namespace ump {
             video_change_callback(file_path);
         }
 
-        // === DELAY BEFORE CACHE INITIALIZATION ===
-        // Wait 300ms for auto-play to start before cache extraction begins
-        // No longer need to wait for first frame decode - cache can start immediately
-        // Cache background thread can safely compete with decode
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        // === DEFER CACHE INITIALIZATION TO BACKGROUND ===
+        // Previously blocked for 300ms before starting cache - this delayed viewport updates
+        // Now we defer cache init to background thread, allowing immediate playback
+        // OPTIMIZATION: Only spawn thread if cache is actually enabled AND not in playlist mode
+        // Playlist mode has threading issues with extractor shutdown blocking, so disable cache there
+        if (cache_enabled && !IsInSequenceMode()) {
+            std::thread([this, file_path]() {
+                // Brief delay to let MPV start playback first
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
-        // === NOTIFY VIDEO CACHE MANAGER ===
-        NotifyVideoChanged(file_path);
+                // Initialize cache in background without blocking viewport
+                NotifyVideoChanged(file_path);
+            }).detach();
+        }
 
         // Extract Metadata in background to avoid playback penalty
         if (video_player && video_player->HasVideo()) {
@@ -1934,9 +1940,17 @@ namespace ump {
         for (const auto& seq : sequences) {
             if (seq.name == playlist_name) {
                 SwitchToSequence(seq.id);
+
+                // Add all items to the playlist
                 for (const auto& media_item : pending_playlist_items) {
                     AddToPlaylist(media_item.id);
                 }
+
+                // FIX: Load the playlist into MPV so files actually play!
+                // Previously, we created the sequence but never told MPV to load the files
+                // This caused empty viewport until manual seek
+                LoadSequenceIntoPlayer(seq, true);  // true = auto-play after loading
+
                 break;
             }
         }
