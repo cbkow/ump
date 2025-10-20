@@ -698,8 +698,15 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             continue;  // Skip this job
         }
 
-        // Sanitize filename and add appropriate extension
-        std::string safe_name = SanitizeFilename(item.name);
+        // Strip extension from video files before adding new extension
+        std::string base_name = item.name;
+        if (item.type == MediaType::VIDEO) {
+            // Remove existing extension (e.g., "my_video.mov" -> "my_video")
+            std::filesystem::path p(item.name);
+            base_name = p.stem().string();
+        }
+
+        std::string safe_name = SanitizeFilename(base_name);
         std::string extension = (settings.codec_index >= 2) ? ".mov" : ".mp4";
         std::string output_filename = safe_name + extension;
 

@@ -26,9 +26,11 @@ class FrameCache;
 
 // Color matrix processing modes for different pixel formats
 enum class ColorMatrixMode {
-    NONE,           // No color matrix processing (fallback/unknown formats)
-    RANGE_ONLY,     // Apply range conversion only (422/420 formats with known range issues)
-    FULL_MATRIX     // Apply full colorspace + range conversion (4444 formats)
+    NONE,           // No color matrix processing (unknown formats)
+    RANGE_ONLY,     // Apply range conversion only (420 formats)
+    MATRIX_ONLY,    // Apply color matrix only (unused - reserved)
+    FULL_MATRIX,    // Apply full colorspace + range conversion (4444 formats)
+    FILTER_422      // Use libavfilter colorspace filter for ProRes 422
 };
 
 // Smart conversion strategy for metadata-driven cache extraction with format-specific processing
@@ -50,8 +52,14 @@ struct ConversionStrategy {
     // NEW: Check if full colorspace matrix should be applied (4444 formats)
     bool ShouldApplyFullMatrix() const;
 
-    // NEW: Check if only range conversion should be applied (422/420 formats)
+    // NEW: Check if only color matrix should be applied (422 formats)
+    bool ShouldApplyMatrixOnly() const;
+
+    // NEW: Check if only range conversion should be applied (420 formats)
     bool ShouldApplyRangeOnly() const;
+
+    // NEW: Check if libavfilter colorspace filter should be used (ProRes 422)
+    bool ShouldUseFilter422() const;
 
     // Get debug description
     std::string GetDescription() const;
@@ -170,7 +178,7 @@ public:
     void UpdateHardwareConfig(const HardwareDecodeConfig& config);
     void SetBatchSize(int size) { config.max_batch_size = std::max(1, size); }
 
-    // Metadata-driven conversion (NEW: Conditional 4444 color matrix support)
+    // Metadata-driven conversion (NEW: Format-specific color matrix support for 4444/422/420)
     void SetConversionStrategy(const ConversionStrategy& strategy);
     bool HasConversionStrategy() const { return has_conversion_strategy; }
     void ClearConversionStrategy() { conversion_strategy.reset(); has_conversion_strategy = false; }

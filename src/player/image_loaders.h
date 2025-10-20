@@ -12,6 +12,9 @@ struct AVFormatContext;
 struct AVCodecContext;
 struct AVFrame;
 
+// Forward declarations
+struct ConversionStrategy;
+
 namespace ump {
 
 // Image format detection
@@ -176,6 +179,11 @@ public:
     double GetDuration() const { return duration_; }
     int GetFrameCount() const { return static_cast<int>(duration_ * fps_); }
 
+    // Metadata-driven conversion (NEW: Format-specific color matrix support for 4444/422/420)
+    void SetConversionStrategy(const ConversionStrategy& strategy);
+    bool HasConversionStrategy() const { return has_conversion_strategy_; }
+    void ClearConversionStrategy();
+
 private:
     // Internal frame extraction with optional scaling
     std::shared_ptr<PixelData> ExtractFrame(int frame_number, PipelineMode pipeline_mode, int max_size = 0);
@@ -204,6 +212,10 @@ private:
     ::AVFormatContext* format_context_ = nullptr;
     ::AVCodecContext* codec_context_ = nullptr;
     int video_stream_index_ = -1;
+
+    // Metadata-driven conversion
+    std::unique_ptr<ConversionStrategy> conversion_strategy_;
+    bool has_conversion_strategy_ = false;
 
     // Thread safety
     std::mutex ffmpeg_mutex_;

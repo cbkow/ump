@@ -94,12 +94,12 @@ void TranscodeQueueWindow::Render() {
     ImGui::SetNextWindowSize(ImVec2(1300, 850), ImGuiCond_FirstUseEver);
 
     // Add border and dropshadow styling
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 4.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 1.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
     ImVec4 accent = GetWindowsAccentColor();
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(accent.x * 0.6f, accent.y * 0.6f, accent.z * 0.6f, 0.8f));
 
-    if (!ImGui::Begin("Transcode Queue Manager", &is_open_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking)) {
+    if (!ImGui::Begin("Transcode Queue Manager", &is_open_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(2);
         ImGui::End();

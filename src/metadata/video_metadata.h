@@ -66,7 +66,9 @@ struct VideoMetadata {
 
     // NEW: Format detection for conditional color matrix application
     bool Is4444Format() const;
-    bool Is422Or420Format() const;  // NEW: 422/420 format detection
+    bool Is422Format() const;       // NEW: 422 format detection (4:2:2)
+    bool Is420Format() const;       // NEW: 420 format detection (4:2:0)
+    bool Is422Or420Format() const;  // NEW: 422/420 format detection (combined for backward compatibility)
     bool Is411Format() const;       // NEW: 411 format detection (4:1:1)
     bool Is421Format() const;       // NEW: 421 format detection (4:2:1)
 

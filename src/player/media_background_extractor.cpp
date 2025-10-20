@@ -31,6 +31,9 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/hwcontext.h>
 #include <libswscale/swscale.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
+#include <libavfilter/buffersink.h>
 }
 
 MediaBackgroundExtractor::MediaBackgroundExtractor(FrameCache* parent_cache, const ExtractorConfig& cfg)
@@ -120,7 +123,7 @@ bool MediaBackgroundExtractor::Initialize(const std::string& video_path, const V
         Debug::Log("MediaBackgroundExtractor: Hardware decode setup failed, continuing with software");
     }
 
-    // NEW: Setup metadata-driven conversion strategy for conditional 4444 color matrix
+    // NEW: Setup metadata-driven conversion strategy for format-specific color matrix (4444/422/420)
     if (metadata && metadata->is_loaded) {
         auto strategy = ConversionStrategy::FromMetadata(*metadata);
         SetConversionStrategy(strategy);
@@ -563,6 +566,155 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             break;
     }
 
+    // ============================================================================
+    // NEW: FILTER_422 mode - Use libavfilter colorspace filter (ProRes 422)
+    // ============================================================================
+    if (has_conversion_strategy && conversion_strategy && conversion_strategy->ShouldUseFilter422()) {
+        Debug::Log("MediaBackgroundExtractor: FILTER_422 mode - using libavfilter colorspace filter");
+
+        // Setup filter graph: buffersrc -> colorspace -> format -> buffersink
+        AVFilterGraph* filter_graph = avfilter_graph_alloc();
+        if (!filter_graph) {
+            Debug::Log("MediaBackgroundExtractor: Failed to allocate filter graph");
+            return false;
+        }
+
+        // Create buffer source (input)
+        const AVFilter* buffersrc = avfilter_get_by_name("buffer");
+        AVFilterContext* buffersrc_ctx = nullptr;
+
+        char args[512];
+        snprintf(args, sizeof(args),
+            "video_size=%dx%d:pix_fmt=%d:time_base=1/1:pixel_aspect=1/1",
+            frame->width, frame->height, frame->format);
+
+        int ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, nullptr, filter_graph);
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to create buffer source, ret=" + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Create buffer sink (output)
+        const AVFilter* buffersink = avfilter_get_by_name("buffersink");
+        AVFilterContext* buffersink_ctx = nullptr;
+
+        ret = avfilter_graph_create_filter(&buffersink_ctx, buffersink, "out", nullptr, nullptr, filter_graph);
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to create buffer sink, ret=" + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Parse filter chain: colorspace + format conversion
+        AVFilterInOut* outputs = avfilter_inout_alloc();
+        AVFilterInOut* inputs = avfilter_inout_alloc();
+
+        if (!outputs || !inputs) {
+            Debug::Log("MediaBackgroundExtractor: Failed to allocate filter I/O");
+            avfilter_inout_free(&outputs);
+            avfilter_inout_free(&inputs);
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        outputs->name = av_strdup("in");
+        outputs->filter_ctx = buffersrc_ctx;
+        outputs->pad_idx = 0;
+        outputs->next = nullptr;
+
+        inputs->name = av_strdup("out");
+        inputs->filter_ctx = buffersink_ctx;
+        inputs->pad_idx = 0;
+        inputs->next = nullptr;
+
+        // Build filter description with colorspace + format based on target format
+        char filter_descr[256];
+        const char* format_str;
+        switch (target_format) {
+            case AV_PIX_FMT_RGBA:
+                format_str = "rgba";
+                break;
+            case AV_PIX_FMT_RGBA64LE:
+                format_str = "rgba64le";
+                break;
+            case AV_PIX_FMT_RGBAF32LE:
+                format_str = "rgbaf32le";
+                break;
+            default:
+                format_str = "rgba";
+                break;
+        }
+        // Be explicit about color conversion: space (matrix), primaries, transfer (gamma), and range
+        // Input: BT.709 YUV, limited range (64-940 for 10-bit), BT.709 primaries, BT.709 transfer
+        // Output: BT.709 RGB, full range (0-255), BT.709 primaries, BT.709 transfer
+        snprintf(filter_descr, sizeof(filter_descr),
+            "colorspace=space=bt709:primaries=bt709:trc=bt709:range=pc:ispace=bt709:iprimaries=bt709:itrc=bt709:irange=tv,format=%s",
+            format_str);
+        Debug::Log("MediaBackgroundExtractor: Applying filter chain: " + std::string(filter_descr));
+
+        ret = avfilter_graph_parse_ptr(filter_graph, filter_descr, &inputs, &outputs, nullptr);
+        avfilter_inout_free(&inputs);
+        avfilter_inout_free(&outputs);
+
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to parse filter graph, ret=" + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        ret = avfilter_graph_config(filter_graph, nullptr);
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to configure filter graph, ret=" + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Push frame into filter graph
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to push frame to filter, ret=" + std::to_string(ret));
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Pull filtered frame from filter graph
+        AVFrame* filtered_frame = av_frame_alloc();
+        ret = av_buffersink_get_frame(buffersink_ctx, filtered_frame);
+        if (ret < 0) {
+            Debug::Log("MediaBackgroundExtractor: Failed to pull frame from filter, ret=" + std::to_string(ret));
+            av_frame_free(&filtered_frame);
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Copy filtered pixel data to output buffer
+        size_t data_size = width * height * bytes_per_pixel;
+        pixel_data.resize(data_size);
+
+        // Copy from filtered frame's data
+        if (filtered_frame->format == target_format) {
+            std::memcpy(pixel_data.data(), filtered_frame->data[0], data_size);
+            Debug::Log("MediaBackgroundExtractor: FILTER_422 conversion successful - " + std::to_string(data_size) + " bytes");
+        } else {
+            Debug::Log("MediaBackgroundExtractor: ERROR - Filter output format mismatch! Expected " +
+                      std::to_string(target_format) + ", got " + std::to_string(filtered_frame->format));
+            av_frame_free(&filtered_frame);
+            avfilter_graph_free(&filter_graph);
+            return false;
+        }
+
+        // Cleanup
+        av_frame_free(&filtered_frame);
+        avfilter_graph_free(&filter_graph);
+
+        return true;  // FILTER_422 path complete - skip swscale below
+    }
+
+    // ============================================================================
+    // Standard path: Use swscale for other formats (4444, 420, etc.)
+    // ============================================================================
+
     // Allocate target frame
     AVFrame* target_frame = av_frame_alloc();
     target_frame->format = target_format;
@@ -577,10 +729,10 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
     // Setup software scaler for format conversion with conditional color matrix support
     int sws_flags = SWS_POINT;  // Default: Nearest neighbor - zero interpolation/processing
 
-    // NEW: Apply conversion strategy for 4444 formats only
+    // NEW: Apply conversion strategy for formats that need color matrix processing
     if (has_conversion_strategy && conversion_strategy && conversion_strategy->ShouldApplyColorMatrix()) {
-        sws_flags = conversion_strategy->sws_algorithm;  // Use higher quality scaling for 4444
-        //Debug::Log("MediaBackgroundExtractor: Applying 4444 color matrix conversion");
+        sws_flags = conversion_strategy->sws_algorithm;  // Use higher quality scaling for 4444/420
+        //Debug::Log("MediaBackgroundExtractor: Applying color matrix conversion");
     }
 
     SwsContext* sws_ctx = sws_getContext(
@@ -600,42 +752,87 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         const int *dst_coefficients = nullptr;
         std::string processing_type;
 
+        // CRITICAL: ProRes 422/4444 data IS limited range (64-940 for 10-bit)
+        // Expand to full-range RGB (swscale always outputs full-range RGB)
+        int src_range = 0;  // Limited range input (AVCOL_RANGE_MPEG, 64-940 for 10-bit)
+        int dst_range = 0;  // Full range output (RGB is always full range 0-255)
+
+        // Log source frame properties for diagnostics
+        const char* format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
+        Debug::Log("MediaBackgroundExtractor: Source frame format: " + std::string(format_name ? format_name : "unknown") +
+                  ", colorspace=" + std::to_string(frame->colorspace) +
+                  ", color_range=" + std::to_string(frame->color_range));
+
+        Debug::Log("MediaBackgroundExtractor: Limited->Full range expansion - frame->color_range=" +
+                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");
+
         if (conversion_strategy->ShouldApplyFullMatrix()) {
-            // FULL_MATRIX mode: Apply both colorspace and range conversion (4444 formats)
+            // FULL_MATRIX mode: YUV->RGB colorspace conversion (4444 formats)
+            // Source: YUV colorspace (BT.709, BT.601, etc.)
+            // Destination: RGB colorspace (SWS_CS_DEFAULT = 2, which is BT.709 RGB)
             src_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);
-            dst_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);
-            processing_type = "Full Matrix (4444)";
+            dst_coefficients = sws_getCoefficients(SWS_CS_DEFAULT);  // RGB output
+            processing_type = "FULL_MATRIX";
+            Debug::Log("MediaBackgroundExtractor: Applying FULL_MATRIX YUV->RGB conversion (src_colorspace=" +
+                      std::to_string(conversion_strategy->source_colorspace) +
+                      " [YUV], dst_colorspace=" + std::to_string(SWS_CS_DEFAULT) + " [RGB]" +
+                      ", src_range=" + std::to_string(src_range) + ")");
+        } else if (conversion_strategy->ShouldApplyMatrixOnly()) {
+            // MATRIX_ONLY mode: Explicit color matrix for ProRes 422
+            // Set the colorspace matrix explicitly (BT.709 YUV -> RGB)
+            // Let swscale handle range conversion automatically
+            src_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);
+            dst_coefficients = sws_getCoefficients(conversion_strategy->source_colorspace);  // Same for YUV->RGB
+            processing_type = "MATRIX_ONLY";
+            Debug::Log("MediaBackgroundExtractor: Applying MATRIX_ONLY with explicit color matrix (src_colorspace=" +
+                      std::to_string(conversion_strategy->source_colorspace) + " [BT.709])");
         } else if (conversion_strategy->ShouldApplyRangeOnly()) {
-            // RANGE_ONLY mode: Apply only range conversion using identity colorspace (422/420 formats)
-            src_coefficients = sws_getCoefficients(SWS_CS_ITU709);  // Identity/standard coefficients
-            dst_coefficients = sws_getCoefficients(SWS_CS_ITU709);
-            processing_type = "Range Only (422/420)";
+            // RANGE_ONLY mode: Range conversion only (420 formats)
+            // Let swscale use default YUV->RGB conversion
+            processing_type = "RANGE_ONLY";
+            Debug::Log("MediaBackgroundExtractor: Applying RANGE_ONLY mode (420 format)");
         }
 
         if (src_coefficients && dst_coefficients) {
-          /*  Debug::Log("MediaBackgroundExtractor: " + processing_type + " - src_colorspace=" +
-                      std::to_string(conversion_strategy->source_colorspace) +
-                      ", src_range=" + std::to_string(conversion_strategy->source_range) +
-                      ", dst_range=1 (full RGB)");*/
-
             int ret = sws_setColorspaceDetails(sws_ctx,
-                src_coefficients, conversion_strategy->source_range,  // Source: From metadata
-                dst_coefficients, 1,                                  // Dest: Full range RGB
-                0, 1 << 16, 1 << 16);                                // Brightness, contrast, saturation
+                src_coefficients, src_range,      // Source: Use actual frame range
+                dst_coefficients, dst_range,      // Dest: Full range RGB
+                0, 1 << 16, 1 << 16);            // Brightness, contrast, saturation
 
             if (ret >= 0) {
-                //Debug::Log("MediaBackgroundExtractor: Applied " + processing_type + " - " + conversion_strategy->debug_info + " -> RGB");
+                Debug::Log("MediaBackgroundExtractor: Color matrix applied successfully");
+
+                // Verify it was applied by reading it back
+                const int* read_src_coeff = nullptr;
+                const int* read_dst_coeff = nullptr;
+                int read_src_range = -1, read_dst_range = -1;
+                int read_brightness = -1, read_contrast = -1, read_saturation = -1;
+
+                int verify_result = sws_getColorspaceDetails(sws_ctx,
+                    (int**)&read_src_coeff, &read_src_range,
+                    (int**)&read_dst_coeff, &read_dst_range,
+                    &read_brightness, &read_contrast, &read_saturation);
+
+                if (verify_result >= 0) {
+                    Debug::Log("MediaBackgroundExtractor: Verified color matrix - src_range=" + std::to_string(read_src_range) +
+                              ", dst_range=" + std::to_string(read_dst_range) +
+                              ", brightness=" + std::to_string(read_brightness) +
+                              ", contrast=" + std::to_string(read_contrast) +
+                              ", saturation=" + std::to_string(read_saturation));
+                } else {
+                    Debug::Log("MediaBackgroundExtractor: Failed to verify color matrix settings");
+                }
             } else {
-                //Debug::Log("MediaBackgroundExtractor: Failed to apply " + processing_type + ", ret=" + std::to_string(ret));
+                Debug::Log("MediaBackgroundExtractor: Failed to apply " + processing_type + ", ret=" + std::to_string(ret));
             }
         } else {
-          /*  Debug::Log("MediaBackgroundExtractor: ERROR - NULL coefficients for " + processing_type + "! src=" +
+            Debug::Log("MediaBackgroundExtractor: ERROR - NULL coefficients for " + processing_type + "! src=" +
                       std::string(src_coefficients ? "valid" : "NULL") +
-                      ", dst=" + std::string(dst_coefficients ? "valid" : "NULL"));*/
+                      ", dst=" + std::string(dst_coefficients ? "valid" : "NULL"));
         }
     }
 
-    // Convert to target format with conditional color processing for 4444
+    // Convert to target format with format-specific color processing
     sws_scale(sws_ctx, frame->data, frame->linesize, 0, height,
               target_frame->data, target_frame->linesize);
 
@@ -1374,7 +1571,7 @@ void MediaBackgroundExtractor::RemoveFrameFromTracking(int frame_number) {
 }
 
 // ============================================================================
-// ConversionStrategy Methods - Conditional 4444 Color Matrix Support
+// ConversionStrategy Methods - Format-Specific Color Matrix Support (4444/422/420)
 // ============================================================================
 
 void MediaBackgroundExtractor::SetConversionStrategy(const ConversionStrategy& strategy) {
@@ -1382,7 +1579,7 @@ void MediaBackgroundExtractor::SetConversionStrategy(const ConversionStrategy& s
     has_conversion_strategy = true;
 
     if (strategy.ShouldApplyColorMatrix()) {
-        //Debug::Log("MediaBackgroundExtractor: Set 4444 color matrix strategy - " + strategy.GetDescription());
+        //Debug::Log("MediaBackgroundExtractor: Set format-specific color matrix strategy - " + strategy.GetDescription());
     } else {
         //Debug::Log("MediaBackgroundExtractor: Set standard processing strategy - " + strategy.GetDescription());
     }

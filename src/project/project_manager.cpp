@@ -1447,6 +1447,14 @@ namespace ump {
     // LoadMediaFiles() removed - use drag & drop instead for adding multiple files
 
     void ProjectManager::AddMediaFileToProject(const std::string& file_path) {
+        // Check if file is already in project (prevents duplicates on pipeline mode changes)
+        for (const auto& item : media_pool) {
+            if (item.path == file_path) {
+                Debug::Log("File already in project, skipping duplicate: " + file_path);
+                return;
+            }
+        }
+
         MediaItem item;
         item.id = GenerateUniqueID();
         item.name = GetFileName(file_path);

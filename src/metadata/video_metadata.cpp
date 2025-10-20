@@ -144,27 +144,50 @@ bool VideoMetadata::Is4444Format() const {
     return is_4444;
 }
 
-// NEW: Detect 422/420 formats for appropriate color matrix handling
-bool VideoMetadata::Is422Or420Format() const {
+// NEW: Detect 422 formats specifically (4:2:2 chroma subsampling)
+bool VideoMetadata::Is422Format() const {
     if (pixel_format.empty()) {
-        Debug::Log("Is422Or420Format: pixel_format is empty");
+        Debug::Log("Is422Format: pixel_format is empty");
         return false;
     }
 
     std::string format_lower = pixel_format;
     std::transform(format_lower.begin(), format_lower.end(), format_lower.begin(), ::tolower);
 
-    Debug::Log("Is422Or420Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
+    Debug::Log("Is422Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
 
-    // Detect 422/420 formats specifically - these might benefit from range/light color matrix
-    bool is_422_420 = (format_lower.find("420") != std::string::npos ||    // yuv420p, yuv420p10le, etc.
-                       format_lower.find("422") != std::string::npos ||    // yuv422p, yuv422p10le, etc.
-                       format_lower.find("nv12") != std::string::npos ||   // NV12 (420)
-                       format_lower.find("nv21") != std::string::npos ||   // NV21 (420)
-                       format_lower.find("yv12") != std::string::npos);    // YV12 (420)
+    // Detect 422 formats specifically - ProRes 422, DNxHD, etc.
+    bool is_422 = (format_lower.find("422") != std::string::npos);    // yuv422p, yuv422p10le, etc.
 
-    Debug::Log("Is422Or420Format: Result = " + std::string(is_422_420 ? "TRUE (422/420 format)" : "FALSE (not 422/420)"));
-    return is_422_420;
+    Debug::Log("Is422Format: Result = " + std::string(is_422 ? "TRUE (422 format)" : "FALSE (not 422)"));
+    return is_422;
+}
+
+// NEW: Detect 420 formats specifically (4:2:0 chroma subsampling)
+bool VideoMetadata::Is420Format() const {
+    if (pixel_format.empty()) {
+        Debug::Log("Is420Format: pixel_format is empty");
+        return false;
+    }
+
+    std::string format_lower = pixel_format;
+    std::transform(format_lower.begin(), format_lower.end(), format_lower.begin(), ::tolower);
+
+    Debug::Log("Is420Format: Checking pixel format '" + pixel_format + "' (lowercase: '" + format_lower + "')");
+
+    // Detect 420 formats specifically - H.264, H.265, most consumer codecs
+    bool is_420 = (format_lower.find("420") != std::string::npos ||    // yuv420p, yuv420p10le, etc.
+                   format_lower.find("nv12") != std::string::npos ||   // NV12 (420)
+                   format_lower.find("nv21") != std::string::npos ||   // NV21 (420)
+                   format_lower.find("yv12") != std::string::npos);    // YV12 (420)
+
+    Debug::Log("Is420Format: Result = " + std::string(is_420 ? "TRUE (420 format)" : "FALSE (not 420)"));
+    return is_420;
+}
+
+// NEW: Detect 422/420 formats for appropriate color matrix handling (combined)
+bool VideoMetadata::Is422Or420Format() const {
+    return Is422Format() || Is420Format();
 }
 
 // NEW: Detect 4:1:1 formats

@@ -3012,7 +3012,10 @@ private:
             }
 
             if (ImGui::BeginMenu("Help")) {
-                if (ImGui::MenuItem("About u.m.p. v0.1.5")) {
+
+                ImGui::TextDisabled("About u.m.p. v0.1.6:");
+
+                if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
                 }
 
@@ -3025,6 +3028,7 @@ private:
                 }
 
                 ImGui::Separator();
+                ImGui::TextDisabled("Preferences:");
 
                 if (ImGui::MenuItem("Delete All Preferences")) {
                     DeleteAllPreferences();
@@ -6608,7 +6612,8 @@ private:
 
                             // Try to get thumbnail with nearest-neighbor fallback enabled
                             // This shows the closest prefetched frame as a preview while the exact frame loads
-                            GLuint thumbnail_texture = video_player->GetThumbnailForFrame(hover_frame, true);
+                            int actual_frame_shown = hover_frame;
+                            GLuint thumbnail_texture = video_player->GetThumbnailForFrame(hover_frame, true, &actual_frame_shown);
 
                             // Update request timing for throttling
                             if (hover_frame != last_requested_frame && (elapsed >= 100 || last_requested_frame == -1)) {
@@ -6621,26 +6626,58 @@ private:
 
                             // ALWAYS show tooltip (even if thumbnail not ready yet)
                             ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(50, 50, 50, 255));
-                            ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(100, 100, 100, 51)); 
+                            ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(100, 100, 100, 51));
                             ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
                             ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
 
                             ImGui::BeginTooltip();
 
+                            // Fixed container size for consistent tooltip dimensions
+                            ImVec2 container_size(cache_settings.thumbnail_width, cache_settings.thumbnail_height);
+                            ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+
                             if (thumbnail_texture != 0) {
-                                // Display thumbnail with fixed size
-                                ImVec2 thumb_size(cache_settings.thumbnail_width, cache_settings.thumbnail_height);
-                                ImGui::Image((void*)(intptr_t)thumbnail_texture, thumb_size);
+                                // Get actual thumbnail dimensions for the frame being shown (may be fallback!)
+                                int actual_width, actual_height;
+                                ImVec2 thumb_size;
+                                if (video_player->GetThumbnailSize(actual_frame_shown, actual_width, actual_height)) {
+                                    thumb_size = ImVec2(static_cast<float>(actual_width), static_cast<float>(actual_height));
+                                } else {
+                                    // Fallback to config size if dimensions not available
+                                    thumb_size = container_size;
+                                }
+
+                                // Calculate centering offset
+                                float offset_x = (container_size.x - thumb_size.x) * 0.5f;
+                                float offset_y = (container_size.y - thumb_size.y) * 0.5f;
+
+                                // Draw dark background for the entire container
+                                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                                draw_list->AddRectFilled(
+                                    cursor_pos,
+                                    ImVec2(cursor_pos.x + container_size.x, cursor_pos.y + container_size.y),
+                                    IM_COL32(30, 30, 30, 255)
+                                );
+
+                                // Draw thumbnail centered within container
+                                ImVec2 image_min(cursor_pos.x + offset_x, cursor_pos.y + offset_y);
+                                ImVec2 image_max(image_min.x + thumb_size.x, image_min.y + thumb_size.y);
+                                draw_list->AddImage(
+                                    (void*)(intptr_t)thumbnail_texture,
+                                    image_min,
+                                    image_max
+                                );
+
+                                // Reserve space for the container
+                                ImGui::Dummy(container_size);
                             } else {
                                 // Show placeholder while loading
-                                ImVec2 thumb_size(cache_settings.thumbnail_width, cache_settings.thumbnail_height);
-                                ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+                                ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
                                 // Draw dark placeholder rectangle
-                                ImDrawList* tooltip_draw_list = ImGui::GetWindowDrawList();
-                                tooltip_draw_list->AddRectFilled(
+                                draw_list->AddRectFilled(
                                     cursor_pos,
-                                    ImVec2(cursor_pos.x + thumb_size.x, cursor_pos.y + thumb_size.y),
+                                    ImVec2(cursor_pos.x + container_size.x, cursor_pos.y + container_size.y),
                                     IM_COL32(40, 40, 40, 255)
                                 );
 
@@ -6648,13 +6685,13 @@ private:
                                 const char* loading_text = "Loading...";
                                 ImVec2 text_size = ImGui::CalcTextSize(loading_text);
                                 ImVec2 text_pos(
-                                    cursor_pos.x + (thumb_size.x - text_size.x) * 0.5f,
-                                    cursor_pos.y + (thumb_size.y - text_size.y) * 0.5f
+                                    cursor_pos.x + (container_size.x - text_size.x) * 0.5f,
+                                    cursor_pos.y + (container_size.y - text_size.y) * 0.5f
                                 );
-                                tooltip_draw_list->AddText(text_pos, IM_COL32(180, 180, 180, 255), loading_text);
+                                draw_list->AddText(text_pos, IM_COL32(180, 180, 180, 255), loading_text);
 
-                                // Advance cursor
-                                ImGui::Dummy(thumb_size);
+                                // Reserve space for the container
+                                ImGui::Dummy(container_size);
                             }
 
                             // Show frame number and timecode

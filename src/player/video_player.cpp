@@ -7,6 +7,8 @@
 #include "direct_exr_cache.h"
 #include "image_loaders.h"  // For TIFF/PNG/JPEG loaders
 #include "thumbnail_cache.h"
+#include "media_background_extractor.h"  // For ConversionStrategy
+#include "../metadata/video_metadata.h"  // For VideoMetadata
 
 #include <algorithm>
 #include <chrono>
@@ -540,6 +542,16 @@ void VideoPlayer::LoadFile(const std::string& path) {
             // Create VideoImageLoader
             auto video_loader = std::make_unique<ump::VideoImageLoader>(path, fps, duration);
 
+            // NEW: Set conversion strategy for color matrix support (ProRes 4444/422, etc.)
+            VideoMetadata metadata = ExtractMetadata();
+            if (metadata.is_loaded) {
+                auto strategy = ConversionStrategy::FromMetadata(metadata);
+                video_loader->SetConversionStrategy(strategy);
+                Debug::Log("VideoPlayer: Thumbnail loader - conversion strategy set: " + strategy.GetDescription());
+            } else {
+                Debug::Log("VideoPlayer: Thumbnail loader - no metadata available for conversion strategy");
+            }
+
             // Create synthetic frame list ("0", "1", "2", etc.")
             std::vector<std::string> frame_list;
             frame_list.reserve(frame_count);
@@ -677,6 +689,16 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
         if (thumb_config.enabled && duration > 0) {
             // Create VideoImageLoader for the new file
             auto video_loader = std::make_unique<ump::VideoImageLoader>(new_file_path, fps, duration);
+
+            // NEW: Set conversion strategy for color matrix support (ProRes 4444/422, etc.)
+            VideoMetadata metadata = ExtractMetadata();
+            if (metadata.is_loaded) {
+                auto strategy = ConversionStrategy::FromMetadata(metadata);
+                video_loader->SetConversionStrategy(strategy);
+                Debug::Log("VideoPlayer: Thumbnail loader (playlist) - conversion strategy set: " + strategy.GetDescription());
+            } else {
+                Debug::Log("VideoPlayer: Thumbnail loader (playlist) - no metadata available for conversion strategy");
+            }
 
             // Create synthetic frame list
             std::vector<std::string> frame_list;
@@ -4329,11 +4351,11 @@ size_t VideoPlayer::ClearEXRDiskCache() {
 // Thumbnail Cache (for timeline scrubbing)
 // ============================================================================
 
-GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback) {
+GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback, int* out_actual_frame) {
     if (!thumbnail_cache_) {
         return 0;  // No thumbnail cache available
     }
-    GLuint texture_id = thumbnail_cache_->GetThumbnail(frame, allow_fallback);
+    GLuint texture_id = thumbnail_cache_->GetThumbnail(frame, allow_fallback, out_actual_frame);
 
     static int log_counter = 0;
     if (log_counter++ % 100 == 0) {  // Log every 100th request to avoid spam
@@ -4343,6 +4365,15 @@ GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback) {
     }
 
     return texture_id;
+}
+
+bool VideoPlayer::GetThumbnailSize(int frame, int& width, int& height) const {
+    if (!thumbnail_cache_) {
+        width = 0;
+        height = 0;
+        return false;
+    }
+    return thumbnail_cache_->GetCachedThumbnailSize(frame, width, height);
 }
 
 bool VideoPlayer::HasThumbnailCache() const {

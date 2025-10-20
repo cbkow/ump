@@ -60,9 +60,12 @@ ConversionStrategy ConversionStrategy::FromMetadata(const VideoMetadata& metadat
     if (metadata.Is4444Format()) {
         strategy.matrix_mode = ColorMatrixMode::FULL_MATRIX;
         Debug::Log("ConversionStrategy: 4444 format detected - using FULL_MATRIX mode");
-    } else if (metadata.Is422Or420Format()) {
+    } else if (metadata.Is422Format()) {
+        strategy.matrix_mode = ColorMatrixMode::FILTER_422;
+        Debug::Log("ConversionStrategy: 422 format detected - using FILTER_422 mode (libavfilter colorspace)");
+    } else if (metadata.Is420Format()) {
         strategy.matrix_mode = ColorMatrixMode::RANGE_ONLY;
-        Debug::Log("ConversionStrategy: 422/420 format detected - using RANGE_ONLY mode");
+        Debug::Log("ConversionStrategy: 420 format detected - using RANGE_ONLY mode");
     } else {
         strategy.matrix_mode = ColorMatrixMode::NONE;
         Debug::Log("ConversionStrategy: Unknown format - using NONE mode");
@@ -78,19 +81,35 @@ ConversionStrategy ConversionStrategy::FromMetadata(const VideoMetadata& metadat
 
     std::string mode_name;
     std::string format_type;
+
+    // Determine format type based on detection
+    if (metadata.Is4444Format()) {
+        format_type = "4444";
+    } else if (metadata.Is422Format()) {
+        format_type = "422";
+    } else if (metadata.Is420Format()) {
+        format_type = "420";
+    } else {
+        format_type = "unknown";
+    }
+
+    // Determine mode name based on matrix mode
     switch (strategy.matrix_mode) {
         case ColorMatrixMode::FULL_MATRIX:
             mode_name = "Full Matrix";
-            format_type = "4444";
+            break;
+        case ColorMatrixMode::MATRIX_ONLY:
+            mode_name = "Matrix Only";
             break;
         case ColorMatrixMode::RANGE_ONLY:
             mode_name = "Range Only";
-            format_type = "422/420";
+            break;
+        case ColorMatrixMode::FILTER_422:
+            mode_name = "Filter 422";
             break;
         case ColorMatrixMode::NONE:
         default:
             mode_name = "No Processing";
-            format_type = "unknown";
             break;
     }
 
@@ -110,9 +129,19 @@ bool ConversionStrategy::ShouldApplyFullMatrix() const {
     return matrix_mode == ColorMatrixMode::FULL_MATRIX;
 }
 
+bool ConversionStrategy::ShouldApplyMatrixOnly() const {
+    // Apply color matrix only (422 formats - ProRes 422)
+    return matrix_mode == ColorMatrixMode::MATRIX_ONLY;
+}
+
 bool ConversionStrategy::ShouldApplyRangeOnly() const {
-    // Apply range conversion only (422/420 formats)
+    // Apply range conversion only (420 formats)
     return matrix_mode == ColorMatrixMode::RANGE_ONLY;
+}
+
+bool ConversionStrategy::ShouldUseFilter422() const {
+    // Use libavfilter colorspace filter (ProRes 422)
+    return matrix_mode == ColorMatrixMode::FILTER_422;
 }
 
 std::string ConversionStrategy::GetDescription() const {

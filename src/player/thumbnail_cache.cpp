@@ -66,7 +66,7 @@ ThumbnailCache::~ThumbnailCache() {
     Debug::Log("ThumbnailCache: Destructor complete");
 }
 
-GLuint ThumbnailCache::GetThumbnail(int frame, bool allow_fallback) {
+GLuint ThumbnailCache::GetThumbnail(int frame, bool allow_fallback, int* out_actual_frame) {
     if (!config_.enabled) {
         return 0;
     }
@@ -82,6 +82,9 @@ GLuint ThumbnailCache::GetThumbnail(int frame, bool allow_fallback) {
     if (it != cache_.end()) {
         cache_hits_++;
         it->second->access_count++;
+        if (out_actual_frame) {
+            *out_actual_frame = frame;  // Exact match
+        }
         return it->second->texture_id;  // Exact match!
     }
 
@@ -106,6 +109,9 @@ GLuint ThumbnailCache::GetThumbnail(int frame, bool allow_fallback) {
             auto nearest_it = cache_.find(nearest);
             if (nearest_it != cache_.end()) {
                 // Return nearest cached thumbnail as preview
+                if (out_actual_frame) {
+                    *out_actual_frame = nearest;  // Fallback frame
+                }
                 return nearest_it->second->texture_id;
             }
         }
@@ -186,83 +192,106 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
         return nullptr;
     }
 
-    // Calculate thumbnail dimensions maintaining aspect ratio
+    // Check if the loaded image already fits within our thumbnail bounds
+    // (The loader may have already done the resize for us)
     int source_width = pixel_data->width;
     int source_height = pixel_data->height;
-    float source_aspect = static_cast<float>(source_width) / source_height;
-    float target_aspect = static_cast<float>(config_.width) / config_.height;
 
-    int thumb_width = config_.width;
-    int thumb_height = config_.height;
+    int thumb_width = source_width;
+    int thumb_height = source_height;
+    bool needs_resize = false;
 
-    if (source_aspect > target_aspect) {
-        // Source is wider - fit width, adjust height
-        thumb_height = static_cast<int>(config_.width / source_aspect);
-    } else {
-        // Source is taller - fit height, adjust width
-        thumb_width = static_cast<int>(config_.height * source_aspect);
+    // Only resize if the image exceeds the maximum dimension
+    // (loader was passed max_thumb_size, so it should already fit)
+    int max_config_dim = (std::max)(config_.width, config_.height);
+    if (source_width > max_config_dim || source_height > max_config_dim) {
+        float source_aspect = static_cast<float>(source_width) / source_height;
+        float target_aspect = static_cast<float>(config_.width) / config_.height;
+
+        thumb_width = config_.width;
+        thumb_height = config_.height;
+
+        if (source_aspect > target_aspect) {
+            // Source is wider - fit width, adjust height
+            thumb_height = static_cast<int>(config_.width / source_aspect);
+        } else {
+            // Source is taller - fit height, adjust width
+            thumb_width = static_cast<int>(config_.height * source_aspect);
+        }
+        needs_resize = true;
     }
 
-    // Allocate buffer for resized thumbnail
+    // Allocate buffer for thumbnail
     std::vector<uint8_t> thumbnail_pixels;
     GLenum thumbnail_gl_type;
 
     if (pixel_data->gl_type == GL_HALF_FLOAT) {
         // EXR thumbnails - keep as half-float to preserve HDR data for OCIO color management
-        //Debug::Log("ThumbnailCache: Generating HDR half-float thumbnail for frame " + std::to_string(frame));
-
-        thumbnail_pixels.resize(thumb_width * thumb_height * 4 * sizeof(Imath::half));
         thumbnail_gl_type = GL_HALF_FLOAT;
 
-        // Convert half → float for stb_image_resize (which doesn't support half directly)
-        std::vector<float> source_float(source_width * source_height * 4);
-        std::vector<float> thumb_float(thumb_width * thumb_height * 4);
+        if (!needs_resize) {
+            // Image already fits - use directly
+            thumbnail_pixels = std::move(pixel_data->pixels);
+        } else {
+            // Need to resize
+            thumbnail_pixels.resize(thumb_width * thumb_height * 4 * sizeof(Imath::half));
 
-        const Imath::half* src_half = reinterpret_cast<const Imath::half*>(pixel_data->pixels.data());
-        for (size_t i = 0; i < source_float.size(); i++) {
-            // Explicit half→float conversion to avoid linker issues
-            uint16_t bits = src_half[i].bits();
-            int sign = (bits >> 15) & 0x1;
-            int exp = (bits >> 10) & 0x1F;
-            int mantissa = bits & 0x3FF;
+            // Convert half → float for stb_image_resize (which doesn't support half directly)
+            std::vector<float> source_float(source_width * source_height * 4);
+            std::vector<float> thumb_float(thumb_width * thumb_height * 4);
 
-            if (exp == 0) {
-                // Denormalized or zero
-                source_float[i] = (sign ? -1.0f : 1.0f) * (mantissa / 1024.0f) * powf(2.0f, -14.0f);
-            } else if (exp == 31) {
-                // Inf or NaN
-                source_float[i] = (mantissa == 0) ?
-                    (sign ? -INFINITY : INFINITY) : NAN;
-            } else {
-                // Normalized
-                float val = (1.0f + mantissa / 1024.0f) * powf(2.0f, exp - 15.0f);
-                source_float[i] = sign ? -val : val;
+            const Imath::half* src_half = reinterpret_cast<const Imath::half*>(pixel_data->pixels.data());
+            for (size_t i = 0; i < source_float.size(); i++) {
+                // Explicit half→float conversion to avoid linker issues
+                uint16_t bits = src_half[i].bits();
+                int sign = (bits >> 15) & 0x1;
+                int exp = (bits >> 10) & 0x1F;
+                int mantissa = bits & 0x3FF;
+
+                if (exp == 0) {
+                    // Denormalized or zero
+                    source_float[i] = (sign ? -1.0f : 1.0f) * (mantissa / 1024.0f) * powf(2.0f, -14.0f);
+                } else if (exp == 31) {
+                    // Inf or NaN
+                    source_float[i] = (mantissa == 0) ?
+                        (sign ? -INFINITY : INFINITY) : NAN;
+                } else {
+                    // Normalized
+                    float val = (1.0f + mantissa / 1024.0f) * powf(2.0f, exp - 15.0f);
+                    source_float[i] = sign ? -val : val;
+                }
+            }
+
+            // Resize in float space (preserves HDR values)
+            stbir_resize_float_linear(
+                source_float.data(), source_width, source_height, 0,
+                thumb_float.data(), thumb_width, thumb_height, 0,
+                STBIR_RGBA
+            );
+
+            // Convert float → half for storage
+            Imath::half* thumb_half = reinterpret_cast<Imath::half*>(thumbnail_pixels.data());
+            for (size_t i = 0; i < thumb_float.size(); i++) {
+                thumb_half[i] = Imath::half(thumb_float[i]);
             }
         }
 
-        // Resize in float space (preserves HDR values)
-        stbir_resize_float_linear(
-            source_float.data(), source_width, source_height, 0,
-            thumb_float.data(), thumb_width, thumb_height, 0,
-            STBIR_RGBA
-        );
-
-        // Convert float → half for storage
-        Imath::half* thumb_half = reinterpret_cast<Imath::half*>(thumbnail_pixels.data());
-        for (size_t i = 0; i < thumb_float.size(); i++) {
-            thumb_half[i] = Imath::half(thumb_float[i]);
-        }
-
     } else if (pixel_data->gl_type == GL_UNSIGNED_BYTE) {
-        // 8-bit source (PNG8, JPEG) - direct resize
-        thumbnail_pixels.resize(thumb_width * thumb_height * 4);
+        // 8-bit source (PNG8, JPEG, Video)
         thumbnail_gl_type = GL_UNSIGNED_BYTE;
 
-        stbir_resize_uint8_linear(
-            pixel_data->pixels.data(), source_width, source_height, 0,
-            thumbnail_pixels.data(), thumb_width, thumb_height, 0,
-            STBIR_RGBA
-        );
+        if (!needs_resize) {
+            // Image already fits - use directly
+            thumbnail_pixels = std::move(pixel_data->pixels);
+        } else {
+            // Need to resize
+            thumbnail_pixels.resize(thumb_width * thumb_height * 4);
+            stbir_resize_uint8_linear(
+                pixel_data->pixels.data(), source_width, source_height, 0,
+                thumbnail_pixels.data(), thumb_width, thumb_height, 0,
+                STBIR_RGBA
+            );
+        }
 
     } else if (pixel_data->gl_type == GL_UNSIGNED_SHORT) {
         // 16-bit integer source (PNG16, TIFF16) - convert to 8-bit
@@ -275,11 +304,17 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
             source_8bit[i] = static_cast<uint8_t>(source_16[i] >> 8);
         }
 
-        stbir_resize_uint8_linear(
-            source_8bit.data(), source_width, source_height, 0,
-            thumbnail_pixels.data(), thumb_width, thumb_height, 0,
-            STBIR_RGBA
-        );
+        if (!needs_resize) {
+            // Image already fits - use the 8-bit conversion directly
+            thumbnail_pixels = std::move(source_8bit);
+        } else {
+            // Need to resize
+            stbir_resize_uint8_linear(
+                source_8bit.data(), source_width, source_height, 0,
+                thumbnail_pixels.data(), thumb_width, thumb_height, 0,
+                STBIR_RGBA
+            );
+        }
     } else {
         // Unknown format
         Debug::Log("ThumbnailCache: Unknown pixel format for frame " + std::to_string(frame));
@@ -488,6 +523,22 @@ void ThumbnailCache::PrefetchStrategicFrames(int total_frames) {
 
     Debug::Log("ThumbnailCache: Queued " + std::to_string(prefetch_frames.size()) +
                " strategic prefetch frames (step=" + std::to_string(step) + ")");
+}
+
+bool ThumbnailCache::GetCachedThumbnailSize(int frame, int& width, int& height) const {
+    std::lock_guard<std::mutex> lock(cache_mutex_);
+
+    auto it = cache_.find(frame);
+    if (it != cache_.end()) {
+        width = it->second->width;
+        height = it->second->height;
+        return true;
+    }
+
+    // Not cached
+    width = 0;
+    height = 0;
+    return false;
 }
 
 } // namespace ump
