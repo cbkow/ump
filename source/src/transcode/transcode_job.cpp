@@ -145,6 +145,12 @@ void TranscodeJob::ProgressCallback(const VideoTranscoder::Progress& progress) {
         UpdateStatus(Status::COMPLETED);
         completed_time_ = std::chrono::system_clock::now();
         Debug::Log("TranscodeJob: Completed successfully - " + config_.job_name);
+
+        // Call metadata write callback if provided
+        if (config_.metadata_write_callback && !config_.source_file_path.empty()) {
+            Debug::Log("TranscodeJob: Calling metadata write callback (offset=" + std::to_string(config_.timecode_offset_frames) + " frames)");
+            config_.metadata_write_callback(config_.source_file_path, config_.transcode_config.output_path, config_.timecode_offset_frames);
+        }
     } else if (progress.is_error) {
         UpdateStatus(Status::FAILED);
         completed_time_ = std::chrono::system_clock::now();

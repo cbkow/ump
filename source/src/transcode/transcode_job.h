@@ -6,6 +6,7 @@
 #include <chrono>
 #include <atomic>
 #include <mutex>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include "video_transcoder.h"
 
@@ -43,6 +44,15 @@ public:
 
         // Transcode configuration
         VideoTranscoder::TranscodeConfig transcode_config;
+
+        // Source file path (for metadata preservation)
+        std::string source_file_path;
+
+        // Trim offset for timecode adjustment (in frames, 0 = no trim)
+        int timecode_offset_frames = 0;
+
+        // Metadata write callback (called after successful transcode)
+        std::function<void(const std::string& source_path, const std::string& output_path, int offset_frames)> metadata_write_callback;
 
         // Dependencies (optional)
         std::vector<std::string> dependency_job_ids;  // Wait for these jobs to complete

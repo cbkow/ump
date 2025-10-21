@@ -284,7 +284,8 @@ public:
     std::vector<ump::CacheSegment> GetEXRCacheSegments() const;
 
     // Thumbnail Cache (for timeline scrubbing)
-    GLuint GetThumbnailForFrame(int frame, bool allow_fallback = false);  // Get thumbnail for specific frame (0 if not available)
+    GLuint GetThumbnailForFrame(int frame, bool allow_fallback = false, int* out_actual_frame = nullptr);  // Get thumbnail for specific frame (0 if not available)
+    bool GetThumbnailSize(int frame, int& width, int& height) const;  // Get actual dimensions of cached thumbnail
     bool HasThumbnailCache() const;
     void ClearThumbnailCache();
     ump::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }

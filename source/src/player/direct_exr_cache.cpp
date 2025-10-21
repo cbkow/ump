@@ -112,7 +112,7 @@ void MemoryMappedIStream::seekg(uint64_t pos) {
 //=============================================================================
 
 DirectEXRCache::DirectEXRCache() {
-    Debug::Log("DirectEXRCache: Constructor - starting permanent background threads");
+    //Debug::Log("DirectEXRCache: Constructor - starting permanent background threads");
 
     // Single-threaded OpenEXR decompression
     // Setting to 0 tells OpenEXR to use single-threaded mode per file
@@ -128,50 +128,50 @@ DirectEXRCache::DirectEXRCache() {
     ioRunning_ = true;
     ioWorkerThread_ = std::thread(&DirectEXRCache::IOWorkerThread, this);
 
-    Debug::Log("DirectEXRCache: Permanent background threads started (ready for sequences)");
+    //Debug::Log("DirectEXRCache: Permanent background threads started (ready for sequences)");
 }
 
 DirectEXRCache::~DirectEXRCache() {
-    Debug::Log("DirectEXRCache: Destructor - stopping permanent background threads");
+    //Debug::Log("DirectEXRCache: Destructor - stopping permanent background threads");
 
     // Stop cache thread
-    Debug::Log("DirectEXRCache: Checking cache thread status...");
+    //Debug::Log("DirectEXRCache: Checking cache thread status...");
     if (cacheRunning_) {
-        Debug::Log("DirectEXRCache: Setting cacheRunning_ = false");
+        //Debug::Log("DirectEXRCache: Setting cacheRunning_ = false");
         cacheRunning_ = false;
-        Debug::Log("DirectEXRCache: Notifying cache thread to wake up");
+        //Debug::Log("DirectEXRCache: Notifying cache thread to wake up");
         cv_.notify_all();  // Wake threads to check running flag
         if (cacheThread_.joinable()) {
-            Debug::Log("DirectEXRCache: Waiting for cache thread to join (this may block if thread is stuck)...");
+            //Debug::Log("DirectEXRCache: Waiting for cache thread to join (this may block if thread is stuck)...");
             cacheThread_.join();
-            Debug::Log("DirectEXRCache: Cache thread joined successfully");
+            //Debug::Log("DirectEXRCache: Cache thread joined successfully");
         } else {
-            Debug::Log("DirectEXRCache: Cache thread was not joinable");
+            //Debug::Log("DirectEXRCache: Cache thread was not joinable");
         }
     } else {
-        Debug::Log("DirectEXRCache: Cache thread was not running");
+        //Debug::Log("DirectEXRCache: Cache thread was not running");
     }
 
     // Stop I/O worker thread
-    Debug::Log("DirectEXRCache: Checking I/O worker thread status...");
+    //Debug::Log("DirectEXRCache: Checking I/O worker thread status...");
     if (ioRunning_) {
-        Debug::Log("DirectEXRCache: Setting ioRunning_ = false");
+        //Debug::Log("DirectEXRCache: Setting ioRunning_ = false");
         ioRunning_ = false;
-        Debug::Log("DirectEXRCache: Notifying I/O worker thread to wake up");
+        //Debug::Log("DirectEXRCache: Notifying I/O worker thread to wake up");
         cv_.notify_all();
         if (ioWorkerThread_.joinable()) {
-            Debug::Log("DirectEXRCache: Waiting for I/O worker thread to join (this may block if thread is stuck)...");
+            //Debug::Log("DirectEXRCache: Waiting for I/O worker thread to join (this may block if thread is stuck)...");
             ioWorkerThread_.join();
-            Debug::Log("DirectEXRCache: I/O worker thread joined successfully");
+            //Debug::Log("DirectEXRCache: I/O worker thread joined successfully");
         } else {
-            Debug::Log("DirectEXRCache: I/O worker thread was not joinable");
+            //Debug::Log("DirectEXRCache: I/O worker thread was not joinable");
         }
     } else {
-        Debug::Log("DirectEXRCache: I/O worker thread was not running");
+        //Debug::Log("DirectEXRCache: I/O worker thread was not running");
     }
 
     // Clean up GL textures before clearing cache
-    Debug::Log("DirectEXRCache: Deleting GL textures...");
+    //Debug::Log("DirectEXRCache: Deleting GL textures...");
     int texture_count = 0;
     for (auto& pair : glTextureCache_) {
         if (pair.second && pair.second->texture_id != 0) {
@@ -180,13 +180,13 @@ DirectEXRCache::~DirectEXRCache() {
         }
     }
     glTextureCache_.clear();
-    Debug::Log("DirectEXRCache: Deleted " + std::to_string(texture_count) + " GL textures");
+    //Debug::Log("DirectEXRCache: Deleted " + std::to_string(texture_count) + " GL textures");
 
-    Debug::Log("DirectEXRCache: Clearing pixel cache...");
+    //Debug::Log("DirectEXRCache: Clearing pixel cache...");
     pixelCache_.Clear();
-    Debug::Log("DirectEXRCache: Pixel cache cleared");
+    //Debug::Log("DirectEXRCache: Pixel cache cleared");
 
-    Debug::Log("DirectEXRCache: Destructor complete - all resources freed");
+    //Debug::Log("DirectEXRCache: Destructor complete - all resources freed");
 }
 
 bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
@@ -196,11 +196,11 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     auto init_start = std::chrono::steady_clock::now();
 
     if (files.empty()) {
-        Debug::Log("DirectEXRCache: ERROR - Empty file list");
+        //Debug::Log("DirectEXRCache: ERROR - Empty file list");
         return false;
     }
 
-    Debug::Log("DirectEXRCache: [INIT] Loading new sequence (" + std::to_string(files.size()) + " frames, start frame: " + std::to_string(start_frame) + ")");
+    //Debug::Log("DirectEXRCache: [INIT] Loading new sequence (" + std::to_string(files.size()) + " frames, start frame: " + std::to_string(start_frame) + ")");
 
     auto clear_start = std::chrono::steady_clock::now();
     // Clear old sequence data (threads keep running)
@@ -239,12 +239,12 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     auto init_end = std::chrono::steady_clock::now();
     auto init_ms = std::chrono::duration_cast<std::chrono::milliseconds>(init_end - init_start).count();
 
-    Debug::Log("DirectEXRCache: [INIT] Sequence loaded in " + std::to_string(init_ms) + "ms (clear: " +
-               std::to_string(clear_ms) + "ms) - " + std::to_string(files.size()) +
-               " frames, cache=" + std::to_string(config_.cacheGB) + "GB");
+    //Debug::Log("DirectEXRCache: [INIT] Sequence loaded in " + std::to_string(init_ms) + "ms (clear: " +
+    //           std::to_string(clear_ms) + "ms) - " + std::to_string(files.size()) +
+    //           " frames, cache=" + std::to_string(config_.cacheGB) + "GB");
 
     // Start preloading from frame 0 (fill cache on load)
-    Debug::Log("DirectEXRCache: [INIT] Starting initial cache fill from frame 0");
+    //Debug::Log("DirectEXRCache: [INIT] Starting initial cache fill from frame 0");
     UpdateCurrentPosition(0.0);
 
     return true;
@@ -267,7 +267,7 @@ bool DirectEXRCache::Initialize(std::unique_ptr<IImageLoader> loader,
 void DirectEXRCache::Shutdown() {
     // 🔧 NEW BEHAVIOR: Don't stop threads, just clear sequence data
     // This is now just an alias for clearing - threads stay alive
-    Debug::Log("DirectEXRCache: Shutdown called (clearing sequence, keeping threads alive)");
+    //Debug::Log("DirectEXRCache: Shutdown called (clearing sequence, keeping threads alive)");
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -296,8 +296,18 @@ void DirectEXRCache::Shutdown() {
 }
 
 void DirectEXRCache::RequestFrame(int frame) {
-    if (frame < 0 || frame >= static_cast<int>(sequenceFiles_.size())) {
-        return;
+    int sequence_size = static_cast<int>(sequenceFiles_.size());
+    if (sequence_size == 0) return;
+
+    // Wrap frame index if looping is enabled
+    if (is_looping_) {
+        // Wrap to valid range: [0, sequence_size - 1]
+        frame = ((frame % sequence_size) + sequence_size) % sequence_size;
+    } else {
+        // Clamp to valid range
+        if (frame < 0 || frame >= sequence_size) {
+            return;
+        }
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -414,7 +424,7 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
 
     // Cancel all in-flight requests on seek
     if (isSeek) {
-        Debug::Log("DirectEXRCache: [SEEK DETECTED] Canceling all in-flight requests");
+        //Debug::Log("DirectEXRCache: [SEEK DETECTED] Canceling all in-flight requests");
         ClearRequests();
     }
 
@@ -426,7 +436,14 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
 void DirectEXRCache::UpdatePlaybackState(bool is_playing) {
     std::lock_guard<std::mutex> lock(mutex_);
     isPlaying_ = is_playing;
-    Debug::Log("DirectEXRCache: Playback state updated - " + std::string(is_playing ? "PLAYING" : "PAUSED"));
+    //Debug::Log("DirectEXRCache: Playback state updated - " + std::string(is_playing ? "PLAYING" : "PAUSED"));
+}
+
+void DirectEXRCache::SetLooping(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    is_looping_ = enabled;
+    Debug::Log("DirectEXRCache: Looping " + std::string(enabled ? "ENABLED" : "DISABLED") +
+               " - wrap-around caching " + std::string(enabled ? "active" : "inactive"));
 }
 
 bool DirectEXRCache::GetFrameDimensions(int& width, int& height) const {
@@ -460,7 +477,7 @@ bool DirectEXRCache::GetFrameDimensions(const std::string& filePath, int& width,
 
         return true;
     } catch (const std::exception& e) {
-        Debug::Log("DirectEXRCache: Failed to get dimensions - " + std::string(e.what()));
+        //Debug::Log("DirectEXRCache: Failed to get dimensions - " + std::string(e.what()));
         return false;
     }
 }
@@ -492,8 +509,8 @@ void DirectEXRCache::ProcessReadyTextures() {
             remaining_deletes = (int)texturesToDelete_.size();
         }
 
-        Debug::Log("DirectEXRCache: [TEX-DELETE] Deleted " + std::to_string(toDelete.size()) +
-                   " GL textures (" + std::to_string(remaining_deletes) + " queued)");
+        //Debug::Log("DirectEXRCache: [TEX-DELETE] Deleted " + std::to_string(toDelete.size()) +
+        //           " GL textures (" + std::to_string(remaining_deletes) + " queued)");
     }
 }
 
@@ -516,8 +533,8 @@ void DirectEXRCache::ClearRequests() {
         needsFillReset_ = true;
     }
 
-    Debug::Log("DirectEXRCache: Cleared " + std::to_string(pending) +
-               " pending + " + std::to_string(inProgress) + " in-progress (cache preserved)");
+    /*Debug::Log("DirectEXRCache: Cleared " + std::to_string(pending) +
+               " pending + " + std::to_string(inProgress) + " in-progress (cache preserved)");*/
 }
 
 void DirectEXRCache::ClearCache() {
@@ -549,14 +566,14 @@ void DirectEXRCache::ClearCache() {
                                 textures_to_delete.end());
     }
 
-    Debug::Log("DirectEXRCache: Cleared cache (" + std::to_string(pixel_count) +
-               " pixel frames) + requests, queued " + std::to_string(textures_to_delete.size()) +
-               " GL textures for deletion");
+    //Debug::Log("DirectEXRCache: Cleared cache (" + std::to_string(pixel_count) +
+    //           " pixel frames) + requests, queued " + std::to_string(textures_to_delete.size()) +
+    //           " GL textures for deletion");
 }
 
 void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
     if (!config.IsValid()) {
-        Debug::Log("DirectEXRCache: WARNING - Invalid config");
+        //Debug::Log("DirectEXRCache: WARNING - Invalid config");
         return;
     }
 
@@ -571,10 +588,10 @@ void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
         ClearCache();*/
     }
 
-    Debug::Log("DirectEXRCache: Config updated - threads=" +
-               std::to_string(config_.threadCount) + ", cache=" +
-               std::to_string(config_.cacheGB) + "GB, readBehind=" +
-               std::to_string(config_.readBehindSeconds) + "s");
+    //Debug::Log("DirectEXRCache: Config updated - threads=" +
+    //           std::to_string(config_.threadCount) + ", cache=" +
+    //           std::to_string(config_.cacheGB) + "GB, readBehind=" +
+    //           std::to_string(config_.readBehindSeconds) + "s");
 }
 
 DirectEXRCache::Stats DirectEXRCache::GetStats() const {
@@ -681,7 +698,7 @@ void DirectEXRCache::CacheThread() {
 
         // DEBUG: Log every iteration during initial load
         if (iteration <= 10) {
-            Debug::Log("DirectEXRCache: [CACHE-THREAD] Iteration " + std::to_string(iteration) + " starting");
+            //Debug::Log("DirectEXRCache: [CACHE-THREAD] Iteration " + std::to_string(iteration) + " starting");
         }
 
         // Get current playback position (mutex-protected state exchange)
@@ -697,8 +714,8 @@ void DirectEXRCache::CacheThread() {
                 cacheFillFrame_ = 0;
                 cacheFillByteCount_ = 0;
                 needsFillReset_ = false;
-                Debug::Log("DirectEXRCache: [FILL-RESET] Reset fill counters to start from frame " +
-                           std::to_string(current_frame));
+          /*      Debug::Log("DirectEXRCache: [FILL-RESET] Reset fill counters to start from frame " +
+                           std::to_string(current_frame));*/
             }
         }
 
@@ -718,28 +735,50 @@ void DirectEXRCache::CacheThread() {
         if (current_frame >= 0) {
             auto iter_start = std::chrono::steady_clock::now();
 
+            // Get sequence size for wrap-around calculations
+            int sequence_size = static_cast<int>(sequenceFiles_.size());
+
             // CRITICAL: Detect seeks BEFORE updating cacheIterationCount_
             // If position jumped >20 frames, reset iteration counter for post-seek boost
             bool isSeek = false;
             if (lastSeekFrame_ >= 0 && std::abs(current_frame - lastSeekFrame_) > 20) {
                 isSeek = true;
                 iteration = 1;  // Reset for 2-second post-seek boost (MAX_TEXTURES_POST_SEEK = 4)
-                Debug::Log("DirectEXRCache: [SEEK] Detected jump from frame " +
+               /* Debug::Log("DirectEXRCache: [SEEK] Detected jump from frame " +
                            std::to_string(lastSeekFrame_) + " to " + std::to_string(current_frame) +
-                           " - resetting iteration counter for post-seek boost");
+                           " - resetting iteration counter for post-seek boost");*/
 
                 // Immediately evict stale frames on major seek
                 // This prevents memory tracking issues where old frames consume budget
                 int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
                 int readAheadFrames = 72;  // Smaller immediate window ~3s @ 24fps
-                int eviction_threshold_behind = current_frame - readBehindFrames;
-                int eviction_threshold_ahead = current_frame + readAheadFrames;
 
                 auto cached_frames_pre = pixelCache_.GetKeys();
                 int immediate_evicted = 0;
 
                 for (int frame : cached_frames_pre) {
-                    if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                    bool should_evict = false;
+
+                    if (is_looping_) {
+                        // WRAP-AROUND EVICTION: Calculate shortest distance considering loop
+                        int forward_distance = (frame - current_frame + sequence_size) % sequence_size;
+                        int backward_distance = (current_frame - frame + sequence_size) % sequence_size;
+
+                        // Evict if outside window in BOTH directions
+                        if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                            should_evict = true;
+                        }
+                    } else {
+                        // LINEAR EVICTION: Keep frames in window [current - readBehind, current + readAhead]
+                        int eviction_threshold_behind = current_frame - readBehindFrames;
+                        int eviction_threshold_ahead = current_frame + readAheadFrames;
+
+                        if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                            should_evict = true;
+                        }
+                    }
+
+                    if (should_evict) {
                         pixelCache_.Remove(frame);
                         immediate_evicted++;
                     }
@@ -748,8 +787,8 @@ void DirectEXRCache::CacheThread() {
                 if (immediate_evicted > 0) {
                     segmentsDirty_ = true;
                     size_t freed_bytes = immediate_evicted * (hasActualFrameSize_ ? actualFrameSize_ : (3840 * 2160 * 4 * sizeof(half)));
-                    Debug::Log("DirectEXRCache: [SEEK-EVICTION] Immediately evicted " + std::to_string(immediate_evicted) +
-                               " stale frames (~" + std::to_string(freed_bytes / (1024*1024)) + "MB freed)");
+                   /* Debug::Log("DirectEXRCache: [SEEK-EVICTION] Immediately evicted " + std::to_string(immediate_evicted) +
+                               " stale frames (~" + std::to_string(freed_bytes / (1024*1024)) + "MB freed)");*/
                 }
             }
             lastSeekFrame_ = current_frame;
@@ -757,7 +796,7 @@ void DirectEXRCache::CacheThread() {
             // Update cacheIterationCount_ AFTER seek detection (so ProcessReadyTextures sees reset value)
             cacheIterationCount_ = iteration;
 
-            // Evict old frames with read-behind + read-ahead window 
+            // Evict old frames with read-behind + read-ahead window
             // Calculate read-behind/read-ahead in frames
             int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
             //  Also define a read-ahead window for eviction
@@ -765,17 +804,34 @@ void DirectEXRCache::CacheThread() {
             int readAheadFrames = 180;  // Keep ~7.5 seconds ahead @ 24fps (was infinite before!)
 
             auto cached_frames = pixelCache_.GetKeys();
-
-            // Keep frames in window: [current - readBehind, current + readAhead]
-            int eviction_threshold_behind = current_frame - readBehindFrames;
-            int eviction_threshold_ahead = current_frame + readAheadFrames;
             int evicted_count = 0;
 
             // Simply evict pixel data - no GL textures involved
             // GL textures are in separate glTextureCache_ and managed by GetTexture()
             for (int frame : cached_frames) {
-                // Evict frames both BEHIND and FAR AHEAD of playhead
-                if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                bool should_evict = false;
+
+                if (is_looping_) {
+                    // WRAP-AROUND EVICTION: Calculate shortest distance considering loop
+                    // Example: frame 5 is 15 frames "ahead" of frame 90 in a 100-frame sequence
+                    int forward_distance = (frame - current_frame + sequence_size) % sequence_size;
+                    int backward_distance = (current_frame - frame + sequence_size) % sequence_size;
+
+                    // Evict if outside window in BOTH directions
+                    if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                        should_evict = true;
+                    }
+                } else {
+                    // LINEAR EVICTION: Keep frames in window [current - readBehind, current + readAhead]
+                    int eviction_threshold_behind = current_frame - readBehindFrames;
+                    int eviction_threshold_ahead = current_frame + readAheadFrames;
+
+                    if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                        should_evict = true;
+                    }
+                }
+
+                if (should_evict) {
                     pixelCache_.Remove(frame);
                     evicted_count++;
                 }
@@ -783,9 +839,9 @@ void DirectEXRCache::CacheThread() {
 
             if (evicted_count > 0) {
                 segmentsDirty_ = true;  // Mark segments dirty after eviction
-                Debug::Log("DirectEXRCache: Cache thread @ frame " + std::to_string(current_frame) +
+                /*Debug::Log("DirectEXRCache: Cache thread @ frame " + std::to_string(current_frame) +
                            " - Evicted " + std::to_string(evicted_count) + " pixel data frames outside window [" +
-                           std::to_string(eviction_threshold_behind) + ", " + std::to_string(eviction_threshold_ahead) + "]");
+                           std::to_string(eviction_threshold_behind) + ", " + std::to_string(eviction_threshold_ahead) + "]");*/
             }
 
             // Step 2: Fill cache with readahead frames
@@ -863,8 +919,17 @@ void DirectEXRCache::CacheThread() {
                 int readBehindEnd = current_frame - readBehindFrames;
 
                 // Fill read-ahead frames (priority for forward playback)
-                for (int i = 1; i <= max_to_request && (current_frame + i) < (int)sequenceFiles_.size(); i++) {
+                for (int i = 1; i <= max_to_request; i++) {
                     int frame = current_frame + i;
+
+                    // Wrap or clamp based on looping mode
+                    if (is_looping_) {
+                        // Wrap around to beginning
+                        frame = frame % sequence_size;
+                    } else {
+                        // Stop at end
+                        if (frame >= sequence_size) break;
+                    }
 
                     // Skip if already cached
                     if (pixelCache_.Contains(frame)) continue;
@@ -891,7 +956,15 @@ void DirectEXRCache::CacheThread() {
                 // Only fill if we have remaining capacity
                 for (int i = 1; requested_count < max_to_request && i <= readBehindFrames; i++) {
                     int frame = current_frame - i;
-                    if (frame < 0) break;
+
+                    // Wrap or clamp based on looping mode
+                    if (is_looping_) {
+                        // Wrap around to end
+                        frame = ((frame % sequence_size) + sequence_size) % sequence_size;
+                    } else {
+                        // Stop at beginning
+                        if (frame < 0) break;
+                    }
 
                     // Skip if already cached
                     if (pixelCache_.Contains(frame)) continue;
@@ -954,13 +1027,13 @@ void DirectEXRCache::CacheThread() {
                 auto iter_ms = std::chrono::duration_cast<std::chrono::milliseconds>(iter_end - iter_start).count();
 
                 if (requested_count > 0) {
-                    Debug::Log("DirectEXRCache: [ITER-" + std::to_string(iteration) + "] " +
+                   /* Debug::Log("DirectEXRCache: [ITER-" + std::to_string(iteration) + "] " +
                                std::to_string(iter_ms) + "ms - Requested " +
                                std::to_string(requested_count) + "/" + std::to_string(batch_limit) +
                                " frames (cached: " + std::to_string(cached_bytes / (1024*1024)) +
                                "MB + in-progress: " + std::to_string(in_progress_bytes / (1024*1024)) +
                                "MB = " + std::to_string(total_committed / (1024*1024)) +
-                               "MB / " + std::to_string(max_bytes / (1024*1024)) + "MB)");
+                               "MB / " + std::to_string(max_bytes / (1024*1024)) + "MB)");*/
                     cv_.notify_one();  // Wake up I/O worker
                 }
             }
@@ -978,7 +1051,7 @@ void DirectEXRCache::CacheThread() {
 //=============================================================================
 
 void DirectEXRCache::IOWorkerThread() {
-    Debug::Log("DirectEXRCache: I/O worker thread started");
+    //Debug::Log("DirectEXRCache: I/O worker thread started");
 
     // Short timeout - check frequently for completed tasks so we can spawn more
     // Aggressive task spawning for fast cache fill
@@ -1233,14 +1306,14 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
     }
 
     if (!chR || !chG || !chB) {
-        Debug::Log("DirectEXRCache: ERROR - Missing RGB channels for layer '" + layer + "' in " + path);
+        //Debug::Log("DirectEXRCache: ERROR - Missing RGB channels for layer '" + layer + "' in " + path);
         return nullptr;
     }
 
     // Check pixel type consistency across channels
     const Imf::PixelType pixelType = chR->type;
     if (pixelType != chG->type || pixelType != chB->type || (chA && pixelType != chA->type)) {
-        Debug::Log("DirectEXRCache: ERROR - Inconsistent pixel types across RGBA channels in " + path);
+        //Debug::Log("DirectEXRCache: ERROR - Inconsistent pixel types across RGBA channels in " + path);
         return nullptr;
     }
 
@@ -1249,7 +1322,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         chG->xSampling != 1 || chG->ySampling != 1 ||
         chB->xSampling != 1 || chB->ySampling != 1 ||
         (chA && (chA->xSampling != 1 || chA->ySampling != 1))) {
-        Debug::Log("DirectEXRCache: ERROR - Subsampled channels not supported (sampling must be 1,1) in " + path);
+        //Debug::Log("DirectEXRCache: ERROR - Subsampled channels not supported (sampling must be 1,1) in " + path);
         return nullptr;
     }
 
@@ -1307,7 +1380,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
 
         static int readCount = 0;
         if (readCount++ < 5) {
-            Debug::Log("DirectEXRCache: [FAST-PATH-READ] readPixels took " + std::to_string(read_ms) + "ms");
+            //Debug::Log("DirectEXRCache: [FAST-PATH-READ] readPixels took " + std::to_string(read_ms) + "ms");
         }
 
     } else {

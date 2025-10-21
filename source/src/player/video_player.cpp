@@ -185,6 +185,9 @@ void VideoPlayer::ConfigureVideoOptions() {
     mpv_set_option_string(mpv, "vo", "libmpv");
     mpv_set_option_string(mpv, "video-unscaled", "no");
     mpv_set_option_string(mpv, "keepaspect", "yes");
+
+    // Video sync - using display-resample for smooth playback
+    // Note: Can try "desync" mode for lower latency if issues persist
     mpv_set_option_string(mpv, "video-sync", "display-resample");
 
     // OpenGL settings
@@ -668,62 +671,67 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
         SetupAudioVisualization();
     }
 
-    // Create new thumbnail cache for video files only
+    // Defer thumbnail cache creation to background to avoid blocking viewport
+    // This allows MPV to render the first frame immediately during playlist switches
     if (!is_audio_file) {
-        // Wait a moment for MPV to load the new file properties
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        Debug::Log("OnPlaylistItemChanged: Deferring thumbnail cache creation to background");
 
-        // Update properties to get new file duration and dimensions
-        UpdateProperties();
+        // Defer thumbnail creation by 250ms - gives MPV time to load properties
+        // without blocking the viewport from updating
+        std::thread([this, new_file_path]() {
+            std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
-        double duration = cached_duration;
-        double fps = GetFrameRate();
+            // Update properties to get new file duration and dimensions
+            UpdateProperties();
 
-        if (fps <= 0) fps = 24.0;  // Default fallback
-        int frame_count = static_cast<int>(duration * fps);
+            double duration = cached_duration;
+            double fps = GetFrameRate();
 
-        Debug::Log("OnPlaylistItemChanged: Creating thumbnail cache (fps=" + std::to_string(fps) +
-                   ", duration=" + std::to_string(duration) + "s, frames=" + std::to_string(frame_count) + ")");
+            if (fps <= 0) fps = 24.0;  // Default fallback
+            int frame_count = static_cast<int>(duration * fps);
 
-        ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
-        if (thumb_config.enabled && duration > 0) {
-            // Create VideoImageLoader for the new file
-            auto video_loader = std::make_unique<ump::VideoImageLoader>(new_file_path, fps, duration);
+            Debug::Log("OnPlaylistItemChanged: Creating thumbnail cache (fps=" + std::to_string(fps) +
+                       ", duration=" + std::to_string(duration) + "s, frames=" + std::to_string(frame_count) + ")");
 
-            // NEW: Set conversion strategy for color matrix support (ProRes 4444/422, etc.)
-            VideoMetadata metadata = ExtractMetadata();
-            if (metadata.is_loaded) {
-                auto strategy = ConversionStrategy::FromMetadata(metadata);
-                video_loader->SetConversionStrategy(strategy);
-                Debug::Log("VideoPlayer: Thumbnail loader (playlist) - conversion strategy set: " + strategy.GetDescription());
+            ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
+            if (thumb_config.enabled && duration > 0) {
+                // Create VideoImageLoader for the new file
+                auto video_loader = std::make_unique<ump::VideoImageLoader>(new_file_path, fps, duration);
+
+                // Set conversion strategy for color matrix support (ProRes 4444/422, etc.)
+                VideoMetadata metadata = ExtractMetadata();
+                if (metadata.is_loaded) {
+                    auto strategy = ConversionStrategy::FromMetadata(metadata);
+                    video_loader->SetConversionStrategy(strategy);
+                    Debug::Log("VideoPlayer: Thumbnail loader (playlist) - conversion strategy set: " + strategy.GetDescription());
+                } else {
+                    Debug::Log("VideoPlayer: Thumbnail loader (playlist) - no metadata available for conversion strategy");
+                }
+
+                // Create synthetic frame list
+                std::vector<std::string> frame_list;
+                frame_list.reserve(frame_count);
+                for (int i = 0; i < frame_count; ++i) {
+                    frame_list.push_back(std::to_string(i));
+                }
+
+                // Create ThumbnailCache (GL operations must be done on main thread via callback or deferred)
+                // For now, we'll create it here - if GL context issues arise, we'll need to post to main thread
+                thumbnail_cache_ = std::make_unique<ump::ThumbnailCache>(
+                    std::move(frame_list),
+                    std::move(video_loader),
+                    thumb_config
+                );
+
+                Debug::Log("OnPlaylistItemChanged: ThumbnailCache created, " +
+                           std::to_string(thumb_config.width) + "x" + std::to_string(thumb_config.height));
+
+                // Prefetch strategic frames
+                thumbnail_cache_->PrefetchStrategicFrames(frame_count);
             } else {
-                Debug::Log("VideoPlayer: Thumbnail loader (playlist) - no metadata available for conversion strategy");
+                Debug::Log("OnPlaylistItemChanged: ThumbnailCache disabled or no duration");
             }
-
-            // Create synthetic frame list
-            std::vector<std::string> frame_list;
-            frame_list.reserve(frame_count);
-            for (int i = 0; i < frame_count; ++i) {
-                frame_list.push_back(std::to_string(i));
-            }
-
-            // Create ThumbnailCache
-            thumbnail_cache_ = std::make_unique<ump::ThumbnailCache>(
-                std::move(frame_list),
-                std::move(video_loader),
-                thumb_config
-            );
-
-            Debug::Log("OnPlaylistItemChanged: ThumbnailCache created, " +
-                       std::to_string(thumb_config.width) + "x" + std::to_string(thumb_config.height));
-
-            // Prefetch strategic frames
-            thumbnail_cache_->PrefetchStrategicFrames(frame_count);
-        } else {
-            Debug::Log("OnPlaylistItemChanged: ThumbnailCache disabled or no duration");
-        }
-
-        // UpdateProperties() already handled dimension changes above
+        }).detach();
     } else {
         Debug::Log("OnPlaylistItemChanged: Skipping thumbnail cache for audio file");
         // Reset has_video for audio-only files
@@ -993,6 +1001,11 @@ void VideoPlayer::SetLoop(bool enabled) {
         mpv_set_property_string(mpv, "loop-file", "no");
         mpv_set_property_string(mpv, "loop-playlist", "no");
         //Debug::Log("Disabled looping");
+    }
+
+    // Sync looping state to EXR cache for wrap-around caching
+    if (exr_cache_) {
+        exr_cache_->SetLooping(enabled);
     }
 }
 
@@ -3326,8 +3339,10 @@ bool VideoPlayer::LoadEXRSequenceWithShader(const std::vector<std::string>& sequ
     LoadFile(dummy_path);
 
     // Override timeline to match EXR sequence length
-    double duration = sequence_files.size() / fps;
+    // Add one extra frame time to ensure last frame is fully visible before loop
+    double duration = (sequence_files.size() + 1) / fps;
     mpv_set_property(mpv, "length", MPV_FORMAT_DOUBLE, &duration);
+    Debug::Log("EXR sequence duration set to " + std::to_string(duration) + "s (includes last frame display time)");
     mpv_set_property_string(mpv, "loop-file", "inf");  // Loop short dummy
 
     // TODO: Load EXR replacement shader
@@ -3414,8 +3429,9 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     }
 
     // Calculate actual sequence duration
-    double duration = sequence_files.size() / fps;
-    Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames)");
+    // Add one extra frame time to ensure last frame is fully visible before loop
+    double duration = (sequence_files.size() + 1) / fps;
+    Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames, includes last frame display time)");
 
     // Generate or get cached dummy video with full duration
     std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, duration);
@@ -3568,10 +3584,12 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     }
 
     // Calculate actual sequence duration
-    double sequence_duration = static_cast<double>(sequence_files.size()) / fps;
+    // Add one extra frame time to ensure last frame is fully visible before loop
+    double sequence_duration = static_cast<double>(sequence_files.size() + 1) / fps;
 
     // Generate dummy video for the full sequence duration
     std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, sequence_duration);
+    Debug::Log("Image sequence duration set to " + std::to_string(sequence_duration) + "s (includes last frame display time)");
     if (dummy_path.empty()) {
         Debug::Log("ERROR: Failed to generate full-duration dummy video");
         return false;
@@ -3614,6 +3632,9 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         Debug::Log("VideoPlayer: Applied cache config: " +
                    std::to_string(config.video_cache_gb) + "GB cache, " +
                    std::to_string(config.read_behind_seconds) + "s read behind");
+
+        // Sync looping state for seamless wrap-around caching
+        exr_cache_->SetLooping(loop_enabled);
 
         // Start background caching
         exr_cache_->StartBackgroundCaching();
@@ -3685,21 +3706,11 @@ int VideoPlayer::CalculateCurrentEXRFrameIndex() const {
 
     int sequence_size = static_cast<int>(exr_sequence_files.size());
 
-    // Handle looping for EXR sequences (MPV loop doesn't apply to our manual frame injection)
-    if (loop_enabled) {
-        // Wrap around for looping playback
-        if (frame_index >= sequence_size) {
-            frame_index = frame_index % sequence_size;
-        } else if (frame_index < 0) {
-            frame_index = 0;
-        }
-    } else {
-        // Clamp to valid range when not looping
-        frame_index = std::clamp(frame_index, 0, sequence_size - 1);
-
-        // If we've reached the end and not looping, we should pause
-        // (handled in InjectCurrentEXRFrame to avoid const issues)
-    }
+    // Handle frame clamping for EXR sequences
+    // CRITICAL: Always clamp to valid range [0, sequence_size-1]
+    // Looping happens via MPV seek command, not frame index wrapping
+    // This ensures the last frame stays visible during extended duration
+    frame_index = std::clamp(frame_index, 0, sequence_size - 1);
 
     // Debug: Log timing info when frame changes significantly
     // Note: Static tracking per-sequence handled in InjectCurrentEXRFrame
@@ -3713,11 +3724,11 @@ int VideoPlayer::CalculateCurrentEXRFrameIndex() const {
     }
 
     if (abs(frame_index - last_logged_frame) > 0) {
-        Debug::Log("EXR Frame Timing: pos=" + std::to_string(position) +
+       /* Debug::Log("EXR Frame Timing: pos=" + std::to_string(position) +
                    "s, fps=" + std::to_string(fps) +
                    ", calc_frame=" + std::to_string(frame_index) +
                    "/" + std::to_string(sequence_size) +
-                   ", loop=" + (loop_enabled ? "ON" : "OFF"));
+                   ", loop=" + (loop_enabled ? "ON" : "OFF"));*/
         last_logged_frame = frame_index;
     }
 
@@ -3737,7 +3748,6 @@ void VideoPlayer::InjectCurrentEXRFrame() {
     static int last_injected_frame = -1;
     static int last_cache_update_frame = -1;
     static int last_miss_frame = -1;
-    static bool preload_triggered = false;
 
     if (current_sequence_path != last_sequence_path) {
         // Sequence changed - reset all static tracking variables
@@ -3747,12 +3757,12 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         last_injected_frame = -1;
         last_cache_update_frame = -1;
         last_miss_frame = -1;
-        preload_triggered = false;
     }
 
     // Calculate sequence info and current frame FIRST
     int sequence_size = static_cast<int>(exr_sequence_files.size());
-    double sequence_duration = sequence_size / exr_frame_rate;
+    // Add one extra frame time to ensure last frame is fully visible before loop
+    double sequence_duration = (sequence_size + 1) / exr_frame_rate;
     int target_frame = CalculateCurrentEXRFrameIndex();
 
     auto now = std::chrono::steady_clock::now();
@@ -3765,37 +3775,10 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         last_log_time = now;
     }
 
-    // Simple loop strategy: Brief pause at loop point to let cache catch up
-    // No complex pre-caching - just give the cache a moment to load first frames after seek
-    static bool loop_pause_triggered = false;
-    static auto loop_pause_start = std::chrono::steady_clock::now();
-
-    if (loop_enabled && target_frame < 5 && last_injected_frame >= sequence_size - 5) {
-        // We just looped back to the beginning
-        if (!loop_pause_triggered && is_playing) {
-            //Debug::Log("EXR loop: Brief pause at loop point to let cache catch up");
-            Pause();
-            loop_pause_triggered = true;
-            loop_pause_start = std::chrono::steady_clock::now();
-        }
-    }
-
-    // Resume after brief pause (500ms for safer cache load)
-    if (loop_pause_triggered) {
-        auto pause_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - loop_pause_start).count();
-
-        if (pause_duration >= 500) {
-            Debug::Log("EXR loop: Resuming playback after cache pause");
-            Play();
-            loop_pause_triggered = false;
-        }
-    }
-
-    // Reset trigger when far from loop point
-    if (target_frame > 10) {
-        loop_pause_triggered = false;
-    }
+    // SEAMLESS LOOPING: Wrap-around caching eliminates need for loop pause
+    // Cache pre-loads frames 0-20 when approaching end of sequence (if looping enabled)
+    // This allows smooth, hitch-free looping without interruption
+    // Old strategy (pausing at loop point) removed - now handled by DirectEXRCache wrap-around logic
 
     // Handle end-of-sequence behavior AFTER pre-caching
     // Check MPV's actual position to detect loop/end conditions
@@ -3846,8 +3829,8 @@ void VideoPlayer::InjectCurrentEXRFrame() {
 
             // Less verbose - only log on frame change
             if (target_frame != last_injected_frame) {
-                Debug::Log("EXR frame " + std::to_string(target_frame) +
-                          " displayed (texture " + std::to_string(cached_texture) + ")");
+              /*  Debug::Log("EXR frame " + std::to_string(target_frame) +
+                          " displayed (texture " + std::to_string(cached_texture) + ")");*/
                 last_injected_frame = target_frame;
             }
 
@@ -3859,30 +3842,9 @@ void VideoPlayer::InjectCurrentEXRFrame() {
                 last_cache_update_frame = target_frame;
             }
 
-            // Proactive loop caching: Pre-load first 16 frames when approaching end
-            // This ensures seamless looping with no visible hitch
-            if (loop_enabled && target_frame >= sequence_size - 20 && target_frame < sequence_size - 1) {
-                if (!preload_triggered) {
-                    Debug::Log("EXR loop: Pre-caching first 16 frames (frames 0-15) for seamless loop at frame " +
-                              std::to_string(target_frame));
-
-                    // Request first 16 frames to be cached (background thread will handle)
-                    // UpdateCurrentPosition triggers the cache thread to load around that position
-                    for (int i = 0; i < 16 && i < sequence_size; i++) {
-                        double preload_timestamp = i / exr_frame_rate;
-                        exr_cache_->UpdateCurrentPosition(preload_timestamp);
-                    }
-
-                    // Restore current position for normal caching
-                    exr_cache_->UpdateCurrentPosition(GetPosition());
-
-                    preload_triggered = true;
-                    Debug::Log("EXR loop: Pre-cache triggered, first 16 frames requested");
-                }
-            } else if (target_frame < sequence_size - 20) {
-                // Reset trigger when we're far from the end (back in normal playback range)
-                preload_triggered = false;
-            }
+            // REMOVED: Old manual pre-cache logic
+            // Wrap-around caching in DirectEXRCache now handles this automatically
+            // When looping is enabled, cache naturally wraps from frame N-1 to frame 0
 
             return;
         }
@@ -4256,6 +4218,9 @@ void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_fi
                    std::to_string(config.video_cache_gb) + "GB cache, " +
                    std::to_string(config.read_behind_seconds) + "s read behind");
 
+        // Sync looping state for seamless wrap-around caching
+        exr_cache_->SetLooping(loop_enabled);
+
         // Start background caching
         exr_cache_->StartBackgroundCaching();
         Debug::Log("VideoPlayer: DirectEXRCache initialized and background caching started");
@@ -4351,11 +4316,11 @@ size_t VideoPlayer::ClearEXRDiskCache() {
 // Thumbnail Cache (for timeline scrubbing)
 // ============================================================================
 
-GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback) {
+GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback, int* out_actual_frame) {
     if (!thumbnail_cache_) {
         return 0;  // No thumbnail cache available
     }
-    GLuint texture_id = thumbnail_cache_->GetThumbnail(frame, allow_fallback);
+    GLuint texture_id = thumbnail_cache_->GetThumbnail(frame, allow_fallback, out_actual_frame);
 
     static int log_counter = 0;
     if (log_counter++ % 100 == 0) {  // Log every 100th request to avoid spam
@@ -4365,6 +4330,15 @@ GLuint VideoPlayer::GetThumbnailForFrame(int frame, bool allow_fallback) {
     }
 
     return texture_id;
+}
+
+bool VideoPlayer::GetThumbnailSize(int frame, int& width, int& height) const {
+    if (!thumbnail_cache_) {
+        width = 0;
+        height = 0;
+        return false;
+    }
+    return thumbnail_cache_->GetCachedThumbnailSize(frame, width, height);
 }
 
 bool VideoPlayer::HasThumbnailCache() const {

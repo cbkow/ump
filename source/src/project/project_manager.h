@@ -326,6 +326,7 @@ namespace ump {
         void ToggleTranscodeQueueWindow();
         bool IsTranscodeQueueWindowOpen() const;
         void RenderTranscodeQueueWindow();  // Call from main render loop
+        TranscodeQueueWindow* GetTranscodeQueueWindow() { return transcode_queue_window_.get(); }
         void AddSelectedItemsToTranscodeQueue();
         void ShowTranscodeSettingsDialog();
         TranscodeQueue* GetTranscodeQueue() { return transcode_queue_.get(); }
@@ -334,6 +335,19 @@ namespace ump {
         // OCIO node graph access (for extracting settings during transcode)
         void SetNodeManager(void* node_mgr) { node_manager_ptr_ = node_mgr; }
         void* GetNodeManager() const { return node_manager_ptr_; }
+
+        // ========================================================================
+        // IN/OUT POINT MANAGEMENT (Per-video)
+        // ========================================================================
+
+        void SetInPoint(double timestamp);
+        void SetOutPoint(double timestamp);
+        double GetInPoint() const;
+        double GetOutPoint() const;
+        bool HasInPoint() const;
+        bool HasOutPoint() const;
+        bool HasBothInOutPoints() const;
+        void ClearInOutPoints();
 
     private:
         // Constants
@@ -467,6 +481,7 @@ namespace ump {
         void ProcessRenameItem();
         void ProcessCreatePlaylistFromSelection();
         void SelectItemRange(const std::string& start_id, const std::string& end_id);
+        MediaItem* GetMediaItemFromCurrentPath();  // Find MediaItem corresponding to current_file_path
 
         // ========================================================================
         // SEQUENCE MANAGEMENT HELPERS

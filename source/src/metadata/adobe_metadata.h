@@ -58,6 +58,9 @@ class AdobeMetadataExtractor {
 public:
     static std::unique_ptr<AdobeMetadata> ExtractAdobePaths(const std::string& file_path);
 
+    // Write Adobe metadata to output file (with optional timecode offset for trimmed videos)
+    static bool WriteMetadata(const std::string& output_file, const AdobeMetadata* metadata, int offset_frames = 0);
+
 private:
     static std::string GetExifToolPath();
     static std::unordered_map<std::string, std::string> ParseExifOutput(const std::string& output);

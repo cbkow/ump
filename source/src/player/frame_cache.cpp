@@ -322,13 +322,29 @@ void FrameCache::BackgroundCacheWorker() {
             continue;
         }
 
-        // Much more aggressive throttling during playback to prevent stutter
+        // Check for any pause conditions (playback OR thumbnails/scrubbing)
         bool is_playing = main_player_is_playing.load();
+        bool paused_for_thumbnails = pause_for_thumbnails_.load();
 
-        if (is_playing) {
-            // During playback: pause caching completely to avoid interference
+        if (is_playing || paused_for_thumbnails) {
+            // Pause caching during playback OR user interaction (hover/scrub)
+            // Use longer sleep for efficiency when paused
+            static bool logged_pause = false;
+            if (!logged_pause) {
+                if (is_playing && paused_for_thumbnails) {
+                    Debug::Log("FrameCache: Paused for playback AND thumbnails");
+                } else if (is_playing) {
+                    Debug::Log("FrameCache: Paused for playback");
+                } else {
+                    Debug::Log("FrameCache: Paused for thumbnail generation");
+                }
+                logged_pause = true;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             continue;
+        } else {
+            static bool logged_pause = false;
+            logged_pause = false;  // Reset for next pause
         }
 
         // Only cache when not playing - reasonable batch size to allow memory checks
@@ -663,6 +679,13 @@ void FrameCache::ExtractFrameAtPosition(double timestamp, VideoPlayer* video_pla
 // DISABLED: Opportunistic caching - using only spiral background caching
 bool FrameCache::TryCacheCurrentFrame(VideoPlayer* video_player) {
     if (!video_player) {
+        return false;
+    }
+
+    // OPTIMIZATION: Don't process frames if caching is disabled
+    // This prevents GL texture creation and cache operations when user disabled seek cache
+    // Fixes stuttering in playlist mode when cache is off
+    if (!caching_enabled.load()) {
         return false;
     }
 
@@ -1019,6 +1042,20 @@ void FrameCache::NotifyPlaybackState(bool is_playing) {
     }
 }
 
+void FrameCache::PauseForThumbnails(bool pause) {
+    pause_for_thumbnails_ = pause;
+
+    // Also pause/resume the MediaBackgroundExtractor workers for instant response
+    // This ensures all 8 worker threads stop immediately, not just the FrameCache main thread
+    if (background_extractor) {
+        if (pause) {
+            background_extractor->PauseExtraction();
+        } else {
+            background_extractor->ResumeExtraction();  // Use ResumeExtraction(), not StartBackgroundExtraction()
+        }
+    }
+}
+
 std::vector<FrameCache::CacheSegment> FrameCache::GetCacheSegments() const {
     // Get cache segments directly from background extractor
     if (background_extractor) {
@@ -1064,6 +1101,13 @@ void FrameCache::SetVideoFile(const std::string& video_path, const VideoMetadata
 
     // Update video path
     current_video_path = video_path;
+
+    // OPTIMIZATION: Only initialize/start extractor if caching is enabled
+    // This prevents spawning 4+ worker threads when user has disabled Seek Cache
+    if (!caching_enabled.load()) {
+        Debug::Log("FrameCache: Caching disabled, skipping background extractor initialization for " + video_path);
+        return;  // Early return when cache disabled - no threads spawned
+    }
 
     // Initialize background extractor with new video
     // metadata can be nullptr - start immediately!

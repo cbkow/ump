@@ -85,11 +85,12 @@ public:
      * Get thumbnail for a specific frame (non-blocking)
      * @param frame - Frame number (0-based index into sequence_files)
      * @param allow_fallback - If true, return nearest cached frame as preview
+     * @param out_actual_frame - If not null, receives the actual frame number returned (useful for fallback)
      * @return OpenGL texture ID, or 0 if not yet available
      *
      * Note: Returns 0 immediately if not cached, queues async generation
      */
-    GLuint GetThumbnail(int frame, bool allow_fallback = false);
+    GLuint GetThumbnail(int frame, bool allow_fallback = false, int* out_actual_frame = nullptr);
 
     /**
      * Cancel all pending requests (useful when jumping to different timeline position)
@@ -119,6 +120,15 @@ public:
         width = config_.width;
         height = config_.height;
     }
+
+    /**
+     * Get actual dimensions of a cached thumbnail
+     * @param frame - Frame number
+     * @param width - Output: actual thumbnail width (0 if not cached)
+     * @param height - Output: actual thumbnail height (0 if not cached)
+     * @return true if thumbnail is cached, false otherwise
+     */
+    bool GetCachedThumbnailSize(int frame, int& width, int& height) const;
 
     /**
      * Check if thumbnail cache is enabled

@@ -1,11 +1,30 @@
 #include "video_transcoder.h"
 #include "../player/image_loaders.h"
+#include "../player/media_background_extractor.h"  // For ConversionStrategy
+#include "../metadata/video_metadata.h"
 #include "../utils/debug_utils.h"
 #include <filesystem>
 #include <algorithm>
+#include <cmath>
+
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+}
 
 #undef min
 #undef max
+
+// External transcode performance settings (defined in main.cpp)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
 
 namespace ump {
 
@@ -100,10 +119,143 @@ void VideoTranscoder::UpdateProgress(const Progress& progress) {
     progress_ = progress;
 }
 
+// ============================================================================
+// Helper: Check if audio codec is compatible with output container
+// ============================================================================
+static bool IsAudioCodecCompatible(const std::string& audio_codec, const std::string& video_codec) {
+    // MP4 container (H.264/H.265) has strict audio codec requirements
+    if (video_codec == "libx264" || video_codec == "libx265") {
+        // Compatible codecs for MP4
+        if (audio_codec == "aac" ||
+            audio_codec == "mp3" ||
+            audio_codec == "ac3" ||
+            audio_codec == "eac3" ||
+            audio_codec == "mp2") {
+            return true;
+        }
+        // Incompatible codecs (PCM, FLAC, etc.) need re-encoding
+        return false;
+    }
+
+    // Other containers (MOV, MKV) accept most codecs
+    return true;
+}
+
+// ============================================================================
+// Helper: Extract metadata from video file using FFmpeg
+// ============================================================================
+static VideoMetadata ExtractVideoMetadata(const std::string& video_path) {
+    VideoMetadata metadata;
+
+    AVFormatContext* format_ctx = nullptr;
+
+    // Open video file
+    if (avformat_open_input(&format_ctx, video_path.c_str(), nullptr, nullptr) < 0) {
+        Debug::Log("ExtractVideoMetadata: Failed to open video file: " + video_path);
+        return metadata;
+    }
+
+    // Read stream info
+    if (avformat_find_stream_info(format_ctx, nullptr) < 0) {
+        Debug::Log("ExtractVideoMetadata: Failed to find stream info");
+        avformat_close_input(&format_ctx);
+        return metadata;
+    }
+
+    // Find video stream
+    int video_stream_index = -1;
+    for (unsigned int i = 0; i < format_ctx->nb_streams; i++) {
+        if (format_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            video_stream_index = i;
+            break;
+        }
+    }
+
+    if (video_stream_index < 0) {
+        Debug::Log("ExtractVideoMetadata: No video stream found");
+        avformat_close_input(&format_ctx);
+        return metadata;
+    }
+
+    AVStream* video_stream = format_ctx->streams[video_stream_index];
+    AVCodecParameters* codecpar = video_stream->codecpar;
+
+    // Basic file info
+    metadata.PopulateBasicFileInfo(video_path);
+
+    // Video properties
+    metadata.width = codecpar->width;
+    metadata.height = codecpar->height;
+
+    // Frame rate
+    if (video_stream->avg_frame_rate.den != 0) {
+        metadata.frame_rate = static_cast<double>(video_stream->avg_frame_rate.num) /
+                             video_stream->avg_frame_rate.den;
+    }
+
+    // Codec name
+    const AVCodec* codec = avcodec_find_decoder(codecpar->codec_id);
+    if (codec) {
+        metadata.video_codec = codec->name;
+    }
+
+    // Pixel format
+    metadata.pixel_format = av_get_pix_fmt_name(static_cast<AVPixelFormat>(codecpar->format));
+
+    // Colorspace
+    switch (codecpar->color_space) {
+        case AVCOL_SPC_BT709:
+            metadata.colorspace = "bt709";
+            break;
+        case AVCOL_SPC_BT470BG:
+        case AVCOL_SPC_SMPTE170M:
+            metadata.colorspace = "bt601";
+            break;
+        case AVCOL_SPC_BT2020_NCL:
+        case AVCOL_SPC_BT2020_CL:
+            metadata.colorspace = "bt2020nc";
+            break;
+        default:
+            metadata.colorspace = "unknown";
+            break;
+    }
+
+    // Color range
+    switch (codecpar->color_range) {
+        case AVCOL_RANGE_JPEG:
+            metadata.range_type = "full";
+            break;
+        case AVCOL_RANGE_MPEG:
+            metadata.range_type = "limited";
+            break;
+        default:
+            metadata.range_type = "unknown";
+            break;
+    }
+
+    metadata.is_loaded = true;
+
+    Debug::Log("ExtractVideoMetadata: Successfully extracted metadata");
+    Debug::Log("  Codec: " + metadata.video_codec);
+    Debug::Log("  Pixel Format: " + std::string(metadata.pixel_format));
+    Debug::Log("  Colorspace: " + metadata.colorspace);
+    Debug::Log("  Range: " + metadata.range_type);
+    Debug::Log("  Resolution: " + std::to_string(metadata.width) + "x" + std::to_string(metadata.height));
+
+    // Cleanup
+    avformat_close_input(&format_ctx);
+
+    return metadata;
+}
+
 void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback callback) {
     auto start_time = std::chrono::steady_clock::now();
 
     Progress progress;
+
+    // Audio support: source format context for audio packet reading
+    AVFormatContext* source_format_ctx = nullptr;
+    std::vector<int> audio_stream_indices;
 
     try {
         // ===================================================================
@@ -144,12 +296,27 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
 
         if (config.input_mode == InputMode::VIDEO_FILE) {
             // Video file mode - use VideoImageLoader
-            loader = std::make_unique<VideoImageLoader>(
+            auto video_loader = std::make_unique<VideoImageLoader>(
                 config.input_video_path,
                 config.fps,
                 config.video_duration
             );
             Debug::Log("VideoTranscoder: Created VideoImageLoader for: " + config.input_video_path);
+
+            // ================================================================
+            // NEW: Extract metadata and set conversion strategy for color handling
+            // This ensures transcoded videos have correct colors matching viewport
+            // ================================================================
+            VideoMetadata metadata = ExtractVideoMetadata(config.input_video_path);
+            if (metadata.is_loaded) {
+                auto strategy = ConversionStrategy::FromMetadata(metadata);
+                video_loader->SetConversionStrategy(strategy);
+                Debug::Log("VideoTranscoder: Conversion strategy set - " + strategy.GetDescription());
+            } else {
+                Debug::Log("VideoTranscoder: WARNING - Failed to extract metadata, colors may be incorrect");
+            }
+
+            loader = std::move(video_loader);
         } else {
             // Image sequence mode - detect format from first file
             std::filesystem::path first_file(config.input_files[0]);
@@ -182,12 +349,15 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         // VideoImageLoader interprets these as frame indices
         std::vector<std::string> frame_paths;
         if (config.input_mode == InputMode::VIDEO_FILE) {
-            int total_frames = static_cast<int>(config.video_duration * config.fps);
+            // Use floor to avoid trying to decode partial frames at the end
+            // Subtract small epsilon to handle floating point rounding errors
+            int total_frames = static_cast<int>(std::floor(config.video_duration * config.fps - 0.01));
             frame_paths.reserve(total_frames);
             for (int i = 0; i < total_frames; ++i) {
                 frame_paths.push_back(std::to_string(i));
             }
-            Debug::Log("VideoTranscoder: Generated " + std::to_string(frame_paths.size()) + " frame indices for video");
+            Debug::Log("VideoTranscoder: Generated " + std::to_string(frame_paths.size()) + " frame indices for video (duration=" +
+                       std::to_string(config.video_duration) + "s, fps=" + std::to_string(config.fps) + ")");
         } else {
             frame_paths = config.input_files;
         }
@@ -195,7 +365,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         frame_loader_ = std::make_unique<SequentialFrameLoader>(
             std::move(loader),
             frame_paths,
-            16,  // 16-frame buffer for better performance
+            transcode_settings.prefetch_buffer_size,  // Configurable buffer size
             config.pipeline_mode,
             config.exr_layer
         );
@@ -245,11 +415,78 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         Debug::Log("VideoTranscoder: Encoder opened");
 
         // ===================================================================
+        // NEW: STEP 5.5: Add Audio Streams (if source is video and copy_audio is enabled)
+        // ===================================================================
+        if (config.input_mode == InputMode::VIDEO_FILE && config.encoder_settings.copy_audio) {
+            progress.current_status_text = "Detecting audio streams...";
+            UpdateProgress(progress);
+            if (callback) callback(progress);
+
+            // Open source video file to detect audio streams
+            if (avformat_open_input(&source_format_ctx, config.input_video_path.c_str(), nullptr, nullptr) == 0) {
+                if (avformat_find_stream_info(source_format_ctx, nullptr) >= 0) {
+                    // Find all audio streams
+                    for (unsigned int i = 0; i < source_format_ctx->nb_streams; i++) {
+                        if (source_format_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+                            audio_stream_indices.push_back(i);
+                        }
+                    }
+
+                    if (audio_stream_indices.empty()) {
+                        Debug::Log("VideoTranscoder: No audio streams found in source video");
+                    } else {
+                        Debug::Log("VideoTranscoder: Found " + std::to_string(audio_stream_indices.size()) + " audio stream(s)");
+
+                        // Add audio streams to encoder (with smart codec compatibility)
+                        for (int audio_idx : audio_stream_indices) {
+                            AVStream* audio_stream = source_format_ctx->streams[audio_idx];
+                            const AVCodec* audio_codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
+                            std::string audio_codec_name = audio_codec ? audio_codec->name : "unknown";
+
+                            // Check if audio codec is compatible with output container
+                            bool compatible = IsAudioCodecCompatible(audio_codec_name, config.encoder_settings.codec);
+
+                            if (compatible) {
+                                // Stream copy mode (fast, lossless)
+                                Debug::Log("VideoTranscoder: Audio codec '" + audio_codec_name + "' is compatible - using stream copy");
+                                if (!encoder_->AddAudioStream(source_format_ctx, audio_idx)) {
+                                    Debug::Log("WARNING: Failed to add audio stream #" + std::to_string(audio_idx));
+                                }
+                            } else {
+                                // Re-encode mode (convert to AAC)
+                                Debug::Log("VideoTranscoder: Audio codec '" + audio_codec_name + "' is incompatible - re-encoding to AAC 192kbps");
+                                if (!encoder_->AddAudioStreamWithEncoding(source_format_ctx, audio_idx, "aac", 192)) {
+                                    Debug::Log("WARNING: Failed to add audio stream #" + std::to_string(audio_idx) + " with encoding");
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Debug::Log("WARNING: Failed to find stream info for audio detection");
+                }
+            } else {
+                Debug::Log("WARNING: Failed to open source file for audio detection");
+            }
+        }
+
+        // ===================================================================
+        // STEP 5.6: Write Header (must be called after adding all streams)
+        // ===================================================================
+        progress.current_status_text = "Writing file header...";
+        UpdateProgress(progress);
+        if (callback) callback(progress);
+
+        if (!encoder_->WriteHeader()) {
+            throw std::runtime_error("Failed to write file header");
+        }
+
+        // ===================================================================
         // STEP 6: Encode All Frames
         // ===================================================================
         int max_frame_index;
         if (config.input_mode == InputMode::VIDEO_FILE) {
-            max_frame_index = static_cast<int>(config.video_duration * config.fps) - 1;
+            // Use same calculation as frame path generation to avoid off-by-one errors
+            max_frame_index = static_cast<int>(std::floor(config.video_duration * config.fps - 0.01)) - 1;
         } else {
             max_frame_index = static_cast<int>(config.input_files.size()) - 1;
         }
@@ -293,7 +530,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             }
 
             // Prefetch next frames
-            if (i + 4 <= end_frame) {
+            if (i + transcode_settings.prefetch_ahead_count <= end_frame) {
                 frame_loader_->PrefetchAhead(i);
             }
 
@@ -320,6 +557,93 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         progress.current_status_text = "Finalizing video file...";
         UpdateProgress(progress);
         if (callback) callback(progress);
+
+        // ===================================================================
+        // NEW: STEP 6.5: Copy Audio Packets (if audio streams exist)
+        // ===================================================================
+        if (source_format_ctx && !audio_stream_indices.empty()) {
+            progress.current_status_text = "Copying audio streams...";
+            UpdateProgress(progress);
+            if (callback) callback(progress);
+
+            Debug::Log("VideoTranscoder: Copying audio packets from source");
+
+            // Calculate time range for audio trimming (to match video trim)
+            double start_time_sec = config.start_frame / config.fps;
+            double end_time_sec = (end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
+
+            Debug::Log("VideoTranscoder: Trimming audio to match video range: " +
+                       std::to_string(start_time_sec) + "s to " + std::to_string(end_time_sec) + "s");
+
+            // Set audio trim offset in encoder (for timestamp adjustment)
+            encoder_->SetAudioTrimOffset(start_time_sec);
+
+            // Seek to start of audio range (use any audio stream for seeking)
+            int64_t start_timestamp = av_rescale_q(
+                static_cast<int64_t>(start_time_sec * AV_TIME_BASE),
+                {1, AV_TIME_BASE},
+                source_format_ctx->streams[audio_stream_indices[0]]->time_base
+            );
+
+            av_seek_frame(source_format_ctx, audio_stream_indices[0], start_timestamp, AVSEEK_FLAG_BACKWARD);
+
+            // Read and copy audio packets within the time range
+            AVPacket* packet = av_packet_alloc();
+            int audio_packet_count = 0;
+            int skipped_packet_count = 0;
+
+            while (av_read_frame(source_format_ctx, packet) >= 0) {
+                if (cancel_requested_) {
+                    av_packet_free(&packet);
+                    throw std::runtime_error("Cancelled by user");
+                }
+
+                // Check if this is an audio stream we're copying
+                bool is_audio_stream = false;
+                int audio_stream_idx = -1;
+                for (int audio_idx : audio_stream_indices) {
+                    if (packet->stream_index == audio_idx) {
+                        is_audio_stream = true;
+                        audio_stream_idx = audio_idx;
+                        break;
+                    }
+                }
+
+                if (is_audio_stream) {
+                    // Convert packet timestamp to seconds
+                    AVStream* stream = source_format_ctx->streams[audio_stream_idx];
+                    double packet_time_sec = -1.0;
+
+                    if (packet->pts != AV_NOPTS_VALUE) {
+                        packet_time_sec = packet->pts * av_q2d(stream->time_base);
+                    } else if (packet->dts != AV_NOPTS_VALUE) {
+                        packet_time_sec = packet->dts * av_q2d(stream->time_base);
+                    }
+
+                    // Only copy packets within our time range
+                    if (packet_time_sec >= start_time_sec && packet_time_sec < end_time_sec) {
+                        // Write audio packet (encoder handles timestamp rescaling and interleaving)
+                        if (!encoder_->WriteAudioPacket(packet, packet->stream_index)) {
+                            Debug::Log("WARNING: Failed to write audio packet");
+                        }
+                        audio_packet_count++;
+                    } else if (packet_time_sec >= end_time_sec) {
+                        // We've passed the end of our range, stop reading
+                        av_packet_unref(packet);
+                        break;
+                    } else {
+                        skipped_packet_count++;
+                    }
+                }
+
+                av_packet_unref(packet);
+            }
+
+            av_packet_free(&packet);
+
+            Debug::Log("VideoTranscoder: Copied " + std::to_string(audio_packet_count) + " audio packets (skipped " +
+                       std::to_string(skipped_packet_count) + " outside time range)");
+        }
 
         // ===================================================================
         // STEP 7: Finalize
@@ -361,7 +685,12 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         if (callback) callback(progress);
     }
 
-    // Cleanup
+    // Cleanup (handles both success and error cases)
+    if (source_format_ctx) {
+        avformat_close_input(&source_format_ctx);
+        source_format_ctx = nullptr;
+    }
+
     encoder_.reset();
     frame_loader_.reset();
     color_transform_.reset();

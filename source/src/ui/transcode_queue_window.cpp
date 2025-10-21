@@ -18,8 +18,26 @@
 #undef GetJob
 #endif
 
-// External variable from main.cpp
+// Material Icons
+#define ICON_ARROW_DROP_DOWN        u8"\uE5C7"   // Dropdown arrow
+
+// External variables from main.cpp
 extern bool use_windows_accent_color;
+extern ImFont* font_icons;  // Material Icons font
+
+// External transcode performance settings (defined in main.cpp)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
+
+// Forward declare SaveSettings from main.cpp
+extern void SaveSettings();
 
 // Local color helper functions (duplicated pattern from main.cpp/project_manager.cpp)
 static ImVec4 GetFallbackYellowColor() {
@@ -87,24 +105,66 @@ TranscodeQueueWindow::~TranscodeQueueWindow() {
 }
 
 void TranscodeQueueWindow::Render() {
+    // Open modal popup once when requested
+    static bool was_open = false;
+    if (is_open_ && !was_open) {
+        ImGui::OpenPopup("Transcode Queue Manager");
+        was_open = true;
+    }
     if (!is_open_) {
-        return;
+        was_open = false;
     }
 
+    // Center modal on screen
+    ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImVec2 center = viewport->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowSize(ImVec2(1300, 850), ImGuiCond_FirstUseEver);
 
-    // Add border and dropshadow styling
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
-    ImVec4 accent = GetWindowsAccentColor();
-    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(accent.x * 0.6f, accent.y * 0.6f, accent.z * 0.6f, 0.8f));
-
-    if (!ImGui::Begin("Transcode Queue Manager", &is_open_, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse)) {
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(2);
-        ImGui::End();
+    // Begin modal popup (this creates the darkened background automatically)
+    if (!ImGui::BeginPopupModal("Transcode Queue Manager", &is_open_, ImGuiWindowFlags_NoScrollbar)) {
         return;
     }
+
+    // Tab bar for Queue vs Settings
+    if (ImGui::BeginTabBar("TranscodeQueueTabs", ImGuiTabBarFlags_None)) {
+        // Use flags to force tab selection when needed
+        ImGuiTabItemFlags queue_flags = (current_tab_ == 0) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags settings_flags = (current_tab_ == 1) ? ImGuiTabItemFlags_SetSelected : 0;
+
+        // Clear the selection flag after use (only needed for programmatic switching)
+        static bool clear_flag_next_frame = false;
+        if (clear_flag_next_frame) {
+            current_tab_ = -1;  // Reset to "unforced" state
+            clear_flag_next_frame = false;
+        }
+
+        // If we just programmatically set a tab, clear the flag next frame
+        if (current_tab_ >= 0) {
+            clear_flag_next_frame = true;
+        }
+
+        // Queue Tab
+        if (ImGui::BeginTabItem("Queue", nullptr, queue_flags)) {
+            RenderQueueTab();
+            ImGui::EndTabItem();
+        }
+
+        // Settings Tab
+        if (ImGui::BeginTabItem("Settings", nullptr, settings_flags)) {
+            RenderSettingsTab();
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::EndPopup();
+}
+
+void TranscodeQueueWindow::RenderQueueTab() {
+    // Wrap entire queue tab content in a child region for proper layout
+    ImGui::BeginChild("QueueTabContent", ImVec2(0, 0), false);
 
     // Get current stats
     auto stats = queue_->GetStats();
@@ -132,11 +192,7 @@ void TranscodeQueueWindow::Render() {
     RenderJobDetailsPanel();
     ImGui::EndChild();
 
-    ImGui::End();
-
-    // Pop border and shadow styling
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+    ImGui::EndChild();  // End QueueTabContent
 }
 
 void TranscodeQueueWindow::RenderToolbar() {
@@ -170,29 +226,21 @@ void TranscodeQueueWindow::RenderToolbar() {
                 stats.queued, stats.encoding, stats.completed, stats.failed);
     ImGui::EndGroup();
 
-    ImGui::SameLine(ImGui::GetWindowWidth() - 570);
+    ImGui::SameLine(ImGui::GetWindowWidth() - 340);
 
-    // Control buttons
+    // Control buttons (cleaner layout with Actions menu)
     ImGui::BeginGroup();
+
+    // Primary action button (Start/Pause/Resume)
     if (pool_status == TranscodeWorkerPool::Status::ACTIVE) {
         if (ImGui::Button("Pause Queue", ImVec2(120, 30))) {
             worker_pool_->Pause();
             Debug::Log("TranscodeQueueWindow: Queue paused");
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Stop All", ImVec2(100, 30))) {
-            worker_pool_->Stop();
-            Debug::Log("TranscodeQueueWindow: Stopped all workers");
-        }
     } else if (pool_status == TranscodeWorkerPool::Status::PAUSED) {
         if (ImGui::Button("Resume Queue", ImVec2(120, 30))) {
             worker_pool_->Resume();
             Debug::Log("TranscodeQueueWindow: Queue resumed");
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Stop All", ImVec2(100, 30))) {
-            worker_pool_->Stop();
-            Debug::Log("TranscodeQueueWindow: Stopped all workers");
         }
     } else {
         if (ImGui::Button("Start Queue", ImVec2(120, 30))) {
@@ -203,17 +251,47 @@ void TranscodeQueueWindow::RenderToolbar() {
 
     ImGui::SameLine();
 
-    if (ImGui::Button("Clear Completed", ImVec2(140, 30))) {
-        queue_->ClearCompleted();
-        Debug::Log("TranscodeQueueWindow: Cleared completed jobs");
+    // Stop All button (critical action, keep visible)
+    if (ImGui::Button("Stop All", ImVec2(100, 30))) {
+        worker_pool_->Stop();
+        Debug::Log("TranscodeQueueWindow: Stopped all workers");
     }
 
     ImGui::SameLine();
 
-    if (ImGui::Button("Clear Failed", ImVec2(120, 30))) {
-        queue_->ClearFailed();
-        Debug::Log("TranscodeQueueWindow: Cleared failed jobs");
+    // Actions dropdown menu (text + icon)
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(10, 7));
+    if (ImGui::Button("Actions", ImVec2(74, 30))) {
+        ImGui::OpenPopup("ActionsMenu");
     }
+    ImGui::PopStyleVar();
+
+    // Render dropdown arrow icon on the same button
+    ImGui::SameLine(0, 0);
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 7));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+    if (font_icons) ImGui::PushFont(font_icons);
+    if (ImGui::Button(ICON_ARROW_DROP_DOWN "##dropdown", ImVec2(26, 30))) {
+        ImGui::OpenPopup("ActionsMenu");
+    }
+    if (font_icons) ImGui::PopFont();
+    ImGui::PopStyleVar(2);
+
+    // Actions menu popup
+    if (ImGui::BeginPopup("ActionsMenu")) {
+        if (ImGui::MenuItem("Clear Completed")) {
+            queue_->ClearCompleted();
+            Debug::Log("TranscodeQueueWindow: Cleared completed jobs");
+        }
+
+        if (ImGui::MenuItem("Clear Failed")) {
+            queue_->ClearFailed();
+            Debug::Log("TranscodeQueueWindow: Cleared failed jobs");
+        }
+
+        ImGui::EndPopup();
+    }
+
     ImGui::EndGroup();
 
     ImGui::EndChild();
@@ -821,6 +899,217 @@ std::string TranscodeQueueWindow::FormatSpeed(double fps) const {
     std::stringstream ss;
     ss << std::fixed << std::setprecision(1) << fps << " fps";
     return ss.str();
+}
+
+void TranscodeQueueWindow::RenderSettingsTab() {
+    ImVec4 accent = GetWindowsAccentColor();
+    static bool settings_changed = false;
+
+    // Header
+    ImGui::TextColored(Bright(accent), "Transcode Performance Settings");
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Configure encoding performance and worker behavior");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Create child region for scrollable settings content
+    float footer_height = 50.0f;  // Space for save button and status
+    ImGui::BeginChild("SettingsContent", ImVec2(0, -footer_height), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
+        // ===================================================================
+        // TAB 1: Encoder Performance
+        // ===================================================================
+        if (ImGui::BeginTabItem("Encoder Performance")) {
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(accent), "FFmpeg Encoder Threading");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "Controls how many CPU cores are used per encode job");
+            ImGui::Spacing();
+
+            // Encoder thread count
+            ImGui::Text("Encoder Threads:");
+            if (ImGui::SliderInt("##EncoderThreads", &transcode_settings.encoder_thread_count, 0, 32)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Number of threads for video encoding.\n\n"
+                    "0 = Auto (recommended) - uses all CPU cores\n"
+                    "1-32 = Manual thread count\n\n"
+                    "Higher = faster encoding per job\n"
+                    "Note: Each worker uses these threads, so total CPU usage\n"
+                    "is (workers × threads). Balance accordingly!"
+                );
+            }
+
+            if (transcode_settings.encoder_thread_count == 0) {
+                int hw_threads = std::thread::hardware_concurrency();
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                    "Auto mode: Using %d CPU threads (all available cores)", hw_threads);
+            } else {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                    "Manual mode: Using %d CPU threads", transcode_settings.encoder_thread_count);
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Prefetch settings
+            ImGui::TextColored(Bright(accent), "Frame Prefetching");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "How many frames to buffer ahead during encoding");
+            ImGui::Spacing();
+
+            ImGui::Text("Prefetch Buffer Size:");
+            if (ImGui::SliderInt("##PrefetchBuffer", &transcode_settings.prefetch_buffer_size, 16, 128)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Total number of frames to keep in memory.\n\n"
+                    "Higher = smoother encoding, more RAM\n"
+                    "Recommended: 32-64 frames"
+                );
+            }
+
+            ImGui::Spacing();
+
+            ImGui::Text("Prefetch Ahead Count:");
+            if (ImGui::SliderInt("##PrefetchAhead", &transcode_settings.prefetch_ahead_count, 4, 64)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "How many frames ahead to load.\n\n"
+                    "Higher = encoder never waits for frames\n"
+                    "Recommended: 16-32 frames"
+                );
+            }
+
+            ImGui::EndTabItem();
+        }
+
+        // ===================================================================
+        // TAB 2: Worker Pool
+        // ===================================================================
+        if (ImGui::BeginTabItem("Worker Pool")) {
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(accent), "Parallel Job Processing");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "Configure how many jobs can encode simultaneously");
+            ImGui::Spacing();
+
+            ImGui::Text("Default Worker Count:");
+            if (ImGui::SliderInt("##DefaultWorkers", &transcode_settings.default_worker_count, 1, 16)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Number of workers created on app startup.\n\n"
+                    "Each worker can process one job at a time.\n"
+                    "Recommended: 2-4 workers for most systems"
+                );
+            }
+
+            ImGui::Spacing();
+
+            ImGui::Text("Maximum Worker Count:");
+            if (ImGui::SliderInt("##MaxWorkers", &transcode_settings.max_worker_count, 1, 32)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Maximum number of workers you can create.\n\n"
+                    "Higher = more parallel jobs possible\n"
+                    "Warning: More workers = higher CPU/RAM usage!\n"
+                    "Recommended: 8-16 workers max"
+                );
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::TextColored(Bright(accent), "Performance Tips");
+            ImGui::BulletText("For single large jobs: Use 1-2 workers with max encoder threads");
+            ImGui::BulletText("For many small jobs: Use 4-8 workers with fewer threads each");
+            ImGui::BulletText("Total CPU threads used ≈ (workers × encoder threads)");
+            ImGui::BulletText("Adjust worker count in real-time using the slider above");
+
+            ImGui::EndTabItem();
+        }
+
+        // ===================================================================
+        // TAB 3: Hardware Encoding (placeholder for future)
+        // ===================================================================
+        if (ImGui::BeginTabItem("Hardware Encoding")) {
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(accent), "Hardware Acceleration");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "Use GPU for faster encoding (when available)");
+            ImGui::Spacing();
+
+            ImGui::Checkbox("Prefer Hardware Encoding", &transcode_settings.prefer_hardware_encoding);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Try hardware encoders first before falling back to software.\n\n"
+                    "Hardware encoding is 10-20x faster but may have\n"
+                    "slightly lower quality at the same bitrate."
+                );
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Coming Soon:");
+            ImGui::BulletText("NVIDIA NVENC (h264_nvenc, hevc_nvenc)");
+            ImGui::BulletText("Intel QuickSync (h264_qsv, hevc_qsv)");
+            ImGui::BulletText("Apple VideoToolbox (h264_videotoolbox)");
+            ImGui::Spacing();
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "Hardware encoding will be automatically detected and used when available.");
+
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
+    }
+
+    ImGui::EndChild();  // End scrollable content region
+
+    // Footer with save button
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    // Apply button (settings take effect immediately, but save to disk on apply)
+    if (settings_changed) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(accent.x, accent.y, accent.z, 0.8f));
+        if (ImGui::Button("Save Changes", ImVec2(150, 30))) {
+            SaveSettings();
+            Debug::Log("Transcode settings saved to disk");
+            settings_changed = false;
+        }
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "You have unsaved changes");
+    } else {
+        ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "All changes saved");
+    }
 }
 
 void TranscodeQueueWindow::ProcessKeyboard() {

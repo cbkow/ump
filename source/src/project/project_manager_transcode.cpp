@@ -8,6 +8,8 @@
 #include "../player/video_player.h"
 #include "../nodes/node_manager.h"
 #include "../nodes/node_base.h"
+#include "../transcode/ffmpeg_video_encoder.h"
+#include "../metadata/adobe_metadata.h"
 #include <imgui.h>
 #include <nfd.h>
 #include <filesystem>
@@ -18,6 +20,17 @@
 
 // External global OCIO manager (defined in main.cpp)
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
+
+// External transcode performance settings (defined in main.cpp)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
 
 namespace ump {
 
@@ -503,6 +516,15 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
         TranscodeJob::Config job_config;
         job_config.job_name = item.name;
 
+        // Track if we're trimming (for timecode offset)
+        bool has_trim_offset = false;
+        int trim_offset_frames = 0;
+
+        // For sequences: store actual file frame range when trimmed with in/out points
+        int trimmed_file_start_frame = -1;
+        int trimmed_file_end_frame = -1;
+        int trimmed_file_frame_count = -1;
+
         // Set priority
         switch (settings.priority_index) {
             case 0: job_config.priority = TranscodeJob::Priority::LOW; break;
@@ -524,6 +546,27 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             tc.video_duration = item.duration;
             tc.start_frame = 0;
             tc.end_frame = -1;  // Process entire video
+
+            // Apply In/Out point range if both are set on this MediaItem
+            if (item.in_point >= 0.0 && item.out_point >= 0.0) {
+                double in_time = item.in_point;
+                double out_time = item.out_point;
+
+                // Convert timestamps to frame numbers
+                tc.start_frame = static_cast<int>(std::round(in_time * tc.fps));
+                tc.end_frame = static_cast<int>(std::round(out_time * tc.fps));
+
+                // NOTE: Do NOT modify tc.video_duration - it must remain the source duration
+                // The transcoder uses it to calculate max_frame_index from the source file
+                // start_frame and end_frame already define the output trim range
+
+                Debug::Log("Applying In/Out range for \"" + item.name + "\": " + std::to_string(in_time) + "s to " + std::to_string(out_time) + "s" +
+                           " (frames " + std::to_string(tc.start_frame) + " to " + std::to_string(tc.end_frame) + ")");
+
+                // Store offset for timecode adjustment (will be used later in job config)
+                has_trim_offset = true;
+                trim_offset_frames = tc.start_frame;
+            }
 
             // Determine pipeline mode for video transcode
             // Strategy: Use current player mode if video is loaded, otherwise auto-detect
@@ -579,8 +622,57 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             tc.start_frame = 0;  // Always start from first frame in the file list
             tc.end_frame = -1;   // -1 means process all frames in the list
 
+            // Apply In/Out point range if both are set on this MediaItem
+            if (item.in_point >= 0.0 && item.out_point >= 0.0) {
+                double in_time = item.in_point;
+                double out_time = item.out_point;
+
+                // Convert timestamps to playback frame indices (0-based from video start)
+                int in_frame_index = static_cast<int>(std::round(in_time * tc.fps));
+                int out_frame_index = static_cast<int>(std::round(out_time * tc.fps));
+
+                // Clamp to sequence bounds
+                if (in_frame_index < 0) in_frame_index = 0;
+                if (out_frame_index >= static_cast<int>(input_files.size())) {
+                    out_frame_index = static_cast<int>(input_files.size()) - 1;
+                }
+
+                // Calculate actual file frame numbers for filename generation
+                int file_start_frame = item.start_frame + in_frame_index;
+                int file_end_frame = item.start_frame + out_frame_index;
+                int file_frame_count = out_frame_index - in_frame_index + 1;
+
+                Debug::Log("Applying In/Out range for \"" + item.name + "\": " + std::to_string(in_time) + "s to " + std::to_string(out_time) + "s" +
+                           " (array indices " + std::to_string(in_frame_index) + " to " + std::to_string(out_frame_index) +
+                           ", file frames " + std::to_string(file_start_frame) + " to " + std::to_string(file_end_frame) + ")");
+
+                // Create a subset of input_files containing only the trimmed range
+                // This ensures the SequentialFrameLoader loads the correct frames
+                std::vector<std::string> trimmed_files(
+                    input_files.begin() + in_frame_index,
+                    input_files.begin() + out_frame_index + 1
+                );
+                tc.input_files = trimmed_files;
+
+                Debug::Log("Trimmed input_files from " + std::to_string(input_files.size()) +
+                           " to " + std::to_string(trimmed_files.size()) + " files");
+
+                // Store offset for timecode adjustment (use the original start index)
+                has_trim_offset = true;
+                trim_offset_frames = in_frame_index;
+
+                // Store file frame range for filename update
+                trimmed_file_start_frame = file_start_frame;
+                trimmed_file_end_frame = file_end_frame;
+                trimmed_file_frame_count = file_frame_count;
+
+                // Reset start/end to process all frames in the trimmed subset
+                tc.start_frame = 0;
+                tc.end_frame = -1;  // -1 means process all frames in trimmed list
+            }
+
             Debug::Log("Transcode config (sequence): fps=" + std::to_string(tc.fps) +
-                       ", frames=" + std::to_string(input_files.size()) +
+                       ", frames=" + std::to_string(tc.input_files.size()) +
                        ", pipeline_mode=" + std::string(PipelineModeToString(tc.pipeline_mode)) +
                        (tc.exr_layer.empty() ? "" : ", exr_layer=" + tc.exr_layer));
         } else {
@@ -588,30 +680,43 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             continue;
         }
 
-        // Codec settings
-        const char* codec_names[] = {"libx264", "libx265", "prores_ks", "prores_ks", "prores_ks"};
-        tc.encoder_settings.codec = codec_names[settings.codec_index];
-
+        // Codec settings with hardware encoding support
         if (settings.codec_index == 0 || settings.codec_index == 1) {
-            // H.264 / H.265
+            // H.264 / H.265 - use hardware encoding if available
+            std::string base_codec = (settings.codec_index == 0) ? "h264" : "h265";
+            tc.encoder_settings.codec = FFMPEGVideoEncoder::SelectBestEncoder(
+                base_codec,
+                transcode_settings.prefer_hardware_encoding,
+                transcode_settings.hardware_encoder
+            );
+
             tc.encoder_settings.crf = settings.crf;
 
+            // Note: Hardware encoders have different preset options
+            // libx264/libx265: ultrafast, fast, slow, veryslow
+            // NVENC/QSV: may not use preset the same way
             const char* preset_names[] = {"ultrafast", "fast", "slow", "veryslow"};
             tc.encoder_settings.preset = preset_names[settings.preset_index];
             tc.encoder_settings.pixel_format = "yuv420p";
         } else if (settings.codec_index == 2) {
-            // ProRes 422 LT
+            // ProRes 422 LT - no hardware acceleration
+            tc.encoder_settings.codec = "prores_ks";
             tc.encoder_settings.pixel_format = "yuv422p10le";
             tc.encoder_settings.prores_profile = 1;  // LT
         } else if (settings.codec_index == 3) {
-            // ProRes 422 HQ
+            // ProRes 422 HQ - no hardware acceleration
+            tc.encoder_settings.codec = "prores_ks";
             tc.encoder_settings.pixel_format = "yuv422p10le";
             tc.encoder_settings.prores_profile = 3;  // HQ
         } else if (settings.codec_index == 4) {
-            // ProRes 4444
+            // ProRes 4444 - no hardware acceleration
+            tc.encoder_settings.codec = "prores_ks";
             tc.encoder_settings.pixel_format = "yuva444p10le";
             tc.encoder_settings.prores_profile = 4;  // 4444
         }
+
+        // Performance: encoder threading
+        tc.encoder_settings.thread_count = transcode_settings.encoder_thread_count;
 
         // Resolution
         switch (settings.resolution_mode) {
@@ -706,13 +811,74 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             base_name = p.stem().string();
         }
 
+        // For sequences with in/out points: update filename to reflect trimmed frame range
+        if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
+            trimmed_file_start_frame >= 0) {
+
+            // Pattern: "BaseName [N frames START-END] - Layer" -> "BaseName [N frames START-END] - Layer"
+            // Replace the frame count and range with actual trimmed values
+            std::regex frame_range_pattern(R"(\[\d+\s+frames\s+\d+-\d+\])");
+            std::string new_range = "[" + std::to_string(trimmed_file_frame_count) + " frames " +
+                                   std::to_string(trimmed_file_start_frame) + "-" +
+                                   std::to_string(trimmed_file_end_frame) + "]";
+            base_name = std::regex_replace(base_name, frame_range_pattern, new_range);
+
+            Debug::Log("Updated filename for trimmed sequence: " + base_name);
+        }
+
         std::string safe_name = SanitizeFilename(base_name);
         std::string extension = (settings.codec_index >= 2) ? ".mov" : ".mp4";
         std::string output_filename = safe_name + extension;
 
         tc.output_path = output_dir + "/" + output_filename;
 
-        Debug::Log("Sanitized filename: '" + item.name + "' -> '" + safe_name + extension + "'");
+        // Safety: Check if file exists and add suffix if needed (-1, -2, etc.)
+        if (std::filesystem::exists(tc.output_path)) {
+            std::string original_output = tc.output_path;
+            int suffix = 1;
+
+            while (std::filesystem::exists(tc.output_path) && suffix < 1000) {
+                // Construct new path: "filename-1.ext", "filename-2.ext", etc.
+                tc.output_path = output_dir + "/" + safe_name + "-" + std::to_string(suffix) + extension;
+                suffix++;
+            }
+
+            Debug::Log("File exists, renamed: '" + output_filename + "' -> '" +
+                       std::filesystem::path(tc.output_path).filename().string() + "'");
+        } else {
+            Debug::Log("Sanitized filename: '" + item.name + "' -> '" + safe_name + extension + "'");
+        }
+
+        // Set source file path for metadata preservation
+        job_config.source_file_path = item.path;
+
+        // Set timecode offset for trimmed transcodes
+        if (has_trim_offset) {
+            job_config.timecode_offset_frames = trim_offset_frames;
+            Debug::Log("Set timecode offset: " + std::to_string(trim_offset_frames) + " frames");
+        }
+
+        // Set metadata write callback (preserves Adobe project links and timecodes)
+        job_config.metadata_write_callback = [this](const std::string& source_path, const std::string& output_path, int offset_frames) {
+            Debug::Log("Metadata callback: Looking up cached metadata for: " + source_path);
+
+            // Lookup cached metadata for source file
+            const CombinedMetadata* metadata = GetCachedMetadata(source_path);
+            if (metadata && metadata->adobe_meta) {
+                Debug::Log("Metadata callback: Found cached metadata, writing to: " + output_path);
+
+                // Write Adobe metadata to output file using ExifTool (with timecode offset)
+                bool success = AdobeMetadataExtractor::WriteMetadata(output_path, metadata->adobe_meta.get(), offset_frames);
+
+                if (success) {
+                    Debug::Log("Metadata callback: Successfully wrote metadata to transcoded file");
+                } else {
+                    Debug::Log("Metadata callback: Failed to write metadata (ExifTool error)");
+                }
+            } else {
+                Debug::Log("Metadata callback: No cached metadata found for source file");
+            }
+        };
 
         // Create job
         auto job = std::make_unique<TranscodeJob>(job_config);
