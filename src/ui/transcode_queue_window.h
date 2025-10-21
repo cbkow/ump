@@ -32,6 +32,9 @@ public:
     void Toggle() { is_open_ = !is_open_; }
     bool IsOpen() const { return is_open_; }
 
+    // Switch to Settings tab directly
+    void ShowSettings() { current_tab_ = 1; }  // Switch to Settings tab
+
     // Render (call every frame)
     void Render();
 
@@ -45,6 +48,8 @@ private:
     void RenderQueueTable();
     void RenderJobDetailsPanel();
     void RenderContextMenu();
+    void RenderQueueTab();      // Queue view (existing content)
+    void RenderSettingsTab();    // Settings view (was modal dialog)
 
     // Helper rendering
     void RenderStatusIndicator(const std::string& label, const char* status, float r, float g, float b);
@@ -114,6 +119,9 @@ private:
     float toolbar_height_ = 60.0f;
     // worker_bar_height_ removed - worker section now auto-sizes to content
     float details_panel_height_ = 300.0f;
+
+    // Tab state (-1 = user-controlled, 0 = force Queue, 1 = force Settings)
+    int current_tab_ = -1;
 };
 
 } // namespace ump

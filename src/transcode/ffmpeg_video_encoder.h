@@ -49,6 +49,9 @@ public:
         int gop_size = 12;  // Keyframe interval (frames)
         int max_b_frames = 2;  // B-frame count
 
+        // Performance
+        int thread_count = 0;  // 0 = auto (use all CPU cores), 1-32 = manual thread count
+
         // Audio settings (NEW)
         bool copy_audio = true;  // Copy audio streams from source (stream copy mode)
     };
@@ -121,6 +124,18 @@ public:
     const std::string& GetOutputPath() const { return settings_.output_path; }
 
     /**
+     * Detect best available hardware encoder for H.264/H.265
+     *
+     * @param base_codec "h264" or "h265"
+     * @param prefer_hardware Try hardware encoders first
+     * @param preferred_hw "nvenc", "qsv", "videotoolbox", or "auto"
+     * @return Codec name (e.g., "h264_nvenc", "libx264")
+     */
+    static std::string SelectBestEncoder(const std::string& base_codec,
+                                         bool prefer_hardware = true,
+                                         const std::string& preferred_hw = "auto");
+
+    /**
      * Add audio stream from source file (stream copy mode)
      *
      * @param source_format_ctx Source file format context
@@ -140,6 +155,16 @@ public:
      */
     bool AddAudioStreamWithEncoding(AVFormatContext* source_format_ctx, int source_stream_index,
                                      const std::string& target_codec = "aac", int target_bitrate_kbps = 192);
+
+    /**
+     * Set audio trim offset (for In/Out point trimming)
+     *
+     * When trimming video with In/Out points, audio timestamps need to be
+     * offset to start from 0 to match the trimmed video.
+     *
+     * @param start_time_sec Start time in seconds (e.g., 10.0 for In point at 10s)
+     */
+    void SetAudioTrimOffset(double start_time_sec) { audio_trim_offset_sec_ = start_time_sec; }
 
     /**
      * Write audio packet (stream copy mode)
@@ -174,6 +199,9 @@ private:
 
     // Audio streams (NEW - for stream copy mode)
     std::vector<AudioStreamInfo> audio_streams_;
+
+    // Audio trim offset for In/Out point support
+    double audio_trim_offset_sec_ = 0.0;
 
     int frame_count_ = 0;
     bool is_open_ = false;

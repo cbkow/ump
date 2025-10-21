@@ -2,11 +2,22 @@
 #include "../utils/debug_utils.h"
 #include <algorithm>
 
+// Forward declare transcode_settings from main.cpp (global scope, not in ump namespace)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
+
 namespace ump {
 
 TranscodeWorkerPool::TranscodeWorkerPool(TranscodeQueue* queue, int worker_count)
     : queue_(queue)
-    , worker_count_(std::clamp(worker_count, 1, 8))
+    , worker_count_(std::clamp(worker_count, 1, transcode_settings.max_worker_count))
 {
     Debug::Log("TranscodeWorkerPool: Created with " + std::to_string(worker_count_) + " workers");
 
@@ -97,7 +108,7 @@ void TranscodeWorkerPool::Resume() {
 }
 
 void TranscodeWorkerPool::SetWorkerCount(int count) {
-    int new_count = std::clamp(count, 1, 8);
+    int new_count = std::clamp(count, 1, transcode_settings.max_worker_count);
 
     if (new_count == worker_count_) {
         return;

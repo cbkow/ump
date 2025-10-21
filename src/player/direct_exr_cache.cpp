@@ -296,8 +296,18 @@ void DirectEXRCache::Shutdown() {
 }
 
 void DirectEXRCache::RequestFrame(int frame) {
-    if (frame < 0 || frame >= static_cast<int>(sequenceFiles_.size())) {
-        return;
+    int sequence_size = static_cast<int>(sequenceFiles_.size());
+    if (sequence_size == 0) return;
+
+    // Wrap frame index if looping is enabled
+    if (is_looping_) {
+        // Wrap to valid range: [0, sequence_size - 1]
+        frame = ((frame % sequence_size) + sequence_size) % sequence_size;
+    } else {
+        // Clamp to valid range
+        if (frame < 0 || frame >= sequence_size) {
+            return;
+        }
     }
 
     std::lock_guard<std::mutex> lock(mutex_);
@@ -427,6 +437,13 @@ void DirectEXRCache::UpdatePlaybackState(bool is_playing) {
     std::lock_guard<std::mutex> lock(mutex_);
     isPlaying_ = is_playing;
     //Debug::Log("DirectEXRCache: Playback state updated - " + std::string(is_playing ? "PLAYING" : "PAUSED"));
+}
+
+void DirectEXRCache::SetLooping(bool enabled) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    is_looping_ = enabled;
+    Debug::Log("DirectEXRCache: Looping " + std::string(enabled ? "ENABLED" : "DISABLED") +
+               " - wrap-around caching " + std::string(enabled ? "active" : "inactive"));
 }
 
 bool DirectEXRCache::GetFrameDimensions(int& width, int& height) const {
@@ -718,6 +735,9 @@ void DirectEXRCache::CacheThread() {
         if (current_frame >= 0) {
             auto iter_start = std::chrono::steady_clock::now();
 
+            // Get sequence size for wrap-around calculations
+            int sequence_size = static_cast<int>(sequenceFiles_.size());
+
             // CRITICAL: Detect seeks BEFORE updating cacheIterationCount_
             // If position jumped >20 frames, reset iteration counter for post-seek boost
             bool isSeek = false;
@@ -732,14 +752,33 @@ void DirectEXRCache::CacheThread() {
                 // This prevents memory tracking issues where old frames consume budget
                 int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
                 int readAheadFrames = 72;  // Smaller immediate window ~3s @ 24fps
-                int eviction_threshold_behind = current_frame - readBehindFrames;
-                int eviction_threshold_ahead = current_frame + readAheadFrames;
 
                 auto cached_frames_pre = pixelCache_.GetKeys();
                 int immediate_evicted = 0;
 
                 for (int frame : cached_frames_pre) {
-                    if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                    bool should_evict = false;
+
+                    if (is_looping_) {
+                        // WRAP-AROUND EVICTION: Calculate shortest distance considering loop
+                        int forward_distance = (frame - current_frame + sequence_size) % sequence_size;
+                        int backward_distance = (current_frame - frame + sequence_size) % sequence_size;
+
+                        // Evict if outside window in BOTH directions
+                        if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                            should_evict = true;
+                        }
+                    } else {
+                        // LINEAR EVICTION: Keep frames in window [current - readBehind, current + readAhead]
+                        int eviction_threshold_behind = current_frame - readBehindFrames;
+                        int eviction_threshold_ahead = current_frame + readAheadFrames;
+
+                        if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                            should_evict = true;
+                        }
+                    }
+
+                    if (should_evict) {
                         pixelCache_.Remove(frame);
                         immediate_evicted++;
                     }
@@ -757,7 +796,7 @@ void DirectEXRCache::CacheThread() {
             // Update cacheIterationCount_ AFTER seek detection (so ProcessReadyTextures sees reset value)
             cacheIterationCount_ = iteration;
 
-            // Evict old frames with read-behind + read-ahead window 
+            // Evict old frames with read-behind + read-ahead window
             // Calculate read-behind/read-ahead in frames
             int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
             //  Also define a read-ahead window for eviction
@@ -765,17 +804,34 @@ void DirectEXRCache::CacheThread() {
             int readAheadFrames = 180;  // Keep ~7.5 seconds ahead @ 24fps (was infinite before!)
 
             auto cached_frames = pixelCache_.GetKeys();
-
-            // Keep frames in window: [current - readBehind, current + readAhead]
-            int eviction_threshold_behind = current_frame - readBehindFrames;
-            int eviction_threshold_ahead = current_frame + readAheadFrames;
             int evicted_count = 0;
 
             // Simply evict pixel data - no GL textures involved
             // GL textures are in separate glTextureCache_ and managed by GetTexture()
             for (int frame : cached_frames) {
-                // Evict frames both BEHIND and FAR AHEAD of playhead
-                if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                bool should_evict = false;
+
+                if (is_looping_) {
+                    // WRAP-AROUND EVICTION: Calculate shortest distance considering loop
+                    // Example: frame 5 is 15 frames "ahead" of frame 90 in a 100-frame sequence
+                    int forward_distance = (frame - current_frame + sequence_size) % sequence_size;
+                    int backward_distance = (current_frame - frame + sequence_size) % sequence_size;
+
+                    // Evict if outside window in BOTH directions
+                    if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                        should_evict = true;
+                    }
+                } else {
+                    // LINEAR EVICTION: Keep frames in window [current - readBehind, current + readAhead]
+                    int eviction_threshold_behind = current_frame - readBehindFrames;
+                    int eviction_threshold_ahead = current_frame + readAheadFrames;
+
+                    if (frame < eviction_threshold_behind || frame > eviction_threshold_ahead) {
+                        should_evict = true;
+                    }
+                }
+
+                if (should_evict) {
                     pixelCache_.Remove(frame);
                     evicted_count++;
                 }
@@ -863,8 +919,17 @@ void DirectEXRCache::CacheThread() {
                 int readBehindEnd = current_frame - readBehindFrames;
 
                 // Fill read-ahead frames (priority for forward playback)
-                for (int i = 1; i <= max_to_request && (current_frame + i) < (int)sequenceFiles_.size(); i++) {
+                for (int i = 1; i <= max_to_request; i++) {
                     int frame = current_frame + i;
+
+                    // Wrap or clamp based on looping mode
+                    if (is_looping_) {
+                        // Wrap around to beginning
+                        frame = frame % sequence_size;
+                    } else {
+                        // Stop at end
+                        if (frame >= sequence_size) break;
+                    }
 
                     // Skip if already cached
                     if (pixelCache_.Contains(frame)) continue;
@@ -891,7 +956,15 @@ void DirectEXRCache::CacheThread() {
                 // Only fill if we have remaining capacity
                 for (int i = 1; requested_count < max_to_request && i <= readBehindFrames; i++) {
                     int frame = current_frame - i;
-                    if (frame < 0) break;
+
+                    // Wrap or clamp based on looping mode
+                    if (is_looping_) {
+                        // Wrap around to end
+                        frame = ((frame % sequence_size) + sequence_size) % sequence_size;
+                    } else {
+                        // Stop at beginning
+                        if (frame < 0) break;
+                    }
 
                     // Skip if already cached
                     if (pixelCache_.Contains(frame)) continue;

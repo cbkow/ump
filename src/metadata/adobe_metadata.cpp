@@ -251,3 +251,204 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
 
     return metadata;
 }
+
+// Helper: Adjust SMPTE timecode by adding frame offset (handles HH:MM:SS:FF format at 24fps)
+static std::string AdjustTimecode(const std::string& timecode, int offset_frames, double fps = 24.0) {
+    if (timecode.empty() || offset_frames == 0) return timecode;
+
+    // Parse SMPTE timecode: HH:MM:SS:FF
+    int hours = 0, minutes = 0, seconds = 0, frames = 0;
+    if (sscanf(timecode.c_str(), "%d:%d:%d:%d", &hours, &minutes, &seconds, &frames) != 4) {
+        Debug::Log("WARNING: Could not parse timecode: " + timecode);
+        return timecode;  // Return unchanged if parsing fails
+    }
+
+    // Convert to total frames
+    int total_frames = hours * 3600 * static_cast<int>(fps) +
+                      minutes * 60 * static_cast<int>(fps) +
+                      seconds * static_cast<int>(fps) +
+                      frames;
+
+    // Add offset
+    total_frames += offset_frames;
+
+    // Handle negative result (trim before timecode start)
+    if (total_frames < 0) {
+        Debug::Log("WARNING: Timecode offset resulted in negative time, clamping to 00:00:00:00");
+        total_frames = 0;
+    }
+
+    // Convert back to SMPTE
+    int fps_int = static_cast<int>(fps);
+    hours = total_frames / (3600 * fps_int);
+    total_frames %= (3600 * fps_int);
+    minutes = total_frames / (60 * fps_int);
+    total_frames %= (60 * fps_int);
+    seconds = total_frames / fps_int;
+    frames = total_frames % fps_int;
+
+    // Format as HH:MM:SS:FF
+    char result[32];
+    snprintf(result, sizeof(result), "%02d:%02d:%02d:%02d", hours, minutes, seconds, frames);
+
+    Debug::Log("Adjusted timecode: " + timecode + " + " + std::to_string(offset_frames) + " frames = " + std::string(result));
+    return std::string(result);
+}
+
+bool AdobeMetadataExtractor::WriteMetadata(const std::string& output_file, const AdobeMetadata* metadata, int offset_frames) {
+    if (!metadata) {
+        Debug::Log("WriteMetadata: No metadata provided");
+        return false;
+    }
+
+    if (!fs::exists(output_file)) {
+        Debug::Log("ERROR: WriteMetadata - Output file does not exist: " + output_file);
+        return false;
+    }
+
+    std::string exiftool_path = GetExifToolPath();
+    if (!fs::exists(exiftool_path)) {
+        Debug::Log("ERROR: WriteMetadata - ExifTool not found at: " + exiftool_path);
+        return false;
+    }
+
+    Debug::Log("=== Writing Adobe Metadata to " + output_file + " ===");
+    if (offset_frames > 0) {
+        Debug::Log("Applying timecode offset: " + std::to_string(offset_frames) + " frames");
+    }
+
+    // Build command line with all metadata fields
+    std::stringstream cmdline;
+    cmdline << "\"" << exiftool_path << "\" ";
+    cmdline << "-overwrite_original ";  // Don't create backup files
+
+    int field_count = 0;
+
+    // Adobe project paths
+    if (!metadata->ae_project_path.empty()) {
+        cmdline << "-XMP:AeProjectLinkFullPath=\"" << metadata->ae_project_path << "\" ";
+        field_count++;
+        Debug::Log("  Writing AE Project: " + metadata->ae_project_path);
+    }
+    if (!metadata->premiere_win_path.empty()) {
+        cmdline << "-XMP:WindowsAtomUncProjectPath=\"" << metadata->premiere_win_path << "\" ";
+        field_count++;
+        Debug::Log("  Writing Premiere Windows path: " + metadata->premiere_win_path);
+    }
+    if (!metadata->premiere_mac_path.empty()) {
+        cmdline << "-XMP:MacAtomPosixProjectPath=\"" << metadata->premiere_mac_path << "\" ";
+        field_count++;
+        Debug::Log("  Writing Premiere Mac path: " + metadata->premiere_mac_path);
+    }
+
+    // QuickTime timecodes (adjusted for trim offset)
+    if (!metadata->qt_start_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->qt_start_timecode, offset_frames);
+        cmdline << "-QuickTime:StartTimecode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+    if (!metadata->qt_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->qt_timecode, offset_frames);
+        cmdline << "-QuickTime:TimeCode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+    if (!metadata->qt_creation_date.empty()) {
+        cmdline << "-QuickTime:CreationDate=\"" << metadata->qt_creation_date << "\" ";
+        field_count++;
+    }
+    if (!metadata->qt_media_create_date.empty()) {
+        cmdline << "-QuickTime:MediaCreateDate=\"" << metadata->qt_media_create_date << "\" ";
+        field_count++;
+    }
+
+    // XMP timecodes (adjusted for trim offset)
+    if (!metadata->xmp_start_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->xmp_start_timecode, offset_frames);
+        cmdline << "-XMP:StartTimecode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+    if (!metadata->xmp_alt_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->xmp_alt_timecode, offset_frames);
+        cmdline << "-XMP:AltTimecode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+    if (!metadata->xmp_alt_timecode_time_value.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->xmp_alt_timecode_time_value, offset_frames);
+        cmdline << "-XMP:AltTimecodeTimeValue=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+    if (!metadata->xmp_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->xmp_timecode, offset_frames);
+        cmdline << "-XMP:TimeCode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+
+    // UserData timecode (adjusted for trim offset)
+    if (!metadata->userdata_timecode.empty()) {
+        std::string adjusted_tc = AdjustTimecode(metadata->userdata_timecode, offset_frames);
+        cmdline << "-UserData:TimeCode=\"" << adjusted_tc << "\" ";
+        field_count++;
+    }
+
+    if (field_count == 0) {
+        Debug::Log("WriteMetadata: No metadata fields to write");
+        return true;  // Not an error, just nothing to do
+    }
+
+    cmdline << "\"" << output_file << "\"";
+
+    std::string cmdline_str = cmdline.str();
+    Debug::Log("ExifTool command: " + cmdline_str);
+    Debug::Log("Writing " + std::to_string(field_count) + " metadata fields");
+
+#ifdef _WIN32
+    // Execute ExifTool (hidden window, no console popup)
+    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi = { 0 };
+
+    std::vector<char> cmdline_buffer(cmdline_str.begin(), cmdline_str.end());
+    cmdline_buffer.push_back('\0');
+
+    if (!CreateProcessA(
+        NULL,
+        cmdline_buffer.data(),
+        NULL, NULL, FALSE,
+        CREATE_NO_WINDOW,
+        NULL, NULL,
+        &si, &pi
+    )) {
+        Debug::Log("ERROR: Failed to execute ExifTool. Error: " + std::to_string(GetLastError()));
+        return false;
+    }
+
+    // Wait for completion
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exitCode;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    if (exitCode == 0) {
+        Debug::Log("Metadata written successfully to " + output_file);
+        return true;
+    } else {
+        Debug::Log("ERROR: ExifTool returned exit code: " + std::to_string(exitCode));
+        return false;
+    }
+#else
+    // Unix/Mac - use system() for simplicity
+    int result = system(cmdline_str.c_str());
+    if (result == 0) {
+        Debug::Log("Metadata written successfully to " + output_file);
+        return true;
+    } else {
+        Debug::Log("ERROR: ExifTool command failed with code: " + std::to_string(result));
+        return false;
+    }
+#endif
+}

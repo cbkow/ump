@@ -127,6 +127,13 @@ public:
     bool IsBackgroundCachingActive() const { return background_thread_active; }
     bool IsInitialized() const;
 
+    /**
+     * Pause seek cache to prioritize thumbnail generation
+     * Called when user hovers over timeline to ensure responsive thumbnail preview
+     * @param pause - true to pause, false to resume
+     */
+    void PauseForThumbnails(bool pause);
+
     // Frame processing interface (no longer opportunistic - only processes background results)
     bool TryCacheCurrentFrame(VideoPlayer* video_player); // Called from main render loop
 
@@ -157,6 +164,7 @@ private:
     std::atomic<bool> background_thread_active{false};
     std::atomic<bool> shutdown_requested{false};
     std::atomic<bool> caching_enabled{true};
+    std::atomic<bool> pause_for_thumbnails_{false};  // Pause seek cache for thumbnail priority
     std::atomic<double> current_scrub_position{0.0};
     std::atomic<bool> main_player_is_playing{false};
     VideoPlayer* cached_video_player = nullptr;

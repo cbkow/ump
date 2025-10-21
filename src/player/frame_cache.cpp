@@ -322,13 +322,29 @@ void FrameCache::BackgroundCacheWorker() {
             continue;
         }
 
-        // Much more aggressive throttling during playback to prevent stutter
+        // Check for any pause conditions (playback OR thumbnails/scrubbing)
         bool is_playing = main_player_is_playing.load();
+        bool paused_for_thumbnails = pause_for_thumbnails_.load();
 
-        if (is_playing) {
-            // During playback: pause caching completely to avoid interference
+        if (is_playing || paused_for_thumbnails) {
+            // Pause caching during playback OR user interaction (hover/scrub)
+            // Use longer sleep for efficiency when paused
+            static bool logged_pause = false;
+            if (!logged_pause) {
+                if (is_playing && paused_for_thumbnails) {
+                    Debug::Log("FrameCache: Paused for playback AND thumbnails");
+                } else if (is_playing) {
+                    Debug::Log("FrameCache: Paused for playback");
+                } else {
+                    Debug::Log("FrameCache: Paused for thumbnail generation");
+                }
+                logged_pause = true;
+            }
             std::this_thread::sleep_for(std::chrono::milliseconds(500));
             continue;
+        } else {
+            static bool logged_pause = false;
+            logged_pause = false;  // Reset for next pause
         }
 
         // Only cache when not playing - reasonable batch size to allow memory checks
@@ -1023,6 +1039,20 @@ void FrameCache::NotifyPlaybackState(bool is_playing) {
         // Debug::Log("FrameCache: Playback started - reducing cache activity");
     } else {
         // Debug::Log("FrameCache: Playback stopped - resuming full cache activity");
+    }
+}
+
+void FrameCache::PauseForThumbnails(bool pause) {
+    pause_for_thumbnails_ = pause;
+
+    // Also pause/resume the MediaBackgroundExtractor workers for instant response
+    // This ensures all 8 worker threads stop immediately, not just the FrameCache main thread
+    if (background_extractor) {
+        if (pause) {
+            background_extractor->PauseExtraction();
+        } else {
+            background_extractor->ResumeExtraction();  // Use ResumeExtraction(), not StartBackgroundExtraction()
+        }
     }
 }
 

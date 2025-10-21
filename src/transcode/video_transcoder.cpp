@@ -15,6 +15,17 @@ extern "C" {
 #undef min
 #undef max
 
+// External transcode performance settings (defined in main.cpp)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
+
 namespace ump {
 
 VideoTranscoder::VideoTranscoder() {
@@ -354,7 +365,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         frame_loader_ = std::make_unique<SequentialFrameLoader>(
             std::move(loader),
             frame_paths,
-            16,  // 16-frame buffer for better performance
+            transcode_settings.prefetch_buffer_size,  // Configurable buffer size
             config.pipeline_mode,
             config.exr_layer
         );
@@ -519,7 +530,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             }
 
             // Prefetch next frames
-            if (i + 4 <= end_frame) {
+            if (i + transcode_settings.prefetch_ahead_count <= end_frame) {
                 frame_loader_->PrefetchAhead(i);
             }
 
@@ -557,12 +568,29 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
 
             Debug::Log("VideoTranscoder: Copying audio packets from source");
 
-            // Seek back to beginning of source file
-            av_seek_frame(source_format_ctx, -1, 0, AVSEEK_FLAG_BACKWARD);
+            // Calculate time range for audio trimming (to match video trim)
+            double start_time_sec = config.start_frame / config.fps;
+            double end_time_sec = (end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
 
-            // Read and copy all audio packets
+            Debug::Log("VideoTranscoder: Trimming audio to match video range: " +
+                       std::to_string(start_time_sec) + "s to " + std::to_string(end_time_sec) + "s");
+
+            // Set audio trim offset in encoder (for timestamp adjustment)
+            encoder_->SetAudioTrimOffset(start_time_sec);
+
+            // Seek to start of audio range (use any audio stream for seeking)
+            int64_t start_timestamp = av_rescale_q(
+                static_cast<int64_t>(start_time_sec * AV_TIME_BASE),
+                {1, AV_TIME_BASE},
+                source_format_ctx->streams[audio_stream_indices[0]]->time_base
+            );
+
+            av_seek_frame(source_format_ctx, audio_stream_indices[0], start_timestamp, AVSEEK_FLAG_BACKWARD);
+
+            // Read and copy audio packets within the time range
             AVPacket* packet = av_packet_alloc();
             int audio_packet_count = 0;
+            int skipped_packet_count = 0;
 
             while (av_read_frame(source_format_ctx, packet) >= 0) {
                 if (cancel_requested_) {
@@ -572,19 +600,40 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
 
                 // Check if this is an audio stream we're copying
                 bool is_audio_stream = false;
+                int audio_stream_idx = -1;
                 for (int audio_idx : audio_stream_indices) {
                     if (packet->stream_index == audio_idx) {
                         is_audio_stream = true;
+                        audio_stream_idx = audio_idx;
                         break;
                     }
                 }
 
                 if (is_audio_stream) {
-                    // Write audio packet (encoder handles timestamp rescaling and interleaving)
-                    if (!encoder_->WriteAudioPacket(packet, packet->stream_index)) {
-                        Debug::Log("WARNING: Failed to write audio packet");
+                    // Convert packet timestamp to seconds
+                    AVStream* stream = source_format_ctx->streams[audio_stream_idx];
+                    double packet_time_sec = -1.0;
+
+                    if (packet->pts != AV_NOPTS_VALUE) {
+                        packet_time_sec = packet->pts * av_q2d(stream->time_base);
+                    } else if (packet->dts != AV_NOPTS_VALUE) {
+                        packet_time_sec = packet->dts * av_q2d(stream->time_base);
                     }
-                    audio_packet_count++;
+
+                    // Only copy packets within our time range
+                    if (packet_time_sec >= start_time_sec && packet_time_sec < end_time_sec) {
+                        // Write audio packet (encoder handles timestamp rescaling and interleaving)
+                        if (!encoder_->WriteAudioPacket(packet, packet->stream_index)) {
+                            Debug::Log("WARNING: Failed to write audio packet");
+                        }
+                        audio_packet_count++;
+                    } else if (packet_time_sec >= end_time_sec) {
+                        // We've passed the end of our range, stop reading
+                        av_packet_unref(packet);
+                        break;
+                    } else {
+                        skipped_packet_count++;
+                    }
                 }
 
                 av_packet_unref(packet);
@@ -592,7 +641,8 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
 
             av_packet_free(&packet);
 
-            Debug::Log("VideoTranscoder: Copied " + std::to_string(audio_packet_count) + " audio packets");
+            Debug::Log("VideoTranscoder: Copied " + std::to_string(audio_packet_count) + " audio packets (skipped " +
+                       std::to_string(skipped_packet_count) + " outside time range)");
         }
 
         // ===================================================================

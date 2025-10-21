@@ -97,6 +97,17 @@ ImVec4 TintColor(const ImVec4& color, float brightness, float saturation = 1.0f)
 ImVec4 MutedLight(const ImVec4& accent) { return TintColor(accent, 1.5f, 0.8f); }
 ImVec4 Bright(const ImVec4& accent) { return TintColor(accent, 2.2f, 0.5f); }
 
+// External transcode performance settings (defined in main.cpp)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+} transcode_settings;
+
 namespace ump {
 
     // ============================================================================
@@ -112,7 +123,7 @@ namespace ump {
 
         // Initialize transcode queue
         transcode_queue_ = std::make_unique<TranscodeQueue>();
-        transcode_worker_pool_ = std::make_unique<TranscodeWorkerPool>(transcode_queue_.get(), 2);
+        transcode_worker_pool_ = std::make_unique<TranscodeWorkerPool>(transcode_queue_.get(), transcode_settings.default_worker_count);
         transcode_queue_window_ = std::make_unique<TranscodeQueueWindow>(
             transcode_queue_.get(),
             transcode_worker_pool_.get()
@@ -268,6 +279,10 @@ namespace ump {
                 item_obj["exr_layer"] = item.exr_layer;
                 item_obj["exr_layer_display"] = item.exr_layer_display;
 
+                // In/Out points (per-video range markers)
+                item_obj["in_point"] = item.in_point;
+                item_obj["out_point"] = item.out_point;
+
                 media_pool_array.push_back(item_obj);
             }
             project_data["media_pool"] = media_pool_array;
@@ -398,6 +413,10 @@ namespace ump {
                     // EXR fields
                     item.exr_layer = item_json.value("exr_layer", "");
                     item.exr_layer_display = item_json.value("exr_layer_display", "");
+
+                    // In/Out points (per-video range markers)
+                    item.in_point = item_json.value("in_point", -1.0);
+                    item.out_point = item_json.value("out_point", -1.0);
 
                     media_pool.push_back(item);
                 }
@@ -1721,6 +1740,49 @@ namespace ump {
         auto it = std::find_if(media_pool.begin(), media_pool.end(),
             [&media_id](const MediaItem& item) { return item.id == media_id; });
         return (it != media_pool.end()) ? &(*it) : nullptr;
+    }
+
+    MediaItem* ProjectManager::GetMediaItemFromCurrentPath() {
+        if (!current_file_path || current_file_path->empty()) {
+            return nullptr;
+        }
+
+        std::string path = *current_file_path;
+
+        // For EXR sequences with layer parameter, strip the layer parameter for matching
+        // Format: exr://path/to/file.exr?layer=beauty
+        if (path.substr(0, 6) == "exr://") {
+            // Find matching media item by comparing base path (without layer parameter)
+            std::string base_path = path;
+            size_t query_pos = path.find("?layer=");
+            if (query_pos != std::string::npos) {
+                base_path = path.substr(0, query_pos);
+            }
+
+            // Search for EXR sequence with matching base path
+            for (auto& item : media_pool) {
+                if (item.type == MediaType::EXR_SEQUENCE) {
+                    std::string item_base_path = item.path;
+                    size_t item_query_pos = item.path.find("?layer=");
+                    if (item_query_pos != std::string::npos) {
+                        item_base_path = item.path.substr(0, item_query_pos);
+                    }
+                    if (item_base_path == base_path) {
+                        return &item;
+                    }
+                }
+            }
+        }
+        // For regular paths (mf://, videos, etc), do exact match
+        else {
+            auto it = std::find_if(media_pool.begin(), media_pool.end(),
+                [&path](const MediaItem& item) { return item.path == path; });
+            if (it != media_pool.end()) {
+                return &(*it);
+            }
+        }
+
+        return nullptr;
     }
 
     // ============================================================================
@@ -3473,15 +3535,123 @@ namespace ump {
                 if (font_mono) ImGui::PopFont();
             }
 
-            // Selected Layer
+            // Selected Layer - Interactive dropdown for EXR sequences
             if (!exr_meta->layer_name.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::Text("Layer:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
-                ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
-                if (font_mono) ImGui::PopFont();
+
+                // Try to get the media item for this EXR sequence
+                MediaItem* current_item = GetMediaItemFromCurrentPath();
+
+                // Only show dropdown if we have a media item (sequence is in media pool)
+                if (current_item && current_item->type == MediaType::EXR_SEQUENCE) {
+                    // Detect available layers from the first frame
+                    static std::vector<std::string> available_layer_names;
+                    static std::vector<std::string> available_layer_display_names;
+                    static std::string last_exr_path;
+
+                    // Get the sequence path from the media item
+                    std::string sequence_path = current_item->path;
+                    if (sequence_path.substr(0, 6) == "exr://") {
+                        size_t query_pos = sequence_path.find("?layer=");
+                        if (query_pos != std::string::npos) {
+                            sequence_path = sequence_path.substr(6, query_pos - 6);
+                        }
+                    }
+
+                    // Re-detect layers if this is a different file
+                    if (sequence_path != last_exr_path) {
+                        available_layer_names.clear();
+                        available_layer_display_names.clear();
+                        last_exr_path = sequence_path;
+
+                        // Detect layers using EXRLayerDetector
+                        EXRLayerDetector detector;
+                        std::vector<EXRLayer> layers;
+                        int crypto_count = 0;
+                        if (detector.DetectLayers(sequence_path, layers, crypto_count)) {
+                            for (const EXRLayer& layer : layers) {
+                                available_layer_names.push_back(layer.name);
+                                available_layer_display_names.push_back(layer.display_name);
+                            }
+                        }
+
+                        // Fallback: If no layers detected, add current layer
+                        if (available_layer_names.empty() && !current_item->exr_layer.empty()) {
+                            available_layer_names.push_back(current_item->exr_layer);
+                            available_layer_display_names.push_back(current_item->exr_layer_display);
+                        }
+                    }
+
+                    // Find current layer index
+                    int current_layer_index = 0;
+                    for (int i = 0; i < available_layer_names.size(); i++) {
+                        if (available_layer_names[i] == current_item->exr_layer) {
+                            current_layer_index = i;
+                            break;
+                        }
+                    }
+
+                    // Show dropdown combo box
+                    if (!available_layer_display_names.empty()) {
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (ImGui::BeginCombo("##layer_selector", available_layer_display_names[current_layer_index].c_str())) {
+                            for (int i = 0; i < available_layer_display_names.size(); i++) {
+                                bool is_selected = (current_layer_index == i);
+                                if (ImGui::Selectable(available_layer_display_names[i].c_str(), is_selected)) {
+                                    // Layer changed - update media item and reload
+                                    if (i != current_layer_index) {
+                                        std::string item_id = current_item->id;
+
+                                        current_item->exr_layer = available_layer_names[i];
+                                        current_item->exr_layer_display = available_layer_display_names[i];
+
+                                        // Update path with new layer
+                                        std::string base_path = current_item->path;
+                                        size_t query_pos = base_path.find("?layer=");
+                                        if (query_pos != std::string::npos) {
+                                            base_path = base_path.substr(0, query_pos);
+                                        }
+                                        current_item->path = base_path + "?layer=" + current_item->exr_layer;
+
+                                        // Also update the bin copy (bins store copies of MediaItems, not references)
+                                        // Find the item in its bin and update it
+                                        for (auto& bin : bins) {
+                                            for (auto& bin_item : bin.items) {
+                                                if (bin_item.id == item_id) {
+                                                    bin_item.exr_layer = available_layer_names[i];
+                                                    bin_item.exr_layer_display = available_layer_display_names[i];
+                                                    bin_item.path = current_item->path;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        // Reload the sequence with new layer
+                                        LoadSingleMediaItem(*current_item);
+                                    }
+                                }
+                                if (is_selected) {
+                                    ImGui::SetItemDefaultFocus();
+                                }
+                            }
+                            ImGui::EndCombo();
+                        }
+                        if (font_mono) ImGui::PopFont();
+                    } else {
+                        // Fallback: Show as text if no layers available
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
+                        if (font_mono) ImGui::PopFont();
+                    }
+                } else {
+                    // Not a media pool item - show as read-only text
+                    if (font_mono) ImGui::PushFont(font_mono);
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
+                    if (font_mono) ImGui::PopFont();
+                }
             }
 
             // Color space (if present)
@@ -5530,6 +5700,102 @@ namespace ump {
 
         // Fallback: return as-is
         return media_path;
+    }
+
+    // ============================================================================
+    // IN/OUT POINT MANAGEMENT (Per-video)
+    // ============================================================================
+
+    void ProjectManager::SetInPoint(double timestamp) {
+        if (!current_file_path || current_file_path->empty()) return;
+
+        // Find MediaItem for current file
+        MediaItem* item = GetMediaItemFromCurrentPath();
+        if (item) {
+            item->in_point = timestamp;
+            Debug::Log("Set In point for \"" + item->name + "\": " + std::to_string(timestamp) + "s");
+
+            // Also update bin copy if it exists
+            for (auto& bin : bins) {
+                for (auto& bin_item : bin.items) {
+                    if (bin_item.id == item->id) {
+                        bin_item.in_point = timestamp;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    void ProjectManager::SetOutPoint(double timestamp) {
+        if (!current_file_path || current_file_path->empty()) return;
+
+        // Find MediaItem for current file
+        MediaItem* item = GetMediaItemFromCurrentPath();
+        if (item) {
+            item->out_point = timestamp;
+            Debug::Log("Set Out point for \"" + item->name + "\": " + std::to_string(timestamp) + "s");
+
+            // Also update bin copy if it exists
+            for (auto& bin : bins) {
+                for (auto& bin_item : bin.items) {
+                    if (bin_item.id == item->id) {
+                        bin_item.out_point = timestamp;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    double ProjectManager::GetInPoint() const {
+        if (!current_file_path || current_file_path->empty()) return -1.0;
+
+        // Find MediaItem for current file (const version)
+        const MediaItem* item = const_cast<ProjectManager*>(this)->GetMediaItemFromCurrentPath();
+        return item ? item->in_point : -1.0;
+    }
+
+    double ProjectManager::GetOutPoint() const {
+        if (!current_file_path || current_file_path->empty()) return -1.0;
+
+        // Find MediaItem for current file (const version)
+        const MediaItem* item = const_cast<ProjectManager*>(this)->GetMediaItemFromCurrentPath();
+        return item ? item->out_point : -1.0;
+    }
+
+    bool ProjectManager::HasInPoint() const {
+        return GetInPoint() >= 0.0;
+    }
+
+    bool ProjectManager::HasOutPoint() const {
+        return GetOutPoint() >= 0.0;
+    }
+
+    bool ProjectManager::HasBothInOutPoints() const {
+        return HasInPoint() && HasOutPoint();
+    }
+
+    void ProjectManager::ClearInOutPoints() {
+        if (!current_file_path || current_file_path->empty()) return;
+
+        MediaItem* item = GetMediaItemFromCurrentPath();
+        if (item) {
+            item->in_point = -1.0;
+            item->out_point = -1.0;
+            Debug::Log("Cleared In/Out points for \"" + item->name + "\"");
+
+            // Also update bin copy
+            for (auto& bin : bins) {
+                for (auto& bin_item : bin.items) {
+                    if (bin_item.id == item->id) {
+                        bin_item.in_point = -1.0;
+                        bin_item.out_point = -1.0;
+                        break;
+                    }
+                }
+            }
+        }
     }
 
 }

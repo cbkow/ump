@@ -365,6 +365,10 @@ public:
     void SetCachingEnabled(bool enabled) {}  // No-op in clean version
     void StartBackgroundCaching() {}  // No-op - worker thread started in Initialize()
 
+    // Loop control for seamless wrap-around caching
+    void SetLooping(bool enabled);
+    bool IsLooping() const { return is_looping_; }
+
     // Configuration
     void SetConfig(const EXRCacheConfig& config);
     EXRCacheConfig GetConfig() const { return config_; }
@@ -495,6 +499,7 @@ private:
     int previousFrame_ = -1;  // Track previous frame to detect direction
     CacheDirection cacheDirection_ = CacheDirection::Forward;
     bool isPlaying_ = false;
+    bool is_looping_ = false;  // Wrap-around caching enabled
 
     // tlRender pattern: Pre-calculated frame size (from actual file, not estimated)
     size_t actualFrameSize_ = 0;  // Calculated from first loaded frame

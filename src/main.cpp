@@ -160,6 +160,27 @@ static struct {
 } cache_settings;
 
 // ============================================================================
+// TRANSCODE PERFORMANCE SETTINGS
+// ============================================================================
+// NOTE: Not static - needs to be accessible from other translation units
+struct {
+    // ENCODER THREADING
+    int encoder_thread_count = 0;         // 0 = auto (use all CPU cores), 1-32 = manual thread count
+
+    // HARDWARE ACCELERATION
+    bool prefer_hardware_encoding = false; // Try hardware encoders first (NVENC/QSV) before software
+    std::string hardware_encoder = "auto"; // "auto", "nvenc", "qsv", "videotoolbox", "none"
+
+    // WORKER POOL
+    int default_worker_count = 2;         // Default number of parallel transcode workers (1-16)
+    int max_worker_count = 16;            // Maximum allowed workers (increased from 8)
+
+    // PREFETCH BUFFERS
+    int prefetch_buffer_size = 32;        // Frame loader buffer size (16-128 frames)
+    int prefetch_ahead_count = 16;        // How many frames to prefetch ahead (4-64)
+} transcode_settings;
+
+// ============================================================================
 // AUTO-PLAY ON LOAD STATE
 // ============================================================================
 bool pending_auto_play = false;
@@ -349,9 +370,13 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 #define ICON_CLOSE_LARGE            u8"\uE5CD"
 #define ICON_WARNING                u8"\uE002"   // Warning triangle
 #define ICON_DONE                   u8"\uE876"   // Done/Complete
+#define ICON_ARROW_DROP_DOWN        u8"\uE5C7"   // Dropdown arrow
 
 
 class Application {
+    // Friend declaration for global wrapper function
+    friend void SaveSettings();
+
 public:
     // ------------------------------------------------------------------------
     // CONSTRUCTOR & DESTRUCTOR
@@ -978,6 +1003,24 @@ public:
                 video_player->UpdateFromMPVEvents();
                 video_player->UpdateVideoTexture();
 
+                // Check In/Out point range constraint for looping playback
+                if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && video_player->IsPlaying()) {
+                    double current_pos = video_player->GetPosition();
+                    double in_pt = project_manager->GetInPoint();
+                    double out_pt = project_manager->GetOutPoint();
+
+                    // If we've passed the Out point, loop back to In point
+                    if (current_pos >= out_pt) {
+                        video_player->Seek(in_pt);
+                        Debug::Log("In/Out loop: Jumped from " + std::to_string(current_pos) + "s to In point " + std::to_string(in_pt) + "s");
+                    }
+                    // If we're before the In point (e.g., user seeked backward), jump to In point
+                    else if (current_pos < in_pt) {
+                        video_player->Seek(in_pt);
+                        Debug::Log("In/Out loop: Before In point, jumped to " + std::to_string(in_pt) + "s");
+                    }
+                }
+
                 // Process pending thumbnail uploads (async -> GL texture upload on main thread)
                 if (video_player->HasThumbnailCache()) {
                     video_player->GetThumbnailCache()->ProcessPendingUploads();
@@ -1315,11 +1358,13 @@ private:
 
     // Convert ImVec4 to ImU32 for draw list operations
     ImU32 ToImU32(const ImVec4& color) {
+        // Clamp to [0, 1] range to prevent overflow when Bright() exceeds 1.0
+        auto clamp = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
         return IM_COL32(
-            (int)(color.x * 255.0f),
-            (int)(color.y * 255.0f),
-            (int)(color.z * 255.0f),
-            (int)(color.w * 255.0f)
+            (int)(clamp(color.x) * 255.0f),
+            (int)(clamp(color.y) * 255.0f),
+            (int)(clamp(color.z) * 255.0f),
+            (int)(clamp(color.w) * 255.0f)
         );
     }
 
@@ -1650,6 +1695,54 @@ private:
 
                 const char* names[] = { "Black", "None", "Dark Checkerboard", "Light Checkerboard" };
                 Debug::Log("B: Quick-switched background to: " + std::string(names[current_index]));
+            }
+        }
+
+        // ; (Semicolon) - Set In Point
+        if (ImGui::IsKeyPressed(ImGuiKey_Semicolon) && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
+            if (!io.WantTextInput && video_player && project_manager) {
+                double current_time = video_player->GetPosition();
+                double current_in = project_manager->GetInPoint();
+
+                // Toggle behavior: If In point already at this position (within 0.01s), clear it
+                if (current_in >= 0 && std::abs(current_in - current_time) < 0.01) {
+                    project_manager->SetInPoint(-1.0);
+                    Debug::Log("; - Cleared In point");
+                } else {
+                    project_manager->SetInPoint(current_time);
+                    Debug::Log("; - Set In point at " + std::to_string(current_time) + "s");
+
+                    // Auto-clear Out point if it's before new In point
+                    double current_out = project_manager->GetOutPoint();
+                    if (current_out >= 0 && current_out < current_time) {
+                        project_manager->SetOutPoint(-1.0);
+                        Debug::Log("Auto-cleared Out point (was before In point)");
+                    }
+                }
+            }
+        }
+
+        // ' (Apostrophe) - Set Out Point
+        if (ImGui::IsKeyPressed(ImGuiKey_Apostrophe) && !io.KeyCtrl && !io.KeyShift && !io.KeyAlt) {
+            if (!io.WantTextInput && video_player && project_manager) {
+                double current_time = video_player->GetPosition();
+                double current_out = project_manager->GetOutPoint();
+
+                // Toggle behavior: If Out point already at this position (within 0.01s), clear it
+                if (current_out >= 0 && std::abs(current_out - current_time) < 0.01) {
+                    project_manager->SetOutPoint(-1.0);
+                    Debug::Log("' - Cleared Out point");
+                } else {
+                    project_manager->SetOutPoint(current_time);
+                    Debug::Log("' - Set Out point at " + std::to_string(current_time) + "s");
+
+                    // Auto-clear In point if it's after new Out point
+                    double current_in = project_manager->GetInPoint();
+                    if (current_in >= 0 && current_in > current_time) {
+                        project_manager->SetInPoint(-1.0);
+                        Debug::Log("Auto-cleared In point (was after Out point)");
+                    }
+                }
             }
         }
 
@@ -2532,15 +2625,6 @@ private:
                 }
 
                 ImGui::Separator();
-                ImGui::TextDisabled("Thumbnails:");
-
-                if (ImGui::MenuItem("Enable Timeline Thumbnails", nullptr, cache_settings.enable_thumbnails)) {
-                    cache_settings.enable_thumbnails = !cache_settings.enable_thumbnails;
-                    SaveSettings();
-                    Debug::Log(cache_settings.enable_thumbnails ? "Timeline thumbnails enabled" : "Timeline thumbnails disabled");
-                }
-
-                ImGui::Separator();
                 ImGui::TextDisabled("Background & Overlays:");
 
                 if (ImGui::MenuItem("Video Background", "Ctrl+Shift+B, B")) {
@@ -2822,8 +2906,8 @@ private:
 
                 if (is_exr_mode) {
                     // EXR mode: Show disabled message
-                    ImGui::TextDisabled("Seek cache controls disabled in EXR mode");
-                    ImGui::TextDisabled("(EXR uses automatic DirectEXR cache)");
+                    ImGui::TextDisabled("Seek cache controls disabled for sequences");
+                    ImGui::TextDisabled("(Images uses automatic Direct Image cache)");
                     ImGui::Separator();
                 } else {
                     // Regular mode: Show format support
@@ -2872,6 +2956,14 @@ private:
                         exr_cache_bytes_cleared = video_player->ClearEXRDiskCache();
                         show_exr_cache_cleared_success = true;
                     }
+                }
+                ImGui::Separator();
+                ImGui::TextDisabled("Thumbnails:");
+
+                if (ImGui::MenuItem("Enable Timeline Thumbnails", nullptr, cache_settings.enable_thumbnails)) {
+                    cache_settings.enable_thumbnails = !cache_settings.enable_thumbnails;
+                    SaveSettings();
+                    Debug::Log(cache_settings.enable_thumbnails ? "Timeline thumbnails enabled" : "Timeline thumbnails disabled");
                 }
 
                 // === SETTINGS ===
@@ -3013,7 +3105,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.1.7:");
+                ImGui::TextDisabled("About u.m.p. v0.1.8:");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6548,6 +6640,29 @@ private:
                     }
                 }
 
+                // Draw loop region background when both In/Out points are set and loop is enabled
+                if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && duration > 0) {
+                    double in_pt = project_manager->GetInPoint();
+                    double out_pt = project_manager->GetOutPoint();
+
+                    float loop_start_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
+                    float loop_end_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
+
+                    // Clamp to timeline bounds
+                    loop_start_x = std::max(loop_start_x, canvas_pos.x);
+                    loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
+
+                    // Use muted-dark accent color for subtle background highlight
+                    ImU32 loop_bg_color = ToImU32(MutedDark(GetWindowsAccentColor()));
+
+                    // Draw filled rectangle covering the loop region
+                    draw_list->AddRectFilled(
+                        ImVec2(loop_start_x, canvas_pos.y),
+                        ImVec2(loop_end_x, canvas_pos.y + canvas_size.y),
+                        loop_bg_color
+                    );
+                }
+
                 // Draw annotation markers (diamond shapes)
                 if (annotation_manager && annotation_manager->HasNotes()) {
                     const auto& notes = annotation_manager->GetNotes();
@@ -6572,6 +6687,37 @@ private:
                     }
                 }
 
+                // Draw In/Out point markers (triangles at top of timeline)
+                ImU32 inout_color = ToImU32(Bright(GetWindowsAccentColor()));  // Use bright accent for both
+
+                if (project_manager && project_manager->HasInPoint() && duration > 0) {
+                    // In point - bright accent color triangle pointing right (▶)
+                    double in_pt = project_manager->GetInPoint();
+                    float in_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
+                    float tri_y = canvas_pos.y + 10.0f;  // Position at top of timeline
+                    float tri_size = 8.0f;
+
+                    ImVec2 p1(in_x, tri_y);                           // Left point
+                    ImVec2 p2(in_x + tri_size, tri_y - tri_size);     // Top point
+                    ImVec2 p3(in_x + tri_size, tri_y + tri_size);     // Bottom point
+
+                    draw_list->AddTriangleFilled(p1, p2, p3, inout_color);
+                }
+
+                if (project_manager && project_manager->HasOutPoint() && duration > 0) {
+                    // Out point - bright accent color triangle pointing left (◀)
+                    double out_pt = project_manager->GetOutPoint();
+                    float out_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
+                    float tri_y = canvas_pos.y + 10.0f;  // Position at top of timeline
+                    float tri_size = 8.0f;
+
+                    ImVec2 p1(out_x, tri_y);                           // Right point
+                    ImVec2 p2(out_x - tri_size, tri_y - tri_size);     // Top point
+                    ImVec2 p3(out_x - tri_size, tri_y + tri_size);     // Bottom point
+
+                    draw_list->AddTriangleFilled(p1, p2, p3, inout_color);
+                }
+
                 // Draw playhead (ONLY ONCE)
                 float playhead_x = canvas_pos.x + progress_width;
                 draw_list->AddLine(ImVec2(playhead_x, canvas_pos.y),
@@ -6587,9 +6733,29 @@ private:
                 bool timeline_clicked = ImGui::IsItemClicked();
                 bool marker_was_clicked = false;
 
+                // Seek cache pause state (shared across hover/resume logic)
+                static bool seek_cache_paused = false;
+                static bool was_hovering = false;
+                static auto hover_end_time = std::chrono::steady_clock::now();
+
+                // Check if we're currently hovering over timeline OR actively scrubbing
+                // Keep cache paused during both thumbnail preview AND scrubbing for smooth interaction
+                bool is_hovering = ImGui::IsItemHovered() && !is_mouse_down &&
+                                  cache_settings.enable_thumbnails && video_player->HasThumbnailCache();
+                bool is_scrubbing = currently_scrubbing;  // From timeline_manager
+                bool should_pause_cache = is_hovering || is_scrubbing;
+
+                // Pause seek cache during hover OR scrubbing
+                if (should_pause_cache && !seek_cache_paused && project_manager) {
+                    FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
+                    if (frame_cache) {
+                        frame_cache->PauseForThumbnails(true);
+                        seek_cache_paused = true;
+                    }
+                }
+
                 // NEW: Thumbnail tooltip on timeline hover (for all media with thumbnail cache)
-                if (ImGui::IsItemHovered() && !is_mouse_down && cache_settings.enable_thumbnails &&
-                    video_player->HasThumbnailCache()) {
+                if (is_hovering) {
 
                     // Throttle hover requests to avoid queuing every frame during fast drags
                     static int last_hover_frame = -1;
@@ -6722,6 +6888,32 @@ private:
                         }
                     }
                 }
+
+                // Detect transition from interacting to not interacting (hover or scrub ended)
+                if (was_hovering && !should_pause_cache) {
+                    // Just stopped interacting - start the resume timer
+                    hover_end_time = std::chrono::steady_clock::now();
+                }
+
+                // Resume seek cache after delay when interaction ends
+                if (!should_pause_cache && seek_cache_paused) {
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - hover_end_time).count();
+
+                    // Resume after 500ms delay (prevents rapid pause/resume during quick interactions)
+                    if (elapsed >= 500) {
+                        if (project_manager) {
+                            FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
+                            if (frame_cache) {
+                                frame_cache->PauseForThumbnails(false);
+                            }
+                        }
+                        seek_cache_paused = false;
+                    }
+                }
+
+                // Update interaction state for next frame
+                was_hovering = should_pause_cache;
 
                 // Check for annotation marker click FIRST (before scrubbing logic)
                 if (timeline_clicked && annotation_manager && annotation_manager->HasNotes()) {
@@ -6949,6 +7141,121 @@ private:
                 ImGui::SetTooltip("%s", loop_tooltip);
             }
 
+            // === IN/OUT POINT BUTTONS ===
+            ImGui::SameLine();
+            ImGui::Spacing();
+            ImGui::SameLine();
+
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+
+                // In point button
+                bool has_in = project_manager && project_manager->HasInPoint();
+                if (has_in) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ToImU32(GetWindowsAccentColor()));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToImU32(Bright(GetWindowsAccentColor())));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
+                }
+
+                if (ImGui::Button("\ue892", ImVec2(25.0f, 22.0f))) {  // Label icon
+                    if (video_player && project_manager) {
+                        double current_time = video_player->GetPosition();
+                        project_manager->SetInPoint(current_time);
+                        Debug::Log("Set In point via button at " + std::to_string(current_time) + "s");
+                    }
+                }
+
+                if (has_in) {
+                    ImGui::PopStyleColor(3);
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Set In Point (;)");
+                }
+
+                ImGui::SameLine();
+
+                // Out point button
+                bool has_out = project_manager && project_manager->HasOutPoint();
+                if (has_out) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ToImU32(GetWindowsAccentColor()));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToImU32(Bright(GetWindowsAccentColor())));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
+                }
+
+                if (ImGui::Button("\ue937", ImVec2(25.0f, 22.0f))) {  // Label_Important icon
+                    if (video_player && project_manager) {
+                        double current_time = video_player->GetPosition();
+                        project_manager->SetOutPoint(current_time);
+                        Debug::Log("Set Out point via button at " + std::to_string(current_time) + "s");
+                    }
+                }
+
+                if (has_out) {
+                    ImGui::PopStyleColor(3);
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Set Out Point (')");
+                }
+
+                ImGui::PopFont();
+            }
+
+            // === IN/OUT POINTS DISPLAY ===
+            if (project_manager && (project_manager->HasInPoint() || project_manager->HasOutPoint())) {
+                ImGui::SameLine();
+                ImGui::Spacing();
+                ImGui::SameLine();
+
+                if (font_mono) ImGui::PushFont(font_mono);
+
+                double in_pt = project_manager->GetInPoint();
+                double out_pt = project_manager->GetOutPoint();
+
+                ImVec4 inout_label_color = Bright(GetWindowsAccentColor());  // Use bright accent for both
+
+                if (in_pt >= 0 && out_pt >= 0) {
+                    // Both points set - use timecode format (respects timecode mode for adjusted display)
+                    std::string in_tc = FormatCurrentTimecodeWithOffset(in_pt);
+                    std::string out_tc = FormatCurrentTimecodeWithOffset(out_pt);
+
+                    ImGui::TextColored(inout_label_color, "In:");
+                    ImGui::SameLine(0, 2);
+                    ImGui::Text("%s", in_tc.c_str());
+                    ImGui::SameLine();
+                    ImGui::TextColored(inout_label_color, "Out:");
+                    ImGui::SameLine(0, 2);
+                    ImGui::Text("%s", out_tc.c_str());
+                } else if (in_pt >= 0) {
+                    // Only In point set
+                    std::string in_tc = FormatCurrentTimecodeWithOffset(in_pt);
+
+                    ImGui::TextColored(inout_label_color, "In:");
+                    ImGui::SameLine(0, 2);
+                    ImGui::Text("%s", in_tc.c_str());
+                } else {
+                    // Only Out point set
+                    std::string out_tc = FormatCurrentTimecodeWithOffset(out_pt);
+
+                    ImGui::TextColored(inout_label_color, "Out:");
+                    ImGui::SameLine(0, 2);
+                    ImGui::Text("%s", out_tc.c_str());
+                }
+
+                if (font_mono) ImGui::PopFont();
+
+                // Clear button
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##in_out")) {
+                    project_manager->ClearInOutPoints();
+                    Debug::Log("Cleared In/Out points");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Clear In/Out points");
+                }
+            }
+
             // === COMPACT FRAME COUNTER (RIGHT ALIGNED) ===
             if (video_player && video_player->HasVideo()) {
                 ImGui::PushFont(font_mono);
@@ -6969,18 +7276,9 @@ private:
                     double frame_duration = 1.0 / video_player->GetFrameRate();
                     double display_position = current_frame * frame_duration;
 
-                    // Check if timecode mode is enabled
-                    std::string time_display;
-                    if (timecode_mode_enabled && timecode_state == AVAILABLE) {
-                        time_display = FormatCurrentTimecodeWithOffset(display_position);
-                    } else {
-                        int pos_min = (int)(display_position / 60);
-                        int pos_sec = (int)fmod(display_position, 60.0);
-                        int pos_ms = (int)((display_position - (int)display_position) * 1000);
-                        char buffer[32];
-                        snprintf(buffer, sizeof(buffer), "%02d:%02d.%03d", pos_min, pos_sec, pos_ms);
-                        time_display = buffer;
-                    }
+                    // Always use timecode format (HH:MM:SS:FF)
+                    // If timecode mode enabled, shows adjusted timecode with offset
+                    std::string time_display = FormatCurrentTimecodeWithOffset(display_position);
 
                     int display_frame = ump::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
                     frame_str = time_display + " Frame " + std::to_string(display_frame);
@@ -6989,18 +7287,9 @@ private:
                     double frame_duration = 1.0 / video_player->GetFrameRate();
                     double display_position = current_frame * frame_duration;
 
-                    // Check if timecode mode is enabled
-                    std::string time_display;
-                    if (timecode_mode_enabled && timecode_state == AVAILABLE) {
-                        time_display = FormatCurrentTimecodeWithOffset(display_position);
-                    } else {
-                        int pos_min = (int)(display_position / 60);
-                        int pos_sec = (int)fmod(display_position, 60.0);
-                        int pos_ms = (int)((display_position - (int)display_position) * 1000);
-                        char buffer[32];
-                        snprintf(buffer, sizeof(buffer), "%02d:%02d.%03d", pos_min, pos_sec, pos_ms);
-                        time_display = buffer;
-                    }
+                    // Always use timecode format (HH:MM:SS:FF)
+                    // If timecode mode enabled, shows adjusted timecode with offset
+                    std::string time_display = FormatCurrentTimecodeWithOffset(display_position);
 
                     // Use 1-based display for regular videos (Frame 1, not Frame 0)
                     int display_frame = ump::FrameIndexing::InternalToDisplay(current_frame);
@@ -9733,6 +10022,31 @@ private:
                 }
             }
 
+            // Transcode performance settings
+            if (j.contains("transcode")) {
+                if (j["transcode"].contains("encoder_threads")) {
+                    transcode_settings.encoder_thread_count = j["transcode"]["encoder_threads"].get<int>();
+                }
+                if (j["transcode"].contains("prefer_hardware")) {
+                    transcode_settings.prefer_hardware_encoding = j["transcode"]["prefer_hardware"].get<bool>();
+                }
+                if (j["transcode"].contains("hardware_encoder")) {
+                    transcode_settings.hardware_encoder = j["transcode"]["hardware_encoder"].get<std::string>();
+                }
+                if (j["transcode"].contains("default_workers")) {
+                    transcode_settings.default_worker_count = j["transcode"]["default_workers"].get<int>();
+                }
+                if (j["transcode"].contains("max_workers")) {
+                    transcode_settings.max_worker_count = j["transcode"]["max_workers"].get<int>();
+                }
+                if (j["transcode"].contains("prefetch_buffer")) {
+                    transcode_settings.prefetch_buffer_size = j["transcode"]["prefetch_buffer"].get<int>();
+                }
+                if (j["transcode"].contains("prefetch_ahead")) {
+                    transcode_settings.prefetch_ahead_count = j["transcode"]["prefetch_ahead"].get<int>();
+                }
+            }
+
             // Store ImGui layout to load after ImGui is initialized
             if (j.contains("imgui_layout")) {
                 saved_imgui_layout = j["imgui_layout"].get<std::string>();
@@ -9849,6 +10163,15 @@ private:
 
             // Color management settings
             j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;
+
+            // Transcode performance settings
+            j["transcode"]["encoder_threads"] = transcode_settings.encoder_thread_count;
+            j["transcode"]["prefer_hardware"] = transcode_settings.prefer_hardware_encoding;
+            j["transcode"]["hardware_encoder"] = transcode_settings.hardware_encoder;
+            j["transcode"]["default_workers"] = transcode_settings.default_worker_count;
+            j["transcode"]["max_workers"] = transcode_settings.max_worker_count;
+            j["transcode"]["prefetch_buffer"] = transcode_settings.prefetch_buffer_size;
+            j["transcode"]["prefetch_ahead"] = transcode_settings.prefetch_ahead_count;
 
             // Save ImGui layout to memory
             size_t ini_size = 0;
@@ -11402,7 +11725,8 @@ private:
             int hours = (int)(current_seconds / 3600);
             int minutes = (int)(fmod(current_seconds, 3600.0) / 60);
             int secs = (int)fmod(current_seconds, 60.0);
-            int frames = (int)round((current_seconds - (int)current_seconds) * fps);
+            // Truncate frames (not round) - show current frame, not closest frame
+            int frames = (int)((current_seconds - (int)current_seconds) * fps);
 
             char buffer[32];
             snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d:%02d", hours, minutes, secs, frames);
@@ -11420,8 +11744,8 @@ private:
         int minutes = (int)(fmod(absolute_timecode_seconds, 3600.0) / 60);
         int secs = (int)fmod(absolute_timecode_seconds, 60.0);
 
-        // Use proper rounding instead of truncation for frame calculation
-        int frames = (int)round((absolute_timecode_seconds - (int)absolute_timecode_seconds) * fps);
+        // Truncate frames (not round) - show current frame, not closest frame
+        int frames = (int)((absolute_timecode_seconds - (int)absolute_timecode_seconds) * fps);
 
         char buffer[32];
         snprintf(buffer, sizeof(buffer), "%02d:%02d:%02d:%02d", hours, minutes, secs, frames);
@@ -11557,6 +11881,17 @@ private:
 // Static member definitions
 WNDPROC Application::original_wndproc = nullptr;
 Application* Application::app_instance = nullptr;
+
+// ============================================================================
+// GLOBAL WRAPPER FUNCTIONS (for external access to Application methods)
+// ============================================================================
+
+// Global SaveSettings wrapper - allows other translation units to save settings
+void SaveSettings() {
+    if (Application::app_instance) {
+        Application::app_instance->SaveSettings();
+    }
+}
 
 // ============================================================================
 // HELPER FUNCTIONS

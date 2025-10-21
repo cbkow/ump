@@ -22,3 +22,9 @@ Submitting will add to the **Queue Manager** and automatically begin transcoding
 
 ![Window](images/ump_8IGPmFFudT.png)
 
+## Loop in/out points
+
+![window](images/ump_qSX9lzvuTy.png)
+The loop in/out functions will also trim a region for transcoding. If you don't want to export the whole video/seqeunce you can trim here.
+
+Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop out button will set an out point. Once the loop area is selected, only this constrained region will export for transcoding.

@@ -1002,6 +1002,11 @@ void VideoPlayer::SetLoop(bool enabled) {
         mpv_set_property_string(mpv, "loop-playlist", "no");
         //Debug::Log("Disabled looping");
     }
+
+    // Sync looping state to EXR cache for wrap-around caching
+    if (exr_cache_) {
+        exr_cache_->SetLooping(enabled);
+    }
 }
 
 void VideoPlayer::SetLoopMode(bool is_playlist_mode) {
@@ -3628,6 +3633,9 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
                    std::to_string(config.video_cache_gb) + "GB cache, " +
                    std::to_string(config.read_behind_seconds) + "s read behind");
 
+        // Sync looping state for seamless wrap-around caching
+        exr_cache_->SetLooping(loop_enabled);
+
         // Start background caching
         exr_cache_->StartBackgroundCaching();
         Debug::Log("VideoPlayer: DirectEXRCache initialized with " + format_name + " loader");
@@ -3740,7 +3748,6 @@ void VideoPlayer::InjectCurrentEXRFrame() {
     static int last_injected_frame = -1;
     static int last_cache_update_frame = -1;
     static int last_miss_frame = -1;
-    static bool preload_triggered = false;
 
     if (current_sequence_path != last_sequence_path) {
         // Sequence changed - reset all static tracking variables
@@ -3750,7 +3757,6 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         last_injected_frame = -1;
         last_cache_update_frame = -1;
         last_miss_frame = -1;
-        preload_triggered = false;
     }
 
     // Calculate sequence info and current frame FIRST
@@ -3769,43 +3775,10 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         last_log_time = now;
     }
 
-    // Simple loop strategy: Brief pause at loop point to let cache catch up
-    // No complex pre-caching - just give the cache a moment to load first frames after seek
-    static bool loop_pause_triggered = false;
-    static auto loop_pause_start = std::chrono::steady_clock::now();
-
-    if (loop_enabled && target_frame < 5 && last_injected_frame >= sequence_size - 5) {
-        // We just looped back to the beginning
-        if (!loop_pause_triggered && is_playing) {
-            Debug::Log("EXR loop: Detected loop point - pausing and seeking to 0");
-            Pause();
-
-            // CRITICAL: Seek to 0 IMMEDIATELY to prevent skipping frames
-            // MPV's position might be at 0.1s or 0.2s by the time we resume
-            mpv_command_string(mpv, "seek 0 absolute");
-            Debug::Log("EXR loop: Seeked MPV to position 0");
-
-            loop_pause_triggered = true;
-            loop_pause_start = std::chrono::steady_clock::now();
-        }
-    }
-
-    // Resume after brief pause (2000ms for safer cache load and diagnostics)
-    if (loop_pause_triggered) {
-        auto pause_duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - loop_pause_start).count();
-
-        if (pause_duration >= 1500) {
-            Debug::Log("EXR loop: Resuming playback after cache pause (2s)");
-            Play();
-            loop_pause_triggered = false;
-        }
-    }
-
-    // Reset trigger when far from loop point
-    if (target_frame > 10) {
-        loop_pause_triggered = false;
-    }
+    // SEAMLESS LOOPING: Wrap-around caching eliminates need for loop pause
+    // Cache pre-loads frames 0-20 when approaching end of sequence (if looping enabled)
+    // This allows smooth, hitch-free looping without interruption
+    // Old strategy (pausing at loop point) removed - now handled by DirectEXRCache wrap-around logic
 
     // Handle end-of-sequence behavior AFTER pre-caching
     // Check MPV's actual position to detect loop/end conditions
@@ -3869,30 +3842,9 @@ void VideoPlayer::InjectCurrentEXRFrame() {
                 last_cache_update_frame = target_frame;
             }
 
-            // Proactive loop caching: Pre-load first 16 frames when approaching end
-            // This ensures seamless looping with no visible hitch
-            if (loop_enabled && target_frame >= sequence_size - 20 && target_frame < sequence_size - 1) {
-                if (!preload_triggered) {
-                    Debug::Log("EXR loop: Pre-caching first 16 frames (frames 0-15) for seamless loop at frame " +
-                              std::to_string(target_frame));
-
-                    // Request first 16 frames to be cached (background thread will handle)
-                    // UpdateCurrentPosition triggers the cache thread to load around that position
-                    for (int i = 0; i < 16 && i < sequence_size; i++) {
-                        double preload_timestamp = i / exr_frame_rate;
-                        exr_cache_->UpdateCurrentPosition(preload_timestamp);
-                    }
-
-                    // Restore current position for normal caching
-                    exr_cache_->UpdateCurrentPosition(GetPosition());
-
-                    preload_triggered = true;
-                    Debug::Log("EXR loop: Pre-cache triggered, first 16 frames requested");
-                }
-            } else if (target_frame < sequence_size - 20) {
-                // Reset trigger when we're far from the end (back in normal playback range)
-                preload_triggered = false;
-            }
+            // REMOVED: Old manual pre-cache logic
+            // Wrap-around caching in DirectEXRCache now handles this automatically
+            // When looping is enabled, cache naturally wraps from frame N-1 to frame 0
 
             return;
         }
@@ -4265,6 +4217,9 @@ void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_fi
         Debug::Log("VideoPlayer: Applied cache config: " +
                    std::to_string(config.video_cache_gb) + "GB cache, " +
                    std::to_string(config.read_behind_seconds) + "s read behind");
+
+        // Sync looping state for seamless wrap-around caching
+        exr_cache_->SetLooping(loop_enabled);
 
         // Start background caching
         exr_cache_->StartBackgroundCaching();

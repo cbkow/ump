@@ -94,6 +94,70 @@ bool FFMPEGVideoEncoder::Open(const EncoderSettings& settings) {
     return true;
 }
 
+std::string FFMPEGVideoEncoder::SelectBestEncoder(const std::string& base_codec,
+                                                    bool prefer_hardware,
+                                                    const std::string& preferred_hw) {
+    // Software fallback codecs
+    std::string software_codec;
+    if (base_codec == "h264") {
+        software_codec = "libx264";
+    } else if (base_codec == "h265" || base_codec == "hevc") {
+        software_codec = "libx265";
+    } else {
+        // Not a codec that has hardware acceleration, return as-is
+        return base_codec;
+    }
+
+    // If hardware encoding is disabled, return software codec immediately
+    if (!prefer_hardware) {
+        Debug::Log("Hardware encoding disabled, using software codec: " + software_codec);
+        return software_codec;
+    }
+
+    // Build list of hardware encoders to try (in priority order)
+    std::vector<std::string> hw_encoders_to_try;
+
+    if (preferred_hw == "nvenc") {
+        // NVIDIA only
+        hw_encoders_to_try.push_back(base_codec + "_nvenc");
+    } else if (preferred_hw == "qsv") {
+        // Intel only
+        hw_encoders_to_try.push_back(base_codec + "_qsv");
+    } else if (preferred_hw == "videotoolbox") {
+        // Apple only
+        hw_encoders_to_try.push_back(base_codec + "_videotoolbox");
+    } else {
+        // Auto mode: try all in platform-appropriate order
+#ifdef _WIN32
+        // Windows: NVIDIA first (most common), then Intel QSV
+        hw_encoders_to_try.push_back(base_codec + "_nvenc");
+        hw_encoders_to_try.push_back(base_codec + "_qsv");
+#elif defined(__APPLE__)
+        // macOS: VideoToolbox first, then NVIDIA (if present)
+        hw_encoders_to_try.push_back(base_codec + "_videotoolbox");
+        hw_encoders_to_try.push_back(base_codec + "_nvenc");
+#else
+        // Linux: NVIDIA first, then Intel, then VAAPI
+        hw_encoders_to_try.push_back(base_codec + "_nvenc");
+        hw_encoders_to_try.push_back(base_codec + "_qsv");
+        hw_encoders_to_try.push_back(base_codec + "_vaapi");
+#endif
+    }
+
+    // Try each hardware encoder
+    for (const auto& hw_codec : hw_encoders_to_try) {
+        const AVCodec* codec = avcodec_find_encoder_by_name(hw_codec.c_str());
+        if (codec) {
+            Debug::Log("Hardware encoder found: " + hw_codec);
+            return hw_codec;
+        }
+    }
+
+    // No hardware encoder found, fall back to software
+    Debug::Log("No hardware encoder available, falling back to software: " + software_codec);
+    return software_codec;
+}
+
 bool FFMPEGVideoEncoder::CreateOutputContext() {
     int ret = avformat_alloc_output_context2(&format_ctx_, nullptr, nullptr,
                                              settings_.output_path.c_str());
@@ -225,6 +289,77 @@ bool FFMPEGVideoEncoder::InitializeCodec() {
         // Use the profile from settings (set by transcode dialog)
         av_opt_set_int(codec_ctx_->priv_data, "profile", settings_.prores_profile, 0);
         Debug::Log("FFMPEGVideoEncoder: Using ProRes profile " + std::to_string(settings_.prores_profile));
+    } else if (settings_.codec.find("_nvenc") != std::string::npos) {
+        // NVIDIA NVENC hardware encoder
+        // NVENC uses CQ (Constant Quality) instead of CRF
+        // CQ range: 0-51 (like CRF, lower = better quality)
+        if (settings_.bitrate_kbps == 0) {
+            av_opt_set_int(codec_ctx_->priv_data, "cq", settings_.crf, 0);
+            Debug::Log("FFMPEGVideoEncoder: NVENC CQ " + std::to_string(settings_.crf));
+        } else {
+            codec_ctx_->bit_rate = settings_.bitrate_kbps * 1000;
+            Debug::Log("FFMPEGVideoEncoder: NVENC bitrate " + std::to_string(settings_.bitrate_kbps) + " kbps");
+        }
+
+        // NVENC presets: default, slow, medium, fast, hp, hq, bd, ll, llhq, llhp, lossless
+        // Map our software presets to NVENC equivalents
+        std::string nvenc_preset = "hq";  // Default to high quality
+        if (!settings_.preset.empty()) {
+            if (settings_.preset == "ultrafast") nvenc_preset = "hp";
+            else if (settings_.preset == "fast") nvenc_preset = "fast";
+            else if (settings_.preset == "slow") nvenc_preset = "hq";
+            else if (settings_.preset == "veryslow") nvenc_preset = "hq";
+        }
+        av_opt_set(codec_ctx_->priv_data, "preset", nvenc_preset.c_str(), 0);
+        Debug::Log("FFMPEGVideoEncoder: NVENC preset: " + nvenc_preset);
+    } else if (settings_.codec.find("_qsv") != std::string::npos) {
+        // Intel QuickSync hardware encoder
+        // QSV uses global_quality for quality mode (1-51, lower = better)
+        if (settings_.bitrate_kbps == 0) {
+            codec_ctx_->global_quality = settings_.crf;
+            Debug::Log("FFMPEGVideoEncoder: QSV quality " + std::to_string(settings_.crf));
+        } else {
+            codec_ctx_->bit_rate = settings_.bitrate_kbps * 1000;
+            Debug::Log("FFMPEGVideoEncoder: QSV bitrate " + std::to_string(settings_.bitrate_kbps) + " kbps");
+        }
+
+        // QSV presets: veryfast, faster, fast, medium, slow, slower, veryslow
+        if (!settings_.preset.empty()) {
+            av_opt_set(codec_ctx_->priv_data, "preset", settings_.preset.c_str(), 0);
+            Debug::Log("FFMPEGVideoEncoder: QSV preset: " + settings_.preset);
+        }
+    } else if (settings_.codec.find("_videotoolbox") != std::string::npos) {
+        // Apple VideoToolbox hardware encoder
+        // VideoToolbox uses q:v for quality (0-100, higher = better, opposite of CRF)
+        if (settings_.bitrate_kbps == 0) {
+            // Convert CRF (0-51, lower=better) to VideoToolbox q:v (0-100, higher=better)
+            int vt_quality = 100 - (settings_.crf * 100 / 51);
+            codec_ctx_->global_quality = vt_quality;
+            Debug::Log("FFMPEGVideoEncoder: VideoToolbox quality " + std::to_string(vt_quality));
+        } else {
+            codec_ctx_->bit_rate = settings_.bitrate_kbps * 1000;
+            Debug::Log("FFMPEGVideoEncoder: VideoToolbox bitrate " + std::to_string(settings_.bitrate_kbps) + " kbps");
+        }
+    }
+
+    // ===================================================================
+    // Performance: Multi-threaded Encoding
+    // ===================================================================
+    // Enable multi-threaded encoding for massive performance boost
+    // 0 = auto-detect CPU cores (recommended)
+    // 1-32 = manual thread count
+    codec_ctx_->thread_count = settings_.thread_count;
+
+    // Enable both frame-level and slice-level threading for maximum parallelism
+    // Frame threading: encode multiple frames in parallel
+    // Slice threading: split each frame into slices and encode in parallel
+    codec_ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+
+    if (settings_.thread_count == 0) {
+        Debug::Log("FFMPEGVideoEncoder: Multi-threading enabled (auto-detect CPU cores)");
+    } else {
+        Debug::Log("FFMPEGVideoEncoder: Multi-threading enabled (" +
+                   std::to_string(settings_.thread_count) + " threads)");
     }
 
     // Some formats need this flag
@@ -414,6 +549,13 @@ bool FFMPEGVideoEncoder::Close() {
 
     // Flush encoder
     FlushEncoder();
+
+    // Set video stream duration before writing trailer
+    // This ensures the output file has correct duration metadata (critical for trimmed videos)
+    if (video_stream_ && frame_count_ > 0) {
+        video_stream_->duration = frame_count_;
+        Debug::Log("FFMPEGVideoEncoder: Set stream duration to " + std::to_string(frame_count_) + " frames");
+    }
 
     // Write trailer
     if (format_ctx_) {
@@ -808,12 +950,24 @@ bool FFMPEGVideoEncoder::WriteAudioPacket(AVPacket* packet, int source_stream_in
             return false;
         }
 
-        // Rescale timestamps
+        // Calculate trim offset in source time base
+        int64_t trim_offset_pts = 0;
+        if (audio_trim_offset_sec_ > 0.0) {
+            trim_offset_pts = av_rescale_q(
+                static_cast<int64_t>(audio_trim_offset_sec_ * AV_TIME_BASE),
+                {1, AV_TIME_BASE},
+                src_time_base
+            );
+        }
+
+        // Rescale timestamps and subtract trim offset (to align with video starting at 0)
         if (packet->pts != AV_NOPTS_VALUE) {
-            out_packet->pts = av_rescale_q(packet->pts, src_time_base, dst_time_base);
+            int64_t adjusted_pts = packet->pts - trim_offset_pts;
+            out_packet->pts = av_rescale_q(adjusted_pts, src_time_base, dst_time_base);
         }
         if (packet->dts != AV_NOPTS_VALUE) {
-            out_packet->dts = av_rescale_q(packet->dts, src_time_base, dst_time_base);
+            int64_t adjusted_dts = packet->dts - trim_offset_pts;
+            out_packet->dts = av_rescale_q(adjusted_dts, src_time_base, dst_time_base);
         }
         if (packet->duration > 0) {
             out_packet->duration = av_rescale_q(packet->duration, src_time_base, dst_time_base);

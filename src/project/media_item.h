@@ -39,6 +39,10 @@ namespace ump {
         // EXR-specific fields
         std::string exr_layer;        // Selected EXR layer (e.g., "beauty", "diffuse")
         std::string exr_layer_display;// Display name for EXR layer
+
+        // In/Out points for range-constrained playback and transcode
+        double in_point = -1.0;       // In point timestamp in seconds (-1 = not set)
+        double out_point = -1.0;      // Out point timestamp in seconds (-1 = not set)
     };
 
     struct ProjectBin {
