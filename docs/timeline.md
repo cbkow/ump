@@ -62,4 +62,4 @@ At the bottom of our panel, on the left, we have a Volume bar, a Mute state butt
 ## Loop in/out
 
 ![window](images/ump_qSX9lzvuTy.png)
-Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop out button will set an out point. Once the loop area is selected, only this constrained region will loop.
+Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop-out button will set an out point. Once selected, looping will be constrained to the area.
