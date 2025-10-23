@@ -207,6 +207,7 @@ private:
     double duration_;
     int width_;
     int height_;
+    int64_t start_time_ = 0;  // Container start time offset in AV_TIME_BASE units (for HEVC and other formats)
 
     // FFmpeg context (using global namespace FFmpeg types)
     ::AVFormatContext* format_context_ = nullptr;

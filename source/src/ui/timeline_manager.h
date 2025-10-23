@@ -22,6 +22,12 @@ public:
     // Core update method - called every frame
     void Update(VideoPlayer* video_player);
 
+    // Force immediate sync from MPV (bypasses throttle) - use after frame stepping
+    void ForceSyncFromMPV(VideoPlayer* video_player);
+
+    // Schedule a delayed force sync (gives MPV time to process frame-step)
+    void ScheduleFrameStepSync();
+
     // Scrubbing interface
     void StartScrubbing(VideoPlayer* video_player);
     void UpdateScrubbing(double new_position, VideoPlayer* video_player = nullptr);
@@ -53,10 +59,13 @@ private:
     double last_stable_position = -1.0;  // Last stable position for stability tracking
     bool restore_playback_after_seek = false;  // Restore playback when seek completes
     
-    // MPV sync state  
+    // MPV sync state
     double mpv_position = 0.0;
     double pending_seek_position = -1.0;
-    
+
+    // Frame step sync state
+    int pending_frame_step_sync = 0;  // Countdown frames until force sync after frame step
+
     // Throttling timers
     std::chrono::steady_clock::time_point last_seek_time;
     std::chrono::steady_clock::time_point last_sync_time;

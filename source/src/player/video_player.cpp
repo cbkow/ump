@@ -64,8 +64,8 @@ const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS = {
     {PipelineMode::HDR_RES, {
         PipelineMode::HDR_RES,
         GL_RGBA16F, GL_HALF_FLOAT,
-        true, true, 8,
-        "HDR-Res (Half-Float) - HDR Display & OCIO",
+        false, true, 8,
+        "HDR-Res (Half-Float) - HDR10/HEVC HDR Video",
         2048,   // 2GB recommended (double memory usage)
         8192    // 8GB max
     }}
@@ -803,7 +803,22 @@ void VideoPlayer::GoToStart() {
 
 void VideoPlayer::GoToEnd() {
     if (cached_duration > 0) {
-        Seek(cached_duration - 0.1);
+        // Seek to the last valid frame (total_frames - 1)
+        int total_frames = GetTotalFrames();
+        if (total_frames > 0) {
+            int last_frame = total_frames - 1;
+            double fps = GetFrameRate();
+            if (fps > 0) {
+                double last_frame_time = last_frame / fps;
+                Seek(last_frame_time);
+            } else {
+                // Fallback if fps not available
+                Seek(cached_duration - 0.1);
+            }
+        } else {
+            // Fallback if frames not available
+            Seek(cached_duration - 0.1);
+        }
     }
 }
 
@@ -3429,9 +3444,8 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     }
 
     // Calculate actual sequence duration
-    // Add one extra frame time to ensure last frame is fully visible before loop
-    double duration = (sequence_files.size() + 1) / fps;
-    Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames, includes last frame display time)");
+    double duration = static_cast<double>(sequence_files.size()) / fps;
+    Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames)");
 
     // Generate or get cached dummy video with full duration
     std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, duration);
@@ -3584,12 +3598,11 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     }
 
     // Calculate actual sequence duration
-    // Add one extra frame time to ensure last frame is fully visible before loop
-    double sequence_duration = static_cast<double>(sequence_files.size() + 1) / fps;
+    double sequence_duration = static_cast<double>(sequence_files.size()) / fps;
 
     // Generate dummy video for the full sequence duration
     std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, sequence_duration);
-    Debug::Log("Image sequence duration set to " + std::to_string(sequence_duration) + "s (includes last frame display time)");
+    Debug::Log("Image sequence duration set to " + std::to_string(sequence_duration) + "s (" + std::to_string(sequence_files.size()) + " frames)");
     if (dummy_path.empty()) {
         Debug::Log("ERROR: Failed to generate full-duration dummy video");
         return false;
@@ -3761,8 +3774,7 @@ void VideoPlayer::InjectCurrentEXRFrame() {
 
     // Calculate sequence info and current frame FIRST
     int sequence_size = static_cast<int>(exr_sequence_files.size());
-    // Add one extra frame time to ensure last frame is fully visible before loop
-    double sequence_duration = (sequence_size + 1) / exr_frame_rate;
+    double sequence_duration = static_cast<double>(sequence_size) / exr_frame_rate;
     int target_frame = CalculateCurrentEXRFrameIndex();
 
     auto now = std::chrono::steady_clock::now();
@@ -4140,6 +4152,7 @@ void VideoPlayer::ApplyPipelineModeConfig(PipelineMode mode) {
             mpv_set_option_string(mpv, "linear-scaling", "yes");
             mpv_set_option_string(mpv, "opengl-fbo-format", "rgba16f");
             mpv_set_option_string(mpv, "target-colorspace", "bt.2020");  // HDR colorspace
+            mpv_set_option_string(mpv, "target-colorspace-hint", "yes");  // Signal HDR display capability
             Debug::Log("Applied HDR_RES pipeline config - RGBA16F linear processing with Rec.2020 targeting");
             break;
     }

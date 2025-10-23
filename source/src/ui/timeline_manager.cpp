@@ -53,6 +53,15 @@ void TimelineManager::Update(VideoPlayer* video_player) {
 
     auto now = std::chrono::steady_clock::now();
 
+    // Handle pending frame-step sync (countdown and force sync when ready)
+    if (pending_frame_step_sync > 0) {
+        pending_frame_step_sync--;
+        if (pending_frame_step_sync == 0) {
+            // MPV has had time to process frame-step, force sync now
+            ForceSyncFromMPV(video_player);
+        }
+    }
+
     // EXR MODE: Skip all MPV-related operations (no dummy video seeks/syncs)
     if (video_player->IsInEXRMode()) {
         // Update duration
@@ -126,11 +135,12 @@ void TimelineManager::Update(VideoPlayer* video_player) {
             last_sync_time = now;
         } else {
             // Between sync updates, smoothly interpolate position for playback
-            if (video_player->IsPlaying() && ui_duration > 0) {
+            // BUT: Don't interpolate while waiting for frame-step to complete (prevents stutter)
+            if (video_player->IsPlaying() && ui_duration > 0 && pending_frame_step_sync == 0) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_sync_time);
                 double interpolated_offset = elapsed.count() / 1000.0;
                 ui_position = mpv_position + interpolated_offset;
-                
+
                 // Clamp to valid range
                 if (ui_position > ui_duration) ui_position = ui_duration;
                 if (ui_position < 0.0) ui_position = 0.0;
@@ -277,6 +287,24 @@ void TimelineManager::StopScrubbing(VideoPlayer* video_player) {
     }
 
     //Debug::Log("Timeline: Stopped scrubbing, restoring playback=" + std::string(was_playing_before_scrub ? "true" : "false"));
+}
+
+void TimelineManager::ForceSyncFromMPV(VideoPlayer* video_player) {
+    if (!video_player) return;
+
+    // Force immediate sync, bypassing throttle
+    SyncFromMPV(video_player);
+
+    // Reset sync timer to maintain proper interval for future syncs
+    last_sync_time = std::chrono::steady_clock::now();
+}
+
+void TimelineManager::ScheduleFrameStepSync() {
+    // Immediately reset sync timer to stop interpolation from running
+    last_sync_time = std::chrono::steady_clock::now();
+
+    // Schedule sync to happen in 1 frame (minimal delay while giving MPV time to process)
+    pending_frame_step_sync = 1;
 }
 
 void TimelineManager::SyncFromMPV(VideoPlayer* video_player) {

@@ -1434,6 +1434,17 @@ bool VideoImageLoader::InitializeFFmpeg() {
     width_ = video_stream->codecpar->width;
     height_ = video_stream->codecpar->height;
 
+    // Extract container start_time offset (critical for HEVC and other formats)
+    // Store in same format as MediaBackgroundExtractor for consistency
+    if (video_stream->start_time != AV_NOPTS_VALUE) {
+        // Convert from stream timebase to AV_TIME_BASE units (to match seek cache behavior)
+        start_time_ = av_rescale_q(video_stream->start_time, video_stream->time_base, AV_TIME_BASE_Q);
+        Debug::Log("VideoImageLoader: Container start_time detected: " +
+                   std::to_string(static_cast<double>(start_time_) / AV_TIME_BASE) + "s");
+    } else {
+        start_time_ = 0;
+    }
+
     // Setup decoder (software only for thread safety)
     const AVCodec* decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
     if (!decoder) {
@@ -1518,8 +1529,13 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
 
     std::lock_guard<std::mutex> lock(ffmpeg_mutex_);
 
-    // Calculate timestamp
+    // Calculate timestamp with start_time offset (critical for HEVC and other formats with non-zero PTS)
+    // Match exactly how FrameCache::FrameNumberToTimestamp handles this (frame_cache.cpp:890-894)
     double timestamp = frame_number / fps_;
+    if (start_time_ > 0) {
+        double start_time_seconds = static_cast<double>(start_time_) / AV_TIME_BASE;
+        timestamp += start_time_seconds;
+    }
 
     // Allocate frame for decoding
     AVFrame* frame = av_frame_alloc();
@@ -1577,26 +1593,55 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     }
 
     bool found_frame = false;
+    AVFrame* best_frame = av_frame_alloc();
+    int64_t best_diff = INT64_MAX;
+    bool passed_target = false;
 
     // Read packets until we find our target frame
+    // We seek backward to keyframe, then decode forward to find the closest frame
     while (av_read_frame(format_context_, packet) >= 0) {
         if (packet->stream_index == video_stream_index_) {
             if (avcodec_send_packet(codec_context_, packet) >= 0) {
                 while (avcodec_receive_frame(codec_context_, output_frame) >= 0) {
-                    // Check if this is close to our target timestamp
-                    double frame_timestamp = output_frame->pts * av_q2d(stream->time_base);
-                    if (std::abs(frame_timestamp - timestamp) < (1.0 / fps_)) {
+                    int64_t frame_pts = output_frame->pts;
+                    int64_t diff = std::abs(frame_pts - target_pts);
+
+                    // Keep the frame closest to our target
+                    if (diff < best_diff) {
+                        best_diff = diff;
+                        av_frame_unref(best_frame);
+                        av_frame_ref(best_frame, output_frame);
                         found_frame = true;
+                    }
+
+                    // Check if we've passed the target
+                    if (frame_pts > target_pts) {
+                        passed_target = true;
+                    }
+
+                    // If we found a good match and passed the target, stop
+                    if (passed_target && found_frame) {
+                        av_frame_unref(output_frame);
                         break;
                     }
+
                     av_frame_unref(output_frame);
                 }
             }
-            if (found_frame) break;
+            // Stop decoding if we found a frame and passed the target
+            if (passed_target && found_frame) {
+                break;
+            }
         }
         av_packet_unref(packet);
     }
 
+    // Copy best frame to output
+    if (found_frame) {
+        av_frame_ref(output_frame, best_frame);
+    }
+
+    av_frame_free(&best_frame);
     av_packet_free(&packet);
     return found_frame;
 }

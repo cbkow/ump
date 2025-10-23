@@ -530,12 +530,61 @@ namespace ump {
             video_change_callback(file_path);
         }
 
+        // === CHECK IF CACHE WAS AUTO-DISABLED FOR PREVIOUS CODEC ===
+        // If cache was disabled for H.264/H.265, check if new video has a safe codec and restore cache
+        if (!cache_enabled && cache_auto_disabled_for_codec && !IsInSequenceMode()) {
+            std::thread([this, file_path]() {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
+                // CRITICAL: Verify this video is still the current one before initializing cache
+                // User might have loaded a different video during the 200ms delay
+                if (!current_file_path || *current_file_path != file_path) {
+                    Debug::Log("OnVideoLoaded: Video changed before cache restoration, aborting (was: " + file_path + ", now: " +
+                               (current_file_path ? *current_file_path : "(null)") + ")");
+                    return;
+                }
+
+                Debug::Log("OnVideoLoaded: Cache was auto-disabled, checking new video codec: " + file_path);
+                const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
+
+                if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
+                    std::string codec = cached_meta->video_meta->video_codec;
+                    Debug::Log("OnVideoLoaded: Found cached metadata, codec = '" + codec + "'");
+                    std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+
+                    bool is_h264_h265 = (codec.find("h264") != std::string::npos ||
+                                        codec.find("h.264") != std::string::npos ||
+                                        codec.find("h265") != std::string::npos ||
+                                        codec.find("h.265") != std::string::npos ||
+                                        codec.find("hevc") != std::string::npos);
+
+                    if (!is_h264_h265) {
+                        Debug::Log("OnVideoLoaded: Safe codec detected, restoring cache and initializing");
+                        SetCacheEnabled(user_cache_preference);
+                        cache_auto_disabled_for_codec = false;
+                        current_video_codec = "";
+
+                        // Double-check video is still current before initializing cache
+                        if (current_file_path && *current_file_path == file_path && user_cache_preference && video_cache_manager) {
+                            NotifyVideoChanged(file_path);
+                        } else {
+                            Debug::Log("OnVideoLoaded: Video changed before NotifyVideoChanged, aborting cache init");
+                        }
+                    } else {
+                        Debug::Log("OnVideoLoaded: H.264/H.265 codec detected, cache remains disabled");
+                        current_video_codec = cached_meta->video_meta->video_codec;
+                    }
+                } else {
+                    Debug::Log("OnVideoLoaded: No cached metadata yet, will check when metadata arrives");
+                }
+            }).detach();
+        }
         // === DEFER CACHE INITIALIZATION TO BACKGROUND ===
         // Previously blocked for 300ms before starting cache - this delayed viewport updates
         // Now we defer cache init to background thread, allowing immediate playback
         // OPTIMIZATION: Only spawn thread if cache is actually enabled AND not in playlist mode
         // Playlist mode has threading issues with extractor shutdown blocking, so disable cache there
-        if (cache_enabled && !IsInSequenceMode()) {
+        else if (cache_enabled && !IsInSequenceMode()) {
             std::thread([this, file_path]() {
                 // Brief delay to let MPV start playback first
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));

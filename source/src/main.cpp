@@ -427,6 +427,12 @@ public:
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
+        // 10-bit framebuffer for HDR output (10-10-10-2 format)
+        glfwWindowHint(GLFW_RED_BITS, 10);
+        glfwWindowHint(GLFW_GREEN_BITS, 10);
+        glfwWindowHint(GLFW_BLUE_BITS, 10);
+        glfwWindowHint(GLFW_ALPHA_BITS, 2);
+
         // Create window (use saved size if available)
         window = glfwCreateWindow(saved_window_width, saved_window_height, "u.m.p.", nullptr, nullptr);
         if (!window) {
@@ -1754,12 +1760,14 @@ private:
         // Q - Frame Back
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
             video_player->StepFrame(-1);
+            timeline_manager->ScheduleFrameStepSync();
             Debug::Log("Q - Frame back");
         }
 
         // E - Frame Forward
         if (ImGui::IsKeyPressed(ImGuiKey_E)) {
             video_player->StepFrame(1);
+            timeline_manager->ScheduleFrameStepSync();
             Debug::Log("E - Frame forward");
         }
 
@@ -2813,10 +2821,12 @@ private:
 
                 if (ImGui::MenuItem("Previous Frame", "Q")) {
                     video_player->StepFrame(-1);
+                    timeline_manager->ScheduleFrameStepSync();
                 }
 
                 if (ImGui::MenuItem("Next Frame", "E")) {
                     video_player->StepFrame(1);
+                    timeline_manager->ScheduleFrameStepSync();
                 }
 
                 ImGui::Separator();
@@ -3007,12 +3017,12 @@ private:
                     }
                     ImGui::TextDisabled("%s", bit_info);
                 } else {
-                    const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)", "HDR-Res (HDR Display)" };
+                    const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)" /*, "HDR-Res (HDR Display)" */ };
 
                     PipelineMode current_mode = video_player ? video_player->GetPipelineMode() : PipelineMode::NORMAL;
                     int current_mode_index = static_cast<int>(current_mode);
 
-                    for (int i = 0; i < 4; i++) {
+                    for (int i = 0; i < 3; i++) {  // Hidden: HDR-Res (not yet supported with OpenGL output)
                         bool is_selected = (i == current_mode_index);
 
                         // Disable Ultra-High-Res for regular video (no float video formats exist)
@@ -3105,7 +3115,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.1.8:");
+                ImGui::TextDisabled("About u.m.p. v0.1.9:");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -3933,8 +3943,8 @@ private:
                 } pipeline_info[] = {
                     {PipelineMode::NORMAL, "Normal (8-bit)", 4},
                     {PipelineMode::HIGH_RES, "High-Res (12-bit/16-bit)", 8},  // AV_PIX_FMT_RGBA64LE = 8 bytes
-                    {PipelineMode::ULTRA_HIGH_RES, "Ultra-High-Res (Float)", 16},  // EXR only: AV_PIX_FMT_RGBAF32LE = 16 bytes
-                    {PipelineMode::HDR_RES, "HDR-Res (HDR Display)", 8}  // Fixed: AV_PIX_FMT_RGBA64LE = 8 bytes (half-float)
+                    {PipelineMode::ULTRA_HIGH_RES, "Ultra-High-Res (Float)", 16}  // EXR only: AV_PIX_FMT_RGBAF32LE = 16 bytes
+                    // {PipelineMode::HDR_RES, "HDR-Res (HDR Display)", 8}  // Hidden: Not yet supported with OpenGL output
                 };
 
                 for (const auto& info : pipeline_info) {
@@ -6045,6 +6055,7 @@ private:
             }
             else if (rw_clicked && !rw_active) {
                 video_player->StepFrame(-1);
+                timeline_manager->ScheduleFrameStepSync();
             }
             ImGui::SameLine();
 
@@ -6058,6 +6069,7 @@ private:
 
                 if (clicked) {
                     video_player->StepFrame(-1);
+                    timeline_manager->ScheduleFrameStepSync();
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Previous frame");
@@ -6117,6 +6129,7 @@ private:
 
                 if (clicked) {
                     video_player->StepFrame(1);
+                    timeline_manager->ScheduleFrameStepSync();
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Next frame");
@@ -6152,6 +6165,7 @@ private:
             }
             else if (ff_clicked && !ff_active) {
                 video_player->StepFrame(1);
+                timeline_manager->ScheduleFrameStepSync();
             }
             ImGui::SameLine();
 
@@ -6540,13 +6554,21 @@ private:
             if (duration > 0 && total_frames > 0) {
                 // Calculate frame markers
                 int visible_frame_count = 20;
-                int frame_step = (total_frames / visible_frame_count > 1) ? (total_frames / visible_frame_count) : 1;
+
+                // Timeline represents frames 0 to (total_frames - 1), so last frame index is total_frames - 1
+                int last_frame = total_frames - 1;
 
                 // Draw frame markers
                 for (int i = 0; i <= visible_frame_count; ++i) {
-                    int frame_num = i * frame_step;
-                    if (frame_num > total_frames) frame_num = total_frames;
-                    float x = canvas_pos.x + (canvas_size.x * frame_num / (float)total_frames);
+                    // Properly distribute ticks evenly across entire timeline (0 to last_frame)
+                    int frame_num = (int)std::round((i * last_frame) / (float)visible_frame_count);
+
+                    // Ensure last tick is exactly at last_frame
+                    if (i == visible_frame_count) {
+                        frame_num = last_frame;
+                    }
+
+                    float x = canvas_pos.x + (canvas_size.x * frame_num / (float)last_frame);
 
                     bool is_major = (i % 5 == 0);
                     float tick_height = is_major ? 20.0f : 12.0f;
@@ -6576,12 +6598,58 @@ private:
                 }
 
                 // Draw progress fill (ONLY ONCE)
-                float progress = (float)(position / duration);
-                float progress_width = canvas_size.x * progress;
+                // Use frame-based positioning to match ticker positioning (fixes off-by-one at end of timeline)
+                float progress_width;
+                if (video_player && video_player->GetFrameRate() > 0) {
+                    int current_frame = static_cast<int>(std::round(position * video_player->GetFrameRate()));
+                    if (current_frame > last_frame) current_frame = last_frame; // Clamp to valid range
+                    progress_width = canvas_size.x * current_frame / (float)last_frame;
+                } else {
+                    // Fallback to time-based if video_player not available
+                    float progress = (float)(position / duration);
+                    progress_width = canvas_size.x * progress;
+                }
                 if (progress_width > 0) {
                     draw_list->AddRectFilled(canvas_pos,
                         ImVec2(canvas_pos.x + progress_width, canvas_pos.y + canvas_size.y),
                         IM_COL32(80, 80, 80, 180));
+                }
+
+                // Draw loop region background FIRST (behind cache bars) when both In/Out points are set and loop is enabled
+                if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && duration > 0) {
+                    double in_pt = project_manager->GetInPoint();
+                    double out_pt = project_manager->GetOutPoint();
+
+                    // Use frame-based positioning to match ticker positioning
+                    float loop_start_x, loop_end_x;
+                    double fps = video_player->GetFrameRate();
+                    if (fps > 0) {
+                        int in_frame = static_cast<int>(std::round(in_pt * fps));
+                        int out_frame = static_cast<int>(std::round(out_pt * fps));
+                        if (in_frame > last_frame) in_frame = last_frame;
+                        if (out_frame > last_frame) out_frame = last_frame;
+
+                        loop_start_x = canvas_pos.x + (canvas_size.x * in_frame / (float)last_frame);
+                        loop_end_x = canvas_pos.x + (canvas_size.x * out_frame / (float)last_frame);
+                    } else {
+                        // Fallback to time-based if fps not available
+                        loop_start_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
+                        loop_end_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
+                    }
+
+                    // Clamp to timeline bounds
+                    loop_start_x = std::max(loop_start_x, canvas_pos.x);
+                    loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
+
+                    // Use muted-dark accent color for subtle background highlight
+                    ImU32 loop_bg_color = ToImU32(MutedDark(GetWindowsAccentColor()));
+
+                    // Draw filled rectangle covering the loop region
+                    draw_list->AddRectFilled(
+                        ImVec2(loop_start_x, canvas_pos.y),
+                        ImVec2(loop_end_x, canvas_pos.y + canvas_size.y),
+                        loop_bg_color
+                    );
                 }
 
                 // Draw fresh cache visualization bar
@@ -6638,29 +6706,6 @@ private:
                             cache_color
                         );
                     }
-                }
-
-                // Draw loop region background when both In/Out points are set and loop is enabled
-                if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && duration > 0) {
-                    double in_pt = project_manager->GetInPoint();
-                    double out_pt = project_manager->GetOutPoint();
-
-                    float loop_start_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
-                    float loop_end_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
-
-                    // Clamp to timeline bounds
-                    loop_start_x = std::max(loop_start_x, canvas_pos.x);
-                    loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
-
-                    // Use muted-dark accent color for subtle background highlight
-                    ImU32 loop_bg_color = ToImU32(MutedDark(GetWindowsAccentColor()));
-
-                    // Draw filled rectangle covering the loop region
-                    draw_list->AddRectFilled(
-                        ImVec2(loop_start_x, canvas_pos.y),
-                        ImVec2(loop_end_x, canvas_pos.y + canvas_size.y),
-                        loop_bg_color
-                    );
                 }
 
                 // Draw annotation markers (diamond shapes)
@@ -6963,6 +7008,15 @@ private:
                     if (video_player && video_player->GetFrameRate() > 0) {
                         double fps = video_player->GetFrameRate();
                         int target_frame = static_cast<int>(std::round(seek_time * fps));
+
+                        // Clamp to valid frame range (0 to total_frames - 1)
+                        if (target_frame >= total_frames) {
+                            target_frame = total_frames - 1;
+                        }
+                        if (target_frame < 0) {
+                            target_frame = 0;
+                        }
+
                         seek_time = target_frame / fps; // Snap to exact frame timestamp
                     }
 
@@ -6978,14 +7032,21 @@ private:
                 // Render empty timeline with 96 frames as default
                 const int default_frames = 96;
                 const int visible_frame_count = 20;
-                const int frame_step = 5; // Show every 5th frame (0, 5, 10, 15, etc.)
+
+                // Timeline represents frames 0 to (default_frames - 1), so last frame index is default_frames - 1
+                const int last_frame = default_frames - 1;
 
                 // Draw frame markers for empty timeline
                 for (int i = 0; i <= visible_frame_count; ++i) {
-                    int frame_num = i * frame_step;
-                    if (frame_num > default_frames) frame_num = default_frames;
+                    // Properly distribute ticks evenly across entire timeline (0 to last_frame)
+                    int frame_num = (int)std::round((i * last_frame) / (float)visible_frame_count);
 
-                    float x = canvas_pos.x + (canvas_size.x * frame_num / (float)default_frames);
+                    // Ensure last tick is exactly at last_frame
+                    if (i == visible_frame_count) {
+                        frame_num = last_frame;
+                    }
+
+                    float x = canvas_pos.x + (canvas_size.x * frame_num / (float)last_frame);
 
                     // Major tick every 5th marker (frames 0, 25, 50, 75)
                     bool is_major = (i % 5 == 0);

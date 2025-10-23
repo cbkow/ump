@@ -8,7 +8,7 @@ enum class PipelineMode {
     NORMAL,           // RGBA8, standard 8-bit processing (best performance)
     HIGH_RES,         // RGBA16, 12-bit precision without float overhead (OCIO optimized)
     ULTRA_HIGH_RES,   // RGBA16F, maximum precision for complex OCIO workflows
-    HDR_RES          // RGBA16F, HDR display targeting with Rec.2020 primaries
+    HDR_RES          // RGBA16F, HDR10/HEVC video with PQ curve and Rec.2020 primaries
 };
 
 struct PipelineConfig {
