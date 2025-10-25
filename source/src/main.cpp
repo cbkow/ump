@@ -186,6 +186,18 @@ struct {
 bool pending_auto_play = false;
 std::chrono::steady_clock::time_point auto_play_timer;
 
+// SEEK CACHE DELAYED START STATE
+// ============================================================================
+bool pending_seek_cache_start = false;
+std::chrono::steady_clock::time_point seek_cache_start_timer;
+
+// ============================================================================
+// MOUSE ACTIVITY TRACKING (for cache/auto-play pause during interaction)
+// ============================================================================
+static ImVec2 last_mouse_pos = ImVec2(0, 0);
+static auto last_mouse_move_time = std::chrono::steady_clock::now();
+static bool mouse_is_idle = false;
+
 // ============================================================================
 // EXR TRANSCODE PROGRESS STATE
 // ============================================================================
@@ -934,6 +946,26 @@ public:
                         Debug::Log("Auto-play: Started playback after 500ms delay");
                     }
                 }
+            }
+
+            // Process delayed seek cache start (2000ms after video load, respects mouse activity)
+            if (pending_seek_cache_start) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - seek_cache_start_timer).count();
+
+                // Only start if enough time has passed AND mouse is idle (no user interaction)
+                if (elapsed >= 2000 && mouse_is_idle) {
+                    pending_seek_cache_start = false;
+                    if (project_manager) {
+                        FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
+                        if (frame_cache) {
+                            // Start background extraction now (user is idle)
+                            frame_cache->StartDelayedBackgroundExtraction();
+                            Debug::Log("Seek cache: Starting background extraction after 2s delay (mouse idle)");
+                        }
+                    }
+                }
+                // If user is still active after 2s, keep waiting (timer keeps running)
             }
 
             // Check system pressure (atomic read - no blocking)
@@ -3075,7 +3107,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.0:");
+                ImGui::TextDisabled("About u.m.p. v0.2.1");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4506,7 +4538,7 @@ private:
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
 
             // Calculate space for timeline at bottom (timeline viz + bottom toolbar)
-            const float timeline_height = show_timeline_panel ? 150.0f : 0.0f;
+            const float timeline_height = show_timeline_panel ? 170.0f : 0.0f;
             ImVec2 total_region = ImGui::GetContentRegionAvail();
 
             // Create child window for video area
@@ -4830,9 +4862,9 @@ private:
             ImGui::EndChild();  // End ##VideoArea
             ImGui::PopStyleVar();
 
-            // Render timeline as child window at bottom (fixed 150px height with 70px canvas)
+            // Render timeline as child window at bottom (fixed 170px height with 70px canvas)
             if (show_timeline_panel) {
-                ImGui::BeginChild("##TimelineArea", ImVec2(0, 150.0f), true,
+                ImGui::BeginChild("##TimelineArea", ImVec2(0, 170.0f), true,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
                 // Add left/right padding with inner child window
@@ -6503,7 +6535,7 @@ private:
             // === TIMELINE SECTION ===
             ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
             ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-            canvas_size.y = 50.0f;  // Fixed height for timeline canvas
+            canvas_size.y = 70.0f;  // Fixed height for timeline canvas
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -6562,11 +6594,17 @@ private:
                         ImVec2(x, canvas_pos.y + tick_height),
                         tick_color, is_major ? 1.5f : 1.0f);
 
-                    if (is_major && frame_num > 0) {
+                    // Show labels on major ticks
+                    // For sequences: always show frame 0 (maps to first file frame like "1")
+                    // For regular videos: skip frame 0 label to avoid clutter at start
+                    bool is_sequence = video_player->IsInEXRMode() || video_player->IsImageSequence();
+                    bool show_label = is_major && (is_sequence || frame_num > 0);
+
+                    if (show_label) {
                         char frame_label[16];
                         // Use file frame numbers for sequences, 1-based for regular videos
                         int display_frame_num;
-                        if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
+                        if (is_sequence) {
                             int start_frame = video_player->IsInEXRMode()
                                 ? video_player->GetEXRSequenceStartFrame()
                                 : video_player->GetImageSequenceStartFrame();
@@ -6667,8 +6705,27 @@ private:
 
                     for (const auto& segment : cached_segments) {
                         // Convert timestamps to pixel positions
-                        float start_x = canvas_pos.x + (float)(segment.start_time / duration) * canvas_size.x;
-                        float end_x = canvas_pos.x + (float)(segment.end_time / duration) * canvas_size.x;
+                        float start_x, end_x;
+
+                        // For image sequences, use frame-based positioning to match timeline ticks
+                        bool is_sequence = video_player->IsImageSequence() || video_player->IsInEXRMode();
+                        if (is_sequence && fps > 0 && total_frames > 0) {
+                            // Convert timestamps to frame numbers
+                            int start_frame = static_cast<int>(std::round(segment.start_time * fps));
+                            int end_frame = static_cast<int>(std::round(segment.end_time * fps));
+
+                            // Clamp to valid range
+                            if (start_frame > last_frame) start_frame = last_frame;
+                            if (end_frame > last_frame) end_frame = last_frame;
+
+                            // Use same frame-based positioning as timeline ticks
+                            start_x = canvas_pos.x + (canvas_size.x * start_frame / (float)last_frame);
+                            end_x = canvas_pos.x + (canvas_size.x * end_frame / (float)last_frame);
+                        } else {
+                            // Regular videos: use timestamp-based positioning
+                            start_x = canvas_pos.x + (float)(segment.start_time / duration) * canvas_size.x;
+                            end_x = canvas_pos.x + (float)(segment.end_time / duration) * canvas_size.x;
+                        }
 
                         // Ensure minimum visibility
                         if (end_x - start_x < 2.0f) {
@@ -6774,22 +6831,41 @@ private:
 
                 // Seek cache pause state (shared across hover/resume logic)
                 static bool seek_cache_paused = false;
-                static bool was_hovering = false;
-                static auto hover_end_time = std::chrono::steady_clock::now();
 
-                // Check if we're currently hovering over timeline OR actively scrubbing
-                // Keep cache paused during both thumbnail preview AND scrubbing for smooth interaction
+                // Update global mouse tracking (used by cache start logic and other systems)
+                ImVec2 current_mouse_pos = ImGui::GetMousePos();
+                bool mouse_moved = (current_mouse_pos.x != last_mouse_pos.x || current_mouse_pos.y != last_mouse_pos.y);
+
+                if (mouse_moved) {
+                    last_mouse_pos = current_mouse_pos;
+                    last_mouse_move_time = std::chrono::steady_clock::now();
+                }
+
+                // Calculate time since last mouse movement (update global state)
+                auto now = std::chrono::steady_clock::now();
+                auto idle_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_mouse_move_time).count();
+                mouse_is_idle = (idle_time_ms >= 500);  // 500ms debounce - user truly idle
+
+                // Pause seek cache during user activity (mouse moving OR scrubbing)
+                bool is_scrubbing = currently_scrubbing;  // From timeline_manager
+                bool should_pause_cache = !mouse_is_idle || is_scrubbing;
+
+                // Keep is_hovering for thumbnail tooltip display (independent of pause logic)
                 bool is_hovering = ImGui::IsItemHovered() && !is_mouse_down &&
                                   cache_settings.enable_thumbnails && video_player->HasThumbnailCache();
-                bool is_scrubbing = currently_scrubbing;  // From timeline_manager
-                bool should_pause_cache = is_hovering || is_scrubbing;
 
-                // Pause seek cache during hover OR scrubbing
+                // Pause/resume seek cache based on user activity
                 if (should_pause_cache && !seek_cache_paused && project_manager) {
                     FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
                     if (frame_cache) {
                         frame_cache->PauseForThumbnails(true);
                         seek_cache_paused = true;
+                    }
+                } else if (!should_pause_cache && seek_cache_paused && project_manager) {
+                    FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
+                    if (frame_cache) {
+                        frame_cache->PauseForThumbnails(false);
+                        seek_cache_paused = false;
                     }
                 }
 
@@ -6832,14 +6908,15 @@ private:
                             // ALWAYS show tooltip (even if thumbnail not ready yet)
                             ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(50, 50, 50, 255));
                             ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(100, 100, 100, 51));
-                            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 4.0f);
+                            ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 9.0f);  // Match annotation panel rounding
                             ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
 
                             ImGui::BeginTooltip();
 
-                            // Fixed container size for consistent tooltip dimensions
-                            ImVec2 container_size(cache_settings.thumbnail_width, cache_settings.thumbnail_height);
                             ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+
+                            // Use minimum width to prevent tooltip resize with timecode changes
+                            const float min_tooltip_width = cache_settings.thumbnail_width;
 
                             if (thumbnail_texture != 0) {
                                 // Get actual thumbnail dimensions for the frame being shown (may be fallback!)
@@ -6849,12 +6926,31 @@ private:
                                     thumb_size = ImVec2(static_cast<float>(actual_width), static_cast<float>(actual_height));
                                 } else {
                                     // Fallback to config size if dimensions not available
-                                    thumb_size = container_size;
+                                    thumb_size = ImVec2(cache_settings.thumbnail_width, cache_settings.thumbnail_height);
                                 }
 
-                                // Calculate centering offset
-                                float offset_x = (container_size.x - thumb_size.x) * 0.5f;
-                                float offset_y = (container_size.y - thumb_size.y) * 0.5f;
+                                // Calculate aspect ratio and adjust thumbnail size to fit without cropping
+                                float thumb_aspect = thumb_size.x / thumb_size.y;
+                                float max_width = cache_settings.thumbnail_width;
+                                float max_height = cache_settings.thumbnail_height;
+
+                                ImVec2 display_size;
+                                if (thumb_aspect > (max_width / max_height)) {
+                                    // Wide video: fit to width, adjust height
+                                    display_size.x = max_width;
+                                    display_size.y = max_width / thumb_aspect;
+                                } else {
+                                    // Tall video: fit to height, adjust width
+                                    display_size.y = max_height;
+                                    display_size.x = max_height * thumb_aspect;
+                                }
+
+                                // Container always uses minimum width for consistent tooltip size
+                                ImVec2 container_size(min_tooltip_width, max_height);
+
+                                // Calculate centering offset for thumbnail within container
+                                float offset_x = (container_size.x - display_size.x) * 0.5f;
+                                float offset_y = (container_size.y - display_size.y) * 0.5f;
 
                                 // Draw dark background for the entire container
                                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -6866,7 +6962,7 @@ private:
 
                                 // Draw thumbnail centered within container
                                 ImVec2 image_min(cursor_pos.x + offset_x, cursor_pos.y + offset_y);
-                                ImVec2 image_max(image_min.x + thumb_size.x, image_min.y + thumb_size.y);
+                                ImVec2 image_max(image_min.x + display_size.x, image_min.y + display_size.y);
                                 draw_list->AddImage(
                                     (void*)(intptr_t)thumbnail_texture,
                                     image_min,
@@ -6876,7 +6972,8 @@ private:
                                 // Reserve space for the container
                                 ImGui::Dummy(container_size);
                             } else {
-                                // Show placeholder while loading
+                                // Show placeholder while loading (use default aspect ratio)
+                                ImVec2 container_size(min_tooltip_width, cache_settings.thumbnail_height);
                                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
                                 // Draw dark placeholder rectangle
@@ -6902,13 +6999,18 @@ private:
                             // Show frame number and timecode
                             ImGui::Separator();
 
+                            // Add horizontal padding for text
+                            const float text_padding = 8.0f;
+                            ImGui::Indent(text_padding);
+
                             // Display frame numbers correctly for different media types
                             int display_frame;
                             if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
-                                // Image sequences: Show file frame numbers (e.g., 1001, 1002...)
+                                // Image sequences: Show actual file frame numbers (e.g., sequence 1-90 shows frames 1 to 90)
                                 int start_frame = video_player->IsInEXRMode()
                                     ? video_player->GetEXRSequenceStartFrame()
                                     : video_player->GetImageSequenceStartFrame();
+                                // Convert internal 0-based (0-89) to file frames (1-90)
                                 display_frame = ump::FrameIndexing::InternalToSequenceDisplay(hover_frame, start_frame);
                             } else {
                                 // Regular videos: Show 1-based frame numbers (Frame 1, 2, 3...)
@@ -6919,6 +7021,22 @@ private:
                             std::string timecode = video_player->FormatTimecode(hover_time, fps);
                             ImGui::Text("%s - %s", frame_info.c_str(), timecode.c_str());
 
+                            ImGui::Unindent(text_padding);
+                            ImGui::Spacing(); // Bottom padding
+
+                            // Draw a manual border around the entire tooltip with rounded corners
+                            ImDrawList* border_draw_list = ImGui::GetWindowDrawList();
+                            ImVec2 tooltip_min = ImGui::GetWindowPos();
+                            ImVec2 tooltip_max = ImVec2(tooltip_min.x + ImGui::GetWindowSize().x, tooltip_min.y + ImGui::GetWindowSize().y);
+                            border_draw_list->AddRect(
+                                tooltip_min,
+                                tooltip_max,
+                                IM_COL32(100, 100, 100, 128),  // Slightly more opaque border
+                                0.0f,  // Rounded corners matching window
+                                0,
+                                2.0f   // Border thickness
+                            );
+
                             ImGui::EndTooltip();
 
                             // Pop custom tooltip styles
@@ -6927,32 +7045,6 @@ private:
                         }
                     }
                 }
-
-                // Detect transition from interacting to not interacting (hover or scrub ended)
-                if (was_hovering && !should_pause_cache) {
-                    // Just stopped interacting - start the resume timer
-                    hover_end_time = std::chrono::steady_clock::now();
-                }
-
-                // Resume seek cache after delay when interaction ends
-                if (!should_pause_cache && seek_cache_paused) {
-                    auto now = std::chrono::steady_clock::now();
-                    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - hover_end_time).count();
-
-                    // Resume after 500ms delay (prevents rapid pause/resume during quick interactions)
-                    if (elapsed >= 500) {
-                        if (project_manager) {
-                            FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
-                            if (frame_cache) {
-                                frame_cache->PauseForThumbnails(false);
-                            }
-                        }
-                        seek_cache_paused = false;
-                    }
-                }
-
-                // Update interaction state for next frame
-                was_hovering = should_pause_cache;
 
                 // Check for annotation marker click FIRST (before scrubbing logic)
                 if (timeline_clicked && annotation_manager && annotation_manager->HasNotes()) {
@@ -7324,7 +7416,7 @@ private:
                 // Calculate display time and frame
                 std::string frame_str;
                 if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
-                    // IMAGE SEQUENCE: Show file frame numbers (e.g., 1001, 1002, 1003...)
+                    // IMAGE SEQUENCE: Show file frame numbers (e.g., sequence 1-90 shows "Frame 1" to "Frame 90")
                     int start_frame = video_player->IsInEXRMode()
                         ? video_player->GetEXRSequenceStartFrame()
                         : video_player->GetImageSequenceStartFrame();
@@ -7336,6 +7428,7 @@ private:
                     // If timecode mode enabled, shows adjusted timecode with offset
                     std::string time_display = FormatCurrentTimecodeWithOffset(display_position);
 
+                    // Convert internal 0-based index to actual file frame number
                     int display_frame = ump::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
                     frame_str = time_display + " Frame " + std::to_string(display_frame);
                 } else {
@@ -7371,6 +7464,12 @@ private:
     void CreateTimelineTransportPanel() {
         if (!show_timeline_panel) return;
 
+        // Style the window with border and rounding (matching annotation style)
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 9.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.3f, 0.3f, 0.5f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+
         if (ImGui::Begin("Timeline & Transport", &show_timeline_panel,
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoScrollWithMouse |
@@ -7379,6 +7478,9 @@ private:
             RenderTimelineContent();
         }
         ImGui::End();
+
+        ImGui::PopStyleVar(3); // WindowRounding, WindowBorderSize, WindowPadding
+        ImGui::PopStyleColor(); // Border
     }
 
     void CreateProjectPanel() {
@@ -11324,6 +11426,12 @@ private:
         }
     }
 
+    void TriggerSeekCacheStart() {
+        pending_seek_cache_start = true;
+        seek_cache_start_timer = std::chrono::steady_clock::now();
+        Debug::Log("Seek cache: Delayed start timer set (2000ms delay)");
+    }
+
     void AddToRecentFiles(const std::string& file_path) {
         recent_files.erase(
             std::remove(recent_files.begin(), recent_files.end(), file_path),
@@ -11391,6 +11499,9 @@ private:
 
         // Trigger auto-play if enabled (with 500ms delay)
         TriggerAutoPlay();
+
+        // Trigger delayed seek cache start (2s delay to reduce initial load contention)
+        TriggerSeekCacheStart();
     }
 
     std::string FormatTime(double seconds) {

@@ -104,12 +104,6 @@ void AnnotationPanel::RenderMenuBar() {
             }
         }
 
-        if (ImGui::MenuItem("CSV")) {
-            if (export_callback_) {
-                export_callback_("csv");
-            }
-        }
-
         if (ImGui::MenuItem("HTML")) {
             if (export_callback_) {
                 export_callback_("html");
@@ -156,8 +150,8 @@ void AnnotationPanel::RenderNotesList() {
         // Note: This is casting away const, which is necessary for editing
         // In production, we'd want a better pattern here
         RenderNote(const_cast<AnnotationNote&>(note));
-        ImGui::Spacing();
-        ImGui::Separator();
+
+        // Add spacing between notes (no separator needed since each note has its own border)
         ImGui::Spacing();
     }
 }
@@ -192,10 +186,74 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
 void AnnotationPanel::RenderNote(AnnotationNote& note) {
     ImGui::PushID(note.timecode.c_str());
 
-    // Timecode (clickable header with bright accent color)
+    // Padding and styling
+    const float padding = 8.0f;
+    const float rounding = 9.0f;
+
+    // Get draw list for background shape
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+    // Store cursor position before the group
+    ImVec2 group_start_pos = ImGui::GetCursorScreenPos();
+
+    ImGui::BeginGroup(); // Group all content for proper sizing
+
+    // Add top padding
+    ImGui::Dummy(ImVec2(0, padding));
+
+    // Add left padding and begin inner content
+    ImGui::Indent(padding);
+
+    // 3-column layout: Thumbnail | Timecode+Frame | Edit+Delete buttons
+    float content_width = ImGui::GetContentRegionAvail().x - padding;
+
+    // Column widths and spacing
+    const float thumbnail_width = 140.0f;  // Increased from 100.0f for better visibility
+    const float button_width = 80.0f;
+    const float column_spacing = 12.0f; // Spacing between columns
+    const float middle_width = content_width - thumbnail_width - button_width - column_spacing * 2;
+
+    // === COLUMN 1: Thumbnail ===
+    GLuint thumbnail_id = 0;
+    float thumbnail_height = thumbnail_width / (16.0f / 9.0f); // 16:9 aspect ratio
+
+    if (annotation_manager_) {
+        std::string images_folder = annotation_manager_->GetImagesFolder();
+        std::string full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+        thumbnail_id = LoadThumbnail(full_image_path);
+    }
+
+    if (thumbnail_id != 0) {
+        ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
+
+        // Single-click to navigate to frame
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            selected_timecode_ = note.timecode;
+            if (seek_callback_) {
+                seek_callback_(note.timestamp_seconds);
+            }
+        }
+
+        // Show tooltip on hover
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click to navigate to this frame");
+        }
+    } else {
+        // Placeholder if no thumbnail
+        ImGui::Dummy(ImVec2(thumbnail_width, thumbnail_height));
+    }
+
+    // Add spacing before next column
+    ImGui::SameLine(0.0f, column_spacing);
+
+    // === COLUMN 2: Timecode and Frame (stacked) ===
+    ImGui::BeginGroup();
+    ImGui::PushItemWidth(middle_width);
+
+    // Timecode (clickable with bright accent color)
     ImVec4 timecode_color = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, timecode_color);
-    if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode)) {
+    if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(middle_width, 0))) {
         selected_timecode_ = note.timecode;
         if (seek_callback_) {
             seek_callback_(note.timestamp_seconds);
@@ -211,52 +269,16 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     if (mono_font) ImGui::PopFont();
     ImGui::PopStyleColor();
 
-    // Thumbnail preview
-    if (annotation_manager_) {
-        std::string images_folder = annotation_manager_->GetImagesFolder();
-        std::string full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+    ImGui::PopItemWidth();
+    ImGui::EndGroup();
 
-        GLuint thumbnail_id = LoadThumbnail(full_image_path);
-        if (thumbnail_id != 0) {
-            // Display thumbnail with fixed width, height auto-calculated
-            float thumbnail_width = ImGui::GetContentRegionAvail().x;
-            float aspect_ratio = 16.0f / 9.0f; // Assume 16:9, will be corrected when we load actual dimensions
-            float thumbnail_height = thumbnail_width / aspect_ratio;
+    // Add spacing before next column
+    ImGui::SameLine(0.0f, column_spacing);
 
-            ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
+    // === COLUMN 3: Edit and Delete buttons (stacked) ===
+    ImGui::BeginGroup();
 
-            // Single-click to navigate to frame
-            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                selected_timecode_ = note.timecode;
-                if (seek_callback_) {
-                    seek_callback_(note.timestamp_seconds);
-                }
-            }
-
-            // Show tooltip on hover
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Click to navigate to this frame");
-            }
-        } else {
-            ImGui::Text("[Screenshot: %s]", note.image_path.c_str());
-        }
-    }
-
-    // Text field (editable)
-    char text_buffer[1024];
-    strncpy(text_buffer, note.text.c_str(), sizeof(text_buffer) - 1);
-    text_buffer[sizeof(text_buffer) - 1] = '\0';
-
-    if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
-        ImVec2(-FLT_MIN, ImGui::GetTextLineHeight() * 4))) {
-        // Text changed - update note
-        annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
-    }
-
-    // Edit and Delete buttons side by side
-    float button_height = 30.0f;
-    float available_width = ImGui::GetContentRegionAvail().x;
-    float button_width = (available_width - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+    const float button_height = 28.0f;
 
     // Material Icons edit icon
     #define ICON_EDIT u8"\uE3C9"
@@ -269,7 +291,6 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // Edit button colors
     ImVec4 accent_bright = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
-    // Convert bright accent to regular by reducing intensity
     ImVec4 accent_regular = ImVec4(accent_bright.x * 0.7f, accent_bright.y * 0.7f, accent_bright.z * 0.7f, accent_bright.w);
     ImVec4 accent_muted_dark = ImVec4(accent_bright.x * 0.35f, accent_bright.y * 0.35f, accent_bright.z * 0.35f, accent_bright.w * 0.7f);
 
@@ -311,14 +332,65 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         }
     }
 
-    ImGui::SameLine();
-
-    // Delete button
+    // Delete button (stacked below Edit)
     if (ImGui::Button("Delete", ImVec2(button_width, button_height))) {
         HandleDeleteNote(note.timecode);
     }
 
     #undef ICON_EDIT
+
+    ImGui::EndGroup();
+
+    // === Full-width Text field below ===
+    // Add some spacing before text field
+    ImGui::Spacing();
+
+    char text_buffer[1024];
+    strncpy(text_buffer, note.text.c_str(), sizeof(text_buffer) - 1);
+    text_buffer[sizeof(text_buffer) - 1] = '\0';
+
+    if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
+        ImVec2(content_width, ImGui::GetTextLineHeight() * 4))) {
+        // Text changed - update note
+        annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
+    }
+
+    // If user clicked into this text field, seek to this note's frame
+    if (ImGui::IsItemActivated()) {
+        selected_timecode_ = note.timecode;
+        if (seek_callback_) {
+            seek_callback_(note.timestamp_seconds);
+        }
+    }
+
+    // Add bottom padding
+    ImGui::Dummy(ImVec2(0, padding));
+
+    // Unindent to close left padding
+    ImGui::Unindent(padding);
+
+    ImGui::EndGroup(); // End content group
+
+    // Now draw the background behind everything
+    ImVec2 group_end_pos = ImGui::GetItemRectMax();
+    ImVec2 group_size = ImVec2(group_end_pos.x - group_start_pos.x, group_end_pos.y - group_start_pos.y);
+
+    // Extend the shape a few pixels on the right for better visual spacing
+    const float right_extension = 8.0f;
+
+    // Draw background box with rounded corners (same style as transport controls)
+    draw_list->AddRectFilled(
+        group_start_pos,
+        ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
+        IM_COL32(16, 16, 16, 60),
+        rounding);
+
+    // Draw subtle border with rounded corners
+    draw_list->AddRect(
+        group_start_pos,
+        ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
+        IM_COL32(255, 255, 255, 15),
+        rounding, 0, 1.0f);
 
     ImGui::PopID();
 }

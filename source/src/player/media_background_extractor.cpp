@@ -43,7 +43,9 @@ MediaBackgroundExtractor::MediaBackgroundExtractor(FrameCache* parent_cache, con
     // Initialize FFmpeg (global, thread-safe)
     av_log_set_level(AV_LOG_WARNING);  // Reduce spam
 
-    InitializeTexturePool();
+    // NOTE: Texture pool initialization removed from constructor
+    // Textures are now created on-demand via AcquireTexture() when first needed
+    // This avoids GL_INVALID_OPERATION errors during video load when GL context may not be ready
 }
 
 MediaBackgroundExtractor::~MediaBackgroundExtractor() {
@@ -295,12 +297,9 @@ void MediaBackgroundExtractor::WorkerThread() {
         return;
     }
 
-    // Create thread-local FFmpeg context for video files
+    // Create uninitialized worker context (lazy init on first use to avoid simultaneous spike)
     WorkerContext worker_ctx;
-    if (!worker_ctx.Initialize(video_path, config.hw_config)) {
-        Debug::Log("MediaBackgroundExtractor: Failed to initialize worker context");
-        return;
-    }
+    bool worker_initialized = false;
 
     AVFrame* frame = av_frame_alloc();
     if (!frame) {
@@ -325,6 +324,17 @@ void MediaBackgroundExtractor::WorkerThread() {
             std::unique_lock<std::mutex> lock(queue_mutex);
             queue_cv.wait(lock);  // Pure event-driven - wait until work is available
             continue;
+        }
+
+        // LAZY INIT: Initialize worker context only when first batch is ready
+        // This staggers initialization across threads naturally as they get work
+        if (!worker_initialized) {
+            if (!worker_ctx.Initialize(video_path, config.hw_config)) {
+                Debug::Log("MediaBackgroundExtractor: Failed to initialize worker context");
+                break;  // Exit worker thread on init failure
+            }
+            worker_initialized = true;
+            Debug::Log("WorkerContext: Successfully initialized for " + video_path);
         }
 
         // Process the batch with worker context
@@ -402,12 +412,25 @@ std::vector<ExtractionResult> MediaBackgroundExtractor::ProcessBatch(const Extra
 
     auto batch_start = std::chrono::steady_clock::now();
 
+    size_t frame_index = 0;
     for (const auto& request : batch.frames) {
         ExtractionResult result = ExtractSingleFrame(request, frame, worker_ctx);
         results.push_back(result);
 
-        // Early exit if shutdown requested
-        if (shutdown_requested.load()) {
+        frame_index++;
+
+        // Early exit if shutdown requested OR paused (cooperative cancellation)
+        if (shutdown_requested.load() || !ShouldExtract()) {
+            // Re-queue unprocessed frames from this batch to avoid gaps in cache
+            if (frame_index < batch.frames.size()) {
+                std::lock_guard<std::mutex> lock(queue_mutex);
+                for (size_t i = frame_index; i < batch.frames.size(); i++) {
+                    request_queue.push(batch.frames[i]);
+                }
+                //Debug::Log("MediaBackgroundExtractor: Re-queued " +
+                //           std::to_string(batch.frames.size() - frame_index) +
+                //           " unprocessed frames due to pause/shutdown");
+            }
             break;
         }
     }
@@ -913,7 +936,9 @@ void MediaBackgroundExtractor::RequestFrame(int frame_number, double timestamp, 
     double dur = duration.load();
     double fps = frame_rate.load();
     if (dur > 0 && fps > 0) {
-        int max_frame = static_cast<int>(dur * fps) - 1;
+        // Use std::round() to handle floating point precision loss
+        // (dur * fps might be 99.999984 instead of 100 due to FP errors)
+        int max_frame = static_cast<int>(std::round(dur * fps)) - 1;
         if (frame_number > max_frame) return;
     }
 
@@ -1195,7 +1220,9 @@ void MediaBackgroundExtractor::NotifyPlaybackState(bool is_playing) {
         // Pause for playback - only if currently extracting or paused for reposition
         if (current == ExtractorState::EXTRACTING || current == ExtractorState::PAUSED_REPOSITION) {
             SetState(ExtractorState::PAUSED_PLAYBACK);
-            Debug::Log("MediaBackgroundExtractor: Playback started - pausing extraction");
+            // Wake up all workers so they check pause state immediately (cooperative cancellation)
+            worker_cv.notify_all();
+            Debug::Log("MediaBackgroundExtractor: Playback started - pausing extraction (workers notified)");
         }
     } else if (!is_playing) {
         // Resume from playback pause - only if currently paused for playback AND playback has stopped
@@ -1271,7 +1298,9 @@ void MediaBackgroundExtractor::PauseExtraction() {
     ExtractorState current = current_state.load();
     if (current == ExtractorState::EXTRACTING) {
         SetState(ExtractorState::PAUSED_MANUAL);
-        Debug::Log("MediaBackgroundExtractor: Extraction paused");
+        // Wake up all workers so they check pause state immediately (cooperative cancellation)
+        worker_cv.notify_all();
+        Debug::Log("MediaBackgroundExtractor: Extraction paused (workers notified)");
     }
 }
 
@@ -1557,8 +1586,10 @@ std::vector<MediaBackgroundExtractor::CacheSegment> MediaBackgroundExtractor::Ge
         }
 
         // Convert frame numbers to timestamps
+        // end_time needs +1 to include the duration of the last frame
+        // (frame N spans from N/fps to (N+1)/fps)
         segment.start_time = start_frame / fps;
-        segment.end_time = current_frame / fps;
+        segment.end_time = (current_frame + 1) / fps;
 
         segments.push_back(segment);
     }

@@ -122,7 +122,7 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
         NULL,
         NULL,
         TRUE,
-        CREATE_NO_WINDOW,
+        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority
         NULL,
         NULL,
         &si,

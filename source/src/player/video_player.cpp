@@ -166,7 +166,7 @@ void VideoPlayer::ConfigureBasicOptions() {
     mpv_set_option_string(mpv, "msg-level", "no");
     mpv_set_option_string(mpv, "idle", "yes");
     mpv_set_option_string(mpv, "pause", "yes");
-    mpv_set_option_string(mpv, "keep-open", "always");
+    mpv_set_option_string(mpv, "keep-open", "no");
     mpv_set_option_string(mpv, "keep-open-pause", "no");
 
     mpv_set_option_string(mpv, "input-default-bindings", "no");
@@ -1092,6 +1092,16 @@ void VideoPlayer::HandlePropertyChange(const std::string& prop_name, mpv_event_p
     }
     else if (prop_name == "duration" && prop->format == MPV_FORMAT_DOUBLE && prop->data) {
         cached_duration = *((double*)prop->data);
+
+        // For image sequences, MPV reports duration as the timestamp of the LAST frame
+        // We need to add one frame duration to get the actual end time of the video
+        // Example: 90 frames at 24fps should be 3.75s, but MPV reports 89/24 = 3.708333s
+        if (is_image_sequence || is_exr_mode) {
+            double fps = GetFrameRate();
+            if (fps > 0) {
+                cached_duration += (1.0 / fps);
+            }
+        }
     }
     else if (prop_name == "pause" && prop->format == MPV_FORMAT_FLAG && prop->data) {
         is_playing = !(*((int*)prop->data));

@@ -1249,7 +1249,10 @@ namespace ump {
                         exr_meta->height = video_player->GetVideoHeight();
                         exr_meta->frame_rate = video_player->GetFrameRate();
                         exr_meta->total_frames = video_player->GetTotalFrames();
-                        exr_meta->start_frame = video_player->GetImageSequenceStartFrame();
+
+                        // Get start_frame from MediaItem or VideoPlayer
+                        auto media_item = GetMediaItemFromCurrentPath();
+                        exr_meta->start_frame = media_item ? media_item->start_frame : video_player->GetEXRSequenceStartFrame();
                         exr_meta->end_frame = exr_meta->start_frame + exr_meta->total_frames - 1;
 
                         // Extract first file path for metadata extraction
@@ -1350,7 +1353,18 @@ namespace ump {
                         ImGui::Text("Frame Range:");
                         ImGui::TableSetColumnIndex(1);
                         int total_frames = video_player->GetTotalFrames();
-                        int start_frame = video_player->GetImageSequenceStartFrame();
+
+                        // Get start_frame from MediaItem (authoritative source) rather than VideoPlayer
+                        // This ensures we show the actual file frame numbers, not defaults
+                        int start_frame = 1; // Fallback default for regular videos
+                        auto media_item = GetMediaItemFromCurrentPath();
+                        if (media_item) {
+                            start_frame = media_item->start_frame;
+                        } else {
+                            // Fallback to VideoPlayer if MediaItem not found
+                            start_frame = video_player->GetImageSequenceStartFrame();
+                        }
+
                         if (font_mono) ImGui::PushFont(font_mono);
                         if (total_frames > 0) {
                             int end_frame = start_frame + total_frames - 1;

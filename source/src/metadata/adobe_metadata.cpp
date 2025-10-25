@@ -142,7 +142,7 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
         NULL,
         cmdline_buffer.data(),
         NULL, NULL, TRUE,
-        CREATE_NO_WINDOW,  // CRITICAL: Hide the window
+        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority to avoid competing with video load
         NULL, NULL,
         &si, &pi
     )) {
@@ -416,7 +416,7 @@ bool AdobeMetadataExtractor::WriteMetadata(const std::string& output_file, const
         NULL,
         cmdline_buffer.data(),
         NULL, NULL, FALSE,
-        CREATE_NO_WINDOW,
+        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority
         NULL, NULL,
         &si, &pi
     )) {

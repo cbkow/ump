@@ -134,6 +134,12 @@ public:
      */
     void PauseForThumbnails(bool pause);
 
+    /**
+     * Start background extraction after delayed startup (called after 2s timer)
+     * Separates startup from SetVideoFile to reduce initial load contention
+     */
+    void StartDelayedBackgroundExtraction();
+
     // Frame processing interface (no longer opportunistic - only processes background results)
     bool TryCacheCurrentFrame(VideoPlayer* video_player); // Called from main render loop
 

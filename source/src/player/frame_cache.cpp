@@ -1056,6 +1056,15 @@ void FrameCache::PauseForThumbnails(bool pause) {
     }
 }
 
+void FrameCache::StartDelayedBackgroundExtraction() {
+    // Called from main loop after 2s delay to start background extraction
+    // This reduces initial load contention with first frame decode and thumbnails
+    if (background_extractor && !current_video_path.empty()) {
+        background_extractor->StartBackgroundExtraction();
+        Debug::Log("FrameCache: Background extraction started after delayed startup");
+    }
+}
+
 std::vector<FrameCache::CacheSegment> FrameCache::GetCacheSegments() const {
     // Get cache segments directly from background extractor
     if (background_extractor) {
@@ -1110,18 +1119,18 @@ void FrameCache::SetVideoFile(const std::string& video_path, const VideoMetadata
     }
 
     // Initialize background extractor with new video
-    // metadata can be nullptr - start immediately!
+    // metadata can be nullptr - initialize now, start after 2s delay!
     if (background_extractor && !video_path.empty()) {
         if (!background_extractor->Initialize(video_path, metadata)) {
             Debug::Log("FrameCache: Failed to initialize background extractor for " + video_path);
         } else {
-            // Start extraction immediately (metadata is optional)
-            background_extractor->StartBackgroundExtraction();
-            Debug::Log("FrameCache: Video swapped, cache cleared, extractor started (EXR pattern - thread still running)");
+            // NOTE: Extraction NOT started immediately - will be started after 2s delay
+            // by StartDelayedBackgroundExtraction() to reduce initial load contention
+            Debug::Log("FrameCache: Video swapped, cache cleared, extractor initialized (awaiting delayed start)");
         }
     }
 
-    // Background thread continues running, starts caching new video
+    // Background thread continues running, will start caching after delay
 }
 
 void FrameCache::UpdateVideoMetadata(const std::string& video_path, const VideoMetadata& metadata) {
