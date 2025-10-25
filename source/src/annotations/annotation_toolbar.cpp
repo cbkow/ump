@@ -29,10 +29,13 @@ void AnnotationToolbar::Render(ViewportAnnotator* viewport_annotator, bool can_u
     stroke_width_ = viewport_annotator->GetStrokeWidth();
     fill_enabled_ = viewport_annotator->IsFillEnabled();
 
-    // Create a horizontal toolbar docked below the viewport
+    // Create a horizontal toolbar floating over the viewport
     ImGuiWindowFlags window_flags =
         ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoScrollWithMouse;
+        ImGuiWindowFlags_NoScrollWithMouse |
+        ImGuiWindowFlags_NoDocking |
+        ImGuiWindowFlags_NoTitleBar |
+        ImGuiWindowFlags_AlwaysAutoResize;
 
     if (ImGui::Begin("Annotation Toolbar", &is_visible_, window_flags)) {
         // Horizontal layout

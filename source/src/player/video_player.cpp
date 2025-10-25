@@ -3058,7 +3058,7 @@ bool VideoPlayer::CaptureScreenshotToDesktop(const std::string& filename) {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
         glReadPixels(0, 0, video_width, video_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-        // Flip image vertically (OpenGL reads bottom-up, we want top-down)
+        // Flip image vertically (video texture is stored upside-down in OpenGL)
         std::vector<unsigned char> flipped_pixels(pixels.size());
         for (int y = 0; y < video_height; y++) {
             memcpy(&flipped_pixels[y * video_width * 4],
@@ -3139,7 +3139,7 @@ bool VideoPlayer::CaptureScreenshotToPath(const std::string& directory_path, con
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
         glReadPixels(0, 0, video_width, video_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-        // Flip image vertically (OpenGL reads bottom-up, we want top-down)
+        // Flip image vertically (video texture is stored upside-down in OpenGL)
         std::vector<unsigned char> flipped_pixels(pixels.size());
         for (int y = 0; y < video_height; y++) {
             memcpy(&flipped_pixels[y * video_width * 4],

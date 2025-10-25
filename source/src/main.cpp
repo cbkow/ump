@@ -1011,19 +1011,26 @@ public:
 
                 // Check In/Out point range constraint for looping playback
                 if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && video_player->IsPlaying()) {
-                    double current_pos = video_player->GetPosition();
+                    // Use frame-based comparison for precise loop control (especially important for short loops)
+                    int current_frame = video_player->GetCurrentFrame();
                     double in_pt = project_manager->GetInPoint();
                     double out_pt = project_manager->GetOutPoint();
 
-                    // If we've passed the Out point, loop back to In point
-                    if (current_pos >= out_pt) {
-                        video_player->Seek(in_pt);
-                        Debug::Log("In/Out loop: Jumped from " + std::to_string(current_pos) + "s to In point " + std::to_string(in_pt) + "s");
-                    }
-                    // If we're before the In point (e.g., user seeked backward), jump to In point
-                    else if (current_pos < in_pt) {
-                        video_player->Seek(in_pt);
-                        Debug::Log("In/Out loop: Before In point, jumped to " + std::to_string(in_pt) + "s");
+                    double fps = video_player->GetFrameRate();
+                    if (fps > 0) {
+                        int in_frame = static_cast<int>(std::round(in_pt * fps));
+                        int out_frame = static_cast<int>(std::round(out_pt * fps));
+
+                        // If we've reached or passed the Out frame, loop back to In frame
+                        if (current_frame >= out_frame) {
+                            video_player->SeekToFrame(in_frame);
+                            Debug::Log("In/Out loop: Jumped from frame " + std::to_string(current_frame) + " to In frame " + std::to_string(in_frame));
+                        }
+                        // If we're before the In frame (e.g., user seeked backward), jump to In frame
+                        else if (current_frame < in_frame) {
+                            video_player->SeekToFrame(in_frame);
+                            Debug::Log("In/Out loop: Before In frame, jumped to frame " + std::to_string(in_frame));
+                        }
                     }
                 }
 
@@ -2200,58 +2207,33 @@ private:
                     auto dock_id_project = ImGui::DockBuilderSplitNode(dock_id_left, ImGuiDir_Up, 0.46f, nullptr, &dock_id_left);
                     auto dock_id_inspector = dock_id_left;
 
-                    ImGuiID dock_id_video, dock_id_timeline;
-                    if (show_timeline_panel) {
-                        // Split the main area vertically: video on top, timeline below
-                        dock_id_video = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Up, 0.87f, nullptr, &dockspace_id);
-                        dock_id_timeline = dockspace_id; // Timeline gets remaining space below video
-                    } else {
-                        // Timeline is hidden - video takes full main area
-                        dock_id_video = dockspace_id;
-                    }
+                    // Timeline now inside Video Viewport as child window
+                    // Annotation toolbar now floats over viewport (not docked)
+                    ImGuiID dock_id_video = dockspace_id;
 
                     // Split video area for annotations on the right
                     auto dock_id_annotations = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Right, 0.25f, nullptr, &dock_id_video);
 
-                    // Split video area for annotation toolbar at bottom
-                    auto dock_id_annotation_toolbar = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Down, 0.055f, nullptr, &dock_id_video);
-
-                    // Dock windows
+                    // Dock windows (Timeline and Annotation Toolbar removed from docking - now overlay viewport)
                     ImGui::DockBuilderDockWindow("Project", dock_id_project);
                     ImGui::DockBuilderDockWindow("Inspector", dock_id_inspector);
                     ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
-                    ImGui::DockBuilderDockWindow("Annotation Toolbar", dock_id_annotation_toolbar);
                     ImGui::DockBuilderDockWindow("Annotations", dock_id_annotations);
-                    if (show_timeline_panel) {
-                        ImGui::DockBuilderDockWindow("Timeline & Transport", dock_id_timeline);
-                    }
                     ImGui::DockBuilderDockWindow("Color", bottom_dock);
                     // Always dock stats bar (even if not visible initially)
                     ImGui::DockBuilderDockWindow("System Stats", stats_dock);
                 }
                 else {
-                    ImGuiID dock_id_video, dock_id_timeline;
-                    if (show_timeline_panel) {
-                        // Split the main area vertically: video on top, timeline below
-                        dock_id_video = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Up, 0.87f, nullptr, &dockspace_id);
-                        dock_id_timeline = dockspace_id; // Timeline gets remaining space below video
-                    } else {
-                        // Timeline is hidden - video takes full main area
-                        dock_id_video = dockspace_id;
-                    }
+                    // Timeline now inside Video Viewport as child window
+                    // Annotation toolbar now floats over viewport (not docked)
+                    ImGuiID dock_id_video = dockspace_id;
 
                     // Split video area for annotations on the right
                     auto dock_id_annotations = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Right, 0.25f, nullptr, &dock_id_video);
 
-                    // Split video area for annotation toolbar at bottom
-                    auto dock_id_annotation_toolbar = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Down, 0.055f, nullptr, &dock_id_video);
-
+                    // Dock windows (Timeline and Annotation Toolbar removed from docking - now overlay viewport)
                     ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
-                    ImGui::DockBuilderDockWindow("Annotation Toolbar", dock_id_annotation_toolbar);
                     ImGui::DockBuilderDockWindow("Annotations", dock_id_annotations);
-                    if (show_timeline_panel) {
-                        ImGui::DockBuilderDockWindow("Timeline & Transport", dock_id_timeline);
-                    }
                     ImGui::DockBuilderDockWindow("Color", bottom_dock);
                     // Always dock stats bar (even if not visible initially)
                     ImGui::DockBuilderDockWindow("System Stats", stats_dock);
@@ -2268,30 +2250,18 @@ private:
                 auto dock_id_project = ImGui::DockBuilderSplitNode(dock_id_left, ImGuiDir_Up, 0.46f, nullptr, &dock_id_left);
                 auto dock_id_inspector = dock_id_left;
 
-                ImGuiID dock_id_video, dock_id_timeline;
-                if (show_timeline_panel) {
-                    // Split the main area vertically: video on top, timeline below
-                    dock_id_video = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Up, 0.87f, nullptr, &dockspace_id);
-                    dock_id_timeline = dockspace_id; // Timeline gets remaining space below video
-                } else {
-                    // Timeline is hidden - video takes full main area
-                    dock_id_video = dockspace_id;
-                }
+                // Timeline now inside Video Viewport as child window
+                // Annotation toolbar now floats over viewport (not docked)
+                ImGuiID dock_id_video = dockspace_id;
 
                 // Split video area for annotations on the right
                 auto dock_id_annotations = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Right, 0.25f, nullptr, &dock_id_video);
 
-                // Split video area for annotation toolbar at bottom
-                auto dock_id_annotation_toolbar = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Down, 0.055f, nullptr, &dock_id_video);
-
+                // Dock windows (Timeline and Annotation Toolbar removed from docking - now overlay viewport)
                 ImGui::DockBuilderDockWindow("Project", dock_id_project);
                 ImGui::DockBuilderDockWindow("Inspector", dock_id_inspector);
                 ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
-                ImGui::DockBuilderDockWindow("Annotation Toolbar", dock_id_annotation_toolbar);
                 ImGui::DockBuilderDockWindow("Annotations", dock_id_annotations);
-                if (show_timeline_panel) {
-                    ImGui::DockBuilderDockWindow("Timeline & Transport", dock_id_timeline);
-                }
                 // Always dock stats bar (even if not visible initially)
                 ImGui::DockBuilderDockWindow("System Stats", stats_dock);
             }
@@ -2307,9 +2277,9 @@ private:
         ImGui::End();
 
         // Render panels based on visibility
-        CreateVideoViewport();
+        CreateVideoViewport();  // Timeline now renders inside viewport
         if (!is_fullscreen) {
-            if (show_timeline_panel) CreateTimelineTransportPanel();
+            // Timeline removed - now inside Video Viewport
             if (show_project_panel) CreateProjectPanel();
             if (show_inspector_panel) CreateInspectorPanel();
             if (show_annotation_panel) CreateAnnotationPanel();
@@ -2399,28 +2369,18 @@ private:
         auto dock_id_project = ImGui::DockBuilderSplitNode(dock_id_left, ImGuiDir_Up, 0.5f, nullptr, &dock_id_left);
         auto dock_id_inspector = dock_id_left;
 
-        ImGuiID dock_id_video, dock_id_timeline_or_bottom;
-        if (show_timeline_panel) {
-            // Split the main area vertically: video on top, timeline below
-            dock_id_video = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Up, 0.80f, nullptr, &dockspace_id);
-            dock_id_timeline_or_bottom = dockspace_id; // Timeline gets remaining space below video
-        } else {
-            // Timeline is hidden - video takes full main area
-            dock_id_video = dockspace_id;
-            dock_id_timeline_or_bottom = 0; // No bottom area
-        }
+        // Timeline now inside Video Viewport as child window
+        ImGuiID dock_id_video = dockspace_id;
 
         // Split video area to add annotations on the right
         auto dock_id_annotations = ImGui::DockBuilderSplitNode(dock_id_video, ImGuiDir_Right, 0.25f, nullptr, &dock_id_video);
 
+        // Dock windows (Timeline removed - now child of Video Viewport)
         ImGui::DockBuilderDockWindow("Project", dock_id_project);
         ImGui::DockBuilderDockWindow("Inspector", dock_id_inspector);
         ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
         ImGui::DockBuilderDockWindow("Annotations", dock_id_annotations);
         ImGui::DockBuilderDockWindow("System Stats", dock_id_stats);
-        if (show_timeline_panel) {
-            ImGui::DockBuilderDockWindow("Timeline & Transport", dock_id_timeline_or_bottom);
-        }
 
         ImGui::DockBuilderFinish(dockspace_id);
     }
@@ -3115,7 +3075,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.1.9:");
+                ImGui::TextDisabled("About u.m.p. v0.2.0:");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4544,6 +4504,16 @@ private:
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+
+            // Calculate space for timeline at bottom (timeline viz + bottom toolbar)
+            const float timeline_height = show_timeline_panel ? 150.0f : 0.0f;
+            ImVec2 total_region = ImGui::GetContentRegionAvail();
+
+            // Create child window for video area
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+            ImGui::BeginChild("##VideoArea", ImVec2(0, total_region.y - timeline_height), false,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
             ImVec2 content_region = ImGui::GetContentRegionAvail();
             ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
             ImVec2 canvas_size = ImGui::GetContentRegionAvail();
@@ -4856,6 +4826,27 @@ private:
             // ImGui requires a Dummy() item after using GetCursorScreenPos() to properly size the window
             ImGui::SetCursorScreenPos(ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y));
             ImGui::Dummy(ImVec2(0, 0));
+
+            ImGui::EndChild();  // End ##VideoArea
+            ImGui::PopStyleVar();
+
+            // Render timeline as child window at bottom (fixed 150px height with 70px canvas)
+            if (show_timeline_panel) {
+                ImGui::BeginChild("##TimelineArea", ImVec2(0, 150.0f), true,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+                // Add left/right padding with inner child window
+                const float h_padding = 12.0f;
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + h_padding);
+                ImGui::BeginChild("##TimelineContent", ImVec2(-h_padding, 0), false,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+                RenderTimelineContent();
+
+                ImGui::EndChild();  // ##TimelineContent
+
+                ImGui::EndChild();  // ##TimelineArea
+            }
         }
         ImGui::End();
         ImGui::PopStyleVar();
@@ -5833,17 +5824,10 @@ private:
     }
 
 
-    void CreateTimelineTransportPanel() {
-        if (!show_timeline_panel) return;
-
-        if (ImGui::Begin("Timeline & Transport", &show_timeline_panel,
-            ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoScrollWithMouse |
-            ImGuiWindowFlags_NoCollapse)) {
-
-            // Get timeline info from UI state (smooth and responsive)
-            double duration = timeline_manager->GetUIDuration();
-            double position = timeline_manager->GetUIPosition();
+    void RenderTimelineContent() {
+        // Get timeline info from UI state (smooth and responsive)
+        double duration = timeline_manager->GetUIDuration();
+        double position = timeline_manager->GetUIPosition();
 
             // Fallback to project manager if timeline manager doesn't have valid data yet
             if (duration <= 0) {
@@ -6519,7 +6503,7 @@ private:
             // === TIMELINE SECTION ===
             ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
             ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-            canvas_size.y = (canvas_size.y - 30.0f > 50.0f) ? (canvas_size.y - 30.0f) : 50.0f;
+            canvas_size.y = 50.0f;  // Fixed height for timeline canvas
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -6735,10 +6719,15 @@ private:
                 // Draw In/Out point markers (triangles at top of timeline)
                 ImU32 inout_color = ToImU32(Bright(GetWindowsAccentColor()));  // Use bright accent for both
 
-                if (project_manager && project_manager->HasInPoint() && duration > 0) {
+                if (project_manager && project_manager->HasInPoint() && duration > 0 && fps > 0) {
                     // In point - bright accent color triangle pointing right (▶)
                     double in_pt = project_manager->GetInPoint();
-                    float in_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
+
+                    // Use frame-based positioning to match loop region coloring
+                    int in_frame = static_cast<int>(std::round(in_pt * fps));
+                    if (in_frame > last_frame) in_frame = last_frame;
+                    float in_x = canvas_pos.x + (canvas_size.x * in_frame / (float)last_frame);
+
                     float tri_y = canvas_pos.y + 10.0f;  // Position at top of timeline
                     float tri_size = 8.0f;
 
@@ -6749,10 +6738,15 @@ private:
                     draw_list->AddTriangleFilled(p1, p2, p3, inout_color);
                 }
 
-                if (project_manager && project_manager->HasOutPoint() && duration > 0) {
+                if (project_manager && project_manager->HasOutPoint() && duration > 0 && fps > 0) {
                     // Out point - bright accent color triangle pointing left (◀)
                     double out_pt = project_manager->GetOutPoint();
-                    float out_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
+
+                    // Use frame-based positioning to match loop region coloring
+                    int out_frame = static_cast<int>(std::round(out_pt * fps));
+                    if (out_frame > last_frame) out_frame = last_frame;
+                    float out_x = canvas_pos.x + (canvas_size.x * out_frame / (float)last_frame);
+
                     float tri_y = canvas_pos.y + 10.0f;  // Position at top of timeline
                     float tri_size = 8.0f;
 
@@ -7372,7 +7366,17 @@ private:
 
                 ImGui::PopFont();
             }
+    }
 
+    void CreateTimelineTransportPanel() {
+        if (!show_timeline_panel) return;
+
+        if (ImGui::Begin("Timeline & Transport", &show_timeline_panel,
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoCollapse)) {
+
+            RenderTimelineContent();
         }
         ImGui::End();
     }
@@ -9426,6 +9430,20 @@ private:
             return;
         }
 
+        // Position the toolbar as a floating window over the viewport (top-left corner)
+        ImGuiWindow* viewport_window = ImGui::FindWindowByName("Video Viewport");
+        if (viewport_window) {
+            ImVec2 viewport_pos = viewport_window->Pos;
+            ImVec2 viewport_size = viewport_window->Size;
+
+            // Position in top-left corner with padding
+            const float padding = 10.0f;
+            ImVec2 toolbar_pos = ImVec2(viewport_pos.x + padding, viewport_pos.y + padding);
+
+            ImGui::SetNextWindowPos(toolbar_pos, ImGuiCond_Always);
+            ImGui::SetNextWindowBgAlpha(0.85f);  // Semi-transparent background
+        }
+
         // Set up toolbar callbacks
         ump::Annotations::AnnotationToolbar::Callbacks callbacks;
 
@@ -10726,14 +10744,14 @@ private:
                         glAttachShader(shader_program, fs);
                         glLinkProgram(shader_program);
 
-                        // Fullscreen quad (flip V coordinate to fix upside-down image)
+                        // Fullscreen quad (flipped V coordinates because video texture is stored upside-down in OpenGL)
                         float quad_vertices[] = {
-                            -1.0f, -1.0f,  0.0f, 1.0f,  // bottom-left: U=0, V=1 (flipped)
-                             1.0f, -1.0f,  1.0f, 1.0f,  // bottom-right: U=1, V=1 (flipped)
-                             1.0f,  1.0f,  1.0f, 0.0f,  // top-right: U=1, V=0 (flipped)
-                            -1.0f, -1.0f,  0.0f, 1.0f,  // bottom-left: U=0, V=1 (flipped)
-                             1.0f,  1.0f,  1.0f, 0.0f,  // top-right: U=1, V=0 (flipped)
-                            -1.0f,  1.0f,  0.0f, 0.0f   // top-left: U=0, V=0 (flipped)
+                            -1.0f, -1.0f,  0.0f, 1.0f,  // bottom-left: U=0, V=1
+                             1.0f, -1.0f,  1.0f, 1.0f,  // bottom-right: U=1, V=1
+                             1.0f,  1.0f,  1.0f, 0.0f,  // top-right: U=1, V=0
+                            -1.0f, -1.0f,  0.0f, 1.0f,  // bottom-left: U=0, V=1
+                             1.0f,  1.0f,  1.0f, 0.0f,  // top-right: U=1, V=0
+                            -1.0f,  1.0f,  0.0f, 0.0f   // top-left: U=0, V=0
                         };
 
                         GLuint vao, vbo;
@@ -10814,13 +10832,24 @@ private:
                             glEnable(GL_BLEND);
                             glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
+                            // Drawing tool type alias for stroke rendering
+                            using DrawingTool = ump::Annotations::DrawingTool;
+
                             // Render each stroke
                             for (const auto& stroke : pending_capture.strokes) {
                                 if (stroke.points.empty()) continue;
 
+                                // Apply smoothing to freehand strokes (same as display rendering)
+                                std::vector<ImVec2> points_to_render = stroke.points;
+                                if (stroke.tool == DrawingTool::FREEHAND && stroke.points.size() >= 4) {
+                                    ump::Annotations::StrokeSmoother::SmoothingConfig config;
+                                    // Use high quality smoothing (default: 20 segments per curve, alpha=0.5)
+                                    points_to_render = ump::Annotations::StrokeSmoother::SmoothStroke(stroke.points, config);
+                                }
+
                                 // Convert normalized points (0-1) to NDC (-1 to 1)
                                 std::vector<float> vertices;
-                                for (const auto& pt : stroke.points) {
+                                for (const auto& pt : points_to_render) {
                                     float x = pt.x * 2.0f - 1.0f;
                                     float y = -(pt.y * 2.0f - 1.0f);  // Flip Y for OpenGL
                                     vertices.push_back(x);
@@ -10845,7 +10874,6 @@ private:
                                 glEnableVertexAttribArray(0);
 
                                 // Render based on tool type
-                                using DrawingTool = ump::Annotations::DrawingTool;
                                 switch (stroke.tool) {
                                     case DrawingTool::FREEHAND:
                                         glDrawArrays(GL_LINE_STRIP, 0, vertices.size() / 2);
@@ -11068,7 +11096,7 @@ private:
             return false;
         }
 
-        // Flip vertically (OpenGL is bottom-up)
+        // Flip vertically (OpenGL glReadPixels always returns bottom-up data)
         size_t buffer_size = static_cast<size_t>(capture_width) * static_cast<size_t>(capture_height) * 4;
         std::vector<unsigned char> flipped(buffer_size);
         int row_size = capture_width * 4;
