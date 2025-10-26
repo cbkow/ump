@@ -78,11 +78,13 @@ public:
     bool ProcessAndFeedEXRFrame(int frame_index);
 
     // Hybrid dummy video + OpenGL overlay approach
-    bool LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps);
+    bool LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps,
+                                 int cached_width = 0, int cached_height = 0);  // ✅ NEW: Optional cached dimensions from MediaItem
     bool LoadEXRSequenceWithShader(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps);
 
     // NEW: Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
-    bool LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode);
+    bool LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode,
+                                   int cached_width = 0, int cached_height = 0);  // ✅ NEW: Optional cached dimensions from MediaItem
 
     bool TestDummyVideoGeneration(int width = 1920, int height = 1080, double fps = 24.0);
 
@@ -172,10 +174,8 @@ public:
     int GetAudioChannels() const;
     double GetAudioBitrate() const;
 
-    // Metadata
-    VideoMetadata ExtractMetadata() const;
-    VideoMetadata ExtractMetadataFast() const;  // Optimized version for background processing
-    VideoMetadata ExtractCriticalMetadata() const;  // NEW: Minimal extraction for cache initialization only (6 properties)
+    // Metadata (kept for legacy compatibility, but prefer FFmpegMetadataExtractor for new code)
+    VideoMetadata ExtractMetadata() const;  // Legacy: queries MPV (prefer FFmpegMetadataExtractor)
     VideoMetadata ExtractEXRMetadata(const std::vector<std::string>& sequence_files,
                                     const std::string& layer_name,
                                     double fps) const;  // EXR-specific metadata extraction
@@ -196,6 +196,9 @@ public:
     }
     void SetDimensionChangeCallback(std::function<void(int, int)> callback) {
         dimension_change_callback = callback;
+    }
+    void SetMetadataCallback(std::function<VideoMetadata(const std::string&)> callback) {
+        metadata_callback = callback;
     }
     void SetupPropertyObservation();
     void UpdateFromMPVEvents();
@@ -364,6 +367,9 @@ private:
     // Dimension change callback (for notifying UI of video size changes)
     std::function<void(int, int)> dimension_change_callback;
 
+    // Metadata callback (for retrieving cached FFmpeg metadata)
+    std::function<VideoMetadata(const std::string&)> metadata_callback;
+
     // Cached data
     std::unique_ptr<VideoMetadata> cached_metadata;
 
@@ -385,7 +391,8 @@ private:
     // Rendering helpers
     void RenderVideoTexture();
     void RenderPlaceholder();
-    void UpdateProperties();
+    void UpdateProperties();  // Updates both static and dynamic properties (call once on load)
+    void UpdatePlaybackState();  // Updates only dynamic properties (position, pause) - call every frame
 
     // Event handling
     void HandleMPVEvent(mpv_event* event);
@@ -430,6 +437,9 @@ private:
     bool is_exr_mode = false;
     std::string exr_sequence_path;
     std::string exr_layer_name;
+
+    // Current file path for cached metadata lookups
+    std::string current_file_path;
     double exr_frame_rate = 24.0;
     int exr_current_frame = 0;
     int exr_frame_count = 0;

@@ -58,6 +58,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\ffmpeg_metadata_extractor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -216,6 +219,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\ffmpeg_metadata_extractor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -321,7 +327,7 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="resource2.h" />
+    <ClInclude Include="resource3.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -335,7 +341,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="ump2.rc" />
+    <ResourceCompile Include="ump3.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\assets\icons\ump.ico" />

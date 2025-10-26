@@ -2,6 +2,7 @@
 #include "../player/video_player.h"
 #include "../player/exr_transcoder.h"
 #include "../player/image_loaders.h"
+#include "../metadata/ffmpeg_metadata_extractor.h"
 #include <imgui.h>
 #include <iostream>
 #include <filesystem>
@@ -129,13 +130,27 @@ namespace ump {
             transcode_worker_pool_.get()
         );
 
-        // Set auto-save path
+        // Set auto-save path (using %LOCALAPPDATA%\ump\ for consistency with other settings)
         #ifdef _WIN32
-        std::string queue_save_path = std::string(getenv("USERPROFILE")) +
-            "\\.unionplayer\\transcode_queue.json";
+        const char* localappdata = std::getenv("LOCALAPPDATA");
+        std::string queue_save_path;
+        if (localappdata) {
+            std::string base_path = std::string(localappdata) + "\\ump";
+            std::filesystem::create_directories(base_path);
+            queue_save_path = base_path + "\\transcode_queue.json";
+        } else {
+            queue_save_path = "transcode_queue.json";  // Fallback
+        }
         #else
-        std::string queue_save_path = std::string(getenv("HOME")) +
-            "/.unionplayer/transcode_queue.json";
+        const char* home = std::getenv("HOME");
+        std::string queue_save_path;
+        if (home) {
+            std::string base_path = std::string(home) + "/.config/ump";
+            std::filesystem::create_directories(base_path);
+            queue_save_path = base_path + "/transcode_queue.json";
+        } else {
+            queue_save_path = "transcode_queue.json";  // Fallback
+        }
         #endif
 
         transcode_queue_->SetAutoSavePath(queue_save_path);
@@ -157,6 +172,17 @@ namespace ump {
             video_player->SetPlaylistPositionCallback([this]() {
                 this->SyncPlaylistPosition();
                 });
+
+            // Set metadata callback to provide cached FFmpeg metadata
+            video_player->SetMetadataCallback([this](const std::string& path) -> VideoMetadata {
+                const CombinedMetadata* cached = GetCachedMetadata(path);
+                if (cached && cached->video_meta && cached->video_meta->is_loaded) {
+                    Debug::Log("MetadataCallback: Returning cached FFmpeg metadata for: " + path);
+                    return *cached->video_meta;
+                }
+                Debug::Log("MetadataCallback: No cached metadata found for: " + path);
+                return VideoMetadata();  // Return empty if not found
+            });
         }
 
         StartAdobeWorkerThread();
@@ -169,14 +195,28 @@ namespace ump {
             transcode_worker_pool_->Stop();
         }
 
-        // Save queue
+        // Save queue (using %LOCALAPPDATA%\ump\ for consistency with other settings)
         if (transcode_queue_) {
             #ifdef _WIN32
-            std::string queue_save_path = std::string(getenv("USERPROFILE")) +
-                "\\.unionplayer\\transcode_queue.json";
+            const char* localappdata = std::getenv("LOCALAPPDATA");
+            std::string queue_save_path;
+            if (localappdata) {
+                std::string base_path = std::string(localappdata) + "\\ump";
+                std::filesystem::create_directories(base_path);
+                queue_save_path = base_path + "\\transcode_queue.json";
+            } else {
+                queue_save_path = "transcode_queue.json";  // Fallback
+            }
             #else
-            std::string queue_save_path = std::string(getenv("HOME")) +
-                "/.unionplayer/transcode_queue.json";
+            const char* home = std::getenv("HOME");
+            std::string queue_save_path;
+            if (home) {
+                std::string base_path = std::string(home) + "/.config/ump";
+                std::filesystem::create_directories(base_path);
+                queue_save_path = base_path + "/transcode_queue.json";
+            } else {
+                queue_save_path = "transcode_queue.json";  // Fallback
+            }
             #endif
             transcode_queue_->SaveQueue(queue_save_path);
         }
@@ -275,6 +315,13 @@ namespace ump {
                 item_obj["frame_rate"] = item.frame_rate;
                 item_obj["pipeline_mode"] = PipelineModeToString(item.pipeline_mode);
 
+                // ✅ NEW: Save cached sequence dimensions (for instant loading)
+                if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
+                    item.sequence_width > 0 && item.sequence_height > 0) {
+                    item_obj["sequence_width"] = item.sequence_width;
+                    item_obj["sequence_height"] = item.sequence_height;
+                }
+
                 // EXR fields
                 item_obj["exr_layer"] = item.exr_layer;
                 item_obj["exr_layer_display"] = item.exr_layer_display;
@@ -282,6 +329,29 @@ namespace ump {
                 // In/Out points (per-video range markers)
                 item_obj["in_point"] = item.in_point;
                 item_obj["out_point"] = item.out_point;
+
+                // ✅ Save cached metadata if available (ONLY for regular videos, NOT image sequences)
+                const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
+
+                // Save VideoMetadata (for regular videos only - image sequences use late-binding)
+                if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
+                    json metadata_obj;
+                    metadata_obj["width"] = cached_meta->video_meta->width;
+                    metadata_obj["height"] = cached_meta->video_meta->height;
+                    metadata_obj["frame_rate"] = cached_meta->video_meta->frame_rate;
+                    metadata_obj["total_frames"] = cached_meta->video_meta->total_frames;
+                    metadata_obj["pixel_format"] = cached_meta->video_meta->pixel_format;
+                    metadata_obj["video_codec"] = cached_meta->video_meta->video_codec;
+                    metadata_obj["colorspace"] = cached_meta->video_meta->colorspace;
+                    metadata_obj["color_primaries"] = cached_meta->video_meta->color_primaries;
+                    metadata_obj["color_transfer"] = cached_meta->video_meta->color_transfer;
+                    metadata_obj["range_type"] = cached_meta->video_meta->range_type;
+
+                    item_obj["video_metadata"] = metadata_obj;
+                }
+
+                // Image sequences use late-binding metadata (extracted on-demand via QueueVideoMetadataExtraction)
+                // No persistence needed - metadata is re-extracted when sequences are loaded
 
                 media_pool_array.push_back(item_obj);
             }
@@ -410,6 +480,17 @@ namespace ump {
                     item.frame_rate = item_json.value("frame_rate", 24.0);
                     item.pipeline_mode = StringToPipelineMode(item_json.value("pipeline_mode", "Normal"));
 
+                    // ✅ NEW: Restore cached sequence dimensions (for instant loading)
+                    if (item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) {
+                        item.sequence_width = item_json.value("sequence_width", 0);
+                        item.sequence_height = item_json.value("sequence_height", 0);
+
+                        if (item.sequence_width > 0 && item.sequence_height > 0) {
+                            Debug::Log("LoadProject: Restored sequence dimensions for " + item.name + ": " +
+                                      std::to_string(item.sequence_width) + "x" + std::to_string(item.sequence_height));
+                        }
+                    }
+
                     // EXR fields
                     item.exr_layer = item_json.value("exr_layer", "");
                     item.exr_layer_display = item_json.value("exr_layer_display", "");
@@ -417,6 +498,35 @@ namespace ump {
                     // In/Out points (per-video range markers)
                     item.in_point = item_json.value("in_point", -1.0);
                     item.out_point = item_json.value("out_point", -1.0);
+
+                    // ✅ Load cached video metadata if available
+                    if (item_json.contains("video_metadata")) {
+                        VideoMetadata metadata;
+                        auto meta_obj = item_json["video_metadata"];
+
+                        metadata.width = meta_obj.value("width", 0);
+                        metadata.height = meta_obj.value("height", 0);
+                        metadata.frame_rate = meta_obj.value("frame_rate", 24.0);
+                        metadata.total_frames = meta_obj.value("total_frames", 0);
+                        metadata.pixel_format = meta_obj.value("pixel_format", "");
+                        metadata.video_codec = meta_obj.value("video_codec", "");
+                        metadata.colorspace = meta_obj.value("colorspace", "");
+                        metadata.color_primaries = meta_obj.value("color_primaries", "");
+                        metadata.color_transfer = meta_obj.value("color_transfer", "");
+                        metadata.range_type = meta_obj.value("range_type", "");
+                        metadata.is_loaded = true;
+
+                        // Cache in memory
+                        std::lock_guard<std::mutex> lock(queue_mutex);
+                        auto& cached = metadata_cache[item.path];
+                        cached.video_meta = std::make_unique<VideoMetadata>(metadata);
+                        cached.state = MetadataState::VIDEO_READY;
+
+                        Debug::Log("LoadProject: Restored video metadata for: " + item.path);
+                    }
+
+                    // Image sequences use late-binding metadata (extracted when loaded via QueueVideoMetadataExtraction)
+                    // No restoration needed - metadata will be re-extracted on first load
 
                     media_pool.push_back(item);
                 }
@@ -594,10 +704,12 @@ namespace ump {
             }).detach();
         }
 
-        // Extract Metadata in background to avoid playback penalty
+        // === METADATA NOW EXTRACTED BY FFMPEG BEFORE MPV LOAD ===
+        // Previously queued MPV metadata extraction here - no longer needed
+        // FFmpeg extracts all video metadata upfront in LoadSingleMediaItem()
+        // Only queue Adobe metadata (timecode, project links) if needed
         if (video_player && video_player->HasVideo()) {
-            // Queue both MPV and Adobe metadata extraction for background processing
-            QueueVideoMetadataExtraction(file_path, true);  // High priority for currently playing video
+            QueueAdobeMetadata(file_path);  // Optional: timecode and project links
         }
 
         // Check if this file is already in the project
@@ -1549,13 +1661,35 @@ namespace ump {
         item.path = file_path;
         item.type = GetMediaType(file_path);
 
+        // ✅ EXTRACT AND CACHE FULL METADATA (not just duration)
         if (item.type == MediaType::VIDEO || item.type == MediaType::AUDIO) {
-            double probed_duration = video_player->ProbeFileDuration(file_path);
-            if (probed_duration > 0) {
-                item.duration = probed_duration;
-            }
-            else {
-                item.duration = (item.type == MediaType::VIDEO) ? 30.0 : 180.0;
+            auto metadata = ump::FFmpegMetadataExtractor::Extract(file_path);
+
+            if (metadata.is_loaded) {
+                // Cache metadata immediately
+                {
+                    std::lock_guard<std::mutex> lock(queue_mutex);
+                    auto& cached_meta = metadata_cache[file_path];
+                    cached_meta.video_meta = std::make_unique<VideoMetadata>(metadata);
+                    cached_meta.state = MetadataState::VIDEO_READY;
+                }
+
+                // Set duration from metadata
+                if (metadata.total_frames > 0 && metadata.frame_rate > 0) {
+                    item.duration = metadata.total_frames / metadata.frame_rate;
+                } else {
+                    item.duration = (item.type == MediaType::VIDEO) ? 30.0 : 180.0;
+                }
+
+                Debug::Log("AddMediaFileToProject: Cached metadata for: " + file_path);
+                Debug::Log("  Resolution: " + std::to_string(metadata.width) + "x" + std::to_string(metadata.height));
+                Debug::Log("  Codec: " + metadata.video_codec);
+                Debug::Log("  Pixel Format: " + metadata.pixel_format);
+            } else {
+                // Fallback: If full extraction fails, try duration probe
+                Debug::Log("AddMediaFileToProject: Full extraction failed, falling back to duration probe");
+                double probed_duration = ump::FFmpegMetadataExtractor::ProbeDuration(file_path);
+                item.duration = (probed_duration > 0) ? probed_duration : ((item.type == MediaType::VIDEO) ? 30.0 : 180.0);
             }
         }
         else {
@@ -1704,7 +1838,14 @@ namespace ump {
 
                 // Load through DirectEXRCache with universal loader
                 Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
-                bool success = video_player->LoadImageSequenceWithCache(sequence_files, item.frame_rate, pipeline_mode);
+                // ✅ NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                bool success = video_player->LoadImageSequenceWithCache(
+                    sequence_files,
+                    item.frame_rate,
+                    pipeline_mode,
+                    item.sequence_width,   // ✅ NEW: Cached dimensions
+                    item.sequence_height   // ✅ NEW: Cached dimensions
+                );
                 Debug::Log("LoadSingleMediaItem: LoadImageSequenceWithCache() returned: " + std::string(success ? "TRUE (success)" : "FALSE (failed)"));
 
                 if (success) {
@@ -1750,7 +1891,14 @@ namespace ump {
                     // Rebuild the file list from the sequence path
                     std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
                     if (!sequence_files.empty()) {
-                        if (video_player->LoadEXRSequenceWithDummy(sequence_files, layer_name, item.frame_rate)) {
+                        // ✅ NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                        if (video_player->LoadEXRSequenceWithDummy(
+                            sequence_files,
+                            layer_name,
+                            item.frame_rate,
+                            item.sequence_width,   // ✅ NEW: Cached dimensions
+                            item.sequence_height   // ✅ NEW: Cached dimensions
+                        )) {
                             *current_file_path = item.path;
                             Debug::Log("LoadSingleMediaItem: Successfully loaded EXR sequence");
 
@@ -1775,11 +1923,66 @@ namespace ump {
         // === FALLBACK: Regular video/audio loading ===
         // This handles regular MP4/MOV/etc files, OR fallback if image sequence loading failed
         Debug::Log("LoadSingleMediaItem: Loading as regular file: " + item.path);
+
+        // ✅ Check cache first (metadata should already be cached from AddMediaFileToProject)
+        const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
+        bool metadata_cached = (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded);
+
+        if (!metadata_cached) {
+            // Safety fallback: Extract if cache miss (shouldn't happen for normal flow)
+            Debug::Log("LoadSingleMediaItem: Cache miss, extracting metadata...");
+            auto metadata = ump::FFmpegMetadataExtractor::Extract(item.path);
+
+            if (metadata.is_loaded) {
+                // Cache it
+                {
+                    std::lock_guard<std::mutex> lock(queue_mutex);
+                    auto& cached = metadata_cache[item.path];
+                    cached.video_meta = std::make_unique<VideoMetadata>(metadata);
+                    cached.state = MetadataState::VIDEO_READY;
+                }
+
+                // Check codec
+                std::string codec = metadata.video_codec;
+                std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+                bool is_h264_h265 = (codec.find("h264") != std::string::npos ||
+                                     codec.find("hevc") != std::string::npos ||
+                                     codec.find("h265") != std::string::npos ||
+                                     codec.find("avc") != std::string::npos);
+
+                if (is_h264_h265) {
+                    Debug::Log("LoadSingleMediaItem: H.264/H.265 detected - disabling cache");
+                    SetCacheEnabled(false);
+                    ClearAllCaches();
+                    cache_auto_disabled_for_codec = true;
+                    current_video_codec = metadata.video_codec;
+                }
+            }
+        } else {
+            Debug::Log("LoadSingleMediaItem: Using cached metadata (no re-extraction)");
+
+            // Check codec from cache
+            std::string codec = cached_meta->video_meta->video_codec;
+            std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+            bool is_h264_h265 = (codec.find("h264") != std::string::npos ||
+                                 codec.find("hevc") != std::string::npos ||
+                                 codec.find("h265") != std::string::npos ||
+                                 codec.find("avc") != std::string::npos);
+
+            if (is_h264_h265) {
+                Debug::Log("LoadSingleMediaItem: H.264/H.265 detected - disabling cache");
+                SetCacheEnabled(false);
+                ClearAllCaches();
+                cache_auto_disabled_for_codec = true;
+                current_video_codec = cached_meta->video_meta->video_codec;
+            }
+        }
+
+        // Load into MPV for playback
         video_player->LoadFile(item.path);
         *current_file_path = item.path;
 
-        // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
-        // This ensures the 600ms delay before cache starts, preventing first frame competition
+        // Use OnVideoLoaded for proper sequencing (600ms delay before cache starts)
         if (item.type != MediaType::AUDIO) {
             OnVideoLoaded(item.path);
         } else {
@@ -1793,9 +1996,9 @@ namespace ump {
         // Select this item in the project panel
         SelectMediaItem(item.id, false, false);
 
-        // Extract metadata in background to avoid playback penalty
+        // Metadata already cached - only queue Adobe metadata if needed
         if (video_player && video_player->HasVideo()) {
-            QueueVideoMetadataExtraction(item.path, true);  // High priority for loaded media
+            QueueAdobeMetadata(item.path);  // Optional: timecode and project links
         }
     }
 
@@ -2249,9 +2452,9 @@ namespace ump {
             video_player->Play();
         }
 
-        // Extract metadata for first clip in background
+        // Queue Adobe metadata for first clip (timecode, project links)
         if (!sorted_clips.empty()) {
-            QueueVideoMetadataExtraction(sorted_clips[0].file_path, true);  // High priority for first clip
+            QueueAdobeMetadata(sorted_clips[0].file_path);
         }
     }
 
@@ -2849,12 +3052,36 @@ namespace ump {
         current_sequence_id.clear();
         UpdateSequenceActiveStates("");
 
+        // ✅ Use cached metadata (already extracted by AddMediaFileToProject)
+        const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
+        if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
+            Debug::Log("LoadSingleFileFromDrop: Using cached metadata from AddMediaFileToProject");
+
+            // Check for H.264/H.265 and handle cache
+            std::string codec = cached_meta->video_meta->video_codec;
+            std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
+
+            bool is_h264_h265 = (codec.find("h264") != std::string::npos ||
+                                 codec.find("hevc") != std::string::npos ||
+                                 codec.find("h265") != std::string::npos ||
+                                 codec.find("avc") != std::string::npos);
+
+            if (is_h264_h265) {
+                Debug::Log("LoadSingleFileFromDrop: H.264/H.265 detected - disabling cache");
+                SetCacheEnabled(false);
+                ClearAllCaches();
+                cache_auto_disabled_for_codec = true;
+                current_video_codec = cached_meta->video_meta->video_codec;
+            }
+        } else {
+            Debug::Log("LoadSingleFileFromDrop: WARNING - No cached metadata found (AddMediaFileToProject may have failed)");
+        }
+
+        // Load into MPV for playback (metadata already cached)
         video_player->LoadFile(file_path);
         *current_file_path = file_path;
-        /*video_player->Play();*/
 
-        // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
-        // This ensures the 600ms delay before cache starts, preventing first frame competition
+        // Use OnVideoLoaded for proper sequencing (600ms delay before cache starts)
         OnVideoLoaded(file_path);
     }
 
@@ -3156,103 +3383,45 @@ namespace ump {
     }
 
     void ProjectManager::ProcessVideoMetadata(const std::string& file_path) {
-        // Debug removed
+        // === REFACTORED: Video metadata now extracted by FFmpeg BEFORE MPV load ===
+        // This method now ONLY handles Adobe metadata (timecode, project links)
+        // Video metadata is extracted in LoadSingleMediaItem() using FFmpegMetadataExtractor
 
-        // PHASE 1: Extract critical metadata for cache initialization (FAST - only 6 properties)
-        if (video_player && video_player->HasVideo()) {
-            // MPV is stable after WaitForFileLoad() completes - no delay needed
+        Debug::Log("ProcessVideoMetadata: Checking for Adobe metadata (timecode, project links)...");
 
-            // Extract critical metadata first (minimal - for cache only)
-            auto critical_meta = std::make_unique<VideoMetadata>(video_player->ExtractCriticalMetadata());
+        // Verify that FFmpeg metadata already exists
+        const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
+        if (!cached_meta || !cached_meta->video_meta || !cached_meta->video_meta->is_loaded) {
+            Debug::Log("ProcessVideoMetadata: WARNING - No FFmpeg metadata found for: " + file_path);
+            Debug::Log("  This should have been extracted before MPV load!");
+            return;
+        }
 
-            // Store critical metadata immediately
-            {
-                std::lock_guard<std::mutex> lock(queue_mutex);
-                auto& cached_meta = metadata_cache[file_path];
-                cached_meta.video_meta = std::move(critical_meta);
-                cached_meta.state = MetadataState::LOADING_VIDEO;  // Will be updated to VIDEO_READY after full extraction
-            }
+        Debug::Log("ProcessVideoMetadata: FFmpeg metadata confirmed present");
+        Debug::Log("  Resolution: " + std::to_string(cached_meta->video_meta->width) + "x" +
+                   std::to_string(cached_meta->video_meta->height));
+        Debug::Log("  Codec: " + cached_meta->video_meta->video_codec);
 
-            // Update cache system with critical metadata immediately
-            if (video_cache_manager && video_cache_manager->IsCachingEnabled()) {
-                const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
-                if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
-                    video_cache_manager->UpdateVideoMetadata(file_path, *cached_meta->video_meta);
+        // Auto 1-2-1 detection (non-blocking background processing)
+        if (color_preset_callback) {
+            if (cached_meta && cached_meta->video_meta) {
+                // Trigger lazy NCLC detection if not already done
+                if (cached_meta->video_meta->nclc_tag.empty()) {
+                    const_cast<VideoMetadata*>(cached_meta->video_meta.get())->DetectAndCacheNCLC();
+                }
 
-                    // Check if this is H.264/H.265 and disable cache if needed
-                    std::string codec = cached_meta->video_meta->video_codec;
-                    std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
-                    current_video_codec = cached_meta->video_meta->video_codec;
-
-                    // Skip H.264 detection for image sequences - they use dummy H.264 videos for timing
-                    // but actual frames come from DirectEXRCache (no B-frame issues)
-                    bool is_image_sequence = (file_path.substr(0, 5) == "mf://") ||
-                                             (file_path.substr(0, 6) == "exr://");
-
-                    if (!is_image_sequence && (codec.find("h264") != std::string::npos ||
-                        codec.find("hevc") != std::string::npos ||
-                        codec.find("h265") != std::string::npos ||
-                        codec.find("avc") != std::string::npos)) {
-
-                        Debug::Log("=== H.264/H.265 DETECTED ===");
-                        Debug::Log("Codec: " + current_video_codec);
-                        Debug::Log("Disabling cache for B-frame safety");
-
-                        SetCacheEnabled(false);
-                        ClearAllCaches();  // Clear ALL caches, not just current
-                        cache_auto_disabled_for_codec = true;
-
-                        Debug::Log("Cache disabled and ALL caches cleared for: " + file_path);
-                    } else if (is_image_sequence) {
-                        Debug::Log("=== H.264/H.265 IN DUMMY VIDEO (image sequence) ===");
-                        Debug::Log("Skipping cache disable - image sequences use DirectEXRCache for actual frames");
-                    }
+                // Check if it's a 1-2-1 video and invoke callback
+                if (cached_meta->video_meta->nclc_tag == "1-2-1") {
+                    Debug::Log("Auto 1-2-1: Detected 1-2-1 NCLC tag, invoking color preset callback");
+                    color_preset_callback("1-2-1");
                 }
             }
-
-            // PHASE 2: Extract full metadata for inspector UI (happens in background, doesn't block cache)
-            Debug::Log("Phase 2: Extracting full metadata for inspector UI...");
-            auto full_meta = std::make_unique<VideoMetadata>(video_player->ExtractMetadataFast());
-
-            // Update with full metadata
-            {
-                std::lock_guard<std::mutex> lock(queue_mutex);
-                auto& cached_meta = metadata_cache[file_path];
-                cached_meta.video_meta = std::move(full_meta);
-                cached_meta.state = MetadataState::VIDEO_READY;
-            }
-
-            Debug::Log("Phase 2 complete: Full metadata extracted");
-
-            // Auto 1-2-1 detection (non-blocking background processing)
-            if (color_preset_callback) {
-                const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
-                if (cached_meta && cached_meta->video_meta) {
-                    // Trigger lazy NCLC detection if not already done
-                    if (cached_meta->video_meta->nclc_tag.empty()) {
-                        const_cast<VideoMetadata*>(cached_meta->video_meta.get())->DetectAndCacheNCLC();
-                    }
-
-                    // Check if it's a 1-2-1 video and invoke callback
-                    if (cached_meta->video_meta->nclc_tag == "1-2-1") {
-                        Debug::Log("Auto 1-2-1: Detected 1-2-1 NCLC tag, invoking color preset callback");
-                        color_preset_callback("1-2-1");
-                    }
-                }
-            }
-
-            // Queue Adobe metadata for later processing (no additional delay)
-            QueueAdobeMetadata(file_path);
         }
-        else {
-            // Update state to indicate failure
-            {
-                std::lock_guard<std::mutex> lock(queue_mutex);
-                auto& cached_meta = metadata_cache[file_path];
-                cached_meta.state = MetadataState::NOT_STARTED;  // Reset to allow retry
-            }
-            // Debug removed
-        }
+
+        // Queue Adobe metadata extraction (timecode, project links)
+        QueueAdobeMetadata(file_path);
+
+        Debug::Log("ProcessVideoMetadata: Queued Adobe metadata extraction");
     }
 
     void ProjectManager::DisplayVideoMetadata(const VideoMetadata* video_meta) {
@@ -4534,16 +4703,18 @@ namespace ump {
             }
         }
 
-        if (cache_enabled && video_cache_manager) {
-            // Image sequences (mf://) are now handled by early return above
-            // Only regular videos reach this point
-            video_cache_manager->NotifyVideoChanged(video_path, video_player);
+        // ✅ Skip seek cache (FrameCache) entirely for image sequences - they use DirectEXRCache
+        bool is_image_sequence = (video_path.substr(0, 5) == "mf://") ||
+                                 (video_path.substr(0, 6) == "exr://");
 
-            // CACHE INITIALIZATION FIX: If we already have cached metadata for this video,
-            // check codec and potentially disable cache before starting
+        if (is_image_sequence) {
+            Debug::Log("ProjectManager: Skipping FFMPEG cache for image sequence (uses DirectEXRCache)");
+        } else if (cache_enabled && video_cache_manager) {
+            // ✅ NEW FLOW: Get metadata BEFORE initializing cache (metadata extracted by FFmpeg before MPV load)
             const CombinedMetadata* cached_meta = GetCachedMetadata(video_path);
+
             if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
-                Debug::Log("ProjectManager: Found existing metadata for " + video_path + ", checking codec");
+                Debug::Log("ProjectManager: Found cached metadata for " + video_path + ", checking codec");
 
                 // Check if this is H.264/H.265 and disable cache if needed
                 std::string codec = cached_meta->video_meta->video_codec;
@@ -4551,14 +4722,10 @@ namespace ump {
                 std::transform(codec_lower.begin(), codec_lower.end(), codec_lower.begin(), ::tolower);
                 current_video_codec = codec;
 
-                // Skip H.264 detection for image sequences - they use dummy H.264 videos for timing
-                bool is_image_sequence = (video_path.substr(0, 5) == "mf://") ||
-                                         (video_path.substr(0, 6) == "exr://");
-
-                if (!is_image_sequence && (codec_lower.find("h264") != std::string::npos ||
+                if (codec_lower.find("h264") != std::string::npos ||
                     codec_lower.find("hevc") != std::string::npos ||
                     codec_lower.find("h265") != std::string::npos ||
-                    codec_lower.find("avc") != std::string::npos)) {
+                    codec_lower.find("avc") != std::string::npos) {
 
                     Debug::Log("=== H.264/H.265 DETECTED (from cached metadata) ===");
                     Debug::Log("Codec: " + current_video_codec);
@@ -4570,10 +4737,19 @@ namespace ump {
 
                     Debug::Log("Cache disabled and ALL caches cleared for: " + video_path);
                 } else {
-                    // Safe codec - apply metadata to cache system
-                    Debug::Log("ProjectManager: Safe codec detected, applying metadata to cache system");
+                    // ✅ Safe codec - initialize cache with metadata IMMEDIATELY
+                    Debug::Log("ProjectManager: Safe codec, initializing cache with metadata");
+                    video_cache_manager->NotifyVideoChanged(video_path, video_player);
+
+                    // ✅ Apply metadata IMMEDIATELY after cache init (not conditionally later)
                     video_cache_manager->UpdateVideoMetadata(video_path, *cached_meta->video_meta);
+                    Debug::Log("ProjectManager: Metadata applied to cache for: " + video_path);
                 }
+            } else {
+                // No cached metadata yet - initialize cache without metadata
+                // (metadata will be applied when ProcessVideoMetadata is called)
+                Debug::Log("ProjectManager: No cached metadata, initializing cache without metadata");
+                video_cache_manager->NotifyVideoChanged(video_path, video_player);
             }
         }
     }
@@ -5410,6 +5586,17 @@ namespace ump {
         bool is_exr = (ext == ".exr");
         bool is_transcoded_exr = is_exr && exr_layer.empty();  // Transcoded single-layer EXRs have empty layer
 
+        // ✅ NEW: Extract dimensions from first frame for EXR sequences (for instant loading later)
+        int exr_width = 0, exr_height = 0;
+        if (is_exr && !sequence_files.empty()) {
+            if (ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], exr_width, exr_height)) {
+                Debug::Log("ProcessImageSequence: Cached EXR sequence dimensions: " +
+                          std::to_string(exr_width) + "x" + std::to_string(exr_height));
+            } else {
+                Debug::Log("ProcessImageSequence: WARNING - Could not extract EXR dimensions from first file");
+            }
+        }
+
         // Create MediaItem for the sequence
         MediaItem item;
         item.id = GenerateUniqueID();
@@ -5457,6 +5644,13 @@ namespace ump {
         item.duration = static_cast<double>(sequence_files.size()) / frame_rate;
         item.sequence_pattern = mf_pattern;
 
+        // ✅ NEW: Assign cached EXR dimensions (if extracted above)
+        if (item.type == MediaType::EXR_SEQUENCE && exr_width > 0 && exr_height > 0) {
+            item.sequence_width = exr_width;
+            item.sequence_height = exr_height;
+        }
+        // For IMAGE_SEQUENCE, dimensions assigned below from img_info
+
         // Auto-detect pipeline mode from first image file (for all image sequences)
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Default
 
@@ -5465,10 +5659,17 @@ namespace ump {
             ump::ImageInfo img_info;
             if (ump::GetImageInfo(sequence_files[0], img_info)) {
                 pipeline_mode = img_info.recommended_pipeline;
+
+                // ✅ NEW: Cache dimensions from first frame (for instant loading later)
+                item.sequence_width = img_info.width;
+                item.sequence_height = img_info.height;
+
                 Debug::Log("ProcessImageSequence: Auto-detected pipeline mode: " +
                           std::string(PipelineModeToString(pipeline_mode)) +
                           " (" + std::to_string(img_info.bit_depth) + "-bit, " +
                           (img_info.is_float ? "float" : "int") + ")");
+                Debug::Log("ProcessImageSequence: Cached sequence dimensions: " +
+                          std::to_string(img_info.width) + "x" + std::to_string(img_info.height));
             } else {
                 // Fallback to safe default (8-bit Normal mode)
                 pipeline_mode = PipelineMode::NORMAL;

@@ -36,6 +36,10 @@ namespace ump {
         double frame_rate = 24.0;     // Frame rate for sequence
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Auto-detected bit depth/precision
 
+        // Cached dimensions from first frame (for instant loading without I/O)
+        int sequence_width = 0;       // For IMAGE_SEQUENCE and EXR_SEQUENCE types
+        int sequence_height = 0;      // Avoids async MPV discovery and file I/O on load
+
         // EXR-specific fields
         std::string exr_layer;        // Selected EXR layer (e.g., "beauty", "diffuse")
         std::string exr_layer_display;// Display name for EXR layer

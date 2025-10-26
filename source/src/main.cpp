@@ -3107,7 +3107,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.1");
+                ImGui::TextDisabled("About u.m.p. v0.2.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -11418,11 +11418,23 @@ private:
         current_file_path.clear();
     }
 
-    void TriggerAutoPlay() {
+    void TriggerAutoPlay(ump::MediaType media_type = ump::MediaType::VIDEO) {
+        // ✅ NEW: Check if media type is regular video (not image sequence)
+        // Image sequences never autoplay - they need DirectEXRCache warmup time
+        bool is_regular_video = (media_type == ump::MediaType::VIDEO ||
+                                 media_type == ump::MediaType::AUDIO);
+
+        if (!is_regular_video) {
+            Debug::Log("Auto-play: Skipped for image sequences (type=" + std::to_string(static_cast<int>(media_type)) + ") - need cache warmup");
+            return;
+        }
+
         if (cache_settings.auto_play_on_load) {
             pending_auto_play = true;
             auto_play_timer = std::chrono::steady_clock::now();
-            Debug::Log("Auto-play: Timer started (500ms delay)");
+            Debug::Log("Auto-play: Timer started (500ms delay) for regular video");
+        } else {
+            Debug::Log("Auto-play: Disabled by user settings");
         }
     }
 
@@ -11497,8 +11509,19 @@ private:
             Debug::Log("Loaded annotations for: " + annotation_path);
         }
 
+        // ✅ NEW: Detect media type from file path for deliberate autoplay control
+        ump::MediaType media_type = ump::MediaType::VIDEO;  // Default
+        if (new_file_path.substr(0, 5) == "mf://") {
+            media_type = ump::MediaType::IMAGE_SEQUENCE;
+        } else if (new_file_path.substr(0, 6) == "exr://") {
+            media_type = ump::MediaType::EXR_SEQUENCE;
+        } else if (is_audio_file) {
+            media_type = ump::MediaType::AUDIO;
+        }
+
         // Trigger auto-play if enabled (with 500ms delay)
-        TriggerAutoPlay();
+        // Image sequences will be skipped automatically by TriggerAutoPlay
+        TriggerAutoPlay(media_type);
 
         // Trigger delayed seek cache start (2s delay to reduce initial load contention)
         TriggerSeekCacheStart();

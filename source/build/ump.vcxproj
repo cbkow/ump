@@ -1535,6 +1535,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\adobe_metadata.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\exr_metadata.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\ffmpeg_metadata_extractor.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\ffmpeg_metadata_extractor.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\metadata\video_metadata.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\nodes\node_base.cpp" />
@@ -1602,10 +1604,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
-    <ClInclude Include="resource2.h" />
+    <ClInclude Include="resource3.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="ump2.rc" />
+    <ResourceCompile Include="ump3.rc" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ZERO_CHECK.vcxproj">

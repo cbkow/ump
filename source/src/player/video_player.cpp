@@ -9,6 +9,7 @@
 #include "thumbnail_cache.h"
 #include "media_background_extractor.h"  // For ConversionStrategy
 #include "../metadata/video_metadata.h"  // For VideoMetadata
+#include "../metadata/ffmpeg_metadata_extractor.h"  // For FFmpeg-based metadata extraction
 
 #include <algorithm>
 #include <chrono>
@@ -458,6 +459,15 @@ void VideoPlayer::LoadFile(const std::string& path) {
         Debug::Log("Switching from video to video: " + path);
     }
 
+    // ✅ Clear current_file_path FIRST to prevent UpdateProperties from accessing stale metadata
+    // during cache shutdown (which can trigger callbacks)
+    current_file_path.clear();
+
+    // ✅ Clear EXR mode flag BEFORE cache shutdown to prevent InjectCurrentEXRFrame() from running
+    // during cache teardown (prevents division by zero in EXR frame calculations)
+    bool was_exr_mode = is_exr_mode;
+    is_exr_mode = false;
+
     // === CLEAR ALL CACHES BEFORE LOADING NEW MEDIA ===
     // This ensures clean transitions between any media types
 
@@ -488,6 +498,9 @@ void VideoPlayer::LoadFile(const std::string& path) {
     }
 
     ResetState();
+
+    // ✅ Store current file path AFTER state reset (prevents race conditions in UpdateProperties)
+    current_file_path = path;
 
     // Reset image sequence flags when loading a new file
     is_image_sequence = false;
@@ -520,6 +533,11 @@ void VideoPlayer::LoadFile(const std::string& path) {
     WaitForFileLoad(is_audio_file);  // Pass audio flag for shorter timeout
     FinalizeLoad();
 
+    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // Autoplay decision happens later in OnVideoLoaded() based on media type
+    Pause();
+    Debug::Log("LoadFile: Media loaded in paused state (deliberate autoplay control)");
+
     // Additional verification for post-EXR transitions
     if (!has_video) {
         Debug::Log("WARNING: Video failed to load after EXR transition");
@@ -532,12 +550,30 @@ void VideoPlayer::LoadFile(const std::string& path) {
     if (has_video && !is_audio_file) {
         ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
         if (thumb_config.enabled) {
-            double fps = GetFrameRate();
-            double duration = GetDuration();
+            // ✅ Get all video properties from cached FFmpeg metadata (instant, no MPV queries)
+            VideoMetadata metadata;
+            if (metadata_callback) {
+                metadata = metadata_callback(path);
+            }
 
-            // IMPORTANT: Use GetTotalFrames() to match timeline's frame count calculation
-            // Timeline uses std::round(duration * fps), we must match exactly
-            int frame_count = GetTotalFrames();
+            double fps;
+            double duration;
+            int frame_count;
+
+            if (metadata.is_loaded && metadata.frame_rate > 0 && metadata.total_frames > 0) {
+                // Use cached metadata values
+                fps = metadata.frame_rate;
+                frame_count = metadata.total_frames;
+                duration = frame_count / fps;
+                Debug::Log("VideoPlayer: Using cached FFmpeg metadata for thumbnail cache (fps=" +
+                           std::to_string(fps) + ", frames=" + std::to_string(frame_count) + ")");
+            } else {
+                // Fallback: Query MPV only if cached metadata not available
+                Debug::Log("VideoPlayer: WARNING - No cached metadata, falling back to MPV queries");
+                fps = GetFrameRate();
+                duration = GetDuration();
+                frame_count = GetTotalFrames();
+            }
 
             Debug::Log("VideoPlayer: Creating ThumbnailCache for video (fps=" + std::to_string(fps) +
                        ", duration=" + std::to_string(duration) + "s, frames=" + std::to_string(frame_count) + ")");
@@ -545,14 +581,21 @@ void VideoPlayer::LoadFile(const std::string& path) {
             // Create VideoImageLoader
             auto video_loader = std::make_unique<ump::VideoImageLoader>(path, fps, duration);
 
-            // NEW: Set conversion strategy for color matrix support (ProRes 4444/422, etc.)
-            VideoMetadata metadata = ExtractMetadata();
             if (metadata.is_loaded) {
                 auto strategy = ConversionStrategy::FromMetadata(metadata);
                 video_loader->SetConversionStrategy(strategy);
-                Debug::Log("VideoPlayer: Thumbnail loader - conversion strategy set: " + strategy.GetDescription());
+                Debug::Log("VideoPlayer: Thumbnail loader using cached FFmpeg metadata: " + strategy.GetDescription());
             } else {
-                Debug::Log("VideoPlayer: Thumbnail loader - no metadata available for conversion strategy");
+                // Fallback: query MPV only if cached metadata not available
+                Debug::Log("VideoPlayer: WARNING - No cached metadata, falling back to MPV query");
+                metadata = ExtractMetadata();
+                if (metadata.is_loaded) {
+                    auto strategy = ConversionStrategy::FromMetadata(metadata);
+                    video_loader->SetConversionStrategy(strategy);
+                    Debug::Log("VideoPlayer: Thumbnail loader using MPV metadata (fallback): " + strategy.GetDescription());
+                } else {
+                    Debug::Log("VideoPlayer: Thumbnail loader - no metadata available for conversion strategy");
+                }
             }
 
             // Create synthetic frame list ("0", "1", "2", etc.")
@@ -909,6 +952,17 @@ void VideoPlayer::SetupAudioVisualization() {
     if (!mpv || audio_visualization_enabled) {
         Debug::Log("SetupAudioVisualization: Skipping (early return)");
         return;
+    }
+
+    // ✅ Only enable audio visualization for audio-only files (no video stream)
+    if (metadata_callback && !current_file_path.empty()) {
+        VideoMetadata meta = metadata_callback(current_file_path);
+        if (meta.is_loaded && meta.width > 0 && meta.height > 0) {
+            // This is a video file, skip audio visualization
+            Debug::Log("SetupAudioVisualization: Skipping for video file (not audio-only)");
+            return;
+        }
+        Debug::Log("SetupAudioVisualization: Audio-only file detected, enabling visualization");
     }
 
     Debug::Log("SetupAudioVisualization: Attempting to enable audio filter...");
@@ -1491,62 +1545,133 @@ void VideoPlayer::UpdateVideoTexture() {
 void VideoPlayer::UpdateProperties() {
     if (!mpv) return;
 
-    double dur = 0.0;
-    if (mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur) == 0 && dur > 0) {
-        cached_duration = dur;
+    // ✅ Use cached FFmpeg metadata for static properties (instant, no MPV queries)
+    // Skip for EXR sequences - they use DirectEXRCache, not FFmpeg metadata
+    bool should_use_metadata = metadata_callback && !current_file_path.empty() &&
+                                current_file_path.find("exr://") != 0 && !is_exr_mode;
+
+    if (should_use_metadata) {
+        VideoMetadata meta = metadata_callback(current_file_path);
+        if (meta.is_loaded) {
+            // Duration from metadata
+            if (meta.total_frames > 0 && meta.frame_rate > 0) {
+                cached_duration = meta.total_frames / meta.frame_rate;
+            }
+            // FPS from metadata
+            cached_fps = meta.frame_rate;
+
+            // Video dimensions from metadata
+            int new_width = meta.width;
+            int new_height = meta.height;
+
+            // Check if video dimensions changed
+            if (new_width != video_width || new_height != video_height) {
+                if (new_width > 0 && new_height > 0) {
+                    video_width = new_width;
+                    video_height = new_height;
+                    Debug::Log("Video dimensions updated from cached metadata: " +
+                               std::to_string(video_width) + "x" + std::to_string(video_height));
+
+                    // Recreate video textures with new dimensions
+                    CreateVideoTextures(video_width, video_height);
+
+                    // If color pipeline exists, also recreate color processing resources
+                    if (color_pipeline && color_pipeline->IsValid()) {
+                        SetupColorProcessingResources();
+                    }
+
+                    // If safety overlay system exists, update its dimensions
+                    // DISABLED: Safety overlay dimension updates disabled until SVG rendering implemented
+                    /*
+                    if (safety_overlay_system && safety_overlay_system->IsReady()) {
+                        safety_overlay_system->UpdateDimensions(video_width, video_height);
+                    }
+                    */
+
+                    // Notify UI of dimension change
+                    if (dimension_change_callback) {
+                        dimension_change_callback(video_width, video_height);
+                    }
+                }
+            }
+        }
+    } else {
+        // Fallback: Query MPV only if cached metadata not available
+        double dur = 0.0;
+        if (mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur) == 0 && dur > 0) {
+            cached_duration = dur;
+        }
+
+        cached_fps = GetFrameRate();
+
+        int64_t width = 0, height = 0;
+        int new_width = video_width;
+        int new_height = video_height;
+
+        if (mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &width) == 0) {
+            new_width = (int)width;
+        }
+        if (mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &height) == 0) {
+            new_height = (int)height;
+        }
+
+        // Check if video dimensions changed
+        if (new_width != video_width || new_height != video_height) {
+            if (new_width > 0 && new_height > 0) {
+                video_width = new_width;
+                video_height = new_height;
+                Debug::Log("Video dimensions changed to: " + std::to_string(video_width) + "x" + std::to_string(video_height));
+
+                // Recreate video textures with new dimensions
+                CreateVideoTextures(video_width, video_height);
+
+                // If color pipeline exists, also recreate color processing resources
+                if (color_pipeline && color_pipeline->IsValid()) {
+                    SetupColorProcessingResources();
+                }
+
+                // If safety overlay system exists, update its dimensions
+                // DISABLED: Safety overlay dimension updates disabled until SVG rendering implemented
+                /*
+                if (safety_overlay_system && safety_overlay_system->IsReady()) {
+                    safety_overlay_system->UpdateDimensions(video_width, video_height);
+                }
+                */
+
+                // Notify UI of dimension change
+                if (dimension_change_callback) {
+                    dimension_change_callback(video_width, video_height);
+                }
+            }
+        }
     }
+
+    // ✅ Only query MPV for LIVE playback state (these must come from MPV)
+    double pos = 0.0;
+    if (mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) == 0) {
+        cached_position = pos;
+    }
+
+    int pause_state = 0;
+    if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
+        is_playing = !pause_state;
+    }
+}
+
+void VideoPlayer::UpdatePlaybackState() {
+    if (!mpv) return;
+
+    // ✅ Only update DYNAMIC playback state (called every frame from RenderVideoFrame)
+    // Static properties (duration, fps, dimensions) are updated once in UpdateProperties()
 
     double pos = 0.0;
     if (mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) == 0) {
         cached_position = pos;
     }
 
-    cached_fps = GetFrameRate();
-
     int pause_state = 0;
     if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
         is_playing = !pause_state;
-    }
-
-    int64_t width = 0, height = 0;
-    int new_width = video_width;
-    int new_height = video_height;
-    
-    if (mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &width) == 0) {
-        new_width = (int)width;
-    }
-    if (mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &height) == 0) {
-        new_height = (int)height;
-    }
-
-    // Check if video dimensions changed
-    if (new_width != video_width || new_height != video_height) {
-        if (new_width > 0 && new_height > 0) {
-            video_width = new_width;
-            video_height = new_height;
-            Debug::Log("Video dimensions changed to: " + std::to_string(video_width) + "x" + std::to_string(video_height));
-
-            // Recreate video textures with new dimensions
-            CreateVideoTextures(video_width, video_height);
-
-            // If color pipeline exists, also recreate color processing resources
-            if (color_pipeline && color_pipeline->IsValid()) {
-                SetupColorProcessingResources();
-            }
-
-            // If safety overlay system exists, update its dimensions
-            // DISABLED: Safety overlay dimension updates disabled until SVG rendering implemented
-            /*
-            if (safety_overlay_system && safety_overlay_system->IsReady()) {
-                safety_overlay_system->UpdateDimensions(video_width, video_height);
-            }
-            */
-
-            // Notify UI of dimension change
-            if (dimension_change_callback) {
-                dimension_change_callback(video_width, video_height);
-            }
-        }
     }
 }
 
@@ -1558,6 +1683,9 @@ void VideoPlayer::ResetState() {
     has_video = false;
     cached_duration = 0.0;
     cached_position = 0.0;
+
+    // Clear current file path to prevent stale metadata lookups during transitions
+    current_file_path.clear();
 
     // === UNCONDITIONAL CACHE CLEANUP ===
     // Always clean up state, regardless of previous media type
@@ -1744,7 +1872,12 @@ void VideoPlayer::LoadPlaylistFiles(const std::vector<std::string>& file_paths) 
 // Metadata and file information methods
 // ============================================================================
 
+// LEGACY: This method queries MPV for metadata (50-100ms blocking)
+// PREFER: Use FFmpegMetadataExtractor before loading into MPV (much faster)
+// This is kept ONLY as a fallback for edge cases where FFmpeg metadata is unavailable
 VideoMetadata VideoPlayer::ExtractMetadata() const {
+    Debug::Log("ExtractMetadata: WARNING - Using legacy MPV metadata query (slow, prefer FFmpeg)");
+
     VideoMetadata metadata;
 
     if (!mpv) {
@@ -1790,182 +1923,14 @@ VideoMetadata VideoPlayer::ExtractMetadata() const {
     return metadata;
 }
 
-VideoMetadata VideoPlayer::ExtractMetadataFast() const {
-    VideoMetadata metadata;
-
-    if (!mpv) {
-        return metadata;
-    }
-
-    // Single batch operation to get all properties at once
-    char* path_result = nullptr;
-    char* video_codec_result = nullptr;
-    char* pixel_format_result = nullptr;
-    char* colorspace_result = nullptr;
-    char* primaries_result = nullptr;
-    char* trc_result = nullptr;
-    char* range_result = nullptr;  // NEW: Color range extraction
-    char* audio_codec_result = nullptr;
-
-    int64_t width = 0, height = 0, audio_channels = 0, sample_rate = 0;
-    double frame_rate = 0.0;
-
-    // Batch property extraction with error checking
-    if (mpv_get_property(mpv, "path", MPV_FORMAT_STRING, &path_result) == 0 && path_result) {
-        metadata.PopulateBasicFileInfo(std::string(path_result));
-        mpv_free(path_result);
-    }
-
-    // Video properties - use cached values when possible
-    metadata.width = GetVideoWidth();  // These are already cached
-    metadata.height = GetVideoHeight();
-
-    // Get frame rate with fallback
-    if (mpv_get_property(mpv, "container-fps", MPV_FORMAT_DOUBLE, &frame_rate) != 0) {
-        mpv_get_property(mpv, "estimated-vf-fps", MPV_FORMAT_DOUBLE, &frame_rate);
-    }
-    metadata.frame_rate = (frame_rate > 0) ? frame_rate : 23.976;
-    metadata.total_frames = static_cast<int>(cached_duration * metadata.frame_rate);
-
-    // Get codecs and formats (these are typically fast)
-    if (mpv_get_property(mpv, "video-codec", MPV_FORMAT_STRING, &video_codec_result) == 0 && video_codec_result) {
-        metadata.video_codec = std::string(video_codec_result);
-        mpv_free(video_codec_result);
-    }
-
-    if (mpv_get_property(mpv, "video-params/pixelformat", MPV_FORMAT_STRING, &pixel_format_result) == 0 && pixel_format_result) {
-        metadata.pixel_format = std::string(pixel_format_result);
-        mpv_free(pixel_format_result);
-
-        // NEW: Cache 4:1:1 and 4:2:1 format detection immediately after pixel format extraction
-        metadata.is_411_format = metadata.Is411Format();
-        metadata.is_421_format = metadata.Is421Format();
-    }
-
-    // Color properties (skip if not essential)
-    if (mpv_get_property(mpv, "video-params/colormatrix", MPV_FORMAT_STRING, &colorspace_result) == 0 && colorspace_result) {
-        metadata.colorspace = std::string(colorspace_result);
-        mpv_free(colorspace_result);
-    }
-
-    if (mpv_get_property(mpv, "video-params/primaries", MPV_FORMAT_STRING, &primaries_result) == 0 && primaries_result) {
-        metadata.color_primaries = std::string(primaries_result);
-        mpv_free(primaries_result);
-    }
-
-    if (mpv_get_property(mpv, "video-params/gamma", MPV_FORMAT_STRING, &trc_result) == 0 && trc_result) {
-        metadata.color_transfer = std::string(trc_result);
-        mpv_free(trc_result);
-    }
-
-    // NEW: Color range extraction (critical for proper color matrix application)
-    if (mpv_get_property(mpv, "video-params/colorrange", MPV_FORMAT_STRING, &range_result) == 0 && range_result) {
-        metadata.range_type = std::string(range_result);
-        mpv_free(range_result);
-    } else {
-        // Fallback to "unknown" if MPV doesn't provide range info
-        metadata.range_type = "unknown";
-    }
-
-    // Audio properties
-    if (mpv_get_property(mpv, "audio-codec", MPV_FORMAT_STRING, &audio_codec_result) == 0 && audio_codec_result) {
-        metadata.audio_codec = std::string(audio_codec_result);
-        mpv_free(audio_codec_result);
-    }
-
-    if (mpv_get_property(mpv, "audio-params/samplerate", MPV_FORMAT_INT64, &sample_rate) == 0) {
-        metadata.audio_sample_rate = static_cast<int>(sample_rate);
-    }
-
-    if (mpv_get_property(mpv, "audio-params/channel-count", MPV_FORMAT_INT64, &audio_channels) == 0) {
-        metadata.audio_channels = static_cast<int>(audio_channels);
-    }
-
-    // File size (use existing filesystem info if available, otherwise query)
-    if (metadata.file_size == 0) {
-        metadata.file_size = GetFileSize();
-    }
-
-    // PERFORMANCE FIX: Cache-specific properties will be detected lazily when needed
-    // This avoids expensive regex operations during synchronous metadata loading
-
-    // NOTE: NCLC detection moved to lazy evaluation in DisplayColorPropertiesTable()
-
-    metadata.is_loaded = true;
-    return metadata;
-}
-
-// NEW: Minimal critical metadata extraction for cache initialization
-// Only extracts the 6 properties needed by ConversionStrategy::FromMetadata()
-// Optional fields (audio, color primaries/transfer, file size, etc.) are deferred
-VideoMetadata VideoPlayer::ExtractCriticalMetadata() const {
-    VideoMetadata metadata;
-
-    if (!mpv) {
-        return metadata;
-    }
-
-    // CRITICAL FIELD 1-2: Dimensions (cached, instant)
-    metadata.width = GetVideoWidth();
-    metadata.height = GetVideoHeight();
-
-    // CRITICAL FIELD 3: Pixel format (needed for 4444/422/420 detection)
-    char* pixel_format_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/pixelformat", MPV_FORMAT_STRING, &pixel_format_result) == 0 && pixel_format_result) {
-        metadata.pixel_format = std::string(pixel_format_result);
-        mpv_free(pixel_format_result);
-
-        // Cache format detection immediately (needed for ConversionStrategy)
-        metadata.is_411_format = metadata.Is411Format();
-        metadata.is_421_format = metadata.Is421Format();
-    }
-
-    // CRITICAL FIELD 4: Colorspace/matrix (needed for color space conversion)
-    char* colorspace_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/colormatrix", MPV_FORMAT_STRING, &colorspace_result) == 0 && colorspace_result) {
-        metadata.colorspace = std::string(colorspace_result);
-        mpv_free(colorspace_result);
-    }
-
-    // CRITICAL FIELD 5: Color range (needed for limited vs full range)
-    char* range_result = nullptr;
-    if (mpv_get_property(mpv, "video-params/colorrange", MPV_FORMAT_STRING, &range_result) == 0 && range_result) {
-        metadata.range_type = std::string(range_result);
-        mpv_free(range_result);
-    } else {
-        metadata.range_type = "unknown";
-    }
-
-    // CRITICAL FIELD 6: Video codec (needed for H.264/H.265 cache disable detection)
-    char* video_codec_result = nullptr;
-    if (mpv_get_property(mpv, "video-codec", MPV_FORMAT_STRING, &video_codec_result) == 0 && video_codec_result) {
-        metadata.video_codec = std::string(video_codec_result);
-        mpv_free(video_codec_result);
-    }
-
-    // Get file path for basic info
-    char* path_result = nullptr;
-    if (mpv_get_property(mpv, "path", MPV_FORMAT_STRING, &path_result) == 0 && path_result) {
-        metadata.file_path = std::string(path_result);
-        metadata.file_name = std::filesystem::path(metadata.file_path).filename().string();
-        mpv_free(path_result);
-    }
-
-    // PERFORMANCE NOTE: Lazy detections will happen in ConversionStrategy::FromMetadata():
-    // - bit_depth (regex on pixel_format)
-    // - has_alpha (regex on pixel_format)
-    // - is_hdr_content (from colorspace)
-    // These are DEFERRED to avoid blocking video load
-
-    metadata.is_loaded = true;
-
-    Debug::Log("ExtractCriticalMetadata: Extracted 6 critical fields - " +
-               std::to_string(metadata.width) + "x" + std::to_string(metadata.height) + " " +
-               metadata.pixel_format + " " + metadata.colorspace + " " +
-               metadata.range_type + " " + metadata.video_codec);
-
-    return metadata;
-}
+// REMOVED: ExtractMetadataFast() and ExtractCriticalMetadata()
+// These methods queried MPV for metadata, forcing frame decode
+// Now replaced by FFmpegMetadataExtractor which extracts metadata
+// BEFORE loading into MPV (much faster, no frame decode required)
+//
+// For any legacy code that needs these:
+// - Use FFmpegMetadataExtractor::Extract() instead (preferred)
+// - Or use ExtractMetadata() below (legacy MPV query)
 
 VideoMetadata VideoPlayer::ExtractEXRMetadata(const std::vector<std::string>& sequence_files,
                                              const std::string& layer_name,
@@ -2036,42 +2001,9 @@ VideoMetadata VideoPlayer::ExtractEXRMetadata(const std::vector<std::string>& se
 }
 
 double VideoPlayer::ProbeFileDuration(const std::string& file_path) {
-    if (file_path.empty()) return 0.0;
-
-    mpv_handle* probe_mpv = mpv_create();
-    if (!probe_mpv) return 0.0;
-
-    // Configure for metadata probing only
-    mpv_set_option_string(probe_mpv, "vo", "null");
-    mpv_set_option_string(probe_mpv, "ao", "null");
-    mpv_set_option_string(probe_mpv, "pause", "yes");
-    mpv_set_option_string(probe_mpv, "idle", "yes");
-
-    if (mpv_initialize(probe_mpv) < 0) {
-        mpv_terminate_destroy(probe_mpv);
-        return 0.0;
-    }
-
-    const char* cmd[] = { "loadfile", file_path.c_str(), nullptr };
-    if (mpv_command(probe_mpv, cmd) < 0) {
-        mpv_terminate_destroy(probe_mpv);
-        return 0.0;
-    }
-
-    double duration = 0.0;
-    int attempts = 0;
-    while (attempts < 50) {
-        if (mpv_get_property(probe_mpv, "duration", MPV_FORMAT_DOUBLE, &duration) == 0 && duration > 0) {
-            break;
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        attempts++;
-    }
-
-    mpv_terminate_destroy(probe_mpv);
-
-    std::cout << "Probed duration for " << file_path << ": " << duration << " seconds" << std::endl;
-    return duration;
+    // REFACTORED: Use FFmpeg instead of creating temporary MPV instance
+    // This is ~250-500x faster (10ms vs up to 5000ms)
+    return ump::FFmpegMetadataExtractor::ProbeDuration(file_path);
 }
 
 void VideoPlayer::InitializeForEmptySequence(double default_duration) {
@@ -3009,21 +2941,21 @@ bool VideoPlayer::CaptureScreenshotToDesktop(const std::string& filename) {
         char timestamp[64];
         std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", &tm);
 
-        // Get filename from metadata, fallback to generic name
+        // Get filename from current file path, fallback to generic name
         std::string base_filename = "ump_Screenshot";
-        VideoMetadata metadata = ExtractMetadataFast();
-        if (!metadata.file_name.empty()) {
-            // Remove extension from filename if present
-            std::string filename = metadata.file_name;
-            size_t dot_pos = filename.find_last_of('.');
-            if (dot_pos != std::string::npos) {
-                base_filename = filename.substr(0, dot_pos);
+        if (mpv) {
+            char* path_result = nullptr;
+            if (mpv_get_property(mpv, "path", MPV_FORMAT_STRING, &path_result) == 0 && path_result) {
+                std::string file_path = path_result;
+                mpv_free(path_result);
+
+                // Extract filename without extension
+                std::filesystem::path p(file_path);
+                base_filename = p.stem().string();
+                Debug::Log("Screenshot: Using filename '" + base_filename + "' from current file");
             } else {
-                base_filename = filename;
+                Debug::Log("Screenshot: Could not get file path, using fallback");
             }
-            Debug::Log("Screenshot: Using filename '" + base_filename + "' from metadata");
-        } else {
-            Debug::Log("Screenshot: file_name is empty, using fallback");
         }
 
         // Save to desktop
@@ -3418,7 +3350,9 @@ static int ExtractStartFrameFromSequence(const std::vector<std::string>& files) 
 
 bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files,
                                            const std::string& layer_name,
-                                           double fps) {
+                                           double fps,
+                                           int cached_width,      // ✅ NEW
+                                           int cached_height) {   // ✅ NEW
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -3431,14 +3365,22 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     int start_frame = ExtractStartFrameFromSequence(sequence_files);
     Debug::Log("EXR sequence start frame: " + std::to_string(start_frame));
 
-    // Get dimensions from first EXR frame
+    // ✅ MODIFIED: Use cached dimensions if available (instant - no I/O!)
     int width, height;
-    if (!ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], width, height)) {
-        //Debug::Log("ERROR: Could not get dimensions from first EXR file: " + sequence_files[0]);
-        return false;
-    }
 
-    Debug::Log("EXR sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+    if (cached_width > 0 && cached_height > 0) {
+        // Use cached dimensions from MediaItem
+        width = cached_width;
+        height = cached_height;
+        Debug::Log("Using cached EXR sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+    } else {
+        // Fallback: Get dimensions from first EXR frame
+        if (!ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], width, height)) {
+            Debug::Log("ERROR: Could not get dimensions from first EXR file: " + sequence_files[0]);
+            return false;
+        }
+        Debug::Log("Detected EXR sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+    }
 
     // === EVICT VIDEO CACHE TO FREE RAM (cross-cache eviction) ===
     if (cache_clear_callback) {
@@ -3477,6 +3419,11 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     // Reapply loop settings for the dummy video (MPV resets settings on new file load)
     SetLoop(loop_enabled);
     Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
+
+    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // Image sequences never autoplay - need cache warmup time
+    Pause();
+    Debug::Log("LoadEXRSequenceWithDummy: Dummy video loaded in paused state (no autoplay for image sequences)");
 
     // Store sequence data for frame processing
     exr_sequence_files = sequence_files;
@@ -3530,7 +3477,9 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
 // NEW: Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
 bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files,
                                              double fps,
-                                             PipelineMode pipeline_mode) {
+                                             PipelineMode pipeline_mode,
+                                             int cached_width,      // ✅ NEW
+                                             int cached_height) {   // ✅ NEW
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -3572,13 +3521,22 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
 
     Debug::Log("Created " + format_name + " loader for sequence");
 
-    // Get dimensions from first file
+    // ✅ MODIFIED: Use cached dimensions if available (instant - no I/O!)
     int width, height;
-    if (!loader->GetDimensions(sequence_files[0], width, height)) {
-        Debug::Log("ERROR: Could not get dimensions from first file");
-        return false;
+
+    if (cached_width > 0 && cached_height > 0) {
+        // Use cached dimensions from MediaItem
+        width = cached_width;
+        height = cached_height;
+        Debug::Log("Using cached sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+    } else {
+        // Fallback: Get dimensions from first file
+        if (!loader->GetDimensions(sequence_files[0], width, height)) {
+            Debug::Log("ERROR: Could not get dimensions from first file");
+            return false;
+        }
+        Debug::Log("Detected image sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
     }
-    Debug::Log("Image sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
 
     // Extract start frame from sequence filenames
     int start_frame = ExtractStartFrameFromSequence(sequence_files);
@@ -3630,6 +3588,11 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     // Reapply loop settings for the dummy video
     SetLoop(loop_enabled);
     Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
+
+    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // Image sequences never autoplay - need cache warmup time
+    Pause();
+    Debug::Log("LoadImageSequenceWithCache: Dummy video loaded in paused state (no autoplay for image sequences)");
 
     // Store sequence data for frame processing (reuse EXR infrastructure)
     exr_sequence_files = sequence_files;
