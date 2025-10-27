@@ -29,27 +29,17 @@ void AnnotationToolbar::Render(ViewportAnnotator* viewport_annotator, bool can_u
     stroke_width_ = viewport_annotator->GetStrokeWidth();
     fill_enabled_ = viewport_annotator->IsFillEnabled();
 
-    // Create a horizontal toolbar floating over the viewport
-    ImGuiWindowFlags window_flags =
-        ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoScrollWithMouse |
-        ImGuiWindowFlags_NoDocking |
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_AlwaysAutoResize;
-
-    if (ImGui::Begin("Annotation Toolbar", &is_visible_, window_flags)) {
-        // Horizontal layout
-        RenderToolButtons(s_icon_font, s_accent_regular);
-        ImGui::SameLine();
-        ImGui::Text("|");
-        ImGui::SameLine();
-        RenderDrawingProperties();
-        ImGui::SameLine();
-        ImGui::Text("|");
-        ImGui::SameLine();
-        RenderActionButtons(can_undo, can_redo, s_icon_font, s_accent_regular, s_accent_muted_dark);
-    }
-    ImGui::End();
+    // Render toolbar content inline (no window creation - parent manages layout)
+    // Horizontal layout
+    RenderToolButtons(s_icon_font, s_accent_regular);
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+    RenderDrawingProperties();
+    ImGui::SameLine();
+    ImGui::Text("|");
+    ImGui::SameLine();
+    RenderActionButtons(can_undo, can_redo, s_icon_font, s_accent_regular, s_accent_muted_dark);
 }
 
 void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regular) {

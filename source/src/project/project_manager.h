@@ -418,6 +418,9 @@ namespace ump {
         // TIFF/PNG sequence detection
         bool is_tiff_png_sequence = false;
 
+        // Single image detection
+        bool is_single_image = false;
+
         // EXR transcode settings (also used for TIFF/PNG → EXR transcode)
         bool exr_transcode_enabled = false;
         int exr_transcode_max_width = 0;  // 0 = native

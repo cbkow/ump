@@ -1099,7 +1099,12 @@ namespace ump {
         }
 
         if (ImGui::BeginPopupModal("Select Frame Rate", &show_frame_rate_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Image sequence detected:");
+            // Show appropriate title based on single image vs sequence
+            if (is_single_image) {
+                ImGui::Text("Single image detected:");
+            } else {
+                ImGui::Text("Image sequence detected:");
+            }
 
             // Safety check for valid path
             if (font_mono) ImGui::PushFont(font_mono);
@@ -1244,28 +1249,34 @@ namespace ump {
                 ImGui::Separator();
             }
 
-            ImGui::Text("Please select a frame rate:");
+            // Disable FPS controls for single images
+            if (is_single_image) {
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frame rate: Not applicable (single image)");
+                selected_frame_rate = 24.0; // Use default FPS for single images
+            } else {
+                ImGui::Text("Please select a frame rate:");
 
-            // Common frame rate buttons in a simple grid layout
-            if (ImGui::Button("23.976")) selected_frame_rate = 23.976;
-            ImGui::SameLine();
-            if (ImGui::Button("24")) selected_frame_rate = 24.0;
-            ImGui::SameLine();
-            if (ImGui::Button("25")) selected_frame_rate = 25.0;
-            ImGui::SameLine();
-            if (ImGui::Button("29.97")) selected_frame_rate = 29.97;
+                // Common frame rate buttons in a simple grid layout
+                if (ImGui::Button("23.976")) selected_frame_rate = 23.976;
+                ImGui::SameLine();
+                if (ImGui::Button("24")) selected_frame_rate = 24.0;
+                ImGui::SameLine();
+                if (ImGui::Button("25")) selected_frame_rate = 25.0;
+                ImGui::SameLine();
+                if (ImGui::Button("29.97")) selected_frame_rate = 29.97;
 
-            if (ImGui::Button("30")) selected_frame_rate = 30.0;
-            ImGui::SameLine();
-            if (ImGui::Button("50")) selected_frame_rate = 50.0;
-            ImGui::SameLine();
-            if (ImGui::Button("59.94")) selected_frame_rate = 59.94;
-            ImGui::SameLine();
-            if (ImGui::Button("60")) selected_frame_rate = 60.0;
+                if (ImGui::Button("30")) selected_frame_rate = 30.0;
+                ImGui::SameLine();
+                if (ImGui::Button("50")) selected_frame_rate = 50.0;
+                ImGui::SameLine();
+                if (ImGui::Button("59.94")) selected_frame_rate = 59.94;
+                ImGui::SameLine();
+                if (ImGui::Button("60")) selected_frame_rate = 60.0;
 
-            ImGui::Separator();
-            ImGui::Text("Custom frame rate:");
-            ImGui::InputDouble("##fps", &selected_frame_rate, 0.1, 1.0, "%.3f");
+                ImGui::Separator();
+                ImGui::Text("Custom frame rate:");
+                ImGui::InputDouble("##fps", &selected_frame_rate, 0.1, 1.0, "%.3f");
+            }
 
             ImGui::Separator();
             if (ImGui::Button("OK")) {
@@ -3837,6 +3848,11 @@ namespace ump {
                                     if (i != current_layer_index) {
                                         std::string item_id = current_item->id;
 
+                                        Debug::Log("EXR Layer Changed:");
+                                        Debug::Log("  Old layer: " + current_item->exr_layer_display);
+                                        Debug::Log("  New layer: " + available_layer_display_names[i]);
+                                        Debug::Log("  Item ID: " + item_id);
+
                                         current_item->exr_layer = available_layer_names[i];
                                         current_item->exr_layer_display = available_layer_display_names[i];
 
@@ -3848,21 +3864,53 @@ namespace ump {
                                         }
                                         current_item->path = base_path + "?layer=" + current_item->exr_layer;
 
+                                        // Update item name to reflect new layer
+                                        // Format: "basename [N frames X-Y] - LayerName"
+                                        // Extract base name (everything before " [")
+                                        std::string old_name = current_item->name;
+                                        size_t bracket_pos = old_name.find(" [");
+                                        if (bracket_pos != std::string::npos) {
+                                            std::string base_name = old_name.substr(0, bracket_pos);
+                                            current_item->name = base_name + " [" +
+                                                std::to_string(current_item->frame_count) + " frames " +
+                                                std::to_string(current_item->start_frame) + "-" +
+                                                std::to_string(current_item->end_frame) + "] - " +
+                                                current_item->exr_layer_display;
+                                            Debug::Log("  Updated item name: " + current_item->name);
+                                        } else {
+                                            Debug::Log("  WARNING: Could not parse item name format");
+                                        }
+
+                                        Debug::Log("  Updated media_pool item - new path: " + current_item->path);
+
                                         // Also update the bin copy (bins store copies of MediaItems, not references)
                                         // Find the item in its bin and update it
+                                        bool bin_updated = false;
                                         for (auto& bin : bins) {
                                             for (auto& bin_item : bin.items) {
                                                 if (bin_item.id == item_id) {
                                                     bin_item.exr_layer = available_layer_names[i];
                                                     bin_item.exr_layer_display = available_layer_display_names[i];
                                                     bin_item.path = current_item->path;
-                                                    break;
+                                                    bin_item.name = current_item->name;  // ← Update name too!
+                                                    bin_updated = true;
+                                                    Debug::Log("  Updated bin item in bin: " + bin.name);
+                                                    break;  // Break inner loop, continue checking other bins
                                                 }
                                             }
+                                            if (bin_updated) break;  // Item found and updated, exit outer loop
+                                        }
+
+                                        if (bin_updated) {
+                                            Debug::Log("  Successfully updated bin copy");
+                                        } else {
+                                            Debug::Log("  WARNING: Item not found in any bin!");
                                         }
 
                                         // Reload the sequence with new layer
+                                        Debug::Log("  Reloading sequence with new layer...");
                                         LoadSingleMediaItem(*current_item);
+                                        Debug::Log("  Layer change complete");
                                     }
                                 }
                                 if (is_selected) {
@@ -5262,7 +5310,8 @@ namespace ump {
                 // Try pattern without separator (rare case: file000012)
                 std::regex no_sep_pattern(R"(^(.+?)(\d{3,})$)"); // Require 3+ digits to avoid false positives
                 if (!std::regex_match(filename, match, no_sep_pattern)) {
-                    return false; // Doesn't look like a sequence
+                    // No numbered pattern - treat as single image (allow loading through sequence dialog)
+                    return true;
                 }
             }
 
@@ -5297,7 +5346,8 @@ namespace ump {
                 }
             }
 
-            return false; // Not enough files found
+            // Allow single images (including those with numbered pattern but only 1 file)
+            return true;
         } catch (...) {
             return false; // Any error means not a sequence
         }
@@ -5318,7 +5368,9 @@ namespace ump {
                 // Try pattern without separator (rare case: file000012)
                 std::regex no_sep_pattern(R"(^(.+?)(\d{3,})$)"); // Require 3+ digits to avoid false positives
                 if (!std::regex_match(filename, match, no_sep_pattern)) {
-                    return {}; // No valid pattern
+                    // No numbered pattern - treat as single image file
+                    Debug::Log("DetectImageSequence: Single image detected (no pattern): " + path.string());
+                    return {path.string()};
                 }
             }
 
@@ -5372,6 +5424,12 @@ namespace ump {
             // directory_iterator does NOT guarantee order!
             std::sort(sequence_files.begin(), sequence_files.end());
 
+            // Handle single image with numbered pattern (only 1 matching file found)
+            if (sequence_files.empty()) {
+                Debug::Log("DetectImageSequence: Single image detected (numbered pattern, no other files): " + path.string());
+                return {path.string()};
+            }
+
             return sequence_files;
         } catch (const std::exception& e) {
             Debug::Log("DetectImageSequence: Exception - " + std::string(e.what()));
@@ -5389,6 +5447,7 @@ namespace ump {
         // Check if this is an EXR sequence and detect layers
         is_exr_sequence = false;
         is_tiff_png_sequence = false;
+        is_single_image = false;
         {
             std::lock_guard<std::mutex> lock(exr_layers_mutex);
             exr_layer_names.clear();
@@ -5396,6 +5455,13 @@ namespace ump {
             selected_exr_layer_index = 0;
         }
         hidden_cryptomatte_count = 0;
+
+        // Detect if this is a single image or a sequence
+        std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
+        if (sequence_files.size() == 1) {
+            Debug::Log("Single image detected: " + sequence_path);
+            is_single_image = true;
+        }
 
         std::filesystem::path path(sequence_path);
         std::string extension = path.extension().string();

@@ -3107,7 +3107,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.2");
+                ImGui::TextDisabled("About u.m.p. v0.2.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4537,13 +4537,151 @@ private:
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
 
-            // Calculate space for timeline at bottom (timeline viz + bottom toolbar)
+            // Calculate space for toolbar (only in annotation mode) and timeline at bottom
+            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode()) ? 35.0f : 0.0f;
             const float timeline_height = show_timeline_panel ? 170.0f : 0.0f;
             ImVec2 total_region = ImGui::GetContentRegionAvail();
 
+            // Render annotation toolbar at top (only in annotation mode)
+            if (toolbar_height > 0.0f && annotation_toolbar) {
+                ImGui::BeginChild("##ToolbarArea", ImVec2(0, toolbar_height), true,
+                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+
+                // Add left padding
+                const float toolbar_h_padding = 12.0f;
+                ImGui::Dummy(ImVec2(toolbar_h_padding, 0));
+                ImGui::SameLine();
+
+                // Set up toolbar callbacks
+                ump::Annotations::AnnotationToolbar::Callbacks callbacks;
+
+                callbacks.on_tool_changed = [this](ump::Annotations::DrawingTool tool) {
+                    if (viewport_annotator) {
+                        viewport_annotator->SetActiveTool(tool);
+                        Debug::Log("Tool changed");
+                    }
+                };
+
+                callbacks.on_color_changed = [this](const ImVec4& color) {
+                    if (viewport_annotator) {
+                        viewport_annotator->SetDrawingColor(color);
+                    }
+                };
+
+                callbacks.on_stroke_width_changed = [this](float width) {
+                    if (viewport_annotator) {
+                        viewport_annotator->SetStrokeWidth(width);
+                    }
+                };
+
+                callbacks.on_fill_changed = [this](bool enabled) {
+                    if (viewport_annotator) {
+                        viewport_annotator->SetFillEnabled(enabled);
+                    }
+                };
+
+                callbacks.on_done = [this]() {
+                    Debug::Log("Done - saving annotation and exiting edit mode");
+
+                    // Finalize any active stroke being drawn
+                    auto active_stroke = viewport_annotator->FinalizeStroke();
+                    if (active_stroke) {
+                        // Add to current strokes
+                        current_annotation_strokes_.push_back(*active_stroke);
+                        Debug::Log("Added final stroke to annotation");
+                    }
+
+                    // Serialize all strokes to JSON
+                    std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+
+                    // Save to annotation manager
+                    if (annotation_manager && !current_editing_timecode_.empty()) {
+                        annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+                        Debug::Log("Saved " + std::to_string(current_annotation_strokes_.size()) + " strokes to annotation");
+                    }
+
+                    // Clear editing state
+                    current_annotation_strokes_.clear();
+                    current_editing_timecode_.clear();
+
+                    // Exit annotation mode
+                    viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    annotation_toolbar->SetVisible(false);
+                };
+
+                callbacks.on_cancel = [this]() {
+                    Debug::Log("Cancel - discarding changes and exiting edit mode");
+
+                    // Clear any active stroke
+                    viewport_annotator->ClearActiveStroke();
+
+                    // Discard all changes
+                    current_annotation_strokes_.clear();
+                    current_editing_timecode_.clear();
+
+                    // Exit annotation mode without saving
+                    viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    annotation_toolbar->SetVisible(false);
+                };
+
+                callbacks.on_undo = [this]() {
+                    if (!annotation_undo_stack_.empty()) {
+                        // Save current state to redo stack
+                        annotation_redo_stack_.push_back(current_annotation_strokes_);
+
+                        // Restore previous state
+                        current_annotation_strokes_ = annotation_undo_stack_.back();
+                        annotation_undo_stack_.pop_back();
+
+                        Debug::Log("Undo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+                    }
+                };
+
+                callbacks.on_redo = [this]() {
+                    if (!annotation_redo_stack_.empty()) {
+                        // Save current state to undo stack
+                        annotation_undo_stack_.push_back(current_annotation_strokes_);
+
+                        // Restore next state
+                        current_annotation_strokes_ = annotation_redo_stack_.back();
+                        annotation_redo_stack_.pop_back();
+
+                        Debug::Log("Redo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+                    }
+                };
+
+                callbacks.on_clear_all = [this]() {
+                    Debug::Log("Clear all - clearing all strokes");
+                    // Save current state to undo stack before clearing
+                    if (!current_annotation_strokes_.empty()) {
+                        annotation_undo_stack_.push_back(current_annotation_strokes_);
+                        // Clear redo stack when a new action is performed
+                        annotation_redo_stack_.clear();
+                    }
+                    // Clear all strokes
+                    current_annotation_strokes_.clear();
+                    viewport_annotator->ClearActiveStroke();
+                };
+
+                annotation_toolbar->SetCallbacks(callbacks);
+
+                // Render the toolbar inline
+                bool can_undo = !annotation_undo_stack_.empty();
+                bool can_redo = !annotation_redo_stack_.empty();
+
+                // Get system accent colors
+                ImVec4 accent_regular = GetWindowsAccentColor();
+                ImVec4 accent_muted_dark = MutedDark(GetWindowsAccentColor());
+
+                annotation_toolbar->Render(viewport_annotator.get(), can_undo, can_redo,
+                                           font_icons, accent_regular, accent_muted_dark);
+
+                ImGui::EndChild();  // ##ToolbarArea
+            }
+
             // Create child window for video area
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-            ImGui::BeginChild("##VideoArea", ImVec2(0, total_region.y - timeline_height), false,
+            ImGui::BeginChild("##VideoArea", ImVec2(0, total_region.y - timeline_height - toolbar_height), false,
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
             ImVec2 content_region = ImGui::GetContentRegionAvail();
@@ -9524,151 +9662,10 @@ private:
 
 
     void CreateAnnotationToolbar() {
-        if (!annotation_toolbar || !viewport_annotator) return;
-
-        // Only show toolbar in annotation mode
-        if (!viewport_annotator->IsAnnotationMode()) {
-            annotation_toolbar->SetVisible(false);
-            return;
-        }
-
-        // Position the toolbar as a floating window over the viewport (top-left corner)
-        ImGuiWindow* viewport_window = ImGui::FindWindowByName("Video Viewport");
-        if (viewport_window) {
-            ImVec2 viewport_pos = viewport_window->Pos;
-            ImVec2 viewport_size = viewport_window->Size;
-
-            // Position in top-left corner with padding
-            const float padding = 10.0f;
-            ImVec2 toolbar_pos = ImVec2(viewport_pos.x + padding, viewport_pos.y + padding);
-
-            ImGui::SetNextWindowPos(toolbar_pos, ImGuiCond_Always);
-            ImGui::SetNextWindowBgAlpha(0.85f);  // Semi-transparent background
-        }
-
-        // Set up toolbar callbacks
-        ump::Annotations::AnnotationToolbar::Callbacks callbacks;
-
-        callbacks.on_tool_changed = [this](ump::Annotations::DrawingTool tool) {
-            if (viewport_annotator) {
-                viewport_annotator->SetActiveTool(tool);
-                Debug::Log("Tool changed");
-            }
-        };
-
-        callbacks.on_color_changed = [this](const ImVec4& color) {
-            if (viewport_annotator) {
-                viewport_annotator->SetDrawingColor(color);
-            }
-        };
-
-        callbacks.on_stroke_width_changed = [this](float width) {
-            if (viewport_annotator) {
-                viewport_annotator->SetStrokeWidth(width);
-            }
-        };
-
-        callbacks.on_fill_changed = [this](bool enabled) {
-            if (viewport_annotator) {
-                viewport_annotator->SetFillEnabled(enabled);
-            }
-        };
-
-        callbacks.on_done = [this]() {
-            Debug::Log("Done - saving annotation and exiting edit mode");
-
-            // Finalize any active stroke being drawn
-            auto active_stroke = viewport_annotator->FinalizeStroke();
-            if (active_stroke) {
-                // Add to current strokes
-                current_annotation_strokes_.push_back(*active_stroke);
-                Debug::Log("Added final stroke to annotation");
-            }
-
-            // Serialize all strokes to JSON
-            std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
-
-            // Save to annotation manager
-            if (annotation_manager && !current_editing_timecode_.empty()) {
-                annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
-                Debug::Log("Saved " + std::to_string(current_annotation_strokes_.size()) + " strokes to annotation");
-            }
-
-            // Clear editing state
-            current_annotation_strokes_.clear();
-            current_editing_timecode_.clear();
-
-            // Exit annotation mode
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
-            annotation_toolbar->SetVisible(false);
-        };
-
-        callbacks.on_cancel = [this]() {
-            Debug::Log("Cancel - discarding changes and exiting edit mode");
-
-            // Clear any active stroke
-            viewport_annotator->ClearActiveStroke();
-
-            // Discard all changes
-            current_annotation_strokes_.clear();
-            current_editing_timecode_.clear();
-
-            // Exit annotation mode without saving
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
-            annotation_toolbar->SetVisible(false);
-        };
-
-        callbacks.on_undo = [this]() {
-            if (!annotation_undo_stack_.empty()) {
-                // Save current state to redo stack
-                annotation_redo_stack_.push_back(current_annotation_strokes_);
-
-                // Restore previous state
-                current_annotation_strokes_ = annotation_undo_stack_.back();
-                annotation_undo_stack_.pop_back();
-
-                Debug::Log("Undo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
-            }
-        };
-
-        callbacks.on_redo = [this]() {
-            if (!annotation_redo_stack_.empty()) {
-                // Save current state to undo stack
-                annotation_undo_stack_.push_back(current_annotation_strokes_);
-
-                // Restore next state
-                current_annotation_strokes_ = annotation_redo_stack_.back();
-                annotation_redo_stack_.pop_back();
-
-                Debug::Log("Redo - restored to " + std::to_string(current_annotation_strokes_.size()) + " strokes");
-            }
-        };
-
-        callbacks.on_clear_all = [this]() {
-            Debug::Log("Clear all - clearing all strokes");
-            // Save current state to undo stack before clearing
-            if (!current_annotation_strokes_.empty()) {
-                annotation_undo_stack_.push_back(current_annotation_strokes_);
-                // Clear redo stack when a new action is performed
-                annotation_redo_stack_.clear();
-            }
-            // Clear all strokes
-            current_annotation_strokes_.clear();
-            viewport_annotator->ClearActiveStroke();
-        };
-
-        annotation_toolbar->SetCallbacks(callbacks);
-
-        // Render the toolbar
-        bool can_undo = !annotation_undo_stack_.empty();
-        bool can_redo = !annotation_redo_stack_.empty();
-
-        // Get system accent colors
-        ImVec4 accent_regular = GetWindowsAccentColor();
-        ImVec4 accent_muted_dark = MutedDark(GetWindowsAccentColor());
-
-        annotation_toolbar->Render(viewport_annotator.get(), can_undo, can_redo,
-                                   font_icons, accent_regular, accent_muted_dark);
+        // NOTE: Annotation toolbar is now rendered inline within the Video Viewport window
+        // (see CreateVideoViewport - ##ToolbarArea child window around line 4546)
+        // This function is kept as a no-op for backward compatibility but does nothing
+        return;
     }
 
     void CreateColorPanels() {
