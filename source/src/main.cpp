@@ -4801,16 +4801,19 @@ private:
             }
 
             // Try to use cached frame during scrubbing for instant feedback
+            // Skip seek cache in dual view mode - let normal MPV rendering handle both sides
             bool used_cached_frame = false;
-            if (timeline_manager && (timeline_manager->IsScrubbing() || timeline_manager->IsHoldingCachedFrame())) {
+            if (timeline_manager &&
+                (timeline_manager->IsScrubbing() || timeline_manager->IsHoldingCachedFrame()) &&
+                !(video_player && video_player->IsComparisonModeEnabled())) {
                 GLuint cached_texture_id = 0;
                 int cached_width = 0, cached_height = 0;
                 double current_time = timeline_manager->GetUIPosition();
 
                 if (timeline_manager->GetCachedFrameForScrubbing(current_time, cached_texture_id, cached_width, cached_height)) {
                     // Use cached frame for instant scrubbing feedback
-                    // Debug::Log("Using cached frame for scrubbing at " + std::to_string(current_time) + 
-                    //           "s (texture_id: " + std::to_string(cached_texture_id) + 
+                    // Debug::Log("Using cached frame for scrubbing at " + std::to_string(current_time) +
+                    //           "s (texture_id: " + std::to_string(cached_texture_id) +
                     //           ", size: " + std::to_string(cached_width) + "x" + std::to_string(cached_height) + ")");
 
                     // Calculate display size maintaining aspect ratio
@@ -4871,7 +4874,10 @@ private:
 
             // Fallback to normal video rendering if no cached frame available
             if (!used_cached_frame) {
-                if (timeline_manager && timeline_manager->IsHoldingCachedFrame()) {
+                // In dual view mode, always render both videos (don't show black screen)
+                bool is_dual_view = video_player && video_player->IsComparisonModeEnabled();
+
+                if (timeline_manager && timeline_manager->IsHoldingCachedFrame() && !is_dual_view) {
                     // Don't render video frame while holding cached frame to avoid flashing old frame
                     // Draw solid black to prevent OpenGL texture flash
                     ImDrawList* draw_list = ImGui::GetWindowDrawList();
