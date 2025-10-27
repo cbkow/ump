@@ -10,7 +10,7 @@ nav_order: 10
 
 Basic image sequence usage is straightforward: Open or drag in a single image from a sequence, and u.m.p. will detect the sequence. Select a framerate, and if a multi-layer EXR, select the layer you want to load.
 
-![Window](images/ump_IUdpvFMZM6.png)
+![Window](images/ump_XzXKVaa6yo.png)
 
 There are some considerations to smooth playback, though:
 
@@ -19,6 +19,6 @@ There are some considerations to smooth playback, though:
 
 ## Transcoding
 
-![Window](images/ump_wpyAlk8npd.png)
+![Window](images/ump_ilZz6j5ZtH.png)
 
 With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. `DWAA/DWAB` because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.

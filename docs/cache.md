@@ -10,7 +10,7 @@ nav_order: 11
 
 In u.m.p.'s cache setting panel, we have various settings that can help boost performance on your system.
 
-![Window](images/ump_rPcwmWnQ5O.png)
+![Window](images/ump_clIAlPenC7.png)
 
 There are two settings you should immediately take a look at after installing the app:
 
@@ -20,6 +20,6 @@ There are two settings you should immediately take a look at after installing th
 
 ## System Stats Bar
 
-![Window](images/ump_ndhWN2zFQV.png)
+![Window](images/ump_NCORZuYmtB.png)
 
 On the topic of RAM safety, there is also a System-Stats panel that could be helpful to diagnose performance issues. If your system surpasses 92% RAM capacity, this will automatically appear, and all memory options will cease until RAM has safely lowered. This will mean that you will not be able to play image sequences until RAM is free--they are 100% reliant on memory-mapping textures.

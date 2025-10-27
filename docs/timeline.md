@@ -10,14 +10,14 @@ The timeline and transport panel contains playback controls, annotation markers,
 
 ## Timecode mode
 
-![window](images/TabTip_krB2jrBsWb.png)
+![window](images/ump_SatErKc9hW.png)
 Timecode mode looks for QT start time or XMP timecode in video metadata and changes the time counter to match the timecode of the video.
 
 ---
 
 ## Transport controls
 
-![window](images/TabTip_0YOqpoCQuQ.png)
+![window](images/explorer_YLJZWJ3O0O.png)
 The transport controls are as follows:
 - Previous video in playlist (only available in playlist mode)
 - Beginning of media
@@ -33,7 +33,7 @@ The transport controls are as follows:
 
 ## The Timeline
 
-![window](images/TabTip_UxvSVqV0pr.png)
+![window](images/explorer_SeFLZCiN0l.png)
 
 ### Video mode
 In video mode there is a colored cache bar at the bottom of the timeline. This represents a fast-seek cache. Most useful for shorter videos, this cache has stored all the marked frames in memory for fast timeline scrubbing and seeking. It only runs when the video is paused--preventing playback interference. Fask scrubbing the timeline will quickly shuttle these frames stored in memory for precise seeks.
@@ -55,11 +55,11 @@ Additionally, in both modes, there are diamond shapes that mark notes in our ann
 
 ## Mute, Volume, Loop, and Frame count
 
-![window](images/TabTip_y4erFYeFtq.png)
+![window](images/explorer_5noSG9vZDc.png)
 At the bottom of our panel, on the left, we have a Volume bar, a Mute state button, and a Loop state button. On the right, we see the current time and frame of the playhead.
 
 
 ## Loop in/out
 
-![window](images/ump_qSX9lzvuTy.png)
+![window](images/explorer_ArMq05VuGy.png)
 Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop-out button will set an out point. Once selected, looping will be constrained to the area.

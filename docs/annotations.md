@@ -10,7 +10,7 @@ nav_order: 9
 
 u.m.p.'s annotation panel curates a list of all notes and illustrated annotations for loaded media. Notes and screenshots are saved in a `.ump` folder next to the loaded media, making them accessible to coworkers as well. They will load with the media, if available.
 
-![Window](images/ump_bC120Z3Qpx.png)
+![Window](images/ump_dnJ3OzwYm4.png)
 
 ## Notes
 
@@ -33,7 +33,6 @@ Under `Export`, in the menu above the annotations window, are a few options for 
 
 To import from Frame.io, you will need a Developer API token. These are available to any Frame.io user--go to [https://developer.frame.io/app/tokens](https://developer.frame.io/app/tokens) to make one.
 
-![Window](images/ump_gdusGDiArk.png)
 
 - In the top menu, go to `Import` -> `Frame.io`.
 - Add, and optionally save, your API token. (Note: These are not saved securely, so don't do this on a public computer.)
