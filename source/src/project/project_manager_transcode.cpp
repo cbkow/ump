@@ -10,6 +10,7 @@
 #include "../nodes/node_base.h"
 #include "../transcode/ffmpeg_video_encoder.h"
 #include "../metadata/adobe_metadata.h"
+#include "../metadata/ffmpeg_metadata_extractor.h"
 #include <imgui.h>
 #include <nfd.h>
 #include <filesystem>
@@ -543,7 +544,12 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             tc.input_mode = VideoTranscoder::InputMode::VIDEO_FILE;
             tc.input_video_path = item.path;
             tc.fps = item.frame_rate > 0 ? item.frame_rate : 24.0;  // Use video's native FPS
-            tc.video_duration = item.duration;
+
+            // Use precise FFmpeg duration for transcoder (not rounded through frame count)
+            double precise_duration = ump::FFmpegMetadataExtractor::ProbeDuration(item.path);
+            tc.video_duration = (precise_duration > 0) ? precise_duration : item.duration;
+            Debug::Log("Transcode: Using precise duration = " + std::to_string(tc.video_duration) + "s (item.duration was " + std::to_string(item.duration) + "s)");
+
             tc.start_frame = 0;
             tc.end_frame = -1;  // Process entire video
 

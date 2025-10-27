@@ -352,12 +352,20 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             // Use floor to avoid trying to decode partial frames at the end
             // Subtract small epsilon to handle floating point rounding errors
             int total_frames = static_cast<int>(std::floor(config.video_duration * config.fps - 0.01));
-            frame_paths.reserve(total_frames);
-            for (int i = 0; i < total_frames; ++i) {
+
+            // Apply start_frame/end_frame trimming (similar to image sequence handling)
+            int start_frame = (config.start_frame >= 0) ? config.start_frame : 0;
+            int end_frame = (config.end_frame >= 0) ? std::min(config.end_frame, total_frames - 1) : (total_frames - 1);
+
+            // Generate frame indices only for the trimmed range
+            int trimmed_frame_count = end_frame - start_frame + 1;
+            frame_paths.reserve(trimmed_frame_count);
+            for (int i = start_frame; i <= end_frame; ++i) {
                 frame_paths.push_back(std::to_string(i));
             }
-            Debug::Log("VideoTranscoder: Generated " + std::to_string(frame_paths.size()) + " frame indices for video (duration=" +
-                       std::to_string(config.video_duration) + "s, fps=" + std::to_string(config.fps) + ")");
+            Debug::Log("VideoTranscoder: Generated " + std::to_string(frame_paths.size()) + " frame indices for video" +
+                       " (source frames " + std::to_string(start_frame) + " to " + std::to_string(end_frame) +
+                       ", duration=" + std::to_string(config.video_duration) + "s, fps=" + std::to_string(config.fps) + ")");
         } else {
             frame_paths = config.input_files;
         }
@@ -483,33 +491,21 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         // ===================================================================
         // STEP 6: Encode All Frames
         // ===================================================================
-        int max_frame_index;
-        if (config.input_mode == InputMode::VIDEO_FILE) {
-            // Use same calculation as frame path generation to avoid off-by-one errors
-            max_frame_index = static_cast<int>(std::floor(config.video_duration * config.fps - 0.01)) - 1;
-        } else {
-            max_frame_index = static_cast<int>(config.input_files.size()) - 1;
-        }
-
-        int end_frame = config.end_frame >= 0 ?
-                       std::min(config.end_frame, max_frame_index) :
-                       max_frame_index;
-
-        int total_frames = end_frame - config.start_frame + 1;
+        // frame_paths now contains only the frames we want to encode (trimmed range for video, or full sequence)
+        int total_frames = static_cast<int>(frame_loader_->GetFrameCount());
 
         progress.total_frames = total_frames;
         progress.status = "Encoding";
 
-        Debug::Log("VideoTranscoder: Encoding " + std::to_string(total_frames) + " frames " +
-                   "(" + std::to_string(config.start_frame) + " to " + std::to_string(end_frame) + ")");
+        Debug::Log("VideoTranscoder: Encoding " + std::to_string(total_frames) + " frames");
 
-        for (int i = config.start_frame; i <= end_frame; ++i) {
+        for (int i = 0; i < total_frames; ++i) {
             if (cancel_requested_) {
                 throw std::runtime_error("Cancelled by user");
             }
 
             // Update progress
-            progress.current_frame = i - config.start_frame;
+            progress.current_frame = i;
             progress.progress_percent = (progress.current_frame * 100.0) / total_frames;
             progress.current_status_text = "Encoding frame " + std::to_string(progress.current_frame + 1) +
                                           " / " + std::to_string(total_frames);
@@ -530,7 +526,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             }
 
             // Prefetch next frames
-            if (i + transcode_settings.prefetch_ahead_count <= end_frame) {
+            if (i + transcode_settings.prefetch_ahead_count < total_frames) {
                 frame_loader_->PrefetchAhead(i);
             }
 
@@ -569,11 +565,16 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             Debug::Log("VideoTranscoder: Copying audio packets from source");
 
             // Calculate time range for audio trimming (to match video trim)
-            double start_time_sec = config.start_frame / config.fps;
-            double end_time_sec = (end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
+            // Note: frame_paths contains the trimmed range, so we need to extract actual frame numbers
+            int actual_start_frame = (config.start_frame >= 0) ? config.start_frame : 0;
+            int actual_end_frame = (config.start_frame >= 0) ? (actual_start_frame + total_frames - 1) : (total_frames - 1);
+
+            double start_time_sec = actual_start_frame / config.fps;
+            double end_time_sec = (actual_end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
 
             Debug::Log("VideoTranscoder: Trimming audio to match video range: " +
-                       std::to_string(start_time_sec) + "s to " + std::to_string(end_time_sec) + "s");
+                       std::to_string(start_time_sec) + "s to " + std::to_string(end_time_sec) + "s" +
+                       " (frames " + std::to_string(actual_start_frame) + " to " + std::to_string(actual_end_frame) + ")");
 
             // Set audio trim offset in encoder (for timestamp adjustment)
             encoder_->SetAudioTrimOffset(start_time_sec);

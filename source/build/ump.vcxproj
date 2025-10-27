@@ -1547,6 +1547,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\safety_overlay_system.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\comparison_video_player.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\comparison_video_player.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h" />
@@ -1604,10 +1606,10 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
-    <ClInclude Include="resource3.h" />
+    <ClInclude Include="resource4.h" />
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="ump3.rc" />
+    <ResourceCompile Include="ump4.rc" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ZERO_CHECK.vcxproj">

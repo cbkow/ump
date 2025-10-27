@@ -76,6 +76,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\comparison_video_player.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -237,6 +240,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\comparison_video_player.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -327,7 +333,7 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="resource3.h" />
+    <ClInclude Include="resource4.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -341,7 +347,7 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ResourceCompile Include="ump3.rc" />
+    <ResourceCompile Include="ump4.rc" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\assets\icons\ump.ico" />

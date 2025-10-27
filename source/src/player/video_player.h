@@ -34,9 +34,17 @@ namespace ump {
     // ThumbnailConfig and ThumbnailCache defined in thumbnail_cache.h
     struct ThumbnailConfig;
     class ThumbnailCache;
+    class ComparisonVideoPlayer;
 }
 
 #include "pipeline_mode.h"
+
+// Comparison mode for dual video review
+enum class ComparisonMode {
+    DISABLED,           // Single video (current behavior)
+    SIDE_BY_SIDE,       // Split viewport 50/50
+    DIFFERENCE_VIEW     // OpenGL shader composite showing pixel differences
+};
 
 // Global pipeline configurations
 extern const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS;
@@ -303,6 +311,18 @@ public:
 
     // OIIO removed - EXR-only with DirectEXRCache
 
+    // Dual Video Review / Comparison Mode
+    void EnableComparisonMode(bool enabled);
+    bool IsComparisonModeEnabled() const;
+    void LoadComparisonVideo(const std::string& path);
+    void UnloadComparisonVideo();
+    bool HasComparisonVideo() const;
+    void SetComparisonMode(ComparisonMode mode);
+    ComparisonMode GetComparisonMode() const;
+    std::string GetComparisonVideoPath() const;
+    std::string GetPendingComparisonDrop();  // Returns and clears pending media ID
+    void ClearPendingComparisonDrop();
+
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
     bool CaptureScreenshotToDesktop(const std::string& filename = "");
@@ -466,6 +486,25 @@ private:
 
     // Thumbnail Cache (for timeline scrubbing)
     std::unique_ptr<ump::ThumbnailCache> thumbnail_cache_;
+
+    // Dual Video Review / Comparison Mode
+    std::unique_ptr<ump::ComparisonVideoPlayer> comparison_video_;
+    ComparisonMode comparison_mode_ = ComparisonMode::DISABLED;
+    bool comparison_mode_enabled_ = false;
+    std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop
+    double last_seek_time_ = 0.0;  // For debounced seek sync
+    bool was_playing_before_seek_ = false;  // Restore play state after seek
+    double last_position_ = 0.0;  // For loop detection
+    double loop_sync_time_ = 0.0;  // Timer for loop sync delay
+    bool loop_sync_pending_ = false;  // Waiting for loop sync to settle
+
+    // Comparison rendering helpers
+    void RenderSideBySide();
+    void RenderDifference();
+    ImVec2 CalculateFitSize(int source_w, int source_h, float max_w, float max_h) const;
+    void RenderDropTargetPlaceholder(float width, float height);
+    GLuint GetDisplayTexture() const;
+    void RenderMPVToCurrentFBO(mpv_render_context* ctx, int width, int height);  // Get current display texture (with OCIO/overlays applied)
 
     // OIIO removed - EXR-only support
 

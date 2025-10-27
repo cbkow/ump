@@ -177,10 +177,10 @@ namespace ump {
             video_player->SetMetadataCallback([this](const std::string& path) -> VideoMetadata {
                 const CombinedMetadata* cached = GetCachedMetadata(path);
                 if (cached && cached->video_meta && cached->video_meta->is_loaded) {
-                    Debug::Log("MetadataCallback: Returning cached FFmpeg metadata for: " + path);
+                    //Debug::Log("MetadataCallback: Returning cached FFmpeg metadata for: " + path);
                     return *cached->video_meta;
                 }
-                Debug::Log("MetadataCallback: No cached metadata found for: " + path);
+                //Debug::Log("MetadataCallback: No cached metadata found for: " + path);
                 return VideoMetadata();  // Return empty if not found
             });
         }
@@ -655,6 +655,12 @@ namespace ump {
                 }
 
                 Debug::Log("OnVideoLoaded: Cache was auto-disabled, checking new video codec: " + file_path);
+
+                // Check if this is a GIF (should keep cache disabled)
+                std::string extension = std::filesystem::path(file_path).extension().string();
+                std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+                bool is_gif = (extension == ".gif");
+
                 const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
 
                 if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
@@ -668,7 +674,7 @@ namespace ump {
                                         codec.find("h.265") != std::string::npos ||
                                         codec.find("hevc") != std::string::npos);
 
-                    if (!is_h264_h265) {
+                    if (!is_h264_h265 && !is_gif) {
                         Debug::Log("OnVideoLoaded: Safe codec detected, restoring cache and initializing");
                         SetCacheEnabled(user_cache_preference);
                         cache_auto_disabled_for_codec = false;
@@ -681,7 +687,7 @@ namespace ump {
                             Debug::Log("OnVideoLoaded: Video changed before NotifyVideoChanged, aborting cache init");
                         }
                     } else {
-                        Debug::Log("OnVideoLoaded: H.264/H.265 codec detected, cache remains disabled");
+                        Debug::Log("OnVideoLoaded: H.264/H.265/GIF codec detected, cache remains disabled");
                         current_video_codec = cached_meta->video_meta->video_codec;
                     }
                 } else {
@@ -1935,6 +1941,11 @@ namespace ump {
         // This handles regular MP4/MOV/etc files, OR fallback if image sequence loading failed
         Debug::Log("LoadSingleMediaItem: Loading as regular file: " + item.path);
 
+        // Check if this is a GIF (disable cache for GIFs - they're fast enough without it)
+        std::string extension = std::filesystem::path(item.path).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        bool is_gif = (extension == ".gif");
+
         // ✅ Check cache first (metadata should already be cached from AddMediaFileToProject)
         const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
         bool metadata_cached = (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded);
@@ -1961,8 +1972,8 @@ namespace ump {
                                      codec.find("h265") != std::string::npos ||
                                      codec.find("avc") != std::string::npos);
 
-                if (is_h264_h265) {
-                    Debug::Log("LoadSingleMediaItem: H.264/H.265 detected - disabling cache");
+                if (is_h264_h265 || is_gif) {
+                    Debug::Log("LoadSingleMediaItem: H.264/H.265/GIF detected - disabling cache");
                     SetCacheEnabled(false);
                     ClearAllCaches();
                     cache_auto_disabled_for_codec = true;
@@ -1980,8 +1991,8 @@ namespace ump {
                                  codec.find("h265") != std::string::npos ||
                                  codec.find("avc") != std::string::npos);
 
-            if (is_h264_h265) {
-                Debug::Log("LoadSingleMediaItem: H.264/H.265 detected - disabling cache");
+            if (is_h264_h265 || is_gif) {
+                Debug::Log("LoadSingleMediaItem: H.264/H.265/GIF detected - disabling cache");
                 SetCacheEnabled(false);
                 ClearAllCaches();
                 cache_auto_disabled_for_codec = true;
@@ -3063,12 +3074,17 @@ namespace ump {
         current_sequence_id.clear();
         UpdateSequenceActiveStates("");
 
+        // Check if this is a GIF (disable cache for GIFs - they're fast enough without it)
+        std::string extension = std::filesystem::path(file_path).extension().string();
+        std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
+        bool is_gif = (extension == ".gif");
+
         // ✅ Use cached metadata (already extracted by AddMediaFileToProject)
         const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
         if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
             Debug::Log("LoadSingleFileFromDrop: Using cached metadata from AddMediaFileToProject");
 
-            // Check for H.264/H.265 and handle cache
+            // Check for H.264/H.265/GIF and handle cache
             std::string codec = cached_meta->video_meta->video_codec;
             std::transform(codec.begin(), codec.end(), codec.begin(), ::tolower);
 
@@ -3077,8 +3093,8 @@ namespace ump {
                                  codec.find("h265") != std::string::npos ||
                                  codec.find("avc") != std::string::npos);
 
-            if (is_h264_h265) {
-                Debug::Log("LoadSingleFileFromDrop: H.264/H.265 detected - disabling cache");
+            if (is_h264_h265 || is_gif) {
+                Debug::Log("LoadSingleFileFromDrop: H.264/H.265/GIF detected - disabling cache");
                 SetCacheEnabled(false);
                 ClearAllCaches();
                 cache_auto_disabled_for_codec = true;
@@ -3142,7 +3158,7 @@ namespace ump {
         // Removed unsupported: BMP, TGA, DPX, JPEG2000 (j2k, jp2)
         std::vector<std::string> supported = {
             // Video formats
-            "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "ogv", "ts", "mts", "m2ts", "mxf",
+            "mp4", "avi", "mkv", "mov", "wmv", "flv", "webm", "m4v", "3gp", "ogv", "ts", "mts", "m2ts", "mxf", "gif",
             // Audio formats
             "wav", "mp3", "aac", "flac", "ogg", "wma", "m4a",
             // Image formats (supported only)
@@ -4536,7 +4552,7 @@ namespace ump {
         if (ext == ".mp4" || ext == ".mov" || ext == ".avi" || ext == ".mxf" ||
             ext == ".mkv" || ext == ".wmv" || ext == ".flv" || ext == ".webm" ||
             ext == ".m4v" || ext == ".3gp" || ext == ".ogv" || ext == ".ts" ||
-            ext == ".mts" || ext == ".m2ts") {
+            ext == ".mts" || ext == ".m2ts" || ext == ".gif") {
             return MediaType::VIDEO;
         }
 

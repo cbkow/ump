@@ -327,6 +327,7 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 #define ICON_MASK                   u8"\uE72E"
 #define ICON_WINDOWS                u8"\uE6FA"
 #define ICON_TIMECODE               u8"\uE264"
+#define ICON_SPLIT_SCENE            u8"\uF3BF"  // Dual view toggle
 #define ICON_SPLIT_SCREEN_LEFT      u8"\uF675"
 #define ICON_SPLIT_SCREEN_BOTTOM    u8"\uF676"
 #define ICON_BACK                   u8"\uE5C4"
@@ -1041,6 +1042,26 @@ public:
                 video_player->UpdateFromMPVEvents();
                 video_player->UpdateVideoTexture();
 
+                // Handle pending comparison video drop
+                std::string pending_drop = video_player->GetPendingComparisonDrop();
+                if (!pending_drop.empty() && project_manager) {
+                    auto* media_item = project_manager->GetMediaItem(pending_drop);
+                    if (media_item) {
+                        // Block image sequences from comparison video (not supported)
+                        if (media_item->type == ump::MediaType::EXR_SEQUENCE ||
+                            media_item->type == ump::MediaType::IMAGE_SEQUENCE) {
+                            Debug::Log("ERROR: Image sequences are not supported in comparison mode. Please use regular video files.");
+                            video_player->ClearPendingComparisonDrop();
+                        } else {
+                            std::string comparison_path = media_item->path;
+                            Debug::Log("Loading comparison video from drop: " + comparison_path);
+                            video_player->LoadComparisonVideo(comparison_path);
+                        }
+                    } else {
+                        Debug::Log("ERROR: Could not find media item for comparison drop: " + pending_drop);
+                    }
+                }
+
                 // Check In/Out point range constraint for looping playback
                 if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && video_player->IsPlaying()) {
                     // Use frame-based comparison for precise loop control (especially important for short loops)
@@ -1053,8 +1074,8 @@ public:
                         int in_frame = static_cast<int>(std::round(in_pt * fps));
                         int out_frame = static_cast<int>(std::round(out_pt * fps));
 
-                        // If we've reached or passed the Out frame, loop back to In frame
-                        if (current_frame >= out_frame) {
+                        // If we've passed the Out frame, loop back to In frame (inclusive range)
+                        if (current_frame > out_frame) {
                             video_player->SeekToFrame(in_frame);
                             Debug::Log("In/Out loop: Jumped from frame " + std::to_string(current_frame) + " to In frame " + std::to_string(in_frame));
                         }
@@ -2434,6 +2455,20 @@ private:
                     }
                 }
 
+                ImGui::Separator();
+
+                // Dual video review mode
+                ImGui::TextDisabled("Comparison:");
+                bool dual_mode_enabled = video_player && video_player->IsComparisonModeEnabled();
+                if (ImGui::MenuItem("Enable Dual Video Review", nullptr, dual_mode_enabled, !current_file_path.empty())) {
+                    if (video_player) {
+                        video_player->EnableComparisonMode(!dual_mode_enabled);
+                        Debug::Log("Dual video review mode: " + std::string(dual_mode_enabled ? "disabled" : "enabled"));
+                    }
+                }
+
+                ImGui::Separator();
+
                 if (!recent_files.empty()) {
                     if (ImGui::BeginMenu("Recent Files")) {
                         for (const auto& file : recent_files) {
@@ -3107,7 +3142,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.3");
+                ImGui::TextDisabled("About u.m.p. v0.2.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4547,8 +4582,12 @@ private:
                 ImGui::BeginChild("##ToolbarArea", ImVec2(0, toolbar_height), true,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+                // Add vertical spacing at top
+                const float toolbar_v_padding = 10.0f;
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + toolbar_v_padding);
+
                 // Add left padding
-                const float toolbar_h_padding = 12.0f;
+                const float toolbar_h_padding = 4.0f;
                 ImGui::Dummy(ImVec2(toolbar_h_padding, 0));
                 ImGui::SameLine();
 
@@ -4971,7 +5010,16 @@ private:
                                       " (hex: " + std::to_string(overlay_color) + ")");
                         }
 
-                        video_player->RenderSVGOverlays(draw_list, canvas_pos, canvas_size,
+                        // Adjust canvas for dual view mode (safety overlay only on left side)
+                        ImVec2 overlay_canvas_pos = canvas_pos;
+                        ImVec2 overlay_canvas_size = canvas_size;
+
+                        if (video_player->IsComparisonModeEnabled()) {
+                            // Render safety overlay only on left half (primary video)
+                            overlay_canvas_size.x = canvas_size.x * 0.5f;
+                        }
+
+                        video_player->RenderSVGOverlays(draw_list, overlay_canvas_pos, overlay_canvas_size,
                             safety_settings.opacity, overlay_color, safety_settings.line_width);
                     }
                 }
@@ -6010,8 +6058,8 @@ private:
             float button_size = 37.0f;
             float small_button = 37.0f;
 
-            int button_count = 21;  // Added 5 view toggle buttons
-            int spacer_count = 10;   // Added 1 spacer before view toggles
+            int button_count = 22;  // Added 5 view toggle buttons + 1 dual view toggle
+            int spacer_count = 11;   // Added 1 spacer for dual view button
             float spacer_width = 15.0f;
 
             float item_spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -6495,6 +6543,35 @@ private:
             ImGui::Dummy(ImVec2(10.0f, 0));
             ImGui::SameLine();
 
+            // Dual View Toggle
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+
+                // Use accent color when dual view enabled (like timecode button)
+                bool dual_view_enabled = video_player && video_player->IsComparisonModeEnabled();
+                if (dual_view_enabled) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
+                }
+
+                ImGui::SetWindowFontScale(utility_icon_scale);
+                bool clicked = ImGui::Button(ICON_SPLIT_SCENE, ImVec2(small_button, button_size));
+                ImGui::SetWindowFontScale(1.0f);
+
+                if (dual_view_enabled) {
+                    ImGui::PopStyleColor();
+                }
+
+                ImGui::PopFont();
+
+                if (clicked && video_player) {
+                    video_player->EnableComparisonMode(!dual_view_enabled);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip(dual_view_enabled ? "Dual View ON" : "Dual View OFF");
+                }
+            }
+            ImGui::SameLine();
+
             // Fullscreen
             if (font_icons) {
                 ImGui::PushFont(font_icons);
@@ -6893,8 +6970,9 @@ private:
                     ImU32 marker_color = ToImU32(GetWindowsAccentColor());
 
                     for (const auto& note : notes) {
-                        // Calculate marker position
-                        float marker_x = canvas_pos.x + (float)(note.timestamp_seconds / duration) * canvas_size.x;
+                        // Calculate marker position using frame-based positioning (matches playhead)
+                        // This ensures annotations align perfectly with the playhead and frame tickers
+                        float marker_x = canvas_pos.x + (canvas_size.x * note.frame / (float)last_frame);
 
                         // Diamond dimensions
                         float diamond_size = 8.0f;
@@ -7192,7 +7270,8 @@ private:
                     float click_threshold = diamond_size + 4.0f; // Extra padding for easier clicking
 
                     for (const auto& note : notes) {
-                        float marker_x = canvas_pos.x + (float)(note.timestamp_seconds / duration) * canvas_size.x;
+                        // Use frame-based positioning (matches diamond rendering)
+                        float marker_x = canvas_pos.x + (canvas_size.x * note.frame / (float)last_frame);
                         float diamond_y = canvas_pos.y + canvas_size.y - 18.0f;
 
                         // Check if click is near this marker

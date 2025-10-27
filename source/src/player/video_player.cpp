@@ -1,4 +1,5 @@
 #include "video_player.h"
+#include "comparison_video_player.h"
 #include "../project/media_item.h"
 #include "../utils/debug_utils.h"
 #include "../utils/gpu_scheduler.h"
@@ -796,6 +797,11 @@ void VideoPlayer::Play() {
     if (exr_cache_) {
         exr_cache_->UpdatePlaybackState(true);
     }
+
+    // Sync comparison video playback state
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->SyncPlaybackState(true);
+    }
 }
 
 void VideoPlayer::Pause() {
@@ -805,6 +811,11 @@ void VideoPlayer::Pause() {
     // Update DirectEXRCache playback state
     if (exr_cache_) {
         exr_cache_->UpdatePlaybackState(false);
+    }
+
+    // Sync comparison video playback state
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->SyncPlaybackState(false);
     }
 }
 
@@ -832,12 +843,24 @@ void VideoPlayer::Seek(double pos) {
     mpv_command_async(mpv, 0, cmd);
 
     std::cout << "Seeking to: " << pos << " (exact mode)" << std::endl;
+
+    // Trigger debounced sync for comparison video
+    if (comparison_video_) {
+        was_playing_before_seek_ = is_playing;
+        last_seek_time_ = glfwGetTime();
+    }
 }
 
 void VideoPlayer::StepFrame(int direction) {
     const char* cmd = direction > 0 ? "frame-step" : "frame-back-step";
     const char* cmd_array[] = { cmd, nullptr };
     mpv_command(mpv, cmd_array);
+
+    // Trigger debounced sync for comparison video
+    if (comparison_video_) {
+        was_playing_before_seek_ = is_playing;
+        last_seek_time_ = glfwGetTime();
+    }
 }
 
 void VideoPlayer::GoToStart() {
@@ -1076,6 +1099,11 @@ void VideoPlayer::SetLoop(bool enabled) {
     if (exr_cache_) {
         exr_cache_->SetLooping(enabled);
     }
+
+    // Sync looping state to comparison video
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->SetLoop(enabled);
+    }
 }
 
 void VideoPlayer::SetLoopMode(bool is_playlist_mode) {
@@ -1287,6 +1315,13 @@ void VideoPlayer::RenderVideoFrame() {
 }
 
 void VideoPlayer::RenderVideoTexture() {
+    // Check for comparison mode rendering (side-by-side)
+    if (comparison_mode_enabled_) {
+        RenderSideBySide();
+        return;
+    }
+
+    // Standard single video rendering
     float aspect_ratio = (float)video_width / (float)video_height;
     ImVec2 content_region = ImGui::GetContentRegionAvail();
 
@@ -1656,6 +1691,66 @@ void VideoPlayer::UpdateProperties() {
     if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
         is_playing = !pause_state;
     }
+
+    // Event-driven sync for comparison video (debounced seek only)
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        // Detect loop point (position jumped from near-end to near-start)
+        bool loop_detected = false;
+        if (loop_enabled && cached_duration > 0) {
+            // Loop detected: was at >90% duration, now at <10% duration
+            if (last_position_ > (cached_duration * 0.9) &&
+                cached_position < (cached_duration * 0.1)) {
+                loop_detected = true;
+                Debug::Log("Loop detected! Re-syncing comparison video (was: " +
+                          std::to_string(last_position_) + "s, now: " +
+                          std::to_string(cached_position) + "s)");
+            }
+        }
+
+        if (loop_detected) {
+            // Pause both videos at loop point
+            if (is_playing) {
+                Pause();
+            }
+
+            // Sync comparison video to start position
+            comparison_video_->SyncToPosition(0.0);
+
+            // Start timer for delayed resume (allow seek to settle)
+            loop_sync_pending_ = true;
+            loop_sync_time_ = glfwGetTime();
+            Debug::Log("Loop sync initiated, waiting for settle...");
+        }
+
+        // Check if loop sync delay has elapsed (250ms for larger videos)
+        if (loop_sync_pending_) {
+            double now = glfwGetTime();
+            if (now - loop_sync_time_ > 0.25) {  // 250ms settle time
+                Debug::Log("Loop sync settled, resuming playback");
+                Play();
+                loop_sync_pending_ = false;
+            }
+        }
+
+        // Debounced seek sync (wait for scrubbing to settle)
+        if (last_seek_time_ > 0.0) {
+            double now = glfwGetTime();
+            if (now - last_seek_time_ > 0.15) {  // 150ms debounce
+                Debug::Log("Debounced seek: syncing comparison to position " + std::to_string(cached_position));
+                comparison_video_->SyncToPosition(cached_position);
+                if (was_playing_before_seek_) {
+                    comparison_video_->SyncPlaybackState(true);
+                }
+                last_seek_time_ = 0.0;  // Reset
+            }
+        }
+
+        // NOTE: UpdateVideoTexture() is called in RenderSideBySide(), not here
+        // Play/Pause sync is handled in Play() and Pause() methods (truly event-driven)
+    }
+
+    // Track position for loop detection
+    last_position_ = cached_position;
 }
 
 void VideoPlayer::UpdatePlaybackState() {
@@ -1673,6 +1768,9 @@ void VideoPlayer::UpdatePlaybackState() {
     if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
         is_playing = !pause_state;
     }
+
+    // Note: Comparison video sync is handled in UpdateProperties() via event-driven approach
+    // (sync only on play/pause/seek events, not continuous polling)
 }
 
 void VideoPlayer::ResetState() {
@@ -4336,5 +4434,276 @@ void VideoPlayer::ClearThumbnailCache() {
         thumbnail_cache_->ClearCache();
         Debug::Log("VideoPlayer: Thumbnail cache cleared");
     }
+}
+
+// ============================================================================
+// Dual Video Review / Comparison Mode Implementation
+// ============================================================================
+
+void VideoPlayer::EnableComparisonMode(bool enabled) {
+    Debug::Log("VideoPlayer: EnableComparisonMode called with: " + std::string(enabled ? "true" : "false"));
+
+    if (enabled == comparison_mode_enabled_) {
+        return; // Already in desired state
+    }
+
+    comparison_mode_enabled_ = enabled;
+
+    if (enabled) {
+        // Initialize comparison video player
+        if (!comparison_video_) {
+            comparison_video_ = std::make_unique<ump::ComparisonVideoPlayer>();
+            if (!comparison_video_->Initialize()) {
+                Debug::Log("ERROR: Failed to initialize comparison video player");
+                comparison_video_.reset();
+                comparison_mode_enabled_ = false;
+                return;
+            }
+        }
+
+        // Default to side-by-side mode
+        comparison_mode_ = ComparisonMode::SIDE_BY_SIDE;
+
+        Debug::Log("VideoPlayer: Comparison mode enabled (side-by-side)");
+    } else {
+        // Clean up comparison video
+        if (comparison_video_) {
+            comparison_video_->Cleanup();
+            comparison_video_.reset();
+        }
+        comparison_mode_ = ComparisonMode::DISABLED;
+
+        Debug::Log("VideoPlayer: Comparison mode disabled");
+    }
+}
+
+bool VideoPlayer::IsComparisonModeEnabled() const {
+    return comparison_mode_enabled_;
+}
+
+void VideoPlayer::LoadComparisonVideo(const std::string& path) {
+    if (!comparison_mode_enabled_) {
+        Debug::Log("ERROR: Cannot load comparison video - comparison mode not enabled");
+        return;
+    }
+
+    if (!comparison_video_) {
+        Debug::Log("ERROR: Comparison video player not initialized");
+        return;
+    }
+
+    Debug::Log("VideoPlayer: Loading comparison video: " + path);
+
+    if (!comparison_video_->LoadFile(path)) {
+        Debug::Log("ERROR: Failed to load comparison video: " + path);
+        return;
+    }
+
+    Debug::Log("VideoPlayer: Comparison video loaded successfully");
+
+    // Sync current settings to comparison video
+    comparison_video_->SetLoop(loop_enabled);
+    Debug::Log("VideoPlayer: Synced loop mode to comparison video: " + std::string(loop_enabled ? "enabled" : "disabled"));
+}
+
+void VideoPlayer::UnloadComparisonVideo() {
+    if (comparison_video_) {
+        comparison_video_->Unload();
+        Debug::Log("VideoPlayer: Comparison video unloaded");
+    }
+}
+
+bool VideoPlayer::HasComparisonVideo() const {
+    return comparison_video_ && comparison_video_->HasVideo();
+}
+
+void VideoPlayer::SetComparisonMode(ComparisonMode mode) {
+    if (!comparison_mode_enabled_) {
+        Debug::Log("WARNING: Cannot set comparison mode - comparison not enabled");
+        return;
+    }
+
+    comparison_mode_ = mode;
+
+    const char* mode_name = "";
+    switch (mode) {
+        case ComparisonMode::SIDE_BY_SIDE: mode_name = "Side-by-Side"; break;
+        case ComparisonMode::DIFFERENCE_VIEW: mode_name = "Difference"; break;
+        default: mode_name = "Disabled"; break;
+    }
+
+    Debug::Log("VideoPlayer: Comparison mode changed to: " + std::string(mode_name));
+}
+
+ComparisonMode VideoPlayer::GetComparisonMode() const {
+    return comparison_mode_;
+}
+
+std::string VideoPlayer::GetComparisonVideoPath() const {
+    if (comparison_video_) {
+        return comparison_video_->GetFilePath();
+    }
+    return "";
+}
+
+std::string VideoPlayer::GetPendingComparisonDrop() {
+    std::string result = comparison_drop_pending_id_;
+    comparison_drop_pending_id_.clear();
+    return result;
+}
+
+void VideoPlayer::ClearPendingComparisonDrop() {
+    comparison_drop_pending_id_.clear();
+}
+
+// ============================================================================
+// Comparison Rendering Helper Methods
+// ============================================================================
+
+GLuint VideoPlayer::GetDisplayTexture() const {
+    // Return the final composited texture (with OCIO/overlays applied)
+    GLuint display_texture = video_texture;
+
+    // Apply color correction if active
+    if (color_pipeline && color_pipeline->IsValid() && color_texture > 0 && glIsTexture(color_texture)) {
+        display_texture = color_texture;
+    }
+
+    // Could add safety overlays here if implemented
+    // if (safety_overlay_system && safety_overlay_system->IsEnabled() && safety_overlay_system->GetOutputTexture()) {
+    //     display_texture = safety_overlay_system->GetOutputTexture();
+    // }
+
+    return display_texture;
+}
+
+ImVec2 VideoPlayer::CalculateFitSize(int source_w, int source_h, float max_w, float max_h) const {
+    if (source_w == 0 || source_h == 0) {
+        return ImVec2(max_w, max_h);
+    }
+
+    float aspect_ratio = (float)source_w / (float)source_h;
+    ImVec2 result;
+
+    if (max_w / max_h > aspect_ratio) {
+        // Limited by height
+        result.y = max_h;
+        result.x = max_h * aspect_ratio;
+    } else {
+        // Limited by width
+        result.x = max_w;
+        result.y = max_w / aspect_ratio;
+    }
+
+    return result;
+}
+
+void VideoPlayer::RenderSideBySide() {
+    ImVec2 content_region = ImGui::GetContentRegionAvail();
+    float half_width = content_region.x * 0.5f;
+
+    // Left side: Primary video
+    GLuint primary_texture = GetDisplayTexture();
+    ImVec2 left_size = CalculateFitSize(video_width, video_height, half_width, content_region.y);
+
+    // Center vertically
+    ImVec2 cursor_pos = ImGui::GetCursorPos();
+    float left_offset_y = (content_region.y - left_size.y) * 0.5f;
+    ImGui::SetCursorPos(ImVec2(cursor_pos.x, cursor_pos.y + left_offset_y));
+
+    if (primary_texture > 0 && glIsTexture(primary_texture)) {
+        ImGui::Image((void*)(intptr_t)primary_texture, left_size);
+    }
+
+    // Right side: Secondary video or drop target
+    ImGui::SameLine();
+    ImVec2 right_start_pos = ImGui::GetCursorScreenPos();
+
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        // CRITICAL: Update the comparison video texture BEFORE rendering
+        //Debug::Log("RenderSideBySide: About to call UpdateVideoTexture()");
+        comparison_video_->UpdateVideoTexture();
+
+        GLuint comp_texture = comparison_video_->GetTexture();
+        int comp_w = comparison_video_->GetWidth();
+        int comp_h = comparison_video_->GetHeight();
+        ImVec2 right_size = CalculateFitSize(comp_w, comp_h, half_width, content_region.y);
+
+        // Debug logging (only log every 60 frames to avoid spam)
+        static int debug_counter = 0;
+        if (debug_counter++ % 60 == 0) {
+            //Debug::Log("RenderSideBySide: comp_texture=" + std::to_string(comp_texture) +
+            //           ", dimensions=" + std::to_string(comp_w) + "x" + std::to_string(comp_h) +
+            //           ", right_size=" + std::to_string(right_size.x) + "x" + std::to_string(right_size.y) +
+            //           ", glIsTexture=" + std::to_string(glIsTexture(comp_texture)));
+        }
+
+        // Center vertically
+        float right_offset_y = (content_region.y - right_size.y) * 0.5f;
+        ImGui::SetCursorPosY(cursor_pos.y + right_offset_y);
+
+        if (comp_texture > 0 && glIsTexture(comp_texture)) {
+            ImGui::Image((void*)(intptr_t)comp_texture, right_size);
+        } else {
+            Debug::Log("ERROR: Comparison texture is invalid! texture_id=" + std::to_string(comp_texture));
+        }
+    } else {
+        // Show drop target placeholder
+        RenderDropTargetPlaceholder(half_width, content_region.y);
+
+        // Add invisible drop target over entire right half (only when no video loaded)
+        ImGui::SetCursorScreenPos(right_start_pos);
+        ImGui::InvisibleButton("##ComparisonDropTarget", ImVec2(half_width, content_region.y));
+
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+                std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+                Debug::Log("Comparison video drop received: " + media_id);
+                comparison_drop_pending_id_ = media_id;
+            }
+            ImGui::EndDragDropTarget();
+        }
+    }
+}
+
+void VideoPlayer::RenderDifference() {
+    // TODO: Implement difference shader rendering
+    // For now, fall back to side-by-side
+    Debug::Log("WARNING: Difference mode not yet implemented, falling back to side-by-side");
+    RenderSideBySide();
+}
+
+void VideoPlayer::RenderDropTargetPlaceholder(float width, float height) {
+    ImVec2 center(width * 0.5f, height * 0.5f);
+
+    ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + center.x - 100, ImGui::GetCursorPos().y + center.y - 20));
+    ImGui::TextDisabled("Drop video here");
+
+    ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + center.x - 80, ImGui::GetCursorPos().y + center.y + 10));
+    ImGui::TextDisabled("for comparison");
+}
+
+void VideoPlayer::RenderMPVToCurrentFBO(mpv_render_context* ctx, int width, int height) {
+    if (!ctx) return;
+
+    // Get the currently bound FBO
+    GLint current_fbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current_fbo);
+
+    // Setup MPV render params for current FBO
+    mpv_opengl_fbo mpv_fbo;
+    mpv_fbo.fbo = current_fbo;
+    mpv_fbo.w = width;
+    mpv_fbo.h = height;
+    mpv_fbo.internal_format = 0;
+
+    int flip_y = 1;
+    mpv_render_param params[] = {
+        {MPV_RENDER_PARAM_OPENGL_FBO, &mpv_fbo},
+        {MPV_RENDER_PARAM_FLIP_Y, &flip_y},
+        {MPV_RENDER_PARAM_INVALID, nullptr}
+    };
+
+    mpv_render_context_render(ctx, params);
 }
 
