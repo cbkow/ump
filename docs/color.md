@@ -10,7 +10,7 @@ nav_order: 8
 
 The OCIO color panel is a basic node builder for OCIO flows. Currently, u.m.p supports ACES 1.3 and the Blender 4.5 configs. 
 
-![Window](images/ump_MyUFWz3zMn.png)
+![Window](images/ump_kpONVno12H.png)
 
 
 The left panel has two tabs: **Configs** and **Presets**. The **Configs** tab has our two supported configs preloaded, and **Presets** contains the presets that are available in the quick-access 'Toggle colorspace presets' button. 
