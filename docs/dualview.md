@@ -6,7 +6,7 @@ nav_order: 13
 
 # Dual View
 
-## Reviewing two media side-by-side
+## Reviewing two media items side-by-side
 
 Two compare two videos (media) side-by-side, follow these steps.
 
