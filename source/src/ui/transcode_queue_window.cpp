@@ -279,6 +279,14 @@ void TranscodeQueueWindow::RenderToolbar() {
 
     // Actions menu popup
     if (ImGui::BeginPopup("ActionsMenu")) {
+        if (ImGui::MenuItem("Stop and Clear All")) {
+            worker_pool_->Stop();
+            queue_->ClearAll();
+            Debug::Log("TranscodeQueueWindow: Stopped all workers and cleared entire queue");
+        }
+
+        ImGui::Separator();
+
         if (ImGui::MenuItem("Clear Completed")) {
             queue_->ClearCompleted();
             Debug::Log("TranscodeQueueWindow: Cleared completed jobs");
@@ -359,7 +367,7 @@ void TranscodeQueueWindow::RenderQueueTable() {
                            ImGuiTableFlags_Resizable | ImGuiTableFlags_Sortable |
                            ImGuiTableFlags_ScrollY | ImGuiTableFlags_Reorderable;
 
-    if (ImGui::BeginTable("JobsTable", 7, flags)) {
+    if (ImGui::BeginTable("JobsTable", 6, flags)) {
         // Headers
         ImGui::TableSetupColumn("Priority", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
@@ -367,7 +375,6 @@ void TranscodeQueueWindow::RenderQueueTable() {
         ImGui::TableSetupColumn("Progress", ImGuiTableColumnFlags_WidthFixed, 200.0f);
         ImGui::TableSetupColumn("Speed", ImGuiTableColumnFlags_WidthFixed, 80.0f);
         ImGui::TableSetupColumn("ETA", ImGuiTableColumnFlags_WidthFixed, 80.0f);
-        ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 120.0f);
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -463,34 +470,8 @@ void TranscodeQueueWindow::RenderJobRow(TranscodeJob* job, int row_index) {
         ImGui::Text("-");
     }
 
-    // Actions column
-    ImGui::TableSetColumnIndex(6);
-    // Use job ID for ImGui ID instead of row index to avoid conflicts
-    ImGui::PushID(job->GetJobID().c_str());
-
-    auto status = job->GetStatus();
-    if (status == TranscodeJob::Status::QUEUED || status == TranscodeJob::Status::PAUSED) {
-        if (ImGui::SmallButton("Cancel")) {
-            queue_->CancelJob(job->GetJobID());
-        }
-    } else if (status == TranscodeJob::Status::ENCODING) {
-        if (ImGui::SmallButton("Pause")) {
-            queue_->PauseJob(job->GetJobID());
-        }
-    } else if (status == TranscodeJob::Status::COMPLETED ||
-               status == TranscodeJob::Status::FAILED ||
-               status == TranscodeJob::Status::CANCELLED) {
-        if (ImGui::SmallButton("Remove")) {
-            queue_->RemoveJob(job->GetJobID());
-            if (selected_job_id_ == job->GetJobID()) {
-                selected_job_id_.clear();
-            }
-        }
-    }
-
-    ImGui::PopID();
-
     // Right-click context menu (use unique ID based on job ID)
+    auto status = job->GetStatus();
     std::string context_menu_id = "JobContextMenu_" + job->GetJobID();
     if (ImGui::BeginPopupContextItem(context_menu_id.c_str())) {
         selected_job_id_ = job->GetJobID();

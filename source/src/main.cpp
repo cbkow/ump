@@ -323,8 +323,8 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 #define ICON_SCREENSHOT_CLIPBOARD   u8"\uF7d3"
 #define ICON_SCREENSHOT_DESKTOP     u8"\uF727"
 #define ICON_FULLSCREEN             u8"\uE5d0"
-#define ICON_TONALITY               u8"\uE427"
-#define ICON_MASK                   u8"\uE72E"
+#define ICON_TONALITY               u8"\uE891"
+#define ICON_MASK                   u8"\uE22F"
 #define ICON_WINDOWS                u8"\uE6FA"
 #define ICON_TIMECODE               u8"\uE264"
 #define ICON_SPLIT_SCENE            u8"\uF3BF"  // Dual view toggle
@@ -3142,7 +3142,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.4");
+                ImGui::TextDisabled("About u.m.p. v0.2.5");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4574,7 +4574,19 @@ private:
 
             // Calculate space for toolbar (only in annotation mode) and timeline at bottom
             const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode()) ? 35.0f : 0.0f;
-            const float timeline_height = show_timeline_panel ? 170.0f : 0.0f;
+
+            // Timeline height: base 170px + 60px for playlist timeline when in sequence mode
+            float timeline_height = 0.0f;
+            if (show_timeline_panel) {
+                timeline_height = 170.0f;  // Base timeline height
+                // Add extra space for playlist timeline when in sequence mode with clips
+                if (project_manager && project_manager->IsInSequenceMode()) {
+                    auto* sequence = project_manager->GetCurrentSequence();
+                    if (sequence && !sequence->clips.empty()) {
+                        timeline_height += 60.0f;  // Playlist timeline (18px + text line + bottom padding)
+                    }
+                }
+            }
             ImVec2 total_region = ImGui::GetContentRegionAvail();
 
             // Render annotation toolbar at top (only in annotation mode)
@@ -5054,9 +5066,9 @@ private:
             ImGui::EndChild();  // End ##VideoArea
             ImGui::PopStyleVar();
 
-            // Render timeline as child window at bottom (fixed 170px height with 70px canvas)
+            // Render timeline as child window at bottom (dynamic height based on playlist mode)
             if (show_timeline_panel) {
-                ImGui::BeginChild("##TimelineArea", ImVec2(0, 170.0f), true,
+                ImGui::BeginChild("##TimelineArea", ImVec2(0, timeline_height), true,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
                 // Add left/right padding with inner child window
@@ -6065,7 +6077,7 @@ private:
             float small_button = 37.0f;
 
             int button_count = 22;  // Added 5 view toggle buttons + 1 dual view toggle
-            int spacer_count = 11;   // Added 1 spacer for dual view button
+            int spacer_count = 12;   // Added 1 spacer for dual view button
             float spacer_width = 15.0f;
 
             float item_spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -7682,6 +7694,245 @@ private:
 
                 ImGui::PopFont();
             }
+
+            // Render playlist timeline when in sequence mode
+            RenderPlaylistTimeline();
+    }
+
+    void RenderPlaylistTimeline() {
+        // Only render when in sequence/playlist mode
+        if (!project_manager || !project_manager->IsInSequenceMode()) {
+            return;
+        }
+
+        auto* sequence = project_manager->GetCurrentSequence();
+        if (!sequence || sequence->clips.empty()) {
+            return;
+        }
+
+        auto sorted_clips = sequence->GetAllClipsSorted();
+        int current_clip_index = project_manager->GetCurrentPlaylistIndex();
+
+        // Spacing between main timeline and playlist timeline
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // Canvas setup
+        const float timeline_height = 18.0f;  // Ultra-compact NLE-style
+        const float min_clip_width = 60.0f;
+        const float clip_rounding = 2.0f;     // Rounded corners
+        const float clip_gap = 2.0f;          // Small gap between clips
+
+        ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+        ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+        canvas_size.y = timeline_height;
+
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+        // Draw background
+        draw_list->AddRectFilled(
+            canvas_pos,
+            ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+            IM_COL32(16, 16, 16, 60)
+        );
+
+        // Calculate total duration and layout
+        double total_duration = sequence->duration;
+        if (total_duration <= 0.0) {
+            // Calculate from clips if sequence duration not set
+            for (const auto& clip : sorted_clips) {
+                total_duration += clip.duration;
+            }
+        }
+
+        if (total_duration <= 0.0) {
+            return; // Can't render without valid durations
+        }
+
+        float available_width = canvas_size.x;
+        float current_x = canvas_pos.x;
+
+        // Calculate if enforcing minimum widths would overflow the canvas
+        float total_proportional = 0.0f;
+        float total_with_minimums = 0.0f;
+        for (const auto& clip : sorted_clips) {
+            float prop_width = (clip.duration / total_duration) * available_width;
+            total_proportional += prop_width;
+            total_with_minimums += std::max(prop_width, min_clip_width);
+        }
+        bool use_minimum_widths = (total_with_minimums <= available_width);
+
+        // Render and interact with each clip individually
+        for (size_t i = 0; i < sorted_clips.size(); i++) {
+            const auto& clip = sorted_clips[i];
+
+            ImGui::PushID((int)i);
+
+            // Calculate clip width (proportional to duration, with optional minimum)
+            float proportional_width = (clip.duration / total_duration) * available_width;
+            float clip_width = use_minimum_widths ? std::max(proportional_width, min_clip_width) : proportional_width;
+
+            // Account for gap after this clip (except for last clip)
+            float clip_display_width = clip_width;
+            if (i < sorted_clips.size() - 1) {
+                clip_display_width -= clip_gap;
+            }
+
+            ImVec2 clip_min(current_x, canvas_pos.y);
+            ImVec2 clip_max(current_x + clip_display_width, canvas_pos.y + canvas_size.y);
+
+            // Determine clip color
+            bool is_current = ((int)i == current_clip_index);
+            ImU32 clip_color, border_color;
+            if (is_current) {
+                // System accent color for current clip
+                ImVec4 accent = GetWindowsAccentColor();
+                clip_color = ImGui::GetColorU32(accent);
+                border_color = ImGui::GetColorU32(ImVec4(accent.x * 1.3f, accent.y * 1.3f, accent.z * 1.3f, 1.0f));
+            } else {
+                // Dark grey for other clips (NLE-style)
+                clip_color = IM_COL32(60, 60, 60, 255);
+                border_color = IM_COL32(90, 90, 90, 255);
+            }
+
+            // Draw clip background with rounded corners
+            draw_list->AddRectFilled(clip_min, clip_max, clip_color, clip_rounding);
+
+            // Draw border around clip
+            draw_list->AddRect(clip_min, clip_max, border_color, clip_rounding, 0, 1.5f);
+
+            // Draw clip name text on the block
+            if (font_mono && clip_display_width > 30.0f) {  // Only show text if clip is wide enough
+                ImGui::PushFont(font_mono);
+
+                // Truncate clip name if needed to fit
+                std::string display_name = clip.name;
+                ImVec2 text_size = ImGui::CalcTextSize(display_name.c_str());
+
+                // If text is too wide, truncate with ellipsis
+                float available_text_width = clip_display_width - 6.0f;  // 3px padding each side
+                if (text_size.x > available_text_width) {
+                    // Binary search for longest substring that fits
+                    while (display_name.length() > 3 && ImGui::CalcTextSize((display_name.substr(0, display_name.length() - 3) + "...").c_str()).x > available_text_width) {
+                        display_name.pop_back();
+                    }
+                    if (display_name.length() > 3) {
+                        display_name = display_name.substr(0, display_name.length() - 3) + "...";
+                    }
+                    text_size = ImGui::CalcTextSize(display_name.c_str());
+                }
+
+                // Center text vertically and horizontally within clip
+                ImVec2 text_pos(
+                    clip_min.x + (clip_display_width - text_size.x) * 0.5f,
+                    clip_min.y + (timeline_height - text_size.y) * 0.5f
+                );
+
+                // Draw text with slight shadow for readability
+                draw_list->AddText(ImVec2(text_pos.x + 1, text_pos.y + 1), IM_COL32(0, 0, 0, 180), display_name.c_str());
+                draw_list->AddText(text_pos, IM_COL32(255, 255, 255, 255), display_name.c_str());
+
+                ImGui::PopFont();
+            }
+
+            // Interaction - individual button for each clip
+            ImGui::SetCursorScreenPos(clip_min);
+            ImVec2 clip_size(clip_display_width, canvas_size.y);
+            ImGui::InvisibleButton("##clip", clip_size);
+
+            // Handle click to jump to clip
+            if (ImGui::IsItemClicked()) {
+                project_manager->JumpToPlaylistIndex((int)i);
+            }
+
+            // Handle hover tooltip
+            if (ImGui::IsItemHovered()) {
+                ImGui::PushStyleColor(ImGuiCol_PopupBg, IM_COL32(50, 50, 50, 255));
+                ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(100, 100, 100, 51));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 9.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
+
+                ImGui::BeginTooltip();
+
+                if (font_mono) ImGui::PushFont(font_mono);
+
+                // Clip number and name
+                ImGui::Text("Clip %zu: %s", i + 1, clip.name.c_str());
+
+                // Duration
+                double duration_seconds = clip.duration;
+                int minutes = (int)(duration_seconds / 60.0);
+                int seconds = (int)duration_seconds % 60;
+                int frames = (int)((duration_seconds - (int)duration_seconds) * sequence->frame_rate);
+                ImGui::Text("Duration: %02d:%02d:%02d", minutes, seconds, frames);
+
+                // File path (truncated if too long)
+                std::string filename = clip.file_path;
+                size_t last_slash = filename.find_last_of("/\\");
+                if (last_slash != std::string::npos) {
+                    filename = filename.substr(last_slash + 1);
+                }
+                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "File: %s", filename.c_str());
+
+                if (font_mono) ImGui::PopFont();
+
+                ImGui::EndTooltip();
+
+                ImGui::PopStyleVar(2);
+                ImGui::PopStyleColor(2);
+            }
+
+            // Drag source
+            if (ImGui::BeginDragDropSource()) {
+                int source_index = (int)i;
+                ImGui::SetDragDropPayload("PLAYLIST_ITEM", &source_index, sizeof(int));
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::Text("Moving: %s", clip.name.c_str());
+                if (font_mono) ImGui::PopFont();
+                ImGui::EndDragDropSource();
+            }
+
+            // Drop target
+            if (ImGui::BeginDragDropTarget()) {
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("PLAYLIST_ITEM")) {
+                    int source_index = *(const int*)payload->Data;
+                    int target_index = (int)i;
+                    if (source_index != target_index) {
+                        project_manager->MovePlaylistItem(source_index, target_index);
+                        // Jump to the dragged item at its new position
+                        project_manager->JumpToPlaylistIndex(target_index);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
+            ImGui::PopID();
+
+            current_x += clip_width;
+        }
+
+        // Show playlist name and info below timeline
+        if (font_mono) ImGui::PushFont(font_mono);
+
+        // Format duration as HH:MM:SS or MM:SS (reuse total_duration from above)
+        int total_seconds = (int)total_duration;
+        int hours = total_seconds / 3600;
+        int minutes = (total_seconds % 3600) / 60;
+        int seconds = total_seconds % 60;
+
+        char duration_str[32];
+        if (hours > 0) {
+            snprintf(duration_str, sizeof(duration_str), "%d:%02d:%02d", hours, minutes, seconds);
+        } else {
+            snprintf(duration_str, sizeof(duration_str), "%d:%02d", minutes, seconds);
+        }
+
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Playlist: %s", sequence->name.c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  |  %zu clips  |  %s", sorted_clips.size(), duration_str);
+
+        if (font_mono) ImGui::PopFont();
     }
 
     void CreateTimelineTransportPanel() {
@@ -7694,8 +7945,6 @@ private:
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
 
         if (ImGui::Begin("Timeline & Transport", &show_timeline_panel,
-            ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoScrollWithMouse |
             ImGuiWindowFlags_NoCollapse)) {
 
             RenderTimelineContent();
@@ -10286,6 +10535,45 @@ private:
                 }
             }
 
+            // Safety overlay settings
+            if (j.contains("safety_overlay")) {
+                if (j["safety_overlay"].contains("type")) {
+                    std::string type_str = j["safety_overlay"]["type"].get<std::string>();
+                    if (type_str == "TITLE_SAFE_16_9") safety_settings.type = SafetyOverlayType::TITLE_SAFE_16_9;
+                    else if (type_str == "ACTION_SAFE_16_9") safety_settings.type = SafetyOverlayType::ACTION_SAFE_16_9;
+                    else if (type_str == "TITLE_SAFE_9_16") safety_settings.type = SafetyOverlayType::TITLE_SAFE_9_16;
+                    else if (type_str == "ACTION_SAFE_9_16") safety_settings.type = SafetyOverlayType::ACTION_SAFE_9_16;
+                    else if (type_str == "BROADCAST_SAFE") safety_settings.type = SafetyOverlayType::BROADCAST_SAFE;
+                    else if (type_str == "CENTER_CUT_SAFE") safety_settings.type = SafetyOverlayType::CENTER_CUT_SAFE;
+                    else if (type_str == "CUSTOM_GUIDE") safety_settings.type = SafetyOverlayType::CUSTOM_GUIDE;
+                    else safety_settings.type = SafetyOverlayType::NONE;
+                }
+                if (j["safety_overlay"].contains("opacity")) {
+                    safety_settings.opacity = j["safety_overlay"]["opacity"].get<float>();
+                }
+                if (j["safety_overlay"].contains("line_width")) {
+                    safety_settings.line_width = j["safety_overlay"]["line_width"].get<float>();
+                }
+                if (j["safety_overlay"].contains("color_r")) {
+                    safety_settings.color[0] = j["safety_overlay"]["color_r"].get<float>();
+                }
+                if (j["safety_overlay"].contains("color_g")) {
+                    safety_settings.color[1] = j["safety_overlay"]["color_g"].get<float>();
+                }
+                if (j["safety_overlay"].contains("color_b")) {
+                    safety_settings.color[2] = j["safety_overlay"]["color_b"].get<float>();
+                }
+                if (j["safety_overlay"].contains("color_a")) {
+                    safety_settings.color[3] = j["safety_overlay"]["color_a"].get<float>();
+                }
+                if (j["safety_overlay"].contains("show_labels")) {
+                    safety_settings.show_labels = j["safety_overlay"]["show_labels"].get<bool>();
+                }
+                if (j["safety_overlay"].contains("show_percentage_marks")) {
+                    safety_settings.show_percentage_marks = j["safety_overlay"]["show_percentage_marks"].get<bool>();
+                }
+            }
+
             // Transcode performance settings
             if (j.contains("transcode")) {
                 if (j["transcode"].contains("encoder_threads")) {
@@ -10427,6 +10715,28 @@ private:
 
             // Color management settings
             j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;
+
+            // Safety overlay settings
+            std::string overlay_type_str = "NONE";
+            switch (safety_settings.type) {
+                case SafetyOverlayType::TITLE_SAFE_16_9: overlay_type_str = "TITLE_SAFE_16_9"; break;
+                case SafetyOverlayType::ACTION_SAFE_16_9: overlay_type_str = "ACTION_SAFE_16_9"; break;
+                case SafetyOverlayType::TITLE_SAFE_9_16: overlay_type_str = "TITLE_SAFE_9_16"; break;
+                case SafetyOverlayType::ACTION_SAFE_9_16: overlay_type_str = "ACTION_SAFE_9_16"; break;
+                case SafetyOverlayType::BROADCAST_SAFE: overlay_type_str = "BROADCAST_SAFE"; break;
+                case SafetyOverlayType::CENTER_CUT_SAFE: overlay_type_str = "CENTER_CUT_SAFE"; break;
+                case SafetyOverlayType::CUSTOM_GUIDE: overlay_type_str = "CUSTOM_GUIDE"; break;
+                case SafetyOverlayType::NONE: overlay_type_str = "NONE"; break;
+            }
+            j["safety_overlay"]["type"] = overlay_type_str;
+            j["safety_overlay"]["opacity"] = safety_settings.opacity;
+            j["safety_overlay"]["line_width"] = safety_settings.line_width;
+            j["safety_overlay"]["color_r"] = safety_settings.color[0];
+            j["safety_overlay"]["color_g"] = safety_settings.color[1];
+            j["safety_overlay"]["color_b"] = safety_settings.color[2];
+            j["safety_overlay"]["color_a"] = safety_settings.color[3];
+            j["safety_overlay"]["show_labels"] = safety_settings.show_labels;
+            j["safety_overlay"]["show_percentage_marks"] = safety_settings.show_percentage_marks;
 
             // Transcode performance settings
             j["transcode"]["encoder_threads"] = transcode_settings.encoder_thread_count;
@@ -11075,37 +11385,48 @@ private:
                                             glDrawArrays(GL_LINES, 0, 2);
 
                                             // Draw arrowhead (matching ImGui's calculation with viewport scaling)
-                                            ImVec2 start = stroke.points[0];
+                                            ImVec2 start = stroke.points[0];  // Normalized (0-1)
                                             ImVec2 end = stroke.points[1];
 
-                                            // Direction vector (start ? end, matching ImGui)
-                                            float dir_x = start.x - end.x;
-                                            float dir_y = start.y - end.y;
-                                            float len = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+                                            // Convert to pixel space for accurate geometry calculation
+                                            float start_px_x = start.x * capture_width;
+                                            float start_px_y = start.y * capture_height;
+                                            float end_px_x = end.x * capture_width;
+                                            float end_px_y = end.y * capture_height;
 
-                                            if (len > 0.001f) {
+                                            // Direction vector in pixel space (start ? end, matching ImGui)
+                                            float dir_px_x = start_px_x - end_px_x;
+                                            float dir_px_y = start_px_y - end_px_y;
+                                            float len_px = std::sqrt(dir_px_x * dir_px_x + dir_px_y * dir_px_y);
+
+                                            if (len_px > 0.001f) {
                                                 // Normalize direction
-                                                dir_x /= len;
-                                                dir_y /= len;
+                                                dir_px_x /= len_px;
+                                                dir_px_y /= len_px;
 
                                                 // Arrow size: base + thickness, scaled like line widths
                                                 float arrow_base_pixels = 30.0f;  // Larger base size
                                                 float arrow_size_pixels = (arrow_base_pixels + scaled_line_width * 1.5f);
 
-                                                // Convert to normalized space (use width for consistent scaling)
-                                                float arrow_size = arrow_size_pixels / (float)capture_width;
+                                                // FIX: Calculate arrowhead in pixel space to avoid aspect ratio distortion
+                                                // (Will convert to normalized space after calculating triangle points)
 
                                                 // 30 degree rotation (matching ImGui)
                                                 float cos_angle = std::cos(0.523599f);  // cos(30�)
                                                 float sin_angle = std::sin(0.523599f);  // sin(30�)
 
-                                                // Calculate wing 1 (rotation matrix)
-                                                float ax1 = end.x + arrow_size * (dir_x * cos_angle - dir_y * sin_angle);
-                                                float ay1 = end.y + arrow_size * (dir_x * sin_angle + dir_y * cos_angle);
+                                                // Calculate arrowhead wings in pixel space (equilateral triangle)
+                                                float ax1_px = end_px_x + arrow_size_pixels * (dir_px_x * cos_angle - dir_px_y * sin_angle);
+                                                float ay1_px = end_px_y + arrow_size_pixels * (dir_px_x * sin_angle + dir_px_y * cos_angle);
 
-                                                // Calculate wing 2 (opposite rotation)
-                                                float ax2 = end.x + arrow_size * (dir_x * cos_angle + dir_y * sin_angle);
-                                                float ay2 = end.y + arrow_size * (-dir_x * sin_angle + dir_y * cos_angle);
+                                                float ax2_px = end_px_x + arrow_size_pixels * (dir_px_x * cos_angle + dir_px_y * sin_angle);
+                                                float ay2_px = end_px_y + arrow_size_pixels * (-dir_px_x * sin_angle + dir_px_y * cos_angle);
+
+                                                // Convert back to normalized space with proper aspect ratio handling
+                                                float ax1 = ax1_px / capture_width;
+                                                float ay1 = ay1_px / capture_height;
+                                                float ax2 = ax2_px / capture_width;
+                                                float ay2 = ay2_px / capture_height;
 
                                                 // Convert to NDC coordinates
                                                 float tip_x = end.x * 2.0f - 1.0f;

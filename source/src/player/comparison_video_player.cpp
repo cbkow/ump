@@ -264,6 +264,11 @@ void ComparisonVideoPlayer::ConfigureBasicOptions() {
 
     // Keep window open (for MPV internal use)
     mpv_set_option_string(mpv_, "keep-open", "yes");
+
+    // Transparency support (match main VideoPlayer)
+    mpv_set_option_string(mpv_, "background", "none");
+    mpv_set_option_string(mpv_, "background-color", "#202020/1.0");
+    mpv_set_option_string(mpv_, "blend-subtitles", "yes");
 }
 
 void ComparisonVideoPlayer::ConfigureVideoOptions() {

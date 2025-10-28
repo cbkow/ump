@@ -138,6 +138,9 @@ std::string AnnotationExporter::ExportMarkdown(
         std::string img_filename = "note_" + SanitizeFilename(note.timecode) + ".png";
         md << "| <img src=\"images/" << img_filename << "\" width=\"200\"> | ";
         md << "**" << FormatTimecode(note.timecode) << "**<br>Frame: " << note.frame << " | ";
+        if (note.addressed) {
+            md << "**[Addressed]**<br>";
+        }
         md << note.text << " |\n";
     }
 
@@ -151,6 +154,9 @@ std::string AnnotationExporter::ExportMarkdown(
         md << "### " << FormatTimecode(note.timecode) << "\n\n";
         md << "**Frame:** " << note.frame << "\n\n";
         md << "![" << note.timecode << "](images/" << img_filename << ")\n\n";
+        if (note.addressed) {
+            md << "**[Addressed]**\n\n";
+        }
         md << note.text << "\n\n";
         md << "---\n\n";
     }
@@ -274,6 +280,9 @@ std::string AnnotationExporter::ExportHTML(
         html << "        <div class=\"synopsis-info\">\n";
         html << "            <h3>" << FormatTimecode(note.timecode) << "</h3>\n";
         html << "            <p><strong>Frame:</strong> " << note.frame << "</p>\n";
+        if (note.addressed) {
+            html << "            <p><strong>[Addressed]</strong></p>\n";
+        }
         html << "            <p>" << note.text << "</p>\n";
         html << "        </div>\n";
         html << "    </div>\n";
@@ -292,6 +301,9 @@ std::string AnnotationExporter::ExportHTML(
         html << "        <h3>" << FormatTimecode(note.timecode) << "</h3>\n";
         html << "        <p><strong>Frame:</strong> " << note.frame << "</p>\n";
         html << "        <img src=\"data:image/png;base64," << base64_image << "\" class=\"full-image\" alt=\"" << note.timecode << "\">\n";
+        if (note.addressed) {
+            html << "        <p><strong>[Addressed]</strong></p>\n";
+        }
         html << "        <p>" << note.text << "</p>\n";
         html << "        <hr>\n";
         html << "    </div>\n";
@@ -497,6 +509,15 @@ std::string AnnotationExporter::ExportPDF(
                 HPDF_Page_EndText(page);
                 info_y -= 25;
 
+                // Addressed status
+                if (note.addressed) {
+                    HPDF_Page_SetFontAndSize(page, font_bold, 10);
+                    HPDF_Page_BeginText(page);
+                    HPDF_Page_TextOut(page, info_x, info_y, "[Addressed]");
+                    HPDF_Page_EndText(page);
+                    info_y -= 25;
+                }
+
                 // Note text (word wrap)
                 HPDF_Page_SetFontAndSize(page, font, 10);
                 float text_width = page_width - info_x - margin;
@@ -563,6 +584,15 @@ std::string AnnotationExporter::ExportPDF(
                 HPDF_Page_DrawImage(page, image, margin, y_pos - img_height,
                                    img_width, img_height);
                 y_pos -= img_height + 20;
+            }
+
+            // Addressed status
+            if (note.addressed) {
+                HPDF_Page_SetFontAndSize(page, font_bold, 12);
+                HPDF_Page_BeginText(page);
+                HPDF_Page_TextOut(page, margin, y_pos, "[Addressed]");
+                HPDF_Page_EndText(page);
+                y_pos -= 25;
             }
 
             // Note text

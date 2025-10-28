@@ -30,6 +30,7 @@ public:
     void UpdateNoteText(const std::string& timecode, const std::string& text);
     void UpdateNoteAnnotationData(const std::string& timecode, const std::string& annotation_data);
     void UpdateNoteImagePath(const std::string& timecode, const std::string& image_path);
+    void UpdateNoteAddressed(const std::string& timecode, bool addressed);
     void DeleteNote(const std::string& timecode);
 
     // Query operations

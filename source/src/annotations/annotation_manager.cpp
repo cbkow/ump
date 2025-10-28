@@ -136,6 +136,28 @@ void AnnotationManager::UpdateNoteImagePath(const std::string& timecode, const s
     }
 }
 
+void AnnotationManager::UpdateNoteAddressed(const std::string& timecode, bool addressed) {
+    {
+        std::lock_guard<std::mutex> lock(notes_mutex_);
+
+        auto it = std::find_if(notes_.begin(), notes_.end(),
+            [&timecode](const AnnotationNote& note) {
+                return note.timecode == timecode;
+            });
+
+        if (it != notes_.end()) {
+            it->addressed = addressed;
+            Debug::Log("Updated addressed status at timecode: " + timecode + " -> " + (addressed ? "true" : "false"));
+        }
+    }
+
+    // Save to disk (unless in batch mode)
+    if (!batch_mode_) {
+        SaveNotesAsync();
+        NotifyNotesChanged();
+    }
+}
+
 void AnnotationManager::DeleteNote(const std::string& timecode) {
     {
         std::lock_guard<std::mutex> lock(notes_mutex_);

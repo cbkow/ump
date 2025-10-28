@@ -224,6 +224,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     }
 
     if (thumbnail_id != 0) {
+        // No fade on thumbnail - keep fully visible
         ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
 
         // Single-click to navigate to frame
@@ -269,6 +270,18 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     if (mono_font) ImGui::PopFont();
     ImGui::PopStyleColor();
 
+    // Addressed checkbox (styled like Frame count)
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    if (mono_font) ImGui::PushFont(mono_font);
+    bool addressed = note.addressed;
+    if (ImGui::Checkbox("Addressed", &addressed)) {
+        if (annotation_manager_) {
+            annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
+        }
+    }
+    if (mono_font) ImGui::PopFont();
+    ImGui::PopStyleColor();
+
     ImGui::PopItemWidth();
     ImGui::EndGroup();
 
@@ -289,28 +302,43 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // Check if this note is currently being edited
     bool is_currently_editing = is_editing_callback_ ? is_editing_callback_(note.timecode) : false;
 
-    // Edit button colors
+    // Edit button colors (disabled if note is addressed)
     ImVec4 accent_bright = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
     ImVec4 accent_regular = ImVec4(accent_bright.x * 0.7f, accent_bright.y * 0.7f, accent_bright.z * 0.7f, accent_bright.w);
     ImVec4 accent_muted_dark = ImVec4(accent_bright.x * 0.35f, accent_bright.y * 0.35f, accent_bright.z * 0.35f, accent_bright.w * 0.7f);
 
-    if (is_currently_editing) {
-        // Currently editing this note - use accent color
-        ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+    bool edit_button_enabled = !note.addressed;
+
+    if (edit_button_enabled) {
+        if (is_currently_editing) {
+            // Currently editing this note - use accent color
+            ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+        } else {
+            // Not editing - use normal colors with muted-dark for active
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+        }
     } else {
-        // Not editing - use normal colors with muted-dark for active
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
+        // Disabled state - use greyed out colors
+        ImVec4 disabled_color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
+        ImGui::PushStyleColor(ImGuiCol_Text, disabled_color);
     }
 
     if (icon_font) ImGui::PushFont(icon_font);
-    bool edit_clicked = ImGui::Button(icon_font ? ICON_EDIT : "Edit", ImVec2(button_width, button_height));
+    bool edit_clicked = edit_button_enabled && ImGui::Button(icon_font ? ICON_EDIT : "Edit", ImVec2(button_width, button_height));
     if (icon_font) ImGui::PopFont();
 
-    ImGui::PopStyleColor(3);
+    if (edit_button_enabled) {
+        ImGui::PopStyleColor(3);
+    } else {
+        ImGui::PopStyleColor(4); // Pop 4 colors for disabled state
+    }
 
     if (edit_clicked) {
         if (is_currently_editing) {
@@ -349,10 +377,21 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     strncpy(text_buffer, note.text.c_str(), sizeof(text_buffer) - 1);
     text_buffer[sizeof(text_buffer) - 1] = '\0';
 
+    // Text field - fade down to 60% opacity if addressed
+    if (note.addressed) {
+        ImVec4 text_color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        text_color.w = 0.6f; // 60% opacity
+        ImGui::PushStyleColor(ImGuiCol_Text, text_color);
+    }
+
     if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
         ImVec2(content_width, ImGui::GetTextLineHeight() * 4))) {
         // Text changed - update note
         annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
+    }
+
+    if (note.addressed) {
+        ImGui::PopStyleColor();
     }
 
     // If user clicked into this text field, seek to this note's frame
@@ -371,26 +410,37 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     ImGui::EndGroup(); // End content group
 
-    // Now draw the background behind everything
+    // Get the size of the group we just drew
     ImVec2 group_end_pos = ImGui::GetItemRectMax();
     ImVec2 group_size = ImVec2(group_end_pos.x - group_start_pos.x, group_end_pos.y - group_start_pos.y);
 
     // Extend the shape a few pixels on the right for better visual spacing
     const float right_extension = 8.0f;
 
-    // Draw background box with rounded corners (same style as transport controls)
+    // Draw background (always)
+    ImU32 background_color = IM_COL32(16, 16, 16, 60);
     draw_list->AddRectFilled(
         group_start_pos,
         ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
-        IM_COL32(16, 16, 16, 60),
+        background_color,
         rounding);
 
-    // Draw subtle border with rounded corners
+    // Draw subtle border with rounded corners (always visible)
     draw_list->AddRect(
         group_start_pos,
         ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
         IM_COL32(255, 255, 255, 15),
         rounding, 0, 1.0f);
+
+    // If addressed, draw semi-transparent wash OVER everything
+    if (note.addressed) {
+        ImU32 wash_color = IM_COL32(30, 30, 30, 180);
+        draw_list->AddRectFilled(
+            group_start_pos,
+            ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
+            wash_color,
+            rounding);
+    }
 
     ImGui::PopID();
 }

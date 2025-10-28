@@ -25,6 +25,9 @@
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 
+// External font from main.cpp
+extern ImFont* font_mono;
+
 #ifdef _WIN32
 #include <windows.h>
 #include <shlobj.h>
@@ -4602,21 +4605,26 @@ void VideoPlayer::RenderSideBySide() {
     ImVec2 content_region = ImGui::GetContentRegionAvail();
     float half_width = content_region.x * 0.5f;
 
+    // Get draw list and viewport position for overlays
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 viewport_pos = ImGui::GetCursorScreenPos();
+
     // Left side: Primary video
     GLuint primary_texture = GetDisplayTexture();
     ImVec2 left_size = CalculateFitSize(video_width, video_height, half_width, content_region.y);
 
-    // Center vertically
+    // Center both vertically and horizontally
     ImVec2 cursor_pos = ImGui::GetCursorPos();
+    float left_offset_x = (half_width - left_size.x) * 0.5f;
     float left_offset_y = (content_region.y - left_size.y) * 0.5f;
-    ImGui::SetCursorPos(ImVec2(cursor_pos.x, cursor_pos.y + left_offset_y));
+    ImGui::SetCursorPos(ImVec2(cursor_pos.x + left_offset_x, cursor_pos.y + left_offset_y));
 
     if (primary_texture > 0 && glIsTexture(primary_texture)) {
         ImGui::Image((void*)(intptr_t)primary_texture, left_size);
     }
 
     // Right side: Secondary video or drop target
-    ImGui::SameLine();
+    ImGui::SameLine(0.0f, 0.0f); // No spacing, we'll position manually
     ImVec2 right_start_pos = ImGui::GetCursorScreenPos();
 
     if (comparison_video_ && comparison_video_->HasVideo()) {
@@ -4638,9 +4646,10 @@ void VideoPlayer::RenderSideBySide() {
             //           ", glIsTexture=" + std::to_string(glIsTexture(comp_texture)));
         }
 
-        // Center vertically
+        // Center both vertically and horizontally
+        float right_offset_x = half_width + (half_width - right_size.x) * 0.5f;
         float right_offset_y = (content_region.y - right_size.y) * 0.5f;
-        ImGui::SetCursorPosY(cursor_pos.y + right_offset_y);
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + right_offset_x, cursor_pos.y + right_offset_y));
 
         if (comp_texture > 0 && glIsTexture(comp_texture)) {
             ImGui::Image((void*)(intptr_t)comp_texture, right_size);
@@ -4648,11 +4657,13 @@ void VideoPlayer::RenderSideBySide() {
             Debug::Log("ERROR: Comparison texture is invalid! texture_id=" + std::to_string(comp_texture));
         }
     } else {
-        // Show drop target placeholder
+        // Show drop target placeholder (centered in right half)
+        float right_offset_x = half_width + (half_width - half_width) * 0.5f; // Center placeholder in right half
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + half_width, cursor_pos.y));
         RenderDropTargetPlaceholder(half_width, content_region.y);
 
         // Add invisible drop target over entire right half (only when no video loaded)
-        ImGui::SetCursorScreenPos(right_start_pos);
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + half_width, cursor_pos.y));
         ImGui::InvisibleButton("##ComparisonDropTarget", ImVec2(half_width, content_region.y));
 
         if (ImGui::BeginDragDropTarget()) {
@@ -4663,6 +4674,38 @@ void VideoPlayer::RenderSideBySide() {
             }
             ImGui::EndDragDropTarget();
         }
+    }
+
+    // Draw vertical divider line between left and right sides
+    ImVec2 divider_top(viewport_pos.x + half_width, viewport_pos.y);
+    ImVec2 divider_bottom(viewport_pos.x + half_width, viewport_pos.y + content_region.y);
+    draw_list->AddLine(divider_top, divider_bottom, IM_COL32(60, 60, 60, 180), 1.0f);
+
+    // Draw text overlays using monospace font
+    if (font_mono) {
+        float font_size = 14.0f;
+
+        // Left side label
+        const char* left_label = "Main Control";
+        ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
+        ImVec2 left_text_pos(viewport_pos.x + (half_width - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+        draw_list->AddRectFilled(
+            ImVec2(left_text_pos.x - 5, left_text_pos.y - 2),
+            ImVec2(left_text_pos.x + left_text_size.x + 5, left_text_pos.y + left_text_size.y + 2),
+            IM_COL32(20, 20, 20, 180)
+        );
+        draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+
+        // Right side label
+        const char* right_label = "Secondary Video";
+        ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
+        ImVec2 right_text_pos(viewport_pos.x + half_width + (half_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+        draw_list->AddRectFilled(
+            ImVec2(right_text_pos.x - 5, right_text_pos.y - 2),
+            ImVec2(right_text_pos.x + right_text_size.x + 5, right_text_pos.y + right_text_size.y + 2),
+            IM_COL32(20, 20, 20, 180)
+        );
+        draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
     }
 }
 

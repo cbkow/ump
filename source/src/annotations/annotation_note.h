@@ -18,11 +18,13 @@ struct AnnotationNote {
     std::string image_path;         // Relative path: "images/note_HH_MM_SS_FF.png"
     std::string annotation_data;    // Future: JSON string for drawing/visual annotations (null for now)
     std::string text;               // User's note content (supports multiline)
+    bool addressed;                 // Whether note has been addressed/resolved
 
     // Default constructor
     AnnotationNote()
         : timestamp_seconds(0.0)
         , frame(0)
+        , addressed(false)
     {}
 
     // Constructor with parameters
@@ -53,7 +55,8 @@ inline void to_json(nlohmann::json& j, const AnnotationNote& note) {
         {"frame", note.frame},
         {"image", note.image_path},
         {"annotation_data", note.annotation_data.empty() ? nullptr : nlohmann::json::parse(note.annotation_data)},
-        {"text", note.text}
+        {"text", note.text},
+        {"addressed", note.addressed}
     };
 }
 
@@ -71,6 +74,13 @@ inline void from_json(const nlohmann::json& j, AnnotationNote& note) {
     }
 
     j.at("text").get_to(note.text);
+
+    // addressed is optional for backward compatibility
+    if (j.contains("addressed")) {
+        j.at("addressed").get_to(note.addressed);
+    } else {
+        note.addressed = false;
+    }
 }
 
 } // namespace ump
