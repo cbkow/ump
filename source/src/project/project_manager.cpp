@@ -3059,6 +3059,13 @@ namespace ump {
         MediaType media_type = GetMediaType(file_path);
         Debug::Log("Media type determined: " + std::to_string(static_cast<int>(media_type)));
 
+        // Block image sequences from primary video in comparison mode (not supported)
+        if ((media_type == MediaType::IMAGE_SEQUENCE || media_type == MediaType::EXR_SEQUENCE) &&
+            video_player && video_player->IsComparisonModeEnabled()) {
+            Debug::Log("ERROR: Image sequences are not supported in comparison mode. Please use regular video files.");
+            return;
+        }
+
         if (media_type == MediaType::IMAGE_SEQUENCE || media_type == MediaType::EXR_SEQUENCE) {
             Debug::Log("Detected as image/EXR sequence, showing frame rate dialog");
 

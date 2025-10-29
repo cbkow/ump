@@ -1062,6 +1062,20 @@ public:
                     }
                 }
 
+                // Handle pending viewport drop (main video)
+                std::string pending_viewport_drop = video_player->GetPendingViewportDrop();
+                if (!pending_viewport_drop.empty() && project_manager) {
+                    auto* media_item = project_manager->GetMediaItem(pending_viewport_drop);
+                    if (media_item) {
+                        std::string media_path = media_item->path;
+                        Debug::Log("Loading media from viewport drop: " + media_path);
+                        // Load like a double-click - supports all media types
+                        project_manager->LoadSingleFileFromDrop(media_path);
+                    } else {
+                        Debug::Log("ERROR: Could not find media item for viewport drop: " + pending_viewport_drop);
+                    }
+                }
+
                 // Check In/Out point range constraint for looping playback
                 if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && video_player->IsPlaying()) {
                     // Use frame-based comparison for precise loop control (especially important for short loops)
@@ -2462,6 +2476,18 @@ private:
                 bool dual_mode_enabled = video_player && video_player->IsComparisonModeEnabled();
                 if (ImGui::MenuItem("Enable Dual Video Review", nullptr, dual_mode_enabled, !current_file_path.empty())) {
                     if (video_player) {
+                        // Manage seek cache: disable when entering dual mode, restore when exiting
+                        if (!dual_mode_enabled) {  // About to enable
+                            if (project_manager) {
+                                project_manager->SetUserCachePreference(false);  // Disable cache for dual mode
+                                Debug::Log("Seek cache disabled for dual video mode");
+                            }
+                        } else {  // About to disable
+                            if (project_manager) {
+                                project_manager->SetUserCachePreference(cache_enabled);  // Restore user preference
+                                Debug::Log("Seek cache restored to user preference: " + std::string(cache_enabled ? "enabled" : "disabled"));
+                            }
+                        }
                         video_player->EnableComparisonMode(!dual_mode_enabled);
                         Debug::Log("Dual video review mode: " + std::string(dual_mode_enabled ? "disabled" : "enabled"));
                     }
@@ -3142,7 +3168,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.5");
+                ImGui::TextDisabled("About u.m.p. v0.2.6");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4905,6 +4931,17 @@ private:
                     if (annotation_renderer && viewport_annotator) {
                         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
+                        // Adjust canvas for dual view mode (annotations only on left side)
+                        ImVec2 annotation_canvas_pos = canvas_pos;
+                        ImVec2 annotation_canvas_size = canvas_size;
+
+                        if (video_player->IsComparisonModeEnabled() &&
+                            video_player->GetComparisonMode() == ComparisonMode::SIDE_BY_SIDE) {
+                            // Render annotations only on left half (primary video) in side-by-side mode
+                            // In split screen and difference modes, use full canvas size (normal size annotations)
+                            annotation_canvas_size.x = canvas_size.x * 0.5f;
+                        }
+
                         // Get display size/position for coordinate conversion
                         // Calculate display size maintaining aspect ratio (same logic as video rendering)
                         if (video_player) {
@@ -4913,18 +4950,18 @@ private:
 
                             if (video_width > 0 && video_height > 0) {
                                 float aspect_ratio = (float)video_width / video_height;
-                                ImVec2 display_size = canvas_size;
+                                ImVec2 display_size = annotation_canvas_size;
 
-                                if (canvas_size.x / aspect_ratio <= canvas_size.y) {
-                                    display_size.y = canvas_size.x / aspect_ratio;
+                                if (annotation_canvas_size.x / aspect_ratio <= annotation_canvas_size.y) {
+                                    display_size.y = annotation_canvas_size.x / aspect_ratio;
                                 } else {
-                                    display_size.x = canvas_size.y * aspect_ratio;
+                                    display_size.x = annotation_canvas_size.y * aspect_ratio;
                                 }
 
                                 // Center the display area
                                 ImVec2 display_pos = ImVec2(
-                                    canvas_pos.x + (canvas_size.x - display_size.x) * 0.5f,
-                                    canvas_pos.y + (canvas_size.y - display_size.y) * 0.5f
+                                    annotation_canvas_pos.x + (annotation_canvas_size.x - display_size.x) * 0.5f,
+                                    annotation_canvas_pos.y + (annotation_canvas_size.y - display_size.y) * 0.5f
                                 );
 
                                 // Save display area for export capture cropping
@@ -5032,8 +5069,10 @@ private:
                         ImVec2 overlay_canvas_pos = canvas_pos;
                         ImVec2 overlay_canvas_size = canvas_size;
 
-                        if (video_player->IsComparisonModeEnabled()) {
-                            // Render safety overlay only on left half (primary video)
+                        if (video_player->IsComparisonModeEnabled() &&
+                            video_player->GetComparisonMode() == ComparisonMode::SIDE_BY_SIDE) {
+                            // Render safety overlay only on left half (primary video) in side-by-side mode
+                            // In split screen and difference modes, use full canvas size (normal size guide)
                             overlay_canvas_size.x = canvas_size.x * 0.5f;
                         }
 
@@ -6582,6 +6621,18 @@ private:
                 ImGui::PopFont();
 
                 if (clicked && video_player) {
+                    // Manage seek cache: disable when entering dual mode, restore when exiting
+                    if (!dual_view_enabled) {  // About to enable
+                        if (project_manager) {
+                            project_manager->SetUserCachePreference(false);  // Disable cache for dual mode
+                            Debug::Log("Seek cache disabled for dual video mode");
+                        }
+                    } else {  // About to disable
+                        if (project_manager) {
+                            project_manager->SetUserCachePreference(cache_enabled);  // Restore user preference
+                            Debug::Log("Seek cache restored to user preference: " + std::string(cache_enabled ? "enabled" : "disabled"));
+                        }
+                    }
                     video_player->EnableComparisonMode(!dual_view_enabled);
                 }
                 if (ImGui::IsItemHovered()) {

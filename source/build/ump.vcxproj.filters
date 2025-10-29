@@ -82,6 +82,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\difference_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -115,6 +118,12 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager_transcode.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_generator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_transcoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\ffmpeg_video_encoder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -127,10 +136,16 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_job.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_queue.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_worker_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_sequence_transcoder.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_transcoder.cpp">
@@ -243,6 +258,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\comparison_video_player.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\difference_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -282,6 +300,12 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_generator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_transcoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\ffmpeg_video_encoder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -294,10 +318,16 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_job.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_queue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\transcode_worker_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_sequence_transcoder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\video_transcoder.h">
@@ -333,7 +363,6 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="resource4.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
@@ -345,11 +374,5 @@
     <Filter Include="Source Files">
       <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
     </Filter>
-  </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="ump4.rc" />
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
 </Project>

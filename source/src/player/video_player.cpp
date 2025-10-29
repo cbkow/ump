@@ -1,5 +1,7 @@
 #include "video_player.h"
 #include "comparison_video_player.h"
+#include "../transcode/transcode_manager.h"
+#include "difference_cache.h"
 #include "../project/media_item.h"
 #include "../utils/debug_utils.h"
 #include "../utils/gpu_scheduler.h"
@@ -16,6 +18,9 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+
+// External global cache path (user-configurable)
+extern std::string g_custom_cache_path;
 #include <sstream>
 #include <thread>
 #include <vector>
@@ -27,6 +32,26 @@
 
 // External font from main.cpp
 extern ImFont* font_mono;
+
+// External functions from main.cpp
+extern ImVec4 GetWindowsAccentColor();
+
+// Local helper to create muted dark variant of a color
+static ImVec4 MutedDarkLocal(const ImVec4& color) {
+    // Apply brightness (0.7f) and saturation (0.4f)
+    ImVec4 result = color;
+    result.x *= 0.7f;
+    result.y *= 0.7f;
+    result.z *= 0.7f;
+
+    // Desaturate
+    float gray = result.x * 0.299f + result.y * 0.587f + result.z * 0.114f;
+    result.x = gray + (result.x - gray) * 0.4f;
+    result.y = gray + (result.y - gray) * 0.4f;
+    result.z = gray + (result.z - gray) * 0.4f;
+
+    return result;
+}
 
 #ifdef _WIN32
 #include <windows.h>
@@ -1308,7 +1333,14 @@ void VideoPlayer::RenderVideoFrame() {
         exr_cache_->ProcessReadyTextures();
     }
 
-    if (has_video && video_texture) {
+    // Always render comparison mode UI, even if no primary video is loaded
+    if (comparison_mode_enabled_) {
+        if (has_video && video_texture) {
+            UpdateVideoTexture();
+        }
+        RenderVideoTexture();
+    }
+    else if (has_video && video_texture) {
         UpdateVideoTexture();
         RenderVideoTexture();
     }
@@ -1318,9 +1350,15 @@ void VideoPlayer::RenderVideoFrame() {
 }
 
 void VideoPlayer::RenderVideoTexture() {
-    // Check for comparison mode rendering (side-by-side)
+    // Check for comparison mode rendering
     if (comparison_mode_enabled_) {
-        RenderSideBySide();
+        if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
+            RenderDifference();
+        } else if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
+            RenderSplitScreen();
+        } else {
+            RenderSideBySide();
+        }
         return;
     }
 
@@ -1381,8 +1419,25 @@ void VideoPlayer::RenderVideoTexture() {
         return;
     }
 
+    // Save cursor position before rendering image for drop target
+    ImVec2 image_start_pos = ImGui::GetCursorPos();
+    ImVec2 image_screen_pos = ImGui::GetCursorScreenPos();
+
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
+
+    // Add drop target over the image
+    ImGui::SetCursorPos(image_start_pos);
+    ImGui::InvisibleButton("##ViewportDropTarget", image_size);
+
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Viewport drop received: " + media_id);
+            viewport_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
 }
 
 void VideoPlayer::RenderPlaceholder() {
@@ -3713,6 +3768,15 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
 
     // Use new Initialize overload with IImageLoader
     if (exr_cache_->Initialize(std::move(loader), sequence_files, "", fps, pipeline_mode, start_frame)) {
+        // Update current pipeline mode to match what we just initialized
+        current_pipeline_mode = pipeline_mode;
+
+        // Cache the internal format to avoid map lookups every frame
+        auto it = PIPELINE_CONFIGS.find(pipeline_mode);
+        current_internal_format = (it != PIPELINE_CONFIGS.end()) ? it->second.internal_format : GL_RGBA8;
+
+        Debug::Log("VideoPlayer: Pipeline mode set to " + std::string(PipelineModeToString(pipeline_mode)));
+
         // Apply current configuration
         ump::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
         exr_cache_->SetConfig(config);
@@ -4453,6 +4517,13 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
     comparison_mode_enabled_ = enabled;
 
     if (enabled) {
+        // If we're currently showing an image sequence, clear it
+        // Image sequences are not supported in comparison mode
+        if (is_exr_mode) {
+            Debug::Log("VideoPlayer: Clearing image sequence before entering comparison mode");
+            ResetState();
+        }
+
         // Initialize comparison video player
         if (!comparison_video_) {
             comparison_video_ = std::make_unique<ump::ComparisonVideoPlayer>();
@@ -4469,11 +4540,22 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
 
         Debug::Log("VideoPlayer: Comparison mode enabled (side-by-side)");
     } else {
+        // Restore original video if we were in difference mode
+        if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW && !original_video_path_before_difference_.empty() && is_exr_mode) {
+            Debug::Log("VideoPlayer: Restoring original video after exiting difference mode: " + original_video_path_before_difference_);
+            LoadFile(original_video_path_before_difference_);
+            original_video_path_before_difference_.clear();
+        }
+
         // Clean up comparison video
         if (comparison_video_) {
             comparison_video_->Cleanup();
             comparison_video_.reset();
         }
+
+        // Clean up difference compositor
+        CleanupDifferenceCompositor();
+
         comparison_mode_ = ComparisonMode::DISABLED;
 
         Debug::Log("VideoPlayer: Comparison mode disabled");
@@ -4526,6 +4608,7 @@ void VideoPlayer::SetComparisonMode(ComparisonMode mode) {
         return;
     }
 
+    ComparisonMode old_mode = comparison_mode_;
     comparison_mode_ = mode;
 
     const char* mode_name = "";
@@ -4536,6 +4619,15 @@ void VideoPlayer::SetComparisonMode(ComparisonMode mode) {
     }
 
     Debug::Log("VideoPlayer: Comparison mode changed to: " + std::string(mode_name));
+
+    // Switching from difference back to side-by-side: restore original video
+    if (old_mode == ComparisonMode::DIFFERENCE_VIEW && mode == ComparisonMode::SIDE_BY_SIDE) {
+        if (!original_video_path_before_difference_.empty() && is_exr_mode) {
+            Debug::Log("VideoPlayer: Restoring original video: " + original_video_path_before_difference_);
+            LoadFile(original_video_path_before_difference_);
+            // Don't clear the path - we can switch back to difference mode
+        }
+    }
 }
 
 ComparisonMode VideoPlayer::GetComparisonMode() const {
@@ -4557,6 +4649,16 @@ std::string VideoPlayer::GetPendingComparisonDrop() {
 
 void VideoPlayer::ClearPendingComparisonDrop() {
     comparison_drop_pending_id_.clear();
+}
+
+std::string VideoPlayer::GetPendingViewportDrop() {
+    std::string result = viewport_drop_pending_id_;
+    viewport_drop_pending_id_.clear();
+    return result;
+}
+
+void VideoPlayer::ClearPendingViewportDrop() {
+    viewport_drop_pending_id_.clear();
 }
 
 // ============================================================================
@@ -4609,18 +4711,24 @@ void VideoPlayer::RenderSideBySide() {
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 viewport_pos = ImGui::GetCursorScreenPos();
 
-    // Left side: Primary video
+    // Left side: Primary video or placeholder
     GLuint primary_texture = GetDisplayTexture();
-    ImVec2 left_size = CalculateFitSize(video_width, video_height, half_width, content_region.y);
-
-    // Center both vertically and horizontally
     ImVec2 cursor_pos = ImGui::GetCursorPos();
-    float left_offset_x = (half_width - left_size.x) * 0.5f;
-    float left_offset_y = (content_region.y - left_size.y) * 0.5f;
-    ImGui::SetCursorPos(ImVec2(cursor_pos.x + left_offset_x, cursor_pos.y + left_offset_y));
 
     if (primary_texture > 0 && glIsTexture(primary_texture)) {
+        // Render primary video
+        ImVec2 left_size = CalculateFitSize(video_width, video_height, half_width, content_region.y);
+
+        // Center both vertically and horizontally
+        float left_offset_x = (half_width - left_size.x) * 0.5f;
+        float left_offset_y = (content_region.y - left_size.y) * 0.5f;
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + left_offset_x, cursor_pos.y + left_offset_y));
+
         ImGui::Image((void*)(intptr_t)primary_texture, left_size);
+    } else {
+        // Show drop target placeholder on left side
+        ImGui::SetCursorPos(cursor_pos);
+        RenderPrimaryDropTargetPlaceholder(half_width, content_region.y);
     }
 
     // Right side: Secondary video or drop target
@@ -4676,6 +4784,31 @@ void VideoPlayer::RenderSideBySide() {
         }
     }
 
+    // Add drop targets over both sides (allows changing videos after loading)
+    // Left side drop target (primary video)
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::InvisibleButton("##PrimaryVideoDropTarget", ImVec2(half_width, content_region.y));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Primary video drop received: " + media_id);
+            viewport_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Right side drop target (comparison video)
+    ImGui::SetCursorPos(ImVec2(half_width, 0));
+    ImGui::InvisibleButton("##ComparisonVideoDropTarget", ImVec2(half_width, content_region.y));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Comparison video drop received: " + media_id);
+            comparison_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
     // Draw vertical divider line between left and right sides
     ImVec2 divider_top(viewport_pos.x + half_width, viewport_pos.y);
     ImVec2 divider_bottom(viewport_pos.x + half_width, viewport_pos.y + content_region.y);
@@ -4684,36 +4817,779 @@ void VideoPlayer::RenderSideBySide() {
     // Draw text overlays using monospace font
     if (font_mono) {
         float font_size = 14.0f;
+        float small_font_size = 11.0f;
 
-        // Left side label
-        const char* left_label = "Main Control";
-        ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
-        ImVec2 left_text_pos(viewport_pos.x + (half_width - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
-        draw_list->AddRectFilled(
-            ImVec2(left_text_pos.x - 5, left_text_pos.y - 2),
-            ImVec2(left_text_pos.x + left_text_size.x + 5, left_text_pos.y + left_text_size.y + 2),
-            IM_COL32(20, 20, 20, 180)
-        );
-        draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+        // Left side - Main Control + media name
+        {
+            const char* left_label = "Main Control";
+            ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
+            ImVec2 left_text_pos(viewport_pos.x + (half_width - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
 
-        // Right side label
-        const char* right_label = "Secondary Video";
-        ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
-        ImVec2 right_text_pos(viewport_pos.x + half_width + (half_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
-        draw_list->AddRectFilled(
-            ImVec2(right_text_pos.x - 5, right_text_pos.y - 2),
-            ImVec2(right_text_pos.x + right_text_size.x + 5, right_text_pos.y + right_text_size.y + 2),
-            IM_COL32(20, 20, 20, 180)
-        );
-        draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
+            // Get media filename
+            std::string left_media_name;
+            if (!current_file_path.empty()) {
+                std::filesystem::path p(current_file_path);
+                left_media_name = p.filename().string();
+            }
+            ImVec2 left_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
+
+            // Background for both labels
+            float combined_height = left_text_size.y + left_media_size.y + 4.0f;
+            float max_width = (std::max)(left_text_size.x, left_media_size.x);
+            draw_list->AddRectFilled(
+                ImVec2(viewport_pos.x + (half_width - max_width) * 0.5f - 5, left_text_pos.y - 2),
+                ImVec2(viewport_pos.x + (half_width + max_width) * 0.5f + 5, left_text_pos.y + combined_height + 2),
+                IM_COL32(20, 20, 20, 180)
+            );
+
+            // Draw labels
+            draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+            ImVec2 left_media_pos(viewport_pos.x + (half_width - left_media_size.x) * 0.5f, left_text_pos.y + left_text_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
+        }
+
+        // Right side - Secondary Video + media name
+        {
+            const char* right_label = "Secondary Video";
+            ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
+            ImVec2 right_text_pos(viewport_pos.x + half_width + (half_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+
+            // Get media filename
+            std::string right_media_name;
+            if (comparison_video_ && comparison_video_->HasVideo()) {
+                std::filesystem::path p(comparison_video_->GetFilePath());
+                right_media_name = p.filename().string();
+            }
+            ImVec2 right_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
+
+            // Background for both labels
+            float combined_height = right_text_size.y + right_media_size.y + 4.0f;
+            float max_width = (std::max)(right_text_size.x, right_media_size.x);
+            draw_list->AddRectFilled(
+                ImVec2(viewport_pos.x + half_width + (half_width - max_width) * 0.5f - 5, right_text_pos.y - 2),
+                ImVec2(viewport_pos.x + half_width + (half_width + max_width) * 0.5f + 5, right_text_pos.y + combined_height + 2),
+                IM_COL32(20, 20, 20, 180)
+            );
+
+            // Draw labels
+            draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
+            ImVec2 right_media_pos(viewport_pos.x + half_width + (half_width - right_media_size.x) * 0.5f, right_text_pos.y + right_text_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
+        }
+    }
+
+    // Floating dropdown overlay - top-left corner to select comparison mode
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+    ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
+    ImGui::BeginChild("##ComparisonModeToggle", ImVec2(150, 36), false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+    // Determine current mode label
+    const char* mode_label = "Side-by-Side";
+    if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
+        mode_label = "Split Screen";
+    } else if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
+        mode_label = "Difference";
+    }
+
+    ImGui::SetNextItemWidth(134);
+    if (ImGui::BeginCombo("##ModeSelect", mode_label, ImGuiComboFlags_NoArrowButton)) {
+        if (ImGui::Selectable("Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+            SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
+            Debug::Log("Switched to Side-by-Side mode");
+        }
+        if (ImGui::Selectable("Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+            SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
+            Debug::Log("Switched to Split Screen mode");
+        }
+        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+            Debug::Log("Switched to Difference mode");
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+
+    // Show transcoding progress underneath toggle button
+    if (transcoding_in_progress_ && transcode_manager_) {
+        float progress = transcode_manager_->GetProgress();
+
+        ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 56));
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+        ImGui::BeginChild("##TranscodeProgressSideBySide", ImVec2(280, 52), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        // Use mono font and system accent color
+        ImGui::PushFont(font_mono);
+        ImGui::Text("Transcoding difference...");
+        ImGui::PopFont();
+
+        // Progress bar with system accent color
+        ImVec4 accent = GetWindowsAccentColor();
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, accent);
+        char progress_text[32];
+        snprintf(progress_text, sizeof(progress_text), "%d%%", (int)(progress * 100));
+        ImGui::ProgressBar(progress, ImVec2(-1, 0), progress_text);
+        ImGui::PopStyleColor();
+
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
     }
 }
 
+void VideoPlayer::RenderSplitScreen() {
+    ImVec2 content_region = ImGui::GetContentRegionAvail();
+
+    // Get draw list and viewport position for overlays
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 viewport_pos = ImGui::GetCursorScreenPos();
+
+    // Calculate split position in pixels
+    float split_x = content_region.x * split_screen_position_;
+
+    // Update comparison video texture
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->UpdateVideoTexture();
+    }
+
+    // Get textures
+    GLuint primary_texture = GetDisplayTexture();
+    GLuint comparison_texture = (comparison_video_ && comparison_video_->HasVideo())
+        ? comparison_video_->GetTexture() : 0;
+
+    // Calculate full-screen sizes for both videos
+    float aspect_ratio = (float)video_width / (float)video_height;
+    ImVec2 primary_size = CalculateFitSize(video_width, video_height, content_region.x, content_region.y);
+    ImVec2 primary_pos = ImVec2(
+        (content_region.x - primary_size.x) * 0.5f,
+        (content_region.y - primary_size.y) * 0.5f
+    );
+
+    // Render left side (primary video or placeholder) - clipped to split position
+    ImVec2 cursor_pos = ImGui::GetCursorPos();
+    if (primary_texture > 0 && glIsTexture(primary_texture)) {
+        // Set up clipping for left side
+        ImGui::PushClipRect(
+            viewport_pos,
+            ImVec2(viewport_pos.x + split_x, viewport_pos.y + content_region.y),
+            true
+        );
+
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + primary_pos.x, cursor_pos.y + primary_pos.y));
+        ImGui::Image((void*)(intptr_t)primary_texture, primary_size);
+
+        ImGui::PopClipRect();
+    } else {
+        // Show drop target placeholder on left side
+        ImGui::PushClipRect(
+            viewport_pos,
+            ImVec2(viewport_pos.x + split_x, viewport_pos.y + content_region.y),
+            true
+        );
+
+        ImGui::SetCursorPos(cursor_pos);
+        RenderPrimaryDropTargetPlaceholder(split_x, content_region.y);
+
+        ImGui::PopClipRect();
+    }
+
+    // Render right side (comparison video) - clipped from split position
+    if (comparison_texture > 0 && glIsTexture(comparison_texture)) {
+        int comp_w = comparison_video_->GetWidth();
+        int comp_h = comparison_video_->GetHeight();
+        ImVec2 comparison_size = CalculateFitSize(comp_w, comp_h, content_region.x, content_region.y);
+        ImVec2 comparison_pos = ImVec2(
+            (content_region.x - comparison_size.x) * 0.5f,
+            (content_region.y - comparison_size.y) * 0.5f
+        );
+
+        // Set up clipping for right side
+        ImGui::PushClipRect(
+            ImVec2(viewport_pos.x + split_x, viewport_pos.y),
+            ImVec2(viewport_pos.x + content_region.x, viewport_pos.y + content_region.y),
+            true
+        );
+
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + comparison_pos.x, cursor_pos.y + comparison_pos.y));
+        ImGui::Image((void*)(intptr_t)comparison_texture, comparison_size);
+
+        ImGui::PopClipRect();
+    } else if (!comparison_video_ || !comparison_video_->HasVideo()) {
+        // Show drop target on right side
+        ImGui::PushClipRect(
+            ImVec2(viewport_pos.x + split_x, viewport_pos.y),
+            ImVec2(viewport_pos.x + content_region.x, viewport_pos.y + content_region.y),
+            true
+        );
+
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + split_x, cursor_pos.y));
+        RenderDropTargetPlaceholder(content_region.x - split_x, content_region.y);
+
+        // Add invisible drop target
+        ImGui::SetCursorPos(ImVec2(cursor_pos.x + split_x, cursor_pos.y));
+        ImGui::InvisibleButton("##ComparisonDropTarget", ImVec2(content_region.x - split_x, content_region.y));
+
+        if (ImGui::BeginDragDropTarget()) {
+            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+                std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+                Debug::Log("Comparison video drop received: " + media_id);
+                comparison_drop_pending_id_ = media_id;
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        ImGui::PopClipRect();
+    }
+
+    // Add drop targets over both sides (allows changing videos after loading)
+    // Left side drop target (primary video)
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::InvisibleButton("##PrimaryVideoDropTargetSplit", ImVec2(split_x, content_region.y));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Primary video drop received (split): " + media_id);
+            viewport_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Right side drop target (comparison video)
+    ImGui::SetCursorPos(ImVec2(split_x, 0));
+    ImGui::InvisibleButton("##ComparisonVideoDropTargetSplit", ImVec2(content_region.x - split_x, content_region.y));
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Comparison video drop received (split): " + media_id);
+            comparison_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Draw draggable divider line
+    float divider_width = 8.0f;  // Wider hit area for dragging
+    float divider_visual_width = 2.0f;
+    ImVec2 divider_top(viewport_pos.x + split_x, viewport_pos.y);
+    ImVec2 divider_bottom(viewport_pos.x + split_x, viewport_pos.y + content_region.y);
+
+    // Check for divider hover and drag
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    bool is_hovering_divider = (mouse_pos.x >= viewport_pos.x + split_x - divider_width * 0.5f &&
+                                mouse_pos.x <= viewport_pos.x + split_x + divider_width * 0.5f &&
+                                mouse_pos.y >= viewport_pos.y &&
+                                mouse_pos.y <= viewport_pos.y + content_region.y);
+
+    // Handle dragging
+    if (is_hovering_divider && ImGui::IsMouseClicked(0)) {
+        is_dragging_split_ = true;
+    }
+
+    if (is_dragging_split_) {
+        if (ImGui::IsMouseDown(0)) {
+            // Update split position based on mouse
+            float new_split = (mouse_pos.x - viewport_pos.x) / content_region.x;
+            split_screen_position_ = (std::max)(0.1f, (std::min)(0.9f, new_split));  // Clamp between 10% and 90%
+        } else {
+            is_dragging_split_ = false;
+        }
+    }
+
+    // Set cursor when hovering or dragging
+    if (is_hovering_divider || is_dragging_split_) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+    }
+
+    // Draw divider (highlight when hovering/dragging)
+    ImU32 divider_color = (is_hovering_divider || is_dragging_split_)
+        ? IM_COL32(180, 180, 180, 255)
+        : IM_COL32(80, 80, 80, 200);
+    draw_list->AddRectFilled(
+        ImVec2(viewport_pos.x + split_x - divider_visual_width * 0.5f, viewport_pos.y),
+        ImVec2(viewport_pos.x + split_x + divider_visual_width * 0.5f, viewport_pos.y + content_region.y),
+        divider_color
+    );
+
+    // Draw text labels
+    if (font_mono) {
+        float font_size = 14.0f;
+        float small_font_size = 11.0f;
+
+        // Left label
+        if (split_x > 150.0f) {  // Only show if there's enough space
+            const char* left_label = "Primary";
+            ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
+            ImVec2 left_text_pos(viewport_pos.x + (split_x - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+
+            std::string left_media_name;
+            if (!current_file_path.empty()) {
+                std::filesystem::path p(current_file_path);
+                left_media_name = p.filename().string();
+            }
+            ImVec2 left_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
+
+            float combined_height = left_text_size.y + left_media_size.y + 4.0f;
+            float max_width = (std::max)(left_text_size.x, left_media_size.x);
+            draw_list->AddRectFilled(
+                ImVec2(viewport_pos.x + (split_x - max_width) * 0.5f - 5, left_text_pos.y - 2),
+                ImVec2(viewport_pos.x + (split_x + max_width) * 0.5f + 5, left_text_pos.y + combined_height + 2),
+                IM_COL32(20, 20, 20, 180)
+            );
+
+            draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+            ImVec2 left_media_pos(viewport_pos.x + (split_x - left_media_size.x) * 0.5f, left_text_pos.y + left_text_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
+        }
+
+        // Right label
+        float right_width = content_region.x - split_x;
+        if (right_width > 150.0f && comparison_video_ && comparison_video_->HasVideo()) {  // Only show if there's enough space
+            const char* right_label = "Comparison";
+            ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
+            ImVec2 right_text_pos(viewport_pos.x + split_x + (right_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+
+            std::string right_media_name;
+            if (comparison_video_ && comparison_video_->HasVideo()) {
+                std::filesystem::path p(comparison_video_->GetFilePath());
+                right_media_name = p.filename().string();
+            }
+            ImVec2 right_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
+
+            float combined_height = right_text_size.y + right_media_size.y + 4.0f;
+            float max_width = (std::max)(right_text_size.x, right_media_size.x);
+            draw_list->AddRectFilled(
+                ImVec2(viewport_pos.x + split_x + (right_width - max_width) * 0.5f - 5, right_text_pos.y - 2),
+                ImVec2(viewport_pos.x + split_x + (right_width + max_width) * 0.5f + 5, right_text_pos.y + combined_height + 2),
+                IM_COL32(20, 20, 20, 180)
+            );
+
+            draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
+            ImVec2 right_media_pos(viewport_pos.x + split_x + (right_width - right_media_size.x) * 0.5f, right_text_pos.y + right_text_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
+        }
+    }
+
+    // Floating dropdown overlay - top-left corner to select comparison mode
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+    ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
+    ImGui::BeginChild("##ComparisonModeToggleSplit", ImVec2(150, 36), false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+    // Determine current mode label
+    const char* mode_label = "Split Screen";
+    if (comparison_mode_ == ComparisonMode::SIDE_BY_SIDE) {
+        mode_label = "Side-by-Side";
+    } else if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
+        mode_label = "Difference";
+    }
+
+    ImGui::SetNextItemWidth(134);
+    if (ImGui::BeginCombo("##ModeSelect", mode_label, ImGuiComboFlags_NoArrowButton)) {
+        if (ImGui::Selectable("Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+            SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
+            Debug::Log("Switched to Side-by-Side mode");
+        }
+        if (ImGui::Selectable("Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+            SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
+            Debug::Log("Switched to Split Screen mode");
+        }
+        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+            Debug::Log("Switched to Difference mode");
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+}
+
 void VideoPlayer::RenderDifference() {
-    // TODO: Implement difference shader rendering
-    // For now, fall back to side-by-side
-    Debug::Log("WARNING: Difference mode not yet implemented, falling back to side-by-side");
-    RenderSideBySide();
+    if (!comparison_video_ || !comparison_video_->HasVideo()) {
+        ImGui::Text("Load a comparison video to use difference mode");
+        return;
+    }
+
+    // Capture viewport position at the very start
+    ImVec2 viewport_pos = ImGui::GetCursorScreenPos();
+    ImVec2 content_region = ImGui::GetContentRegionAvail();
+
+    // Check if sequence is ready (loaded via EXR cache flow)
+    if (!is_exr_mode) {
+        // Show toggle button and message underneath
+        goto render_toggle_button;
+    }
+
+    // Render the difference frame from EXR cache
+    {
+        int frame_index = CalculateCurrentEXRFrameIndex();
+        InjectCurrentEXRFrame();
+
+        // Display the difference texture (already loaded via EXR cache)
+        GLuint diff_texture = GetDisplayTexture();
+        if (diff_texture != 0) {
+            int width = video_width;
+            int height = video_height;
+            ImVec2 image_size = CalculateFitSize(width, height, content_region.x, content_region.y);
+            ImVec2 image_pos((content_region.x - image_size.x) / 2, (content_region.y - image_size.y) / 2);
+            ImGui::SetCursorPos(image_pos);
+            ImGui::Image((void*)(intptr_t)diff_texture, image_size);
+        } else {
+            ImGui::Text("Loading difference frame...");
+        }
+
+        // Draw "Difference Mode" label with both media names
+        if (font_mono) {
+            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+            float font_size = 14.0f;
+            float small_font_size = 11.0f;
+
+            // Main label
+            const char* mode_label = "Difference Mode";
+            ImVec2 mode_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, mode_label);
+
+            // Get both media filenames
+            std::string primary_name;
+            std::string comparison_name;
+            if (!original_video_path_before_difference_.empty()) {
+                std::filesystem::path p(original_video_path_before_difference_);
+                primary_name = p.filename().string();
+            } else if (!current_file_path.empty()) {
+                std::filesystem::path p(current_file_path);
+                primary_name = p.filename().string();
+            }
+            if (comparison_video_ && comparison_video_->HasVideo()) {
+                std::filesystem::path p(comparison_video_->GetFilePath());
+                comparison_name = p.filename().string();
+            }
+
+            ImVec2 primary_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, primary_name.c_str());
+            ImVec2 comparison_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, comparison_name.c_str());
+
+            // Calculate total height and max width
+            float total_height = mode_text_size.y + primary_size.y + comparison_size.y + 6.0f; // 2px spacing between each
+            float max_width = (std::max)({mode_text_size.x, primary_size.x, comparison_size.x});
+
+            // Center horizontally at top
+            ImVec2 label_pos(viewport_pos.x + (content_region.x - mode_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
+
+            // Background
+            draw_list->AddRectFilled(
+                ImVec2(viewport_pos.x + (content_region.x - max_width) * 0.5f - 5, label_pos.y - 2),
+                ImVec2(viewport_pos.x + (content_region.x + max_width) * 0.5f + 5, label_pos.y + total_height + 2),
+                IM_COL32(20, 20, 20, 180)
+            );
+
+            // Draw main label
+            draw_list->AddText(font_mono, font_size, label_pos, IM_COL32(200, 200, 200, 255), mode_label);
+
+            // Draw primary filename
+            ImVec2 primary_pos(viewport_pos.x + (content_region.x - primary_size.x) * 0.5f, label_pos.y + mode_text_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, primary_pos, IM_COL32(150, 150, 150, 255), primary_name.c_str());
+
+            // Draw comparison filename
+            ImVec2 comparison_pos(viewport_pos.x + (content_region.x - comparison_size.x) * 0.5f, primary_pos.y + primary_size.y + 2.0f);
+            draw_list->AddText(font_mono, small_font_size, comparison_pos, IM_COL32(150, 150, 150, 255), comparison_name.c_str());
+        }
+    }
+
+    // Show toggle button and status (skip old compositor code entirely)
+    goto render_toggle_button;
+
+render_toggle_button:
+    // Render mode selector and status UI
+    {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+        ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
+        ImGui::BeginChild("##ComparisonModeToggleDiff", ImVec2(150, 36), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        // Determine current mode label
+        const char* mode_label = "Difference";
+        if (comparison_mode_ == ComparisonMode::SIDE_BY_SIDE) {
+            mode_label = "Side-by-Side";
+        } else if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
+            mode_label = "Split Screen";
+        }
+
+        ImGui::SetNextItemWidth(134);
+        if (ImGui::BeginCombo("##ModeSelect", mode_label, ImGuiComboFlags_NoArrowButton)) {
+            if (ImGui::Selectable("Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+                SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
+                Debug::Log("Switched to Side-by-Side mode");
+            }
+            if (ImGui::Selectable("Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+                SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
+                Debug::Log("Switched to Split Screen mode");
+            }
+            if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                Debug::Log("Switched to Difference mode");
+            }
+            ImGui::EndCombo();
+        }
+
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+
+        // Show status underneath toggle button
+        ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 56));
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+        if (transcoding_in_progress_ && transcode_manager_) {
+            // Show transcoding progress
+            float progress = transcode_manager_->GetProgress();
+
+            ImGui::BeginChild("##TranscodeProgress", ImVec2(280, 52), false,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+            ImGui::PushFont(font_mono);
+            ImGui::Text("Transcoding difference...");
+            ImGui::PopFont();
+
+            ImVec4 accent = GetWindowsAccentColor();
+            ImGui::PushStyleColor(ImGuiCol_PlotHistogram, accent);
+            char progress_text[32];
+            snprintf(progress_text, sizeof(progress_text), "%d%%", (int)(progress * 100));
+            ImGui::ProgressBar(progress, ImVec2(-1, 0), progress_text);
+            ImGui::PopStyleColor();
+
+            ImGui::EndChild();
+        } else if (!is_exr_mode && !transcoding_in_progress_) {
+            // Show transcoding prompt
+            ImGui::BeginChild("##TranscodePrompt", ImVec2(280, 82), false,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+            ImGui::PushFont(font_mono);
+            ImGui::TextWrapped("Requires transcoding");
+            ImGui::PopFont();
+
+            if (ImGui::Button("Start Transcoding", ImVec2(264, 28))) {
+                StartTranscoding();
+            }
+
+            ImGui::TextDisabled("Cached for future use");
+
+            ImGui::EndChild();
+        } else if (!is_exr_mode) {
+            // Show initializing message
+            ImGui::BeginChild("##InitializingPrompt", ImVec2(280, 40), false,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+            ImGui::PushFont(font_mono);
+            ImGui::Text("Initializing...");
+            ImGui::PopFont();
+
+            ImGui::EndChild();
+        }
+
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(2);
+    }
+
+    // Done - skip all the old compositor code below
+    return;
+
+    // ========================================================================
+    // OLD COMPOSITOR CODE (UNREACHABLE - kept for reference/fallback)
+    // ========================================================================
+    // Update comparison video texture
+    comparison_video_->UpdateVideoTexture();
+
+    // Get both textures
+    GLuint primary_texture = GetDisplayTexture();
+    GLuint comparison_texture = comparison_video_->GetTexture();
+
+    if (primary_texture == 0 || comparison_texture == 0) {
+        // Already handled above
+        return;
+    }
+
+    // Set up difference compositor
+    SetupDifferenceCompositor();
+
+    if (difference_shader_program_ == 0 || difference_texture_ == 0) {
+        ImGui::Text("Failed to initialize difference compositor");
+        return;
+    }
+
+    // Save OpenGL state
+    GLint last_viewport[4];
+    glGetIntegerv(GL_VIEWPORT, last_viewport);
+    GLint last_fbo;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &last_fbo);
+
+    // Render difference to FBO
+    glBindFramebuffer(GL_FRAMEBUFFER, difference_fbo_);
+    glViewport(0, 0, difference_texture_width_, difference_texture_height_);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Use difference shader
+    glUseProgram(difference_shader_program_);
+
+    // Bind textures
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, primary_texture);
+    glUniform1i(glGetUniformLocation(difference_shader_program_, "tex1"), 0);
+
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_2D, comparison_texture);
+    glUniform1i(glGetUniformLocation(difference_shader_program_, "tex2"), 1);
+
+    glUniform1f(glGetUniformLocation(difference_shader_program_, "amplification"), difference_amplification_);
+
+    // Render fullscreen quad
+    float vertices[] = {
+        // positions   // texCoords
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+
+    GLuint vbo, vao;
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDeleteBuffers(1, &vbo);
+    glDeleteVertexArrays(1, &vao);
+
+    // Restore OpenGL state
+    glBindFramebuffer(GL_FRAMEBUFFER, last_fbo);
+    glViewport(last_viewport[0], last_viewport[1], last_viewport[2], last_viewport[3]);
+    glUseProgram(0);
+
+    // Display the difference texture
+    ImVec2 image_size = CalculateFitSize(difference_texture_width_, difference_texture_height_, content_region.x, content_region.y);
+    ImGui::SetCursorPos(ImVec2((content_region.x - image_size.x) * 0.5f, (content_region.y - image_size.y) * 0.5f));
+    ImGui::Image((void*)(intptr_t)difference_texture_, image_size);
+
+    // Floating dropdown overlay - top-left corner to select comparison mode
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+    ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
+    ImGui::BeginChild("##ComparisonModeToggleDiff2", ImVec2(150, 36), false,
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+    // Determine current mode label
+    const char* mode_label2 = "Difference";
+    if (comparison_mode_ == ComparisonMode::SIDE_BY_SIDE) {
+        mode_label2 = "Side-by-Side";
+    } else if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
+        mode_label2 = "Split Screen";
+    }
+
+    ImGui::SetNextItemWidth(134);
+    if (ImGui::BeginCombo("##ModeSelect2", mode_label2, ImGuiComboFlags_NoArrowButton)) {
+        if (ImGui::Selectable("Side-by-Side##2", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+            SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
+            Debug::Log("Switched to Side-by-Side mode");
+        }
+        if (ImGui::Selectable("Split Screen##2", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+            SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
+            Debug::Log("Switched to Split Screen mode");
+        }
+        if (ImGui::Selectable("Difference##2", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+            Debug::Log("Switched to Difference mode");
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
+
+    // Show status underneath toggle button
+    ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 56));
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 6));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+
+    if (transcoding_in_progress_ && transcode_manager_) {
+        // Show transcoding progress
+        float progress = transcode_manager_->GetProgress();
+
+        ImGui::BeginChild("##TranscodeProgress", ImVec2(280, 52), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        ImGui::PushFont(font_mono);
+        ImGui::Text("Transcoding difference...");
+        ImGui::PopFont();
+
+        ImVec4 accent = GetWindowsAccentColor();
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, accent);
+        char progress_text[32];
+        snprintf(progress_text, sizeof(progress_text), "%d%%", (int)(progress * 100));
+        ImGui::ProgressBar(progress, ImVec2(-1, 0), progress_text);
+        ImGui::PopStyleColor();
+
+        ImGui::EndChild();
+    } else if (!is_exr_mode && !transcoding_in_progress_) {
+        // Show transcoding prompt
+        ImGui::BeginChild("##TranscodePrompt", ImVec2(280, 82), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        ImGui::PushFont(font_mono);
+        ImGui::TextWrapped("Requires transcoding");
+        ImGui::PopFont();
+
+        if (ImGui::Button("Start Transcoding", ImVec2(264, 28))) {
+            StartTranscoding();
+        }
+
+        ImGui::TextDisabled("Cached for future use");
+
+        ImGui::EndChild();
+    } else if (!is_exr_mode) {
+        // Show initializing message
+        ImGui::BeginChild("##InitializingPrompt", ImVec2(280, 40), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        ImGui::PushFont(font_mono);
+        ImGui::Text("Initializing...");
+        ImGui::PopFont();
+
+        ImGui::EndChild();
+    }
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 void VideoPlayer::RenderDropTargetPlaceholder(float width, float height) {
@@ -4724,6 +5600,13 @@ void VideoPlayer::RenderDropTargetPlaceholder(float width, float height) {
 
     ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + center.x - 80, ImGui::GetCursorPos().y + center.y + 10));
     ImGui::TextDisabled("for comparison");
+}
+
+void VideoPlayer::RenderPrimaryDropTargetPlaceholder(float width, float height) {
+    ImVec2 center(width * 0.5f, height * 0.5f);
+
+    ImGui::SetCursorPos(ImVec2(ImGui::GetCursorPos().x + center.x - 80, ImGui::GetCursorPos().y + center.y - 10));
+    ImGui::TextDisabled("Drop video here");
 }
 
 void VideoPlayer::RenderMPVToCurrentFBO(mpv_render_context* ctx, int width, int height) {
@@ -4748,5 +5631,275 @@ void VideoPlayer::RenderMPVToCurrentFBO(mpv_render_context* ctx, int width, int 
     };
 
     mpv_render_context_render(ctx, params);
+}
+
+// ============================================================================
+// Difference Compositor Implementation
+// ============================================================================
+
+GLuint VideoPlayer::CompileDifferenceShader() {
+    // Simple vertex shader - fullscreen quad
+    const char* vertex_shader_src = R"(
+        #version 330 core
+        layout(location = 0) in vec2 aPos;
+        layout(location = 1) in vec2 aTexCoord;
+        out vec2 TexCoord;
+        void main() {
+            gl_Position = vec4(aPos, 0.0, 1.0);
+            TexCoord = aTexCoord;
+        }
+    )";
+
+    // Fragment shader - compute absolute difference
+    const char* fragment_shader_src = R"(
+        #version 330 core
+        in vec2 TexCoord;
+        out vec4 FragColor;
+        uniform sampler2D tex1;  // Primary video
+        uniform sampler2D tex2;  // Comparison video
+        uniform float amplification;
+        void main() {
+            vec3 color1 = texture(tex1, TexCoord).rgb;
+            vec3 color2 = texture(tex2, TexCoord).rgb;
+            vec3 diff = abs(color1 - color2) * amplification;
+            FragColor = vec4(diff, 1.0);
+        }
+    )";
+
+    // Compile vertex shader
+    GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex_shader, 1, &vertex_shader_src, nullptr);
+    glCompileShader(vertex_shader);
+
+    GLint success;
+    glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
+        Debug::Log("ERROR: Vertex shader compilation failed: " + std::string(info_log));
+        return 0;
+    }
+
+    // Compile fragment shader
+    GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, &fragment_shader_src, nullptr);
+    glCompileShader(fragment_shader);
+
+    glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
+        Debug::Log("ERROR: Fragment shader compilation failed: " + std::string(info_log));
+        glDeleteShader(vertex_shader);
+        return 0;
+    }
+
+    // Link shader program
+    GLuint program = glCreateProgram();
+    glAttachShader(program, vertex_shader);
+    glAttachShader(program, fragment_shader);
+    glLinkProgram(program);
+
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetProgramInfoLog(program, 512, nullptr, info_log);
+        Debug::Log("ERROR: Shader program linking failed: " + std::string(info_log));
+        glDeleteShader(vertex_shader);
+        glDeleteShader(fragment_shader);
+        return 0;
+    }
+
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+
+    Debug::Log("Difference shader compiled successfully");
+    return program;
+}
+
+void VideoPlayer::SetupDifferenceCompositor() {
+    if (difference_shader_program_ == 0) {
+        difference_shader_program_ = CompileDifferenceShader();
+    }
+
+    // Create FBO if needed
+    if (difference_fbo_ == 0) {
+        glGenFramebuffers(1, &difference_fbo_);
+    }
+
+    // Create or resize output texture if needed
+    int target_width = video_width;
+    int target_height = video_height;
+
+    if (difference_texture_ == 0 ||
+        difference_texture_width_ != target_width ||
+        difference_texture_height_ != target_height) {
+
+        if (difference_texture_ != 0) {
+            glDeleteTextures(1, &difference_texture_);
+        }
+
+        glGenTextures(1, &difference_texture_);
+        glBindTexture(GL_TEXTURE_2D, difference_texture_);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, target_width, target_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        difference_texture_width_ = target_width;
+        difference_texture_height_ = target_height;
+
+        // Attach texture to FBO
+        glBindFramebuffer(GL_FRAMEBUFFER, difference_fbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, difference_texture_, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            Debug::Log("ERROR: Difference compositor FBO is not complete!");
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        Debug::Log("Difference compositor set up: " + std::to_string(target_width) + "x" + std::to_string(target_height));
+    }
+}
+
+void VideoPlayer::CleanupDifferenceCompositor() {
+    if (difference_texture_ != 0) {
+        glDeleteTextures(1, &difference_texture_);
+        difference_texture_ = 0;
+    }
+    if (difference_fbo_ != 0) {
+        glDeleteFramebuffers(1, &difference_fbo_);
+        difference_fbo_ = 0;
+    }
+    if (difference_shader_program_ != 0) {
+        glDeleteProgram(difference_shader_program_);
+        difference_shader_program_ = 0;
+    }
+    difference_texture_width_ = 0;
+    difference_texture_height_ = 0;
+}
+
+// ============================================================================
+// NEW: Disk-Based Transcoding for Frame-Accurate Difference Mode
+// ============================================================================
+
+void VideoPlayer::StartTranscoding() {
+    Debug::Log("VideoPlayer: Starting transcode for difference mode");
+
+    if (!comparison_video_ || !comparison_video_->HasVideo()) {
+        Debug::Log("ERROR: No comparison video loaded");
+        return;
+    }
+
+    // TODO: Get metadata for both videos
+    // For now, create minimal metadata from what we know
+    VideoMetadata primary_metadata;
+    primary_metadata.file_path = current_file_path;
+    primary_metadata.width = GetVideoWidth();
+    primary_metadata.height = GetVideoHeight();
+    primary_metadata.frame_rate = GetFrameRate();
+    primary_metadata.total_frames = static_cast<int>(GetDuration() * GetFrameRate());
+    primary_metadata.colorspace = "bt709";  // Default
+    primary_metadata.range_type = "limited";  // Default
+    primary_metadata.bit_depth = 8;  // Default
+
+    VideoMetadata comparison_metadata;
+    comparison_metadata.file_path = comparison_video_->GetFilePath();
+    comparison_metadata.width = comparison_video_->GetWidth();
+    comparison_metadata.height = comparison_video_->GetHeight();
+    comparison_metadata.frame_rate = GetFrameRate();  // Use same as primary
+    comparison_metadata.total_frames = static_cast<int>(GetDuration() * GetFrameRate());
+    comparison_metadata.colorspace = "bt709";  // Default
+    comparison_metadata.range_type = "limited";  // Default
+    comparison_metadata.bit_depth = 8;  // Default
+
+    // Create transcode manager
+    transcode_manager_ = std::make_unique<ump::TranscodeManager>();
+    transcode_manager_->SetCompletionCallback([this]() {
+        OnTranscodeComplete();
+    });
+
+    // Start transcode (use user-configured cache directory)
+    transcoding_in_progress_ = true;
+    bool success = transcode_manager_->StartTranscode(
+        current_file_path,
+        primary_metadata,
+        comparison_video_->GetFilePath(),
+        comparison_metadata,
+        5.0f,                   // amplification
+        g_custom_cache_path     // user-configured cache directory
+    );
+
+    if (!success) {
+        Debug::Log("ERROR: Failed to start transcoding");
+        transcoding_in_progress_ = false;
+        transcode_manager_.reset();
+    }
+}
+
+void VideoPlayer::OnTranscodeComplete() {
+    Debug::Log("VideoPlayer: Transcode complete!");
+
+    // Get the combined cache directory
+    std::string combined_dir = transcode_manager_->GetCombinedCacheDirectory();
+    double fps = GetFrameRate();
+    int total_frames = static_cast<int>(GetDuration() * fps);
+
+    Debug::Log("VideoPlayer: Combined cache directory: " + combined_dir);
+    Debug::Log("VideoPlayer: Total frames: " + std::to_string(total_frames));
+    Debug::Log("VideoPlayer: FPS: " + std::to_string(fps));
+
+    // Verify the directory and files exist
+    if (!std::filesystem::exists(combined_dir)) {
+        Debug::Log("ERROR: Combined cache directory does not exist: " + combined_dir);
+        transcoding_in_progress_ = false;
+        return;
+    }
+
+    // Build list of PNG sequence files
+    std::vector<std::string> sequence_files;
+    for (int i = 0; i < total_frames; ++i) {
+        std::stringstream ss;
+        ss << combined_dir << "/frame_" << std::setfill('0') << std::setw(5) << i << ".png";
+        sequence_files.push_back(ss.str());
+    }
+
+    // Verify first frame exists
+    if (!sequence_files.empty() && !std::filesystem::exists(sequence_files[0])) {
+        Debug::Log("ERROR: First frame does not exist: " + sequence_files[0]);
+        transcoding_in_progress_ = false;
+        return;
+    }
+
+    Debug::Log("VideoPlayer: Loading " + std::to_string(sequence_files.size()) + " PNG frames into DirectEXRCache...");
+    Debug::Log("VideoPlayer: Current pipeline mode BEFORE load: " + std::string(PipelineModeToString(current_pipeline_mode)));
+
+    // Store the original video path before loading difference sequence (so we can restore it later)
+    if (!current_file_path.empty()) {
+        original_video_path_before_difference_ = current_file_path;
+        Debug::Log("VideoPlayer: Stored original video path: " + original_video_path_before_difference_);
+    }
+
+    // Load the PNG difference sequence using the universal image loader!
+    // LoadImageSequenceWithCache properly supports PNGs and uses DirectEXRCache
+    bool success = LoadImageSequenceWithCache(
+        sequence_files,         // List of PNG files
+        fps,                    // Frame rate
+        PipelineMode::NORMAL,   // 8-bit RGBA (our difference PNGs are 8-bit RGB)
+        0,                      // Auto-detect width from first file
+        0                       // Auto-detect height from first file
+    );
+
+    transcoding_in_progress_ = false;
+
+    Debug::Log("VideoPlayer: Current pipeline mode AFTER load: " + std::string(PipelineModeToString(current_pipeline_mode)));
+
+    if (!success) {
+        Debug::Log("ERROR: LoadImageSequenceWithCache failed for difference sequence");
+    } else {
+        Debug::Log("VideoPlayer: Difference sequence loaded successfully - using DirectEXRCache!");
+    }
 }
 

@@ -35,6 +35,8 @@ namespace ump {
     struct ThumbnailConfig;
     class ThumbnailCache;
     class ComparisonVideoPlayer;
+    class TranscodeManager;  // NEW: For difference mode transcoding
+    class DifferenceCache;   // NEW: For difference mode caching
 }
 
 #include "pipeline_mode.h"
@@ -42,7 +44,8 @@ namespace ump {
 // Comparison mode for dual video review
 enum class ComparisonMode {
     DISABLED,           // Single video (current behavior)
-    SIDE_BY_SIDE,       // Split viewport 50/50
+    SIDE_BY_SIDE,       // Split viewport 50/50 (scaled down videos)
+    SPLIT_SCREEN,       // Full-screen split with draggable divider
     DIFFERENCE_VIEW     // OpenGL shader composite showing pixel differences
 };
 
@@ -322,6 +325,8 @@ public:
     std::string GetComparisonVideoPath() const;
     std::string GetPendingComparisonDrop();  // Returns and clears pending media ID
     void ClearPendingComparisonDrop();
+    std::string GetPendingViewportDrop();  // Returns and clears pending media ID for main viewport
+    void ClearPendingViewportDrop();
 
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
@@ -491,18 +496,42 @@ private:
     std::unique_ptr<ump::ComparisonVideoPlayer> comparison_video_;
     ComparisonMode comparison_mode_ = ComparisonMode::DISABLED;
     bool comparison_mode_enabled_ = false;
-    std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop
+    std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop (comparison video)
+    std::string viewport_drop_pending_id_;  // Pending media ID from drag-drop (main viewport)
+    std::string original_video_path_before_difference_;  // Stores original video to restore when exiting difference mode
+    float split_screen_position_ = 0.5f;  // Split position (0.0 = left, 1.0 = right, 0.5 = center)
+    bool is_dragging_split_ = false;  // True when user is dragging the split divider
     double last_seek_time_ = 0.0;  // For debounced seek sync
     bool was_playing_before_seek_ = false;  // Restore play state after seek
     double last_position_ = 0.0;  // For loop detection
     double loop_sync_time_ = 0.0;  // Timer for loop sync delay
     bool loop_sync_pending_ = false;  // Waiting for loop sync to settle
 
+    // Difference compositor (old FBO-based - kept for fallback)
+    GLuint difference_shader_program_ = 0;
+    GLuint difference_fbo_ = 0;
+    GLuint difference_texture_ = 0;
+    int difference_texture_width_ = 0;
+    int difference_texture_height_ = 0;
+    float difference_amplification_ = 5.0f;  // Amplify subtle differences
+
+    // NEW: Disk-based transcoding for frame-accurate difference mode
+    std::unique_ptr<ump::TranscodeManager> transcode_manager_;
+    std::unique_ptr<ump::DifferenceCache> difference_cache_;
+    bool transcoding_in_progress_ = false;
+    void OnTranscodeComplete();
+    void StartTranscoding();
+
     // Comparison rendering helpers
     void RenderSideBySide();
+    void RenderSplitScreen();
     void RenderDifference();
+    void SetupDifferenceCompositor();
+    void CleanupDifferenceCompositor();
+    GLuint CompileDifferenceShader();
     ImVec2 CalculateFitSize(int source_w, int source_h, float max_w, float max_h) const;
     void RenderDropTargetPlaceholder(float width, float height);
+    void RenderPrimaryDropTargetPlaceholder(float width, float height);
     GLuint GetDisplayTexture() const;
     void RenderMPVToCurrentFBO(mpv_render_context* ctx, int width, int height);  // Get current display texture (with OCIO/overlays applied)
 
