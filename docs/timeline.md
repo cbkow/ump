@@ -63,3 +63,10 @@ At the bottom of our panel, on the left, we have a Volume bar, a Mute state butt
 
 ![window](images/explorer_ArMq05VuGy.png)
 Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop-out button will set an out point. Once selected, looping will be constrained to the area.
+
+---
+
+## Playlist Mode
+
+![window](images/ump_Ybz5R4jUfh.png)
+When in playlist mode, the playlist will be represented below the timeline as clips. You can click on any to move the playlist to the selection. You can also drag/drop clips to rearrange the playlist.
