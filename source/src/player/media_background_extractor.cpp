@@ -717,14 +717,20 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             return false;
         }
 
-        // Copy filtered pixel data to output buffer
-        size_t data_size = width * height * bytes_per_pixel;
-        pixel_data.resize(data_size);
+        // Copy filtered pixel data to output buffer (row-by-row to handle FFmpeg stride alignment)
+        // FFmpeg allocates frames with row padding for performance (linesize != width * bpp)
+        // This fixes corruption on non-standard resolutions like 1080x1920 portrait videos
+        size_t row_stride = width * bytes_per_pixel;  // Tight-packed row size
+        pixel_data.resize(height * row_stride);
 
         // Copy from filtered frame's data
         if (filtered_frame->format == target_format) {
-            std::memcpy(pixel_data.data(), filtered_frame->data[0], data_size);
-            Debug::Log("MediaBackgroundExtractor: FILTER_422 conversion successful - " + std::to_string(data_size) + " bytes");
+            for (int y = 0; y < height; y++) {
+                const uint8_t* src_row = filtered_frame->data[0] + y * filtered_frame->linesize[0];
+                uint8_t* dst_row = pixel_data.data() + y * row_stride;
+                std::memcpy(dst_row, src_row, row_stride);
+            }
+            Debug::Log("MediaBackgroundExtractor: FILTER_422 conversion successful - " + std::to_string(pixel_data.size()) + " bytes");
         } else {
             Debug::Log("MediaBackgroundExtractor: ERROR - Filter output format mismatch! Expected " +
                       std::to_string(target_format) + ", got " + std::to_string(filtered_frame->format));
@@ -865,10 +871,17 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
     sws_scale(sws_ctx, frame->data, frame->linesize, 0, height,
               target_frame->data, target_frame->linesize);
 
-    // Copy raw pixel data to byte vector
-    size_t data_size = width * height * bytes_per_pixel;
-    pixel_data.resize(data_size);
-    std::memcpy(pixel_data.data(), target_frame->data[0], data_size);
+    // Copy raw pixel data to byte vector (row-by-row to handle FFmpeg stride alignment)
+    // FFmpeg allocates frames with row padding for performance (linesize != width * bpp)
+    // This fixes corruption on non-standard resolutions like 1080x1920 portrait videos
+    size_t row_stride = width * bytes_per_pixel;  // Tight-packed row size
+    pixel_data.resize(height * row_stride);
+
+    for (int y = 0; y < height; y++) {
+        const uint8_t* src_row = target_frame->data[0] + y * target_frame->linesize[0];
+        uint8_t* dst_row = pixel_data.data() + y * row_stride;
+        std::memcpy(dst_row, src_row, row_stride);
+    }
 
     sws_freeContext(sws_ctx);
     av_frame_free(&target_frame);

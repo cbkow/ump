@@ -949,24 +949,24 @@ public:
                 }
             }
 
-            // Process delayed seek cache start (2000ms after video load, respects mouse activity)
+            // Process delayed seek cache start (1000ms after video load, respects mouse activity)
             if (pending_seek_cache_start) {
                 auto now = std::chrono::steady_clock::now();
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - seek_cache_start_timer).count();
 
                 // Only start if enough time has passed AND mouse is idle (no user interaction)
-                if (elapsed >= 2000 && mouse_is_idle) {
+                if (elapsed >= 1000 && mouse_is_idle) {
                     pending_seek_cache_start = false;
                     if (project_manager) {
                         FrameCache* frame_cache = project_manager->GetCurrentVideoCache();
                         if (frame_cache) {
                             // Start background extraction now (user is idle)
                             frame_cache->StartDelayedBackgroundExtraction();
-                            Debug::Log("Seek cache: Starting background extraction after 2s delay (mouse idle)");
+                            Debug::Log("Seek cache: Starting background extraction after 1s delay (mouse idle)");
                         }
                     }
                 }
-                // If user is still active after 2s, keep waiting (timer keeps running)
+                // If user is still active after 1s, keep waiting (timer keeps running)
             }
 
             // Check system pressure (atomic read - no blocking)
@@ -3040,35 +3040,43 @@ private:
             }
 
             if (ImGui::BeginMenu("Pipeline")) {
-                // Check if we're in EXR mode
-                bool is_exr_mode = video_player && video_player->IsInEXRMode();
-
-                // Check if we're in image sequence mode (pipeline mode auto-detected from image bit depth)
-                bool is_image_sequence = project_manager && project_manager->IsInImageSequenceMode();
+                // Check if we're in image sequence mode
+                bool is_image_sequence_mode = video_player && video_player->IsInEXRMode();
+                std::string sequence_format = video_player ? video_player->GetImageSequenceFormat() : "";
 
                 // Pipeline Mode Selection
                 ImGui::TextDisabled("Video Processing Pipeline:");
 
-                if (is_exr_mode) {
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "EXR Mode - Fixed Float16 Pipeline");
-                    ImGui::TextDisabled("Pipeline selection disabled for EXR sequences");
-                } else if (is_image_sequence) {
-                    // Get auto-detected pipeline mode from frame cache
-                    PipelineMode seq_mode = project_manager->GetImageSequencePipelineMode();
+                if (is_image_sequence_mode && !sequence_format.empty()) {
+                    // Get the actual pipeline mode being used
+                    PipelineMode seq_mode = video_player->GetPipelineMode();
                     std::string mode_str = PipelineModeToString(seq_mode);
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), ("Image Sequence - " + mode_str + " Pipeline (Auto-detected)").c_str());
-                    ImGui::TextDisabled("Pipeline locked to image bit depth");
 
-                    // Show bit depth info
-                    const char* bit_info = "";
-                    if (seq_mode == PipelineMode::NORMAL) {
-                        bit_info = "(8-bit images: PNG/JPEG/TIFF)";
-                    } else if (seq_mode == PipelineMode::HIGH_RES) {
-                        bit_info = "(16-bit images: PNG16/TIFF16)";
-                    } else if (seq_mode == PipelineMode::ULTRA_HIGH_RES) {
-                        bit_info = "(Float images: 32-bit TIFF)";
+                    // Display format-specific information
+                    if (sequence_format == "EXR") {
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), ("EXR Sequence - " + mode_str + " Pipeline").c_str());
+                        ImGui::TextDisabled("Pipeline: Float16 (Half-precision floating point)");
+                    } else if (sequence_format == "PNG") {
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), ("PNG Sequence - " + mode_str + " Pipeline").c_str());
+                        if (seq_mode == PipelineMode::NORMAL) {
+                            ImGui::TextDisabled("Pipeline: 8-bit RGBA");
+                        } else if (seq_mode == PipelineMode::HIGH_RES) {
+                            ImGui::TextDisabled("Pipeline: 16-bit RGBA");
+                        }
+                    } else if (sequence_format == "JPEG") {
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), ("JPEG Sequence - " + mode_str + " Pipeline").c_str());
+                        ImGui::TextDisabled("Pipeline: 8-bit RGB");
+                    } else if (sequence_format == "TIFF") {
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), ("TIFF Sequence - " + mode_str + " Pipeline").c_str());
+                        if (seq_mode == PipelineMode::NORMAL) {
+                            ImGui::TextDisabled("Pipeline: 8-bit RGBA");
+                        } else if (seq_mode == PipelineMode::HIGH_RES) {
+                            ImGui::TextDisabled("Pipeline: 16-bit RGBA");
+                        } else if (seq_mode == PipelineMode::ULTRA_HIGH_RES) {
+                            ImGui::TextDisabled("Pipeline: 32-bit Float RGBA");
+                        }
                     }
-                    ImGui::TextDisabled("%s", bit_info);
+                    ImGui::TextDisabled("Pipeline locked to detected image bit depth");
                 } else {
                     const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)" /*, "HDR-Res (HDR Display)" */ };
 
@@ -3143,16 +3151,16 @@ private:
 
                 // MPV Status Info
                 ImGui::TextDisabled("Current Pipeline:");
-                if (is_exr_mode) {
+                if (is_image_sequence_mode && sequence_format == "EXR") {
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "EXR Float16 Pipeline (Fixed)");
-                } else if (is_image_sequence) {
-                    // Show actual auto-detected pipeline mode for image sequences
-                    PipelineMode seq_mode = project_manager->GetImageSequencePipelineMode();
+                } else if (is_image_sequence_mode && !sequence_format.empty()) {
+                    // Show actual pipeline mode for image sequences
+                    PipelineMode seq_mode = video_player->GetPipelineMode();
                     auto it = PIPELINE_CONFIGS.find(seq_mode);
                     if (it != PIPELINE_CONFIGS.end()) {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (Image Sequence)", it->second.description.c_str());
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (%s Sequence)", it->second.description.c_str(), sequence_format.c_str());
                     } else {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Sequence - %s", PipelineModeToString(seq_mode));
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s Sequence - %s", sequence_format.c_str(), PipelineModeToString(seq_mode));
                     }
                 } else {
                     PipelineMode current_mode = video_player ? video_player->GetPipelineMode() : PipelineMode::NORMAL;
@@ -3168,7 +3176,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.2.6");
+                ImGui::TextDisabled("About u.m.p. v0.2.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -11895,7 +11903,7 @@ private:
     void TriggerSeekCacheStart() {
         pending_seek_cache_start = true;
         seek_cache_start_timer = std::chrono::steady_clock::now();
-        Debug::Log("Seek cache: Delayed start timer set (2000ms delay)");
+        Debug::Log("Seek cache: Delayed start timer set (1000ms delay)");
     }
 
     void AddToRecentFiles(const std::string& file_path) {

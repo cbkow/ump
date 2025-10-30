@@ -1871,6 +1871,7 @@ void VideoPlayer::ResetState() {
         is_exr_mode = false;
         exr_sequence_files.clear();
         exr_layer_name.clear();
+        image_sequence_format.clear();
         exr_current_frame = 0;
         exr_frame_count = 0;
         exr_frame_rate = 24.0;
@@ -3588,6 +3589,10 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     exr_frame_count = static_cast<int>(sequence_files.size());
     exr_sequence_start_frame = start_frame;
     is_exr_mode = true;
+    image_sequence_format = "EXR";  // Store format type
+
+    // Set pipeline mode for EXR sequences (Float16/half-precision)
+    current_pipeline_mode = PipelineMode::ULTRA_HIGH_RES;
 
     Debug::Log("EXR sequence data stored: " + std::to_string(exr_frame_count) + " frames, start frame: " + std::to_string(start_frame));
 
@@ -3757,6 +3762,7 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     exr_frame_count = static_cast<int>(sequence_files.size());
     exr_sequence_start_frame = start_frame;
     is_exr_mode = true;  // Reuse EXR mode flag for all image sequences
+    image_sequence_format = format_name;  // Store detected format (PNG, JPEG, TIFF)
 
     Debug::Log("Image sequence data stored: " + std::to_string(exr_frame_count) + " frames, start frame: " + std::to_string(start_frame));
 

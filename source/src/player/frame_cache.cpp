@@ -1057,7 +1057,7 @@ void FrameCache::PauseForThumbnails(bool pause) {
 }
 
 void FrameCache::StartDelayedBackgroundExtraction() {
-    // Called from main loop after 2s delay to start background extraction
+    // Called from main loop after 1s delay to start background extraction
     // This reduces initial load contention with first frame decode and thumbnails
     if (background_extractor && !current_video_path.empty()) {
         background_extractor->StartBackgroundExtraction();
@@ -1119,12 +1119,12 @@ void FrameCache::SetVideoFile(const std::string& video_path, const VideoMetadata
     }
 
     // Initialize background extractor with new video
-    // metadata can be nullptr - initialize now, start after 2s delay!
+    // metadata can be nullptr - initialize now, start after 1s delay!
     if (background_extractor && !video_path.empty()) {
         if (!background_extractor->Initialize(video_path, metadata)) {
             Debug::Log("FrameCache: Failed to initialize background extractor for " + video_path);
         } else {
-            // NOTE: Extraction NOT started immediately - will be started after 2s delay
+            // NOTE: Extraction NOT started immediately - will be started after 1s delay
             // by StartDelayedBackgroundExtraction() to reduce initial load contention
             Debug::Log("FrameCache: Video swapped, cache cleared, extractor initialized (awaiting delayed start)");
         }

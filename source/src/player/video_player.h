@@ -231,6 +231,7 @@ public:
 
     // NEW: Cache system accessors
     bool IsInEXRMode() const { return is_exr_mode; }
+    std::string GetImageSequenceFormat() const { return image_sequence_format; }
     const std::vector<std::string>& GetEXRSequenceFiles() const { return exr_sequence_files; }
     const std::string& GetEXRLayerName() const { return exr_layer_name; }
     double GetEXRFrameRate() const { return exr_frame_rate; }
@@ -462,6 +463,7 @@ private:
     bool is_exr_mode = false;
     std::string exr_sequence_path;
     std::string exr_layer_name;
+    std::string image_sequence_format;  // "EXR", "PNG", "JPEG", "TIFF", etc.
 
     // Current file path for cached metadata lookups
     std::string current_file_path;
