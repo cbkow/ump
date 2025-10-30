@@ -21,7 +21,7 @@ The Project Manager allows you to curate a collection of files to return to. Whe
 
 By default, there is one playlist loaded in the Project Manager panel. Underneath it, there is a `New Playlist` button you can use to create new playlists with. 
 
-![Window](images/ump_TnFXtfVaDy.png)
+![Window](images/ump_zI6CRqzXW5.png)
 
 When you double-click on a playlist, it will open up the Inspector Panel (see the Inspector page for more info) and show the Playlist Manager. 
 - The playlist currently only supports Video and Audio files. Image sequences are not supported.
