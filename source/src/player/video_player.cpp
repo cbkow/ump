@@ -3040,7 +3040,15 @@ bool VideoPlayer::CaptureScreenshotToClipboard() {
         if (OpenClipboard(nullptr)) {
             EmptyClipboard();
 
-            // Create bitmap for clipboard
+            // Keep original RGBA for PNG
+            std::vector<unsigned char> rgba_pixels = pixels;
+
+            // Convert RGBA to BGRA for Windows bitmap formats
+            for (size_t i = 0; i < pixels.size(); i += 4) {
+                std::swap(pixels[i], pixels[i + 2]); // Swap R and B
+            }
+
+            // Format 1: CF_DIB (Device Independent Bitmap) - for Photoshop
             BITMAPINFOHEADER bi = {};
             bi.biSize = sizeof(BITMAPINFOHEADER);
             bi.biWidth = video_width;
@@ -3049,23 +3057,43 @@ bool VideoPlayer::CaptureScreenshotToClipboard() {
             bi.biBitCount = 32;
             bi.biCompression = BI_RGB;
 
-            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixels.size());
-            if (hMem) {
-                unsigned char* pMem = (unsigned char*)GlobalLock(hMem);
-                if (pMem) {
-                    memcpy(pMem, &bi, sizeof(BITMAPINFOHEADER));
-
-                    // Convert RGBA to BGRA for Windows
-                    for (size_t i = 0; i < pixels.size(); i += 4) {
-                        std::swap(pixels[i], pixels[i + 2]); // Swap R and B
-                    }
-
-                    memcpy(pMem + sizeof(BITMAPINFOHEADER), pixels.data(), pixels.size());
-                    GlobalUnlock(hMem);
-
-                    SetClipboardData(CF_DIB, hMem);
+            HGLOBAL hDIB = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixels.size());
+            if (hDIB) {
+                unsigned char* pDIB = (unsigned char*)GlobalLock(hDIB);
+                if (pDIB) {
+                    memcpy(pDIB, &bi, sizeof(BITMAPINFOHEADER));
+                    memcpy(pDIB + sizeof(BITMAPINFOHEADER), pixels.data(), pixels.size());
+                    GlobalUnlock(hDIB);
+                    SetClipboardData(CF_DIB, hDIB);
                 }
             }
+
+            // Format 2: PNG format for modern apps
+            static UINT CF_PNG = RegisterClipboardFormatA("PNG");
+            if (CF_PNG) {
+                // Write PNG to memory buffer using stb_image_write
+                auto png_write_func = [](void* context, void* data, int size) {
+                    std::vector<unsigned char>* buffer = (std::vector<unsigned char>*)context;
+                    unsigned char* bytes = (unsigned char*)data;
+                    buffer->insert(buffer->end(), bytes, bytes + size);
+                };
+
+                std::vector<unsigned char> png_buffer;
+                stbi_write_png_to_func(png_write_func, &png_buffer, video_width, video_height, 4, rgba_pixels.data(), video_width * 4);
+
+                if (!png_buffer.empty()) {
+                    HGLOBAL hPNG = GlobalAlloc(GMEM_MOVEABLE, png_buffer.size());
+                    if (hPNG) {
+                        unsigned char* pPNG = (unsigned char*)GlobalLock(hPNG);
+                        if (pPNG) {
+                            memcpy(pPNG, png_buffer.data(), png_buffer.size());
+                            GlobalUnlock(hPNG);
+                            SetClipboardData(CF_PNG, hPNG);
+                        }
+                    }
+                }
+            }
+
             CloseClipboard();
         }
         #endif
@@ -3157,17 +3185,9 @@ bool VideoPlayer::CaptureScreenshotToDesktop(const std::string& filename) {
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
         glReadPixels(0, 0, video_width, video_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-        // Flip image vertically (video texture is stored upside-down in OpenGL)
-        std::vector<unsigned char> flipped_pixels(pixels.size());
-        for (int y = 0; y < video_height; y++) {
-            memcpy(&flipped_pixels[y * video_width * 4],
-                   &pixels[(video_height - 1 - y) * video_width * 4],
-                   video_width * 4);
-        }
-
-        // Save as PNG using stb_image_write
+        // Save as PNG using stb_image_write (no flip needed - texture is already correct orientation)
         int result = stbi_write_png(output_filename.c_str(), video_width, video_height, 4,
-                                   flipped_pixels.data(), video_width * 4);
+                                   pixels.data(), video_width * 4);
 
         if (result) {
             Debug::Log("Screenshot saved to: " + output_filename + " (" + std::to_string(video_width) + "x" + std::to_string(video_height) + ")");
@@ -3238,17 +3258,9 @@ bool VideoPlayer::CaptureScreenshotToPath(const std::string& directory_path, con
     if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
         glReadPixels(0, 0, video_width, video_height, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-        // Flip image vertically (video texture is stored upside-down in OpenGL)
-        std::vector<unsigned char> flipped_pixels(pixels.size());
-        for (int y = 0; y < video_height; y++) {
-            memcpy(&flipped_pixels[y * video_width * 4],
-                   &pixels[(video_height - 1 - y) * video_width * 4],
-                   video_width * 4);
-        }
-
-        // Save as PNG using stb_image_write
+        // Save as PNG using stb_image_write (no flip needed - texture is already correct orientation)
         int result = stbi_write_png(output_filename.c_str(), video_width, video_height, 4,
-                                   flipped_pixels.data(), video_width * 4);
+                                   pixels.data(), video_width * 4);
 
         if (result) {
             Debug::Log("Screenshot saved to: " + output_filename + " (" + std::to_string(video_width) + "x" + std::to_string(video_height) + ")");
