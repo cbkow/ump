@@ -384,8 +384,9 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         ImGui::PushStyleColor(ImGuiCol_Text, text_color);
     }
 
+    // InputTextMultiline with WordWrap - always editable with wrapped text
     if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
-        ImVec2(content_width, ImGui::GetTextLineHeight() * 4))) {
+        ImVec2(content_width, ImGui::GetTextLineHeight() * 4), ImGuiInputTextFlags_WordWrap)) {
         // Text changed - update note
         annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
     }
