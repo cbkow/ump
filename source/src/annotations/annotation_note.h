@@ -33,7 +33,9 @@ struct AnnotationNote {
         , timestamp_seconds(ts)
         , frame(f)
         , image_path(img)
+        , annotation_data("")
         , text(txt)
+        , addressed(false)
     {}
 
     // Comparison operator for sorting by timecode

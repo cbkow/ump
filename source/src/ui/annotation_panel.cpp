@@ -598,10 +598,9 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     std::vector<png_bytep> row_pointers(height);
     std::vector<png_byte> image_data(width * height * 4);
 
-    // Flip Y-axis for OpenGL texture coordinates
-    // OpenGL expects bottom row first, but PNG has top row first
+    // No Y-axis flip needed - ImGui expects textures in normal top-down format
     for (int y = 0; y < height; y++) {
-        row_pointers[height - 1 - y] = &image_data[y * width * 4];
+        row_pointers[y] = &image_data[y * width * 4];
     }
 
     png_read_image(png_ptr, row_pointers.data());
