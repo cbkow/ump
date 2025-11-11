@@ -239,6 +239,23 @@ static constexpr double stats_bar_refresh_interval = 0.5;  // 500ms = 2Hz refres
 static bool exr_cache_was_active = false;
 static std::string exr_video_path_before_shutdown;
 
+// ============================================================================
+// GO TO TIMECODE/FRAME MODAL STATE
+// ============================================================================
+static bool show_goto_timecode_modal = false;
+static bool goto_modal_preserve_pause_state = false;
+static bool goto_modal_was_playing = false;
+
+// Timecode input buffers (HH:MM:SS:FF format)
+static char goto_timecode_hours[3] = "00";
+static char goto_timecode_minutes[3] = "00";
+static char goto_timecode_seconds[3] = "00";
+static char goto_timecode_frames[3] = "00";
+
+// Frame number input buffer
+static char goto_frame_buffer[16] = "0";
+static bool goto_use_frame_input = false;  // false = timecode, true = frame number
+
 // Auto-configure EXR threading settings based on CPU capabilities
 void AutoConfigureEXRThreading(decltype(cache_settings)& settings) {
     int hardware_threads = static_cast<int>(std::thread::hardware_concurrency());
@@ -2380,6 +2397,9 @@ private:
 
         // Render shutdown modal if shutting down
         RenderShutdownModal();
+
+        // Render Go To Timecode/Frame modal
+        RenderGotoTimecodeModal();
     }
 
     void HandleShareProjectPopups() {
@@ -3176,7 +3196,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.0");
+                ImGui::TextDisabled("About u.m.p. v0.3.1");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -7739,16 +7759,38 @@ private:
                     frame_str = time_display + " Frame " + std::to_string(display_frame);
                 }
 
-                // Calculate position for right-aligned text
+                // Calculate position for right-aligned text (with button)
                 ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
+                float button_width = 25.0f;  // Match In/Out button width
+                float total_width = text_size.x + button_width + 5.0f;  // 5px spacing
+
                 ImGui::SameLine();
-                ImGui::SetCursorPosX(ImGui::GetWindowSize().x - text_size.x - 15);
+                ImGui::SetCursorPosX(ImGui::GetWindowSize().x - total_width - 15);
 
                 // Show in accent color when in timecode mode
                 if (timecode_mode_enabled && timecode_state == AVAILABLE) {
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", frame_str.c_str());
                 } else {
                     ImGui::Text("%s", frame_str.c_str());
+                }
+
+                // Go To button next to timecode
+                ImGui::SameLine();
+
+                if (font_icons) {
+                    ImGui::PushFont(font_icons);
+                }
+
+                if (ImGui::Button("\uf50b", ImVec2(25.0f, 22.0f))) {  // "play_for_work" icon
+                    OpenGotoTimecodeModal();
+                }
+
+                if (font_icons) {
+                    ImGui::PopFont();
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Go to timecode/frame");
                 }
 
                 ImGui::PopFont();
@@ -12294,6 +12336,425 @@ private:
         timecode_mode_enabled = false;
         cached_start_timecode = "";
         Debug::Log("Timecode state reset for new file");
+    }
+
+    // ============================================================================
+    // GO TO TIMECODE/FRAME HELPER FUNCTIONS
+    // ============================================================================
+
+    // Smart timecode parsing - handles various formats:
+    // - "00:00:01:24" or "00:00:01;24" (full timecode)
+    // - "01:24" or "0124" or "000124" (frames or seconds:frames)
+    bool ParseFlexibleTimecode(const std::string& input, int& hours, int& minutes, int& seconds, int& frames) {
+        // Remove leading/trailing whitespace
+        std::string trimmed = input;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+        if (trimmed.empty()) return false;
+
+        // Replace semicolons with colons (drop-frame timecode format)
+        for (char& c : trimmed) {
+            if (c == ';') c = ':';
+        }
+
+        // Split by colons
+        std::vector<int> parts;
+        std::istringstream ss(trimmed);
+        std::string segment;
+
+        while (std::getline(ss, segment, ':')) {
+            if (!segment.empty()) {
+                try {
+                    parts.push_back(std::stoi(segment));
+                } catch (...) {
+                    return false;
+                }
+            }
+        }
+
+        // If no colons (or only one part), try parsing as pure digits
+        if (parts.size() <= 1) {
+            // Check if it's all digits
+            bool all_digits = true;
+            for (char c : trimmed) {
+                if (!isdigit(c)) {
+                    all_digits = false;
+                    break;
+                }
+            }
+
+            if (all_digits && trimmed.length() >= 2) {
+                try {
+                    int value = std::stoi(trimmed);
+
+                    // Interpret based on length:
+                    // 2 digits: frames only (e.g., "24")
+                    // 4 digits: seconds:frames (e.g., "0124" = 01:24)
+                    // 6 digits: minutes:seconds:frames (e.g., "010124" = 01:01:24)
+                    if (trimmed.length() == 2) {
+                        hours = 0; minutes = 0; seconds = 0;
+                        frames = value;
+                        return true;
+                    } else if (trimmed.length() == 4) {
+                        hours = 0; minutes = 0;
+                        seconds = value / 100;
+                        frames = value % 100;
+                        return true;
+                    } else if (trimmed.length() == 6) {
+                        hours = 0;
+                        minutes = value / 10000;
+                        seconds = (value / 100) % 100;
+                        frames = value % 100;
+                        return true;
+                    } else if (trimmed.length() == 8) {
+                        hours = value / 1000000;
+                        minutes = (value / 10000) % 100;
+                        seconds = (value / 100) % 100;
+                        frames = value % 100;
+                        return true;
+                    }
+                } catch (...) {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        // Parse based on number of colon-separated parts
+        if (parts.size() == 2) {
+            // SS:FF format
+            hours = 0; minutes = 0;
+            seconds = parts[0];
+            frames = parts[1];
+            return true;
+        } else if (parts.size() == 3) {
+            // MM:SS:FF format
+            hours = 0;
+            minutes = parts[0];
+            seconds = parts[1];
+            frames = parts[2];
+            return true;
+        } else if (parts.size() == 4) {
+            // HH:MM:SS:FF format
+            hours = parts[0];
+            minutes = parts[1];
+            seconds = parts[2];
+            frames = parts[3];
+            return true;
+        }
+
+        return false;
+    }
+
+    // Parse flexible frame number formats: "12", "012", "000000012"
+    bool ParseFlexibleFrameNumber(const std::string& input, int& frame_number) {
+        std::string trimmed = input;
+        trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+        trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+
+        if (trimmed.empty()) return false;
+
+        // Check if all digits
+        for (char c : trimmed) {
+            if (!isdigit(c)) return false;
+        }
+
+        try {
+            frame_number = std::stoi(trimmed);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    // Open the goto timecode modal with current position
+    void OpenGotoTimecodeModal() {
+        if (!video_player || !video_player->HasVideo()) return;
+
+        // Preserve pause state
+        goto_modal_was_playing = video_player->IsPlaying();
+        if (goto_modal_was_playing) {
+            video_player->Pause();
+        }
+
+        // Get current position
+        double fps = video_player->GetFrameRate();
+        double current_pos = video_player->GetPosition();
+        int current_frame = video_player->GetCurrentFrame();
+
+        // Populate timecode fields with current position
+        int hours = (int)(current_pos / 3600);
+        int minutes = (int)(fmod(current_pos, 3600.0) / 60);
+        int secs = (int)fmod(current_pos, 60.0);
+        int frames = (int)((current_pos - (int)current_pos) * fps);
+
+        snprintf(goto_timecode_hours, sizeof(goto_timecode_hours), "%02d", hours);
+        snprintf(goto_timecode_minutes, sizeof(goto_timecode_minutes), "%02d", minutes);
+        snprintf(goto_timecode_seconds, sizeof(goto_timecode_seconds), "%02d", secs);
+        snprintf(goto_timecode_frames, sizeof(goto_timecode_frames), "%02d", frames);
+
+        // Populate frame field
+        int display_frame = current_frame;
+        if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
+            int start_frame = video_player->IsInEXRMode()
+                ? video_player->GetEXRSequenceStartFrame()
+                : video_player->GetImageSequenceStartFrame();
+            display_frame = ump::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
+        } else {
+            display_frame = ump::FrameIndexing::InternalToDisplay(current_frame);
+        }
+        snprintf(goto_frame_buffer, sizeof(goto_frame_buffer), "%d", display_frame);
+
+        // Default to timecode input
+        goto_use_frame_input = false;
+
+        // Open modal
+        show_goto_timecode_modal = true;
+    }
+
+    // Render the Go To Timecode/Frame modal
+    void RenderGotoTimecodeModal() {
+        // Open the popup if flag is set (MUST be before BeginPopupModal)
+        if (show_goto_timecode_modal && !ImGui::IsPopupOpen("Go To Timecode/Frame")) {
+            ImGui::OpenPopup("Go To Timecode/Frame");
+        }
+
+        if (!show_goto_timecode_modal) return;
+
+        // Center modal on screen
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(450, 0), ImGuiCond_Appearing);
+
+        // Open modal with darkened background
+        if (ImGui::BeginPopupModal("Go To Timecode/Frame", &show_goto_timecode_modal,
+            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            ImGui::PushFont(font_mono);
+
+            // Toggle between timecode and frame input
+            ImGui::Text("Input Mode:");
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Timecode", !goto_use_frame_input)) {
+                goto_use_frame_input = false;
+            }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Frame Number", goto_use_frame_input)) {
+                goto_use_frame_input = true;
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            bool navigate = false;
+
+            if (goto_use_frame_input) {
+                // FRAME NUMBER INPUT MODE
+                ImGui::Text("Frame Number:");
+                ImGui::Spacing();
+
+                ImGui::PushItemWidth(200);
+
+                // Detect paste in frame input
+                bool input_active = ImGui::InputText("##frame_input", goto_frame_buffer,
+                    sizeof(goto_frame_buffer),
+                    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsDecimal);
+
+                // Check for paste operation
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_V) &&
+                    (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))) {
+
+                    // Get clipboard text
+                    const char* clipboard_text = ImGui::GetClipboardText();
+                    if (clipboard_text) {
+                        int frame_num;
+                        if (ParseFlexibleFrameNumber(clipboard_text, frame_num)) {
+                            snprintf(goto_frame_buffer, sizeof(goto_frame_buffer), "%d", frame_num);
+                        }
+                    }
+                }
+
+                if (input_active) {
+                    navigate = true;
+                }
+
+                ImGui::PopItemWidth();
+
+            } else {
+                // TIMECODE INPUT MODE (HH:MM:SS:FF)
+                ImGui::Text("Timecode (HH:MM:SS:FF):");
+                ImGui::Spacing();
+
+                ImGui::PushItemWidth(60);
+
+                // Four separate input fields
+                bool hours_changed = ImGui::InputText("##hours", goto_timecode_hours,
+                    sizeof(goto_timecode_hours),
+                    ImGuiInputTextFlags_CharsDecimal);
+
+                // Detect paste in hours field
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_V) &&
+                    (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))) {
+
+                    const char* clipboard_text = ImGui::GetClipboardText();
+                    if (clipboard_text) {
+                        int h, m, s, f;
+                        if (ParseFlexibleTimecode(clipboard_text, h, m, s, f)) {
+                            snprintf(goto_timecode_hours, sizeof(goto_timecode_hours), "%02d", h);
+                            snprintf(goto_timecode_minutes, sizeof(goto_timecode_minutes), "%02d", m);
+                            snprintf(goto_timecode_seconds, sizeof(goto_timecode_seconds), "%02d", s);
+                            snprintf(goto_timecode_frames, sizeof(goto_timecode_frames), "%02d", f);
+                        }
+                    }
+                }
+
+                ImGui::SameLine(); ImGui::Text(":");
+                ImGui::SameLine();
+
+                bool minutes_changed = ImGui::InputText("##minutes", goto_timecode_minutes,
+                    sizeof(goto_timecode_minutes),
+                    ImGuiInputTextFlags_CharsDecimal);
+
+                // Detect paste in minutes field
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_V) &&
+                    (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))) {
+
+                    const char* clipboard_text = ImGui::GetClipboardText();
+                    if (clipboard_text) {
+                        int h, m, s, f;
+                        if (ParseFlexibleTimecode(clipboard_text, h, m, s, f)) {
+                            snprintf(goto_timecode_hours, sizeof(goto_timecode_hours), "%02d", h);
+                            snprintf(goto_timecode_minutes, sizeof(goto_timecode_minutes), "%02d", m);
+                            snprintf(goto_timecode_seconds, sizeof(goto_timecode_seconds), "%02d", s);
+                            snprintf(goto_timecode_frames, sizeof(goto_timecode_frames), "%02d", f);
+                        }
+                    }
+                }
+
+                ImGui::SameLine(); ImGui::Text(":");
+                ImGui::SameLine();
+
+                bool seconds_changed = ImGui::InputText("##seconds", goto_timecode_seconds,
+                    sizeof(goto_timecode_seconds),
+                    ImGuiInputTextFlags_CharsDecimal);
+
+                // Detect paste in seconds field
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_V) &&
+                    (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))) {
+
+                    const char* clipboard_text = ImGui::GetClipboardText();
+                    if (clipboard_text) {
+                        int h, m, s, f;
+                        if (ParseFlexibleTimecode(clipboard_text, h, m, s, f)) {
+                            snprintf(goto_timecode_hours, sizeof(goto_timecode_hours), "%02d", h);
+                            snprintf(goto_timecode_minutes, sizeof(goto_timecode_minutes), "%02d", m);
+                            snprintf(goto_timecode_seconds, sizeof(goto_timecode_seconds), "%02d", s);
+                            snprintf(goto_timecode_frames, sizeof(goto_timecode_frames), "%02d", f);
+                        }
+                    }
+                }
+
+                ImGui::SameLine(); ImGui::Text(":");
+                ImGui::SameLine();
+
+                bool frames_changed = ImGui::InputText("##frames", goto_timecode_frames,
+                    sizeof(goto_timecode_frames),
+                    ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CharsDecimal);
+
+                // Detect paste in frames field
+                if (ImGui::IsItemActive() && ImGui::IsKeyPressed(ImGuiKey_V) &&
+                    (ImGui::IsKeyDown(ImGuiKey_LeftCtrl) || ImGui::IsKeyDown(ImGuiKey_RightCtrl))) {
+
+                    const char* clipboard_text = ImGui::GetClipboardText();
+                    if (clipboard_text) {
+                        int h, m, s, f;
+                        if (ParseFlexibleTimecode(clipboard_text, h, m, s, f)) {
+                            snprintf(goto_timecode_hours, sizeof(goto_timecode_hours), "%02d", h);
+                            snprintf(goto_timecode_minutes, sizeof(goto_timecode_minutes), "%02d", m);
+                            snprintf(goto_timecode_seconds, sizeof(goto_timecode_seconds), "%02d", s);
+                            snprintf(goto_timecode_frames, sizeof(goto_timecode_frames), "%02d", f);
+                        }
+                    }
+                }
+
+                if (frames_changed) {
+                    navigate = true;
+                }
+
+                ImGui::PopItemWidth();
+
+                ImGui::Spacing();
+                ImGui::TextWrapped("Tip: Paste any timecode format (00:00:01:24, 0124, 01:24) in any field");
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Buttons
+            if (ImGui::Button("Go To", ImVec2(120, 0)) || navigate) {
+                // Perform navigation
+                if (video_player && video_player->HasVideo()) {
+                    double fps = video_player->GetFrameRate();
+                    double target_position = 0.0;
+
+                    if (goto_use_frame_input) {
+                        // Parse frame number
+                        int target_frame;
+                        if (ParseFlexibleFrameNumber(goto_frame_buffer, target_frame)) {
+                            // Convert display frame to internal frame
+                            int internal_frame = target_frame;
+                            if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
+                                int start_frame = video_player->IsInEXRMode()
+                                    ? video_player->GetEXRSequenceStartFrame()
+                                    : video_player->GetImageSequenceStartFrame();
+                                internal_frame = ump::FrameIndexing::FileFrameToInternal(target_frame, start_frame);
+                            } else {
+                                internal_frame = ump::FrameIndexing::DisplayToInternal(target_frame);
+                            }
+
+                            // Convert frame to time position
+                            target_position = internal_frame / fps;
+                        }
+                    } else {
+                        // Parse timecode
+                        int hours = atoi(goto_timecode_hours);
+                        int minutes = atoi(goto_timecode_minutes);
+                        int seconds = atoi(goto_timecode_seconds);
+                        int frames = atoi(goto_timecode_frames);
+
+                        // Convert to seconds
+                        target_position = hours * 3600.0 + minutes * 60.0 + seconds + (frames / fps);
+                    }
+
+                    // Seek to position
+                    video_player->Seek(target_position);
+                }
+
+                // Close modal
+                show_goto_timecode_modal = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                show_goto_timecode_modal = false;
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::PopFont();
+
+            // Handle modal close - restore play state
+            if (!show_goto_timecode_modal) {
+                if (goto_modal_was_playing && video_player) {
+                    video_player->Play();
+                }
+            }
+
+            ImGui::EndPopup();
+        }
     }
 
     void CheckStartTimecodeAvailability() {

@@ -1,0 +1,185 @@
+u.m.p. - Third-Party Software Notices and Information
+
+This file contains notices and information for third-party software included
+with or used by u.m.p.. The full license text for each library can be
+found in the respective LICENSE file in this directory.
+
+================================================================================
+
+1. FFmpeg
+   Copyright (C) 2000-2024 FFmpeg developers
+   License: GPL v3
+   Website: https://ffmpeg.org/
+   File: FFmpeg-LICENSE.txt
+
+2. libmpv
+   Copyright © 2000-2024 mpv/MPlayer/mplayer2 projects
+   License: LGPL v2.1+
+   Website: https://mpv.io/
+   File: libmpv-LICENSE.txt
+
+3. Dear ImGui
+   Copyright (c) 2014-2025 Omar Cornut
+   License: MIT
+   Website: https://github.com/ocornut/imgui
+   File: ImGui-LICENSE.txt
+
+4. ImPlot
+   Copyright (c) 2020 Evan Pezent
+   License: MIT
+   Website: https://github.com/epezent/implot
+   File: ImPlot-LICENSE.txt
+
+5. ImNodes
+   Copyright (c) 2019 Yuki Koyama
+   License: MIT
+   Website: https://github.com/rokups/ImNodes
+   File: ImNodes-LICENSE.md
+
+6. GLFW
+   Copyright (c) 2002-2006 Marcus Geelnard
+   Copyright (c) 2006-2019 Camilla Löwy
+   License: zlib/libpng
+   Website: https://www.glfw.org/
+   File: GLFW-LICENSE.md
+
+7. OpenEXR
+   Copyright Contributors to the OpenEXR Project
+   License: BSD-3-Clause
+   Website: https://www.openexr.com/
+   File: OpenEXR-LICENSE.txt
+   Note: Includes Imath, Iex, IlmThread, OpenEXR, OpenEXRCore, OpenEXRUtil
+
+8. OpenColorIO
+   Copyright Contributors to the OpenColorIO Project
+   License: BSD-3-Clause
+   Website: https://opencolorio.org/
+   File: OpenColorIO-LICENSE.txt
+
+9. ExifTool
+   Copyright (C) 2003-2024 Phil Harvey
+   License: GPL v3 / Artistic License (dual licensed)
+   Website: https://exiftool.org/
+   File: ExifTool-LICENSE.txt
+
+10. Native File Dialog Extended (nfd)
+    License: zlib
+    Website: https://github.com/btzy/nativefiledialog-extended
+    File: NativeFileDialog-LICENSE.txt
+
+11. libharu (PDF generation)
+    Copyright (c) 1999-2006 Takeshi Kanno
+    Copyright (c) 2007-2009 Antony Dovgal
+    License: zlib/libpng
+    Website: http://libharu.org/
+    File: libharu-LICENSE.txt
+
+12. libtiff
+    Copyright (c) 1988-1997 Sam Leffler
+    Copyright (c) 1991-1997 Silicon Graphics, Inc.
+    License: libtiff License (BSD-style)
+    Website: http://www.libtiff.org/
+
+13. libpng
+    Copyright (c) 1998-2024 Glenn Randers-Pehrson
+    License: libpng/zlib License
+    Website: http://www.libpng.org/
+
+14. libjpeg-turbo
+    Copyright (C) 1991-2024, Thomas G. Lane, Guido Vollbeding, The libjpeg-turbo Project
+    License: IJG License + Modified BSD + zlib
+    Website: https://libjpeg-turbo.org/
+
+15. zlib
+    Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
+    License: zlib License
+    Website: https://www.zlib.net/
+
+16. yaml-cpp
+    Copyright (c) 2008-2015 Jesse Beder
+    License: MIT
+    Website: https://github.com/jbeder/yaml-cpp
+
+17. fmt
+    Copyright (c) 2012-present Victor Zverovich
+    License: MIT
+    Website: https://fmt.dev/
+
+18. exiv2
+    Copyright (C) 2004-2024 Exiv2 authors
+    License: GPL v2+
+    Website: https://exiv2.org/
+
+19. expat (libexpat)
+    Copyright (c) 1998-2024 Thai Open Source Software Center Ltd
+    License: MIT
+    Website: https://libexpat.github.io/
+
+20. bzip2 (bz2.dll)
+    Copyright (C) 1996-2024 Julian Seward
+    License: BSD-style
+    Website: https://sourceware.org/bzip2/
+
+21. liblzma (XZ Utils)
+    License: Public Domain / BSD-style
+    Website: https://tukaani.org/xz/
+
+22. zstd (Zstandard)
+    Copyright (c) 2016-present Facebook, Inc.
+    License: BSD / GPLv2 (dual licensed)
+    Website: https://facebook.github.io/zstd/
+
+23. deflate
+    License: MIT / zlib
+    Website: https://github.com/ebiggers/libdeflate
+
+24. GLM (OpenGL Mathematics)
+    Copyright (c) 2005 - 2024 G-Truc Creation
+    License: MIT
+    Website: https://glm.g-truc.net/
+
+25. nlohmann/json
+    Copyright (c) 2013-2024 Niels Lohmann
+    License: MIT
+    Website: https://github.com/nlohmann/json
+
+26. stb_image, stb_image_resize
+    Copyright (c) 2017 Sean Barrett
+    License: Public Domain / MIT
+    Website: https://github.com/nothings/stb
+
+27. Inter Font
+    Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
+    License: SIL Open Font License 1.1
+    Website: https://rsms.me/inter/
+    File: InterRobotoLICENSE.txt
+
+28. JetBrains Mono Font
+    Copyright 2020 The JetBrains Mono Project Authors
+    License: SIL Open Font License 1.1
+    Website: https://www.jetbrains.com/lp/mono/
+    File: InterRobotoLICENSE.txt
+
+29. Material Symbols (Sharp variant)
+    Copyright Google Inc.
+    License: Apache License 2.0
+    Website: https://fonts.google.com/icons
+    File: MaterialSymbolsLICENSE.txt
+
+30. github-markdown-css
+    Copyright (c) Sindre Sorhus <sindresorhus@gmail.com>
+    License: MIT
+    Website: https://github.com/sindresorhus/github-markdown-css
+    File: github-markdown-css-LICENSE.txt
+
+================================================================================
+
+ACES and Blender OpenColorIO Configurations
+Located in assets/OCIO/ - See respective LICENSE files for details.
+
+================================================================================
+
+For the complete license text of each library, please refer to the individual
+LICENSE files in this directory or visit the respective project websites.
+
+u.m.p. is licensed under GPL v3 due to its dependency on FFmpeg and ExifTool.
