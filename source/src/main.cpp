@@ -1584,6 +1584,11 @@ private:
 
         glfwSetDropCallback(window, [](GLFWwindow* window, int count, const char** paths) {
             Debug::Log("=== GLFW Drag-Drop Event STARTED ===");
+
+            // Focus the window when files are dropped (like VS Code, Photoshop, etc.)
+            // This ensures the window comes to the foreground and receives the drop
+            glfwFocusWindow(window);
+
             Debug::Log("Files dropped: " + std::to_string(count));
 
             Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
@@ -3226,7 +3231,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.2");
+                ImGui::TextDisabled("About u.m.p. v0.3.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
