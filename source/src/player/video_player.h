@@ -73,6 +73,7 @@ public:
 
     // Playback control
     void LoadFile(const std::string& path);
+    bool LoadFileTrimmed(const std::string& path, double in_point, double out_point);
     void LoadPlaylist(const std::string& edl_content);
     void LoadSequence(const ump::Sequence& sequence);
     void InitializeForEmptySequence(double default_duration = 60.0);
@@ -318,6 +319,7 @@ public:
     // Dual Video Review / Comparison Mode
     void EnableComparisonMode(bool enabled);
     bool IsComparisonModeEnabled() const;
+    ump::ComparisonVideoPlayer* GetComparisonPlayer() const { return comparison_video_.get(); }
     void LoadComparisonVideo(const std::string& path);
     void UnloadComparisonVideo();
     bool HasComparisonVideo() const;

@@ -63,6 +63,7 @@ extern "C" {
 // PROJECT INCLUDES
 // ============================================================================
 #include "player/video_player.h"
+#include "player/comparison_video_player.h"
 #include "player/thumbnail_cache.h"
 #include "utils/exiftool_helper.h"
 #include "utils/debug_utils.h"
@@ -256,6 +257,19 @@ static char goto_timecode_frames[3] = "00";
 static char goto_frame_buffer[16] = "0";
 static bool goto_use_frame_input = false;  // false = timecode, true = frame number
 
+// ============================================================================
+// FONT SETTINGS
+// ============================================================================
+static float g_font_scale = 1.0f;  // Global font scale (0.5x - 2.0x)
+static bool show_font_settings_window = false;
+static float font_settings_temp_scale = 1.0f;  // Temporary scale while editing
+
+// Font scale presets
+static constexpr float FONT_SCALE_SMALL = 0.75f;
+static constexpr float FONT_SCALE_MEDIUM = 1.0f;
+static constexpr float FONT_SCALE_LARGE = 1.25f;
+static constexpr float FONT_SCALE_XLARGE = 1.5f;
+
 // Auto-configure EXR threading settings based on CPU capabilities
 void AutoConfigureEXRThreading(decltype(cache_settings)& settings) {
     int hardware_threads = static_cast<int>(std::thread::hardware_concurrency());
@@ -336,6 +350,7 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 #define ICON_SKIP_NEXT              u8"\uE044"
 #define ICON_FOLDER_OPEN            u8"\uE2C8"
 #define ICON_CONTENT_COPY           u8"\xE14D"
+#define ICON_CONTENT_CUT            u8"\uE14E"
 #define ICON_ARTICLE                u8"\uEF42"
 #define ICON_SCREENSHOT_CLIPBOARD   u8"\uF7d3"
 #define ICON_SCREENSHOT_DESKTOP     u8"\uF727"
@@ -390,6 +405,9 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 #define ICON_REDO                   u8"\uE15A"   // Redo
 #define ICON_CHECK                  u8"\uE5CA"   // Done/Check
 #define ICON_CANCEL                 u8"\uE5C9"   // Cancel/X
+#define ICON_LABEL                  u8"\uE892"   // In point label
+#define ICON_LABEL_IMPORTANT        u8"\uE937"   // Out point label
+#define ICON_UNDO_ALT               u8"\uE166"   // Return/Undo
 #define ICON_DELETE_SWEEP           u8"\uE16C"   // Clear All
 #define ICON_PALETTE_COLOR          u8"\uE40A"   // Color picker
 #define ICON_INPUT_SETTINGS         u8"\uE8C0"
@@ -531,6 +549,10 @@ public:
         // Setup ImGui style
         LoadCustomFonts();
         SetupImGuiStyle();
+
+        // Apply font scale from settings
+        io.FontGlobalScale = g_font_scale;
+        Debug::Log("Applied font scale: " + std::to_string(g_font_scale) + "x");
 
         // Setup Platform/Renderer backends
         ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -1314,6 +1336,12 @@ private:
     bool saved_show_project_panel = true;
     bool saved_show_inspector_panel = true;
     bool show_color = false;
+
+    // Trim mode state
+    bool trim_mode_left = false;
+    bool trim_mode_right = false;
+    std::string original_video_path_left;
+    std::string original_video_path_right;
 
     // Shutdown state
     bool is_shutting_down_ = false;
@@ -2372,10 +2400,12 @@ private:
             if (show_system_stats_bar) RenderSystemStatsPanel(); // System stats docking panel
             CreateCacheStatsWindow(); // Add cache monitoring window
             CreateCacheSettingsWindow(); // Add cache settings popup
+            CreateFontSettingsWindow(); // Add font settings popup
         }
         RenderBackgroundSelectionPanel(video_background_type, show_background_panel);
         RenderSafetyOverlayPanel(show_safety_overlay_panel);
         RenderColorspacePresetsPanel(show_colorspace_panel);
+        RenderTrimToolbarPanel();  // Trim toolbar overlay for dual view modes
 
         // Handle project manager dialogs (including image sequence frame rate dialog)
         if (project_manager) {
@@ -3196,7 +3226,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.1");
+                ImGui::TextDisabled("About u.m.p. v0.3.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -3211,6 +3241,13 @@ private:
                 }
 
                 ImGui::Separator();
+                ImGui::TextDisabled("User Interface:");
+
+                if (ImGui::MenuItem("Font Settings...")) {
+                    show_font_settings_window = true;
+                }
+
+                ImGui::Separator();
                 ImGui::TextDisabled("Preferences:");
 
                 if (ImGui::MenuItem("Delete All Preferences")) {
@@ -3221,6 +3258,53 @@ private:
             }
 
             ImGui::PopStyleColor(); // Pop custom submenu background
+
+            // ========================================================================
+            // SYSTEM NOTIFICATION IN MENU BAR
+            // ========================================================================
+            if (!stats_bar_notification_message.empty()) {
+                // Check timeout for non-permanent messages
+                bool should_show = true;
+                if (!show_notification_permanent) {
+                    auto now = std::chrono::steady_clock::now();
+                    float elapsed = std::chrono::duration<float>(now - notification_start_time).count();
+                    if (elapsed > notification_timeout_seconds) {
+                        stats_bar_notification_message.clear();
+                        should_show = false;
+                    }
+                }
+
+                if (should_show) {
+                    // Measure text width to position on right side
+                    std::string display_text = stats_bar_notification_message;
+                    float text_width = ImGui::CalcTextSize(display_text.c_str()).x;
+                    float padding = 20.0f;
+
+                    // Position on right side of menu bar
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width + ImGui::GetCursorPosX() - padding);
+
+                    // Color based on message type
+                    ImVec4 bg_color = show_notification_permanent ?
+                        ImVec4(0.8f, 0.5f, 0.0f, 0.3f) :  // Orange for critical
+                        ImVec4(0.0f, 0.6f, 0.2f, 0.3f);   // Green for recovery
+                    ImVec4 text_color = show_notification_permanent ?
+                        ImVec4(1.0f, 0.8f, 0.0f, 1.0f) :  // Yellow text for critical
+                        ImVec4(0.0f, 1.0f, 0.4f, 1.0f);   // Light green text for recovery
+
+                    // Render notification with background
+                    ImVec2 cursor_pos = ImGui::GetCursorScreenPos();
+                    ImVec2 text_size = ImGui::CalcTextSize(display_text.c_str());
+                    ImVec2 rect_min = ImVec2(cursor_pos.x - 8.0f, cursor_pos.y - 4.0f);
+                    ImVec2 rect_max = ImVec2(cursor_pos.x + text_size.x + 8.0f, cursor_pos.y + text_size.y + 4.0f);
+
+                    ImGui::GetWindowDrawList()->AddRectFilled(rect_min, rect_max, ImGui::GetColorU32(bg_color), 4.0f);
+
+                    ImGui::PushStyleColor(ImGuiCol_Text, text_color);
+                    ImGui::Text("%s", display_text.c_str());
+                    ImGui::PopStyleColor();
+                }
+            }
+
             ImGui::EndMenuBar();
         }
     }
@@ -3514,8 +3598,8 @@ private:
             project_manager->SetCacheEnabled(false);
         }
 
-        // Auto-open stats bar and show notification
-        show_system_stats_bar = true;
+        // Show notification in menu bar (do not auto-open stats bar)
+        // show_system_stats_bar = true;  // DISABLED: Intrusive auto-open behavior
         stats_bar_notification_message = "RAM exceeded 92% - caching paused";
         show_notification_permanent = true;  // Keep message visible until recovery
         notification_start_time = std::chrono::steady_clock::now();
@@ -4622,6 +4706,157 @@ private:
         }
     }
 
+    void CreateFontSettingsWindow() {
+        // Open modal popup when flag is set
+        if (show_font_settings_window) {
+            ImGui::OpenPopup("Font Settings");
+            font_settings_temp_scale = g_font_scale; // Initialize temp scale
+            show_font_settings_window = false; // Reset flag
+        }
+
+        // Set popup to center on screen
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        bool open = true;
+
+        // Set modal size
+        ImGui::SetNextWindowSize(ImVec2(600, 520), ImGuiCond_Always);
+
+        if (ImGui::BeginPopupModal("Font Settings", &open, ImGuiWindowFlags_NoResize)) {
+
+            ImGui::Text("Font Scale Settings");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Adjust the user interface font size");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ========================================================================
+            // PRESET BUTTONS
+            // ========================================================================
+            ImGui::Text("Presets:");
+            ImGui::SameLine();
+
+            if (ImGui::Button("Small")) {
+                font_settings_temp_scale = FONT_SCALE_SMALL;
+            }
+            ImGui::SameLine();
+
+            if (ImGui::Button("Medium")) {
+                font_settings_temp_scale = FONT_SCALE_MEDIUM;
+            }
+            ImGui::SameLine();
+
+            if (ImGui::Button("Large")) {
+                font_settings_temp_scale = FONT_SCALE_LARGE;
+            }
+            ImGui::SameLine();
+
+            if (ImGui::Button("X-Large")) {
+                font_settings_temp_scale = FONT_SCALE_XLARGE;
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ========================================================================
+            // CUSTOM SLIDER
+            // ========================================================================
+            ImGui::Text("Custom Scale:");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::SliderFloat("##fontscale", &font_settings_temp_scale, 0.5f, 2.0f, "%.2fx");
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Current scale: %.2fx", font_settings_temp_scale);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ========================================================================
+            // LIVE PREVIEW
+            // ========================================================================
+            ImGui::Text("Preview:");
+
+            // Save current font scale
+            float original_scale = ImGui::GetIO().FontGlobalScale;
+
+            // Preview box with border
+            ImGui::BeginChild("FontPreview", ImVec2(-1, 150), true);
+
+            // Apply preview scale within child window
+            ImGui::GetIO().FontGlobalScale = font_settings_temp_scale;
+
+            // Regular font preview
+            if (font_regular) {
+                ImGui::PushFont(font_regular);
+                ImGui::Text("Regular Font: The quick brown fox jumps over the lazy dog");
+                ImGui::PopFont();
+            } else {
+                ImGui::Text("Regular Font: The quick brown fox jumps over the lazy dog");
+            }
+
+            ImGui::Spacing();
+
+            // Mono font preview
+            if (font_mono) {
+                ImGui::PushFont(font_mono);
+                ImGui::Text("Mono Font: function main() { return 0; }");
+                ImGui::PopFont();
+            } else {
+                ImGui::Text("Mono Font: function main() { return 0; }");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Scale: %.2fx", font_settings_temp_scale);
+
+            // Restore original scale BEFORE ending child window
+            ImGui::GetIO().FontGlobalScale = original_scale;
+
+            ImGui::EndChild();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // ========================================================================
+            // BOTTOM BUTTONS
+            // ========================================================================
+            float buttonWidth = 120.0f;
+            float spacing = ImGui::GetStyle().ItemSpacing.x;
+            float totalWidth = buttonWidth * 2 + spacing;
+            float offsetX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
+
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+
+            if (ImGui::Button("Save", ImVec2(buttonWidth, 0))) {
+                // Apply the new scale
+                g_font_scale = font_settings_temp_scale;
+                ImGui::GetIO().FontGlobalScale = g_font_scale;
+
+                // Save settings
+                SaveSettings();
+
+                Debug::Log("Font scale changed to " + std::to_string(g_font_scale) + "x");
+
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::SameLine();
+
+            if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            // Handle X button click
+            if (!open) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -5111,13 +5346,32 @@ private:
             }
 
             // Audio waveform visualization for audio-only files
-            if (video_player && video_player->IsAudioOnly()) {
+            // Skip for EDL files (they may not have video detected immediately)
+            bool is_edl = current_file_path.find("edl://") == 0;
+
+            // Debug logging for audio visualization decision (only log when there's a file loaded)
+            static std::string last_logged_path;
+            static bool last_logged_is_audio = false;
+            if (video_player && !current_file_path.empty() && current_file_path != last_logged_path) {
+                bool is_audio = video_player->IsAudioOnly();
+                Debug::Log("=== AUDIO VISUALIZATION CHECK ===");
+                Debug::Log("  current_file_path: " + current_file_path);
+                Debug::Log("  is_edl: " + std::string(is_edl ? "true" : "false"));
+                Debug::Log("  IsAudioOnly(): " + std::string(is_audio ? "true" : "false"));
+                Debug::Log("  HasVideo(): " + std::string(video_player->HasVideo() ? "true" : "false"));
+                Debug::Log("  HasAudio(): " + std::string(video_player->HasAudio() ? "true" : "false"));
+                Debug::Log("  Will draw waveform: " + std::string((is_audio && !is_edl) ? "YES" : "NO"));
+                last_logged_path = current_file_path;
+                last_logged_is_audio = is_audio;
+            }
+
+            if (video_player && video_player->IsAudioOnly() && !is_edl) {
                 DrawAudioWaveform(canvas_pos, canvas_size);
             }
 
             // TEMPORARY: Always show waveform for testing
             // TODO: Remove this test code once audio detection works
-            if (video_player && !current_file_path.empty()) {
+            if (video_player && !current_file_path.empty() && !is_edl) {
                 // Check if current file looks like audio based on extension
                 std::string ext = current_file_path.substr(current_file_path.find_last_of("."));
                 std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
@@ -5250,6 +5504,352 @@ private:
             panel_open_frames = 0;
         }
     }
+
+    void RenderTrimToolbarPanel() {
+        // Only show in comparison mode
+        if (!video_player || !video_player->IsComparisonModeEnabled()) return;
+
+        ImGuiWindow* video_window = ImGui::FindWindowByName("Video Viewport");
+        if (!video_window) return;
+
+        ImVec2 video_pos = video_window->Pos;
+        ImVec2 video_size = video_window->Size;
+
+        // Calculate timeline height to position toolbar above it
+        float timeline_height = 0.0f;
+        if (show_timeline_panel) {
+            timeline_height = 170.0f;
+            if (project_manager && project_manager->IsInSequenceMode()) {
+                auto* sequence = project_manager->GetCurrentSequence();
+                if (sequence && !sequence->clips.empty()) {
+                    timeline_height += 60.0f;
+                }
+            }
+        }
+
+        const float panel_width = video_size.x;
+        const float panel_height = 50.0f;
+        const float margin = 0.0f;
+
+        // Position at bottom of video area (above timeline)
+        ImGui::SetNextWindowPos(ImVec2(
+            video_pos.x + margin,
+            video_pos.y + video_size.y - timeline_height - panel_height - margin
+        ), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(panel_width, panel_height), ImGuiCond_Always);
+
+        ImGuiWindowFlags panel_flags =
+            ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoSavedSettings |
+            ImGuiWindowFlags_NoTitleBar;
+
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.118f, 0.118f, 0.118f, 0.78f));
+
+        if (ImGui::Begin("##TrimToolbarPanel", nullptr, panel_flags)) {
+            // current_file_path is a class member variable
+            bool has_in = project_manager && project_manager->HasInPoint();
+            bool has_out = project_manager && project_manager->HasOutPoint();
+            bool has_both = has_in && has_out;
+
+            const float button_size = 28.0f;
+            const float button_spacing = 8.0f;
+            const float vertical_center = (panel_height - button_size) * 0.5f;
+
+            // LEFT SIDE - Primary video
+            {
+                bool video_is_trimmed = !original_video_path_left.empty() &&
+                                       current_file_path.find("edl://") == 0;
+                float left_center_x = panel_width * 0.25f;
+
+                ImGui::SetCursorPos(ImVec2(left_center_x - button_size * 0.5f, vertical_center));
+
+                if (!trim_mode_left) {
+                    // Normal: Show scissors button
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_CONTENT_CUT "##EnterTrimLeft", ImVec2(button_size, button_size))) {
+                        trim_mode_left = true;
+                        original_video_path_left = current_file_path;
+                        if (project_manager) project_manager->ClearInOutPoints();
+                        Debug::Log("Entered trim edit mode for left video");
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    ImGui::PopStyleVar();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enter Trim Mode");
+
+                } else if (!video_is_trimmed) {
+                    // Edit Mode: Show In/Out/Apply/Cancel
+                    float total_width = (button_size * 4) + (button_spacing * 3);
+                    float start_x = left_center_x - total_width * 0.5f;
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                    ImVec4 accent = GetWindowsAccentColor();
+
+                    // In button
+                    ImGui::SetCursorPos(ImVec2(start_x, vertical_center));
+                    if (has_in) ImGui::PushStyleColor(ImGuiCol_Button, accent);
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_LABEL "##InLeft", ImVec2(button_size, button_size))) {
+                        if (video_player && project_manager) {
+                            project_manager->SetInPoint(video_player->GetPosition());
+                        }
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    if (has_in) ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set In Point (;)");
+
+                    // Out button
+                    ImGui::SetCursorPos(ImVec2(start_x + button_size + button_spacing, vertical_center));
+                    if (has_out) ImGui::PushStyleColor(ImGuiCol_Button, accent);
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_LABEL_IMPORTANT "##OutLeft", ImVec2(button_size, button_size))) {
+                        if (video_player && project_manager) {
+                            project_manager->SetOutPoint(video_player->GetPosition());
+                        }
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    if (has_out) ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set Out Point (')");
+
+                    // Apply button
+                    ImGui::SetCursorPos(ImVec2(start_x + (button_size + button_spacing) * 2, vertical_center));
+                    if (!has_both) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_CHECK "##ApplyLeft", ImVec2(button_size, button_size)) && has_both) {
+                        double in_pt = project_manager->GetInPoint();
+                        double out_pt = project_manager->GetOutPoint();
+
+                        Debug::Log("=== APPLY TRIM TO LEFT VIDEO ===");
+                        Debug::Log("  Original path: " + original_video_path_left);
+                        Debug::Log("  In point: " + std::to_string(in_pt));
+                        Debug::Log("  Out point: " + std::to_string(out_pt));
+
+                        // Preserve comparison state
+                        bool had_comparison = video_player->IsComparisonModeEnabled();
+                        std::string comp_path;
+                        if (had_comparison) {
+                            auto* comp = video_player->GetComparisonPlayer();
+                            if (comp) comp_path = comp->GetFilePath();
+                            Debug::Log("  Comparison mode was enabled, comparison path: " + comp_path);
+                        } else {
+                            Debug::Log("  Comparison mode was NOT enabled");
+                        }
+
+                        // Create EDL path and cache metadata before loading
+                        std::ostringstream edl;
+                        edl << "edl://" << original_video_path_left << ",start=" << in_pt << ",length=" << (out_pt - in_pt);
+                        std::string edl_path = edl.str();
+                        Debug::Log("  EDL path: " + edl_path);
+
+                        // Copy metadata from original to EDL so video player has dimensions/FPS/codec
+                        if (project_manager) {
+                            project_manager->CopyMetadataToEDL(original_video_path_left, edl_path);
+                        }
+
+                        Debug::Log("  Calling LoadFileTrimmed...");
+                        video_player->LoadFileTrimmed(original_video_path_left, in_pt, out_pt);
+                        Debug::Log("  LoadFileTrimmed returned");
+
+                        // Update current_file_path so toolbar knows we're in trimmed mode
+                        current_file_path = edl_path;
+                        Debug::Log("  Updated current_file_path to EDL");
+
+                        // Check video state after load
+                        Debug::Log("  After LoadFileTrimmed:");
+                        Debug::Log("    IsAudioOnly: " + std::string(video_player->IsAudioOnly() ? "true" : "false"));
+                        Debug::Log("    HasVideo: " + std::string(video_player->HasVideo() ? "true" : "false"));
+                        Debug::Log("    Duration: " + std::to_string(video_player->GetDuration()));
+
+                        // Restore comparison
+                        if (had_comparison && !comp_path.empty()) {
+                            Debug::Log("  Restoring comparison mode...");
+                            video_player->EnableComparisonMode(true);
+                            video_player->LoadComparisonVideo(comp_path);
+                            Debug::Log("  Comparison mode restored");
+                        }
+
+                        // Clear in/out points after applying
+                        if (project_manager) project_manager->ClearInOutPoints();
+                        Debug::Log("=== TRIM APPLICATION COMPLETE ===");
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    if (!has_both) ImGui::PopStyleVar();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(has_both ? "Apply Trim" : "Set both In and Out points first");
+
+                    // Cancel button
+                    ImGui::SetCursorPos(ImVec2(start_x + (button_size + button_spacing) * 3, vertical_center));
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_CANCEL "##CancelLeft", ImVec2(button_size, button_size))) {
+                        trim_mode_left = false;
+                        if (project_manager) project_manager->ClearInOutPoints();
+                        Debug::Log("Cancelled trim mode for left video");
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cancel");
+
+                    ImGui::PopStyleVar();
+
+                } else {
+                    // Trimmed: Show exit button
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                    ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
+                    if (font_icons) ImGui::PushFont(font_icons);
+                    if (ImGui::Button(ICON_CLOSE "##ExitTrimLeft", ImVec2(button_size, button_size))) {
+                        trim_mode_left = false;
+
+                        // Preserve comparison state
+                        bool had_comparison = video_player->IsComparisonModeEnabled();
+                        std::string comp_path;
+                        if (had_comparison) {
+                            auto* comp = video_player->GetComparisonPlayer();
+                            if (comp) comp_path = comp->GetFilePath();
+                        }
+
+                        video_player->LoadFile(original_video_path_left);
+
+                        // Restore comparison
+                        if (had_comparison && !comp_path.empty()) {
+                            video_player->EnableComparisonMode(true);
+                            video_player->LoadComparisonVideo(comp_path);
+                        }
+                        if (project_manager) project_manager->ClearInOutPoints();
+                        Debug::Log("Exited trim mode - restored full video");
+                    }
+                    if (font_icons) ImGui::PopFont();
+                    ImGui::PopStyleColor();
+                    ImGui::PopStyleVar();
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Exit Trim Mode");
+                }
+            }
+
+            // RIGHT SIDE - Comparison video
+            {
+                auto comparison_player = video_player->GetComparisonPlayer();
+                if (comparison_player) {
+                    std::string comp_path = comparison_player->GetFilePath();
+                    bool video_is_trimmed = !original_video_path_right.empty() &&
+                                           comp_path.find("edl://") == 0;
+                    float right_center_x = panel_width * 0.75f;
+
+                    ImGui::SetCursorPos(ImVec2(right_center_x - button_size * 0.5f, vertical_center));
+
+                    if (!trim_mode_right) {
+                        // Normal: Show scissors button
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_CONTENT_CUT "##EnterTrimRight", ImVec2(button_size, button_size))) {
+                            trim_mode_right = true;
+                            original_video_path_right = comp_path;
+                            if (project_manager) project_manager->ClearInOutPoints();
+                            Debug::Log("Entered trim edit mode for right video");
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        ImGui::PopStyleVar();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Enter Trim Mode");
+
+                    } else if (!video_is_trimmed) {
+                        // Edit Mode
+                        float total_width = (button_size * 4) + (button_spacing * 3);
+                        float start_x = right_center_x - total_width * 0.5f;
+
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                        ImVec4 accent = GetWindowsAccentColor();
+
+                        // In/Out/Apply/Cancel buttons (same as left)
+                        ImGui::SetCursorPos(ImVec2(start_x, vertical_center));
+                        if (has_in) ImGui::PushStyleColor(ImGuiCol_Button, accent);
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_LABEL "##InRight", ImVec2(button_size, button_size))) {
+                            if (video_player && project_manager) {
+                                project_manager->SetInPoint(video_player->GetPosition());
+                            }
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        if (has_in) ImGui::PopStyleColor();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set In Point (;)");
+
+                        ImGui::SetCursorPos(ImVec2(start_x + button_size + button_spacing, vertical_center));
+                        if (has_out) ImGui::PushStyleColor(ImGuiCol_Button, accent);
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_LABEL_IMPORTANT "##OutRight", ImVec2(button_size, button_size))) {
+                            if (video_player && project_manager) {
+                                project_manager->SetOutPoint(video_player->GetPosition());
+                            }
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        if (has_out) ImGui::PopStyleColor();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set Out Point (')");
+
+                        ImGui::SetCursorPos(ImVec2(start_x + (button_size + button_spacing) * 2, vertical_center));
+                        if (!has_both) ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_CHECK "##ApplyRight", ImVec2(button_size, button_size)) && has_both) {
+                            double in_pt = project_manager->GetInPoint();
+                            double out_pt = project_manager->GetOutPoint();
+
+                            // Create EDL path and cache metadata before loading
+                            std::ostringstream edl_right;
+                            edl_right << "edl://" << original_video_path_right << ",start=" << in_pt << ",length=" << (out_pt - in_pt);
+                            std::string edl_path_right = edl_right.str();
+
+                            // Copy metadata from original to EDL so comparison player has dimensions/FPS/codec
+                            if (project_manager) {
+                                project_manager->CopyMetadataToEDL(original_video_path_right, edl_path_right);
+                            }
+
+                            comparison_player->LoadFileTrimmed(original_video_path_right, in_pt, out_pt);
+
+                            // Clear in/out points after applying
+                            if (project_manager) project_manager->ClearInOutPoints();
+                            Debug::Log("Applied trim to right video");
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        if (!has_both) ImGui::PopStyleVar();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip(has_both ? "Apply Trim" : "Set both In and Out points first");
+
+                        ImGui::SetCursorPos(ImVec2(start_x + (button_size + button_spacing) * 3, vertical_center));
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_CANCEL "##CancelRight", ImVec2(button_size, button_size))) {
+                            trim_mode_right = false;
+                            if (project_manager) project_manager->ClearInOutPoints();
+                            Debug::Log("Cancelled trim mode for right video");
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Cancel");
+
+                        ImGui::PopStyleVar();
+
+                    } else {
+                        // Trimmed: Show exit button
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
+                        ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        if (ImGui::Button(ICON_CLOSE "##ExitTrimRight", ImVec2(button_size, button_size))) {
+                            trim_mode_right = false;
+                            comparison_player->LoadFile(original_video_path_right);
+                            if (project_manager) project_manager->ClearInOutPoints();
+                            Debug::Log("Exited trim mode - restored full comparison video");
+                        }
+                        if (font_icons) ImGui::PopFont();
+                        ImGui::PopStyleColor();
+                        ImGui::PopStyleVar();
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Exit Trim Mode");
+                    }
+                }
+            }
+        }
+        ImGui::End();
+
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar(3);
+    }
+
 
     void RenderFrameioImportDialog() {
         if (!frameio_import_state.show_dialog) return;
@@ -6949,8 +7549,12 @@ private:
                         IM_COL32(80, 80, 80, 180));
                 }
 
-                // Draw loop region background FIRST (behind cache bars) when both In/Out points are set and loop is enabled
-                if (project_manager && project_manager->HasBothInOutPoints() && video_player->IsLooping() && duration > 0) {
+                // Draw loop/trim region background FIRST (behind cache bars) when both In/Out points are set
+                // Show for: loop mode OR trim mode
+                bool show_region_highlight = project_manager && project_manager->HasBothInOutPoints() &&
+                                            (video_player->IsLooping() || trim_mode_left || trim_mode_right);
+
+                if (show_region_highlight && duration > 0) {
                     double in_pt = project_manager->GetInPoint();
                     double out_pt = project_manager->GetOutPoint();
 
@@ -6975,14 +7579,23 @@ private:
                     loop_start_x = std::max(loop_start_x, canvas_pos.x);
                     loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
 
-                    // Use muted-dark accent color for subtle background highlight
-                    ImU32 loop_bg_color = ToImU32(MutedDark(GetWindowsAccentColor()));
+                    // Choose color based on mode:
+                    // - Trim mode: Amber/yellow tint (180, 120, 30, 80)
+                    // - Loop mode: Muted accent color (blue)
+                    ImU32 region_bg_color;
+                    if (trim_mode_left || trim_mode_right) {
+                        // Amber/yellow for trim mode
+                        region_bg_color = IM_COL32(180, 120, 30, 80);
+                    } else {
+                        // Muted-dark accent color for loop mode
+                        region_bg_color = ToImU32(MutedDark(GetWindowsAccentColor()));
+                    }
 
-                    // Draw filled rectangle covering the loop region
+                    // Draw filled rectangle covering the region
                     draw_list->AddRectFilled(
                         ImVec2(loop_start_x, canvas_pos.y),
                         ImVec2(loop_end_x, canvas_pos.y + canvas_size.y),
-                        loop_bg_color
+                        region_bg_color
                     );
                 }
 
@@ -10511,6 +11124,12 @@ private:
                     else if (bg_str == "DARK_CHECKERBOARD") video_background_type = VideoBackgroundType::DARK_CHECKERBOARD;
                     else if (bg_str == "LIGHT_CHECKERBOARD") video_background_type = VideoBackgroundType::LIGHT_CHECKERBOARD;
                 }
+                if (j["appearance"].contains("font_scale")) {
+                    g_font_scale = j["appearance"]["font_scale"].get<float>();
+                    // Clamp to valid range
+                    if (g_font_scale < 0.5f) g_font_scale = 0.5f;
+                    if (g_font_scale > 2.0f) g_font_scale = 2.0f;
+                }
             }
 
             // Window position and size (will be applied after window creation)
@@ -10757,6 +11376,7 @@ private:
                 case VideoBackgroundType::LIGHT_CHECKERBOARD: bg_str = "LIGHT_CHECKERBOARD"; break;
             }
             j["appearance"]["video_background"] = bg_str;
+            j["appearance"]["font_scale"] = g_font_scale;
 
             // Window position and size
             if (window) {
@@ -11974,8 +12594,41 @@ private:
     }
 
     void OnVideoChanged(const std::string& new_file_path) {
-        Debug::Log("Video changed to: " + new_file_path);
+        Debug::Log("=== OnVideoChanged CALLBACK ===");
+        Debug::Log("  New file path: " + new_file_path);
+        Debug::Log("  Is EDL: " + std::string(new_file_path.find("edl://") == 0 ? "YES" : "NO"));
+
+        // Update current file path (includes EDL paths)
+        current_file_path = new_file_path;
+        Debug::Log("  current_file_path updated");
+
+        if (video_player) {
+            Debug::Log("  Video player state:");
+            Debug::Log("    IsAudioOnly: " + std::string(video_player->IsAudioOnly() ? "true" : "false"));
+            Debug::Log("    HasVideo: " + std::string(video_player->HasVideo() ? "true" : "false"));
+            Debug::Log("    HasAudio: " + std::string(video_player->HasAudio() ? "true" : "false"));
+            Debug::Log("    Duration: " + std::to_string(video_player->GetDuration()));
+        }
+
         ResetTimecodeStateForNewVideo();
+
+        // Reset trim mode when video changes (unless we're loading a trimmed version)
+        if (trim_mode_left && original_video_path_left != new_file_path &&
+            new_file_path.rfind("edl://", 0) != 0) {
+            trim_mode_left = false;
+            original_video_path_left.clear();
+            Debug::Log("Trim mode (left) reset due to video change");
+        }
+
+        if (trim_mode_right) {
+            // Note: Right player trim mode is handled by comparison video load, not OnVideoChanged
+            // Only reset if comparison mode is disabled
+            if (video_player && !video_player->IsComparisonModeEnabled()) {
+                trim_mode_right = false;
+                original_video_path_right.clear();
+                Debug::Log("Trim mode (right) reset due to comparison mode disabled");
+            }
+        }
 
         // Check if this is an audio file (no video frames to cache)
         bool is_audio_file = false;

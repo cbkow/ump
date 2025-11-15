@@ -1,0 +1,68 @@
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt
+  annotation_exporter.cpp
+  annotation_io.cpp
+  annotation_manager.cpp
+  annotation_renderer.cpp
+  annotation_serializer.cpp
+  annotation_toolbar.cpp
+  stroke_smoother.cpp
+  viewport_annotator.cpp
+  ocio_config_manager.cpp
+  ocio_pipeline.cpp
+  gpu_compute_processor.cpp
+  texture_pool.cpp
+  imnodes.cpp
+  frameio_client.cpp
+  frameio_converter.cpp
+  frameio_url_parser.cpp
+  main.cpp
+  adobe_metadata.cpp
+  exr_metadata.cpp
+  ffmpeg_metadata_extractor.cpp
+  Generating Code...
+  Compiling...
+  video_metadata.cpp
+  node_base.cpp
+  node_manager.cpp
+  safety_overlay_system.cpp
+  svg_overlay_renderer.cpp
+  comparison_video_player.cpp
+  conversion_strategy.cpp
+  difference_cache.cpp
+  direct_exr_cache.cpp
+  dummy_video_generator.cpp
+  exr_transcoder.cpp
+  frame_cache.cpp
+  image_loaders.cpp
+  image_sequence_config.cpp
+  media_background_extractor.cpp
+  thumbnail_cache.cpp
+  video_player.cpp
+  project_manager.cpp
+  project_manager_transcode.cpp
+  difference_sequence_generator.cpp
+  Generating Code...
+  Compiling...
+  difference_sequence_transcoder.cpp
+  ffmpeg_video_encoder.cpp
+  ocio_cpu_transform.cpp
+  sequential_frame_loader.cpp
+  transcode_job.cpp
+  transcode_manager.cpp
+  transcode_queue.cpp
+  transcode_worker_pool.cpp
+  video_sequence_transcoder.cpp
+  video_transcoder.cpp
+  annotation_panel.cpp
+  node_editor_theme.cpp
+  timeline_manager.cpp
+  transcode_queue_window.cpp
+  exiftool_helper.cpp
+  exr_layer_detector.cpp
+  gpu_scheduler.cpp
+  system_pressure_monitor.cpp
+  Generating Code...
+  ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe
+  'pwsh.exe' is not recognized as an internal or external command,
+  operable program or batch file.
+  Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll

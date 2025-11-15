@@ -13,6 +13,7 @@
 #include "media_background_extractor.h"  // For ConversionStrategy
 #include "../metadata/video_metadata.h"  // For VideoMetadata
 #include "../metadata/ffmpeg_metadata_extractor.h"  // For FFmpeg-based metadata extraction
+#include "../project/project_manager.h"  // For IsInterFrameCodec helper
 
 #include <algorithm>
 #include <chrono>
@@ -653,6 +654,42 @@ void VideoPlayer::LoadFile(const std::string& path) {
     } else if (is_audio_file) {
         Debug::Log("VideoPlayer: Skipping ThumbnailCache for audio file (no video frames)");
     }
+}
+
+bool VideoPlayer::LoadFileTrimmed(const std::string& path, double in_point, double out_point) {
+    if (path.empty() || !mpv) {
+        Debug::Log("LoadFileTrimmed: ERROR - Empty path or null MPV instance");
+        return false;
+    }
+
+    // Validate in/out points
+    if (in_point < 0 || out_point <= in_point) {
+        Debug::Log("LoadFileTrimmed: ERROR - Invalid in/out points (in=" +
+                   std::to_string(in_point) + ", out=" + std::to_string(out_point) + ")");
+        Debug::Log("LoadFileTrimmed: Falling back to normal LoadFile");
+        LoadFile(path);
+        return false;
+    }
+
+    double length = out_point - in_point;
+
+    // Create EDL path: edl://[file],start=[in],length=[length]
+    std::ostringstream edl;
+    edl << "edl://" << path << ",start=" << in_point << ",length=" << length;
+    std::string edl_path = edl.str();
+
+    Debug::Log("LoadFileTrimmed: Loading trimmed video via EDL");
+    Debug::Log("  Original path: " + path);
+    Debug::Log("  In point: " + std::to_string(in_point) + "s");
+    Debug::Log("  Out point: " + std::to_string(out_point) + "s");
+    Debug::Log("  Duration: " + std::to_string(length) + "s");
+    Debug::Log("  EDL path: " + edl_path);
+
+    // Use LoadFile with the EDL path
+    LoadFile(edl_path);
+
+    Debug::Log("LoadFileTrimmed: Trimmed video loaded successfully");
+    return true;
 }
 
 void VideoPlayer::SetMFFrameRate(double fps) {
@@ -1966,10 +2003,19 @@ void VideoPlayer::FinalizeLoad() {
     Debug::Log("FinalizeLoad: Starting");
     UpdateProperties();
 
+    // Special handling for EDL files (MPV's Edit Decision Lists)
+    // EDL files may not report video dimensions immediately, but they're always video
+    bool is_edl = (current_file_path.find("edl://") == 0);
+
     if (cached_duration > 0) {
         has_video = true;
         Debug::Log("FinalizeLoad: Media loaded successfully (duration=" +
                    std::to_string(cached_duration) + "s, has_video=true)");
+    }
+    else if (is_edl) {
+        // EDL files are trimmed video segments - force has_video=true
+        has_video = true;
+        Debug::Log("FinalizeLoad: EDL file detected - forcing has_video=true (duration may not be available yet)");
     }
     else {
         Debug::Log("FinalizeLoad: WARNING - No duration available (has_video=false)");
@@ -4923,9 +4969,29 @@ void VideoPlayer::RenderSideBySide() {
             SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
             Debug::Log("Switched to Split Screen mode");
         }
-        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
-            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-            Debug::Log("Switched to Difference mode");
+
+        // Check if either video uses inter-frame codec (H.264/H.265)
+        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
+        bool comparison_is_h264 = false;
+        if (comparison_video_) {
+            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
+        }
+        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
+
+        if (diff_mode_disabled) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+        }
+        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
+            if (!diff_mode_disabled) {
+                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                Debug::Log("Switched to Difference mode");
+            }
+        }
+        if (diff_mode_disabled) {
+            ImGui::PopStyleVar();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
+            }
         }
         ImGui::EndCombo();
     }
@@ -5224,9 +5290,29 @@ void VideoPlayer::RenderSplitScreen() {
             SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
             Debug::Log("Switched to Split Screen mode");
         }
-        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
-            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-            Debug::Log("Switched to Difference mode");
+
+        // Check if either video uses inter-frame codec (H.264/H.265)
+        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
+        bool comparison_is_h264 = false;
+        if (comparison_video_) {
+            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
+        }
+        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
+
+        if (diff_mode_disabled) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+        }
+        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
+            if (!diff_mode_disabled) {
+                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                Debug::Log("Switched to Difference mode");
+            }
+        }
+        if (diff_mode_disabled) {
+            ImGui::PopStyleVar();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
+            }
         }
         ImGui::EndCombo();
     }
@@ -5357,9 +5443,29 @@ render_toggle_button:
                 SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
                 Debug::Log("Switched to Split Screen mode");
             }
-            if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
-                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-                Debug::Log("Switched to Difference mode");
+
+            // Check if either video uses inter-frame codec (H.264/H.265)
+            bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
+            bool comparison_is_h264 = false;
+            if (comparison_video_) {
+                comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
+            }
+            bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
+
+            if (diff_mode_disabled) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+            }
+            if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
+                if (!diff_mode_disabled) {
+                    SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                    Debug::Log("Switched to Difference mode");
+                }
+            }
+            if (diff_mode_disabled) {
+                ImGui::PopStyleVar();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
+                }
             }
             ImGui::EndCombo();
         }
@@ -5541,9 +5647,29 @@ render_toggle_button:
             SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
             Debug::Log("Switched to Split Screen mode");
         }
-        if (ImGui::Selectable("Difference##2", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
-            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-            Debug::Log("Switched to Difference mode");
+
+        // Check if either video uses inter-frame codec (H.264/H.265)
+        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
+        bool comparison_is_h264 = false;
+        if (comparison_video_) {
+            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
+        }
+        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
+
+        if (diff_mode_disabled) {
+            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
+        }
+        if (ImGui::Selectable("Difference##2", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
+            if (!diff_mode_disabled) {
+                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                Debug::Log("Switched to Difference mode");
+            }
+        }
+        if (diff_mode_disabled) {
+            ImGui::PopStyleVar();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
+            }
         }
         ImGui::EndCombo();
     }
@@ -5811,10 +5937,35 @@ void VideoPlayer::StartTranscoding() {
         return;
     }
 
+    // Extract original file paths from EDL paths if needed
+    // EDL format: edl://original_path,start=X,length=Y
+    // FFmpeg doesn't understand EDL syntax, so we need to extract the original path
+    // NOTE: This means we transcode the FULL videos, not just trimmed segments
+    std::string primary_file_path = current_file_path;
+    std::string comparison_file_path = comparison_video_->GetFilePath();
+
+    // Check if primary is EDL and extract original path
+    if (primary_file_path.find("edl://") == 0) {
+        size_t comma_pos = primary_file_path.find(',');
+        if (comma_pos != std::string::npos) {
+            primary_file_path = primary_file_path.substr(6, comma_pos - 6);  // Skip "edl://" prefix
+            Debug::Log("StartTranscoding: Extracted original primary path from EDL: " + primary_file_path);
+        }
+    }
+
+    // Check if comparison is EDL and extract original path
+    if (comparison_file_path.find("edl://") == 0) {
+        size_t comma_pos = comparison_file_path.find(',');
+        if (comma_pos != std::string::npos) {
+            comparison_file_path = comparison_file_path.substr(6, comma_pos - 6);  // Skip "edl://" prefix
+            Debug::Log("StartTranscoding: Extracted original comparison path from EDL: " + comparison_file_path);
+        }
+    }
+
     // TODO: Get metadata for both videos
     // For now, create minimal metadata from what we know
     VideoMetadata primary_metadata;
-    primary_metadata.file_path = current_file_path;
+    primary_metadata.file_path = primary_file_path;  // Use extracted original path
     primary_metadata.width = GetVideoWidth();
     primary_metadata.height = GetVideoHeight();
     primary_metadata.frame_rate = GetFrameRate();
@@ -5824,7 +5975,7 @@ void VideoPlayer::StartTranscoding() {
     primary_metadata.bit_depth = 8;  // Default
 
     VideoMetadata comparison_metadata;
-    comparison_metadata.file_path = comparison_video_->GetFilePath();
+    comparison_metadata.file_path = comparison_file_path;  // Use extracted original path
     comparison_metadata.width = comparison_video_->GetWidth();
     comparison_metadata.height = comparison_video_->GetHeight();
     comparison_metadata.frame_rate = GetFrameRate();  // Use same as primary
@@ -5840,14 +5991,15 @@ void VideoPlayer::StartTranscoding() {
     });
 
     // Start transcode (use user-configured cache directory)
+    // Use extracted original paths (not EDL paths)
     transcoding_in_progress_ = true;
     bool success = transcode_manager_->StartTranscode(
-        current_file_path,
+        primary_file_path,        // Original path (EDL extracted if needed)
         primary_metadata,
-        comparison_video_->GetFilePath(),
+        comparison_file_path,     // Original path (EDL extracted if needed)
         comparison_metadata,
-        5.0f,                   // amplification
-        g_custom_cache_path     // user-configured cache directory
+        5.0f,                     // amplification
+        g_custom_cache_path       // user-configured cache directory
     );
 
     if (!success) {

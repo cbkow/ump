@@ -314,7 +314,6 @@ void DifferenceSequenceTranscoder::TranscodeWorker() {
     // Cleanup decoder contexts
     primary_decoders_.clear();
     comparison_decoders_.clear();
-
     if (cancel_requested_) {
         Debug::Log("DifferenceSequenceTranscoder: Cancelled");
         transcoding_ = false;
@@ -425,6 +424,23 @@ bool DifferenceSequenceTranscoder::DecodeFrameAtTimestamp(double timestamp, AVFr
 }
 
 bool DifferenceSequenceTranscoder::CompositeAndSaveDifference(AVFrame* primary_frame, AVFrame* comparison_frame, int frame_number) {
+    // Validate frames
+    if (!primary_frame || !comparison_frame) {
+        Debug::Log("ERROR: NULL frame passed to CompositeAndSaveDifference");
+        return false;
+    }
+
+    if (!primary_frame->data[0] || !comparison_frame->data[0]) {
+        Debug::Log("ERROR: Frame data is NULL for frame " + std::to_string(frame_number));
+        return false;
+    }
+
+    if (primary_frame->width <= 0 || primary_frame->height <= 0 ||
+        comparison_frame->width <= 0 || comparison_frame->height <= 0) {
+        Debug::Log("ERROR: Invalid frame dimensions for frame " + std::to_string(frame_number));
+        return false;
+    }
+
     // Convert both frames to RGB
     SwsContext* sws_ctx = sws_getContext(
         primary_frame->width, primary_frame->height, (AVPixelFormat)primary_frame->format,
@@ -433,6 +449,8 @@ bool DifferenceSequenceTranscoder::CompositeAndSaveDifference(AVFrame* primary_f
     );
 
     if (!sws_ctx) {
+        Debug::Log("ERROR: Failed to create sws context for frame " + std::to_string(frame_number) +
+                   " (format: " + std::to_string(primary_frame->format) + ")");
         return false;
     }
 

@@ -289,8 +289,16 @@ namespace ump {
         double GetTimelinePosition() const;
         SequencePosition CalculateSequencePosition(double global_position) const;
         const CombinedMetadata* GetCachedMetadata(const std::string& file_path) const;
+        void CopyMetadataToEDL(const std::string& original_path, const std::string& edl_path);  // Copy metadata from original to EDL path
         void ExtractMetadataForClip(const std::string& file_path);  // Deprecated: use QueueVideoMetadataExtraction
         void QueueVideoMetadataExtraction(const std::string& file_path, bool high_priority = false);
+
+        // ========================================================================
+        // CODEC DETECTION
+        // ========================================================================
+
+        // Check if codec is inter-frame (H.264/H.265) - these codecs have issues with random-access frame decoding
+        static bool IsInterFrameCodec(const std::string& codec);
 
         // ========================================================================
         // VIDEO CACHE MANAGEMENT

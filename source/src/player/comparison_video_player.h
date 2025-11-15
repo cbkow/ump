@@ -36,6 +36,7 @@ public:
 
     // Video loading
     bool LoadFile(const std::string& path);
+    bool LoadFileTrimmed(const std::string& path, double in_point, double out_point);
     void Unload();
 
     // Synchronization (called by primary VideoPlayer)
@@ -48,6 +49,7 @@ public:
     // State queries
     bool HasVideo() const { return has_video_; }
     std::string GetFilePath() const { return file_path_; }
+    std::string GetVideoCodec() const;
 
     // Texture access for compositing
     GLuint GetTexture() const { return texture_; }

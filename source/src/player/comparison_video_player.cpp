@@ -2,6 +2,7 @@
 #include "../utils/debug_utils.h"
 #include <GLFW/glfw3.h>
 #include <cstring>
+#include <sstream>
 
 namespace ump {
 
@@ -144,6 +145,46 @@ bool ComparisonVideoPlayer::LoadFile(const std::string& path) {
     return true;
 }
 
+bool ComparisonVideoPlayer::LoadFileTrimmed(const std::string& path, double in_point, double out_point) {
+    if (!mpv_) {
+        Debug::Log("ERROR: ComparisonVideoPlayer::LoadFileTrimmed: MPV not initialized");
+        return false;
+    }
+
+    // Validate in/out points
+    if (in_point < 0 || out_point <= in_point) {
+        Debug::Log("ERROR: ComparisonVideoPlayer::LoadFileTrimmed: Invalid in/out points (in=" +
+                   std::to_string(in_point) + ", out=" + std::to_string(out_point) + ")");
+        Debug::Log("ComparisonVideoPlayer::LoadFileTrimmed: Falling back to normal LoadFile");
+        return LoadFile(path);
+    }
+
+    double length = out_point - in_point;
+
+    // Create EDL path: edl://[file],start=[in],length=[length]
+    std::ostringstream edl;
+    edl << "edl://" << path << ",start=" << in_point << ",length=" << length;
+    std::string edl_path = edl.str();
+
+    Debug::Log("ComparisonVideoPlayer::LoadFileTrimmed: Loading trimmed video via EDL");
+    Debug::Log("  Original path: " + path);
+    Debug::Log("  In point: " + std::to_string(in_point) + "s");
+    Debug::Log("  Out point: " + std::to_string(out_point) + "s");
+    Debug::Log("  Duration: " + std::to_string(length) + "s");
+    Debug::Log("  EDL path: " + edl_path);
+
+    // Use LoadFile with the EDL path
+    bool result = LoadFile(edl_path);
+
+    if (result) {
+        Debug::Log("ComparisonVideoPlayer::LoadFileTrimmed: Trimmed video loaded successfully");
+    } else {
+        Debug::Log("ERROR: ComparisonVideoPlayer::LoadFileTrimmed: Failed to load trimmed video");
+    }
+
+    return result;
+}
+
 void ComparisonVideoPlayer::Unload() {
     Debug::Log("ComparisonVideoPlayer: Unloading video");
 
@@ -220,6 +261,18 @@ void ComparisonVideoPlayer::SetLoop(bool enabled) {
     } else {
         mpv_set_property_string(mpv_, "loop-file", "no");
     }
+}
+
+std::string ComparisonVideoPlayer::GetVideoCodec() const {
+    if (!mpv_) return "Unknown";
+
+    char* result = nullptr;
+    if (mpv_get_property(mpv_, "video-codec", MPV_FORMAT_STRING, &result) == 0 && result) {
+        std::string codec(result);
+        mpv_free(result);
+        return codec;
+    }
+    return "Unknown";
 }
 
 void ComparisonVideoPlayer::UpdateVideoTexture() {

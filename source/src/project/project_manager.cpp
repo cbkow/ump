@@ -112,6 +112,24 @@ extern struct {
 namespace ump {
 
     // ============================================================================
+    // CODEC DETECTION UTILITY
+    // ============================================================================
+
+    bool ProjectManager::IsInterFrameCodec(const std::string& codec) {
+        // Check if codec is H.264/H.265 (inter-frame codec with poor random access)
+        // Convert to lowercase for case-insensitive comparison
+        std::string codec_lower = codec;
+        std::transform(codec_lower.begin(), codec_lower.end(), codec_lower.begin(), ::tolower);
+
+        return (codec_lower.find("h264") != std::string::npos ||
+                codec_lower.find("h.264") != std::string::npos ||
+                codec_lower.find("h265") != std::string::npos ||
+                codec_lower.find("h.265") != std::string::npos ||
+                codec_lower.find("hevc") != std::string::npos ||
+                codec_lower.find("avc") != std::string::npos);
+    }
+
+    // ============================================================================
     // CONSTRUCTION / DESTRUCTION
     // ============================================================================
 
@@ -3240,6 +3258,41 @@ namespace ump {
     const ProjectManager::CombinedMetadata* ProjectManager::GetCachedMetadata(const std::string& file_path) const {
         auto it = metadata_cache.find(file_path);
         return (it != metadata_cache.end()) ? &it->second : nullptr;
+    }
+
+    void ProjectManager::CopyMetadataToEDL(const std::string& original_path, const std::string& edl_path) {
+        // Copy metadata from original video file to EDL path
+        // This allows EDL (trimmed) videos to inherit all properties from the source
+        auto it = metadata_cache.find(original_path);
+        if (it != metadata_cache.end()) {
+            Debug::Log("CopyMetadataToEDL: Copying metadata from '" + original_path + "' to '" + edl_path + "'");
+
+            // Create new entry for EDL path (deep copy since unique_ptrs don't support copy assignment)
+            CombinedMetadata& edl_meta = metadata_cache[edl_path];
+            edl_meta.state = it->second.state;
+            edl_meta.start_time = it->second.start_time;
+
+            // Deep copy video metadata
+            if (it->second.video_meta) {
+                edl_meta.video_meta = std::make_unique<VideoMetadata>(*it->second.video_meta);
+            }
+
+            // Deep copy adobe metadata
+            if (it->second.adobe_meta) {
+                edl_meta.adobe_meta = std::make_unique<AdobeMetadata>(*it->second.adobe_meta);
+            }
+
+            // Deep copy EXR metadata
+            if (it->second.exr_meta) {
+                edl_meta.exr_meta = std::make_unique<EXRMetadata>(*it->second.exr_meta);
+            }
+
+            Debug::Log("CopyMetadataToEDL: Metadata copied successfully (resolution: " +
+                       std::to_string(edl_meta.video_meta ? edl_meta.video_meta->width : 0) + "x" +
+                       std::to_string(edl_meta.video_meta ? edl_meta.video_meta->height : 0) + ")");
+        } else {
+            Debug::Log("CopyMetadataToEDL: WARNING - No cached metadata found for original path: " + original_path);
+        }
     }
 
     void ProjectManager::ExtractMetadataForClip(const std::string& file_path) {

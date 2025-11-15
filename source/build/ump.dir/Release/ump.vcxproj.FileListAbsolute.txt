@@ -1,0 +1,17 @@
+D:\z_DevTemp\UnionPlayer\build\Release\OpenColorIO_2_4.dll
+D:\z_DevTemp\UnionPlayer\build\Release\libexpat.dll
+D:\z_DevTemp\UnionPlayer\build\Release\Imath-3_2.dll
+D:\z_DevTemp\UnionPlayer\build\Release\yaml-cpp.dll
+D:\z_DevTemp\UnionPlayer\build\Release\zlib1.dll
+D:\z_DevTemp\UnionPlayer\build\Release\bz2.dll
+D:\z_DevTemp\UnionPlayer\build\Release\liblzma.dll
+D:\z_DevTemp\UnionPlayer\build\Release\zstd.dll
+D:\z_DevTemp\UnionPlayer\build\Release\Iex-3_3.dll
+D:\z_DevTemp\UnionPlayer\build\Release\OpenEXR-3_3.dll
+D:\z_DevTemp\UnionPlayer\build\Release\IlmThread-3_3.dll
+D:\z_DevTemp\UnionPlayer\build\Release\OpenEXRCore-3_3.dll
+D:\z_DevTemp\UnionPlayer\build\Release\deflate.dll
+D:\z_DevTemp\UnionPlayer\build\Release\tiff.dll
+D:\z_DevTemp\UnionPlayer\build\Release\jpeg62.dll
+D:\z_DevTemp\UnionPlayer\build\Release\libpng16.dll
+D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ump.vcxproj.Up2Date
