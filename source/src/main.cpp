@@ -3231,7 +3231,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.3");
+                ImGui::TextDisabled("About u.m.p. v0.3.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -5718,6 +5718,14 @@ private:
 
                         video_player->LoadFile(original_video_path_left);
 
+                        // Update current_file_path back to original (no longer EDL)
+                        // This is necessary because LoadFile() bypasses project_manager,
+                        // so OnVideoChanged callback is not triggered
+                        current_file_path = original_video_path_left;
+
+                        // Clear the stored original path so trim mode can be re-entered
+                        original_video_path_left.clear();
+
                         // Restore comparison
                         if (had_comparison && !comp_path.empty()) {
                             video_player->EnableComparisonMode(true);
@@ -5838,6 +5846,12 @@ private:
                         if (ImGui::Button(ICON_CLOSE "##ExitTrimRight", ImVec2(button_size, button_size))) {
                             trim_mode_right = false;
                             comparison_player->LoadFile(original_video_path_right);
+
+                            // Clear the stored original path so trim mode can be re-entered
+                            // Note: Right video doesn't need current_file_path update since
+                            // that tracks the left video only
+                            original_video_path_right.clear();
+
                             if (project_manager) project_manager->ClearInOutPoints();
                             Debug::Log("Exited trim mode - restored full comparison video");
                         }
