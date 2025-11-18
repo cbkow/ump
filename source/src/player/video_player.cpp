@@ -1,5 +1,6 @@
 #include "video_player.h"
 #include "comparison_video_player.h"
+#include "lavfi_filter_generator.h"
 #include "../transcode/transcode_manager.h"
 #include "difference_cache.h"
 #include "../project/media_item.h"
@@ -211,15 +212,28 @@ void VideoPlayer::ConfigureBasicOptions() {
     mpv_set_option_string(mpv, "blend-subtitles", "yes");
 }
 
-void VideoPlayer::ConfigureVideoOptions() {
+void VideoPlayer::ConfigureVideoOptions(bool lavfi_mode) {
     // Video output and rendering
     mpv_set_option_string(mpv, "vo", "libmpv");
     mpv_set_option_string(mpv, "video-unscaled", "no");
     mpv_set_option_string(mpv, "keepaspect", "yes");
 
-    // Video sync - using display-resample for smooth playback
-    // Note: Can try "desync" mode for lower latency if issues persist
-    mpv_set_option_string(mpv, "video-sync", "display-resample");
+    // Video sync - optimize based on mode
+    if (lavfi_mode) {
+        // Lavfi uses CPU-based filtering, so avoid expensive interpolation
+        // Use audio sync for lower CPU usage and better performance
+        mpv_set_option_string(mpv, "video-sync", "audio");
+        Debug::Log("ConfigureVideoOptions: Using video-sync=audio for lavfi mode (performance optimization)");
+
+        // Add video decode queue buffering for smooth dual-stream playback
+        mpv_set_option_string(mpv, "vd-queue-enable", "yes");
+        mpv_set_option_string(mpv, "vd-queue-max-bytes", "512MiB");
+        mpv_set_option_string(mpv, "vd-queue-max-samples", "50");
+        Debug::Log("ConfigureVideoOptions: Enabled vd-queue buffering (512MiB) for lavfi mode");
+    } else {
+        // Normal mode: use display-resample for smooth playback
+        mpv_set_option_string(mpv, "video-sync", "display-resample");
+    }
 
     // OpenGL settings
     mpv_set_option_string(mpv, "opengl-rectangle-textures", "yes");
@@ -257,39 +271,65 @@ void VideoPlayer::ConfigureSeekingOptions() {
     mpv_set_option_string(mpv, "index", "default");*/
 }
 
-void VideoPlayer::ConfigureCacheOptions() {
+void VideoPlayer::ConfigureCacheOptions(bool lavfi_mode) {
     // Cache settings for smooth playback
     mpv_set_option_string(mpv, "cache", "yes");
-    mpv_set_option_string(mpv, "cache-secs", "600");
+
+    if (lavfi_mode) {
+        // Lavfi mode: Aggressive buffering for dual streams
+        mpv_set_option_string(mpv, "cache-secs", "30");
+        mpv_set_option_string(mpv, "demuxer-max-bytes", "1GiB");
+        mpv_set_option_string(mpv, "demuxer-readahead-secs", "10");
+        mpv_set_option_string(mpv, "demuxer-max-back-bytes", "500MiB");
+        mpv_set_option_string(mpv, "stream-buffer-size", "128MiB");
+        mpv_set_option_string(mpv, "demuxer-thread", "yes");
+
+        // Cache pause controls for stutter-free startup
+        mpv_set_option_string(mpv, "cache-pause-wait", "2");
+        mpv_set_option_string(mpv, "cache-pause-fill", "80");
+
+        Debug::Log("ConfigureCacheOptions: Lavfi mode - 1GiB demuxer buffer, 10sec readahead");
+    } else {
+        // Normal mode: existing settings
+        mpv_set_option_string(mpv, "cache-secs", "600");
+        mpv_set_option_string(mpv, "stream-buffer-size", "64MiB");
+    }
+
     mpv_set_option_string(mpv, "cache-pause-restart", "yes");
     mpv_set_option_string(mpv, "cache-pause-initial", "yes");
     mpv_set_option_string(mpv, "cache-pause", "no");
     mpv_set_option_string(mpv, "cache-pause-below", "1");
-
-    // Demuxer cache settings
-    //mpv_set_option_string(mpv, "demuxer-readahead-secs", "5");
-    //mpv_set_option_string(mpv, "demuxer-max-bytes", "4GiB");
-    //mpv_set_option_string(mpv, "demuxer-max-packets", "5000");
-
-    // Buffer settings
-    mpv_set_option_string(mpv, "stream-buffer-size", "64MiB");
     mpv_set_option_string(mpv, "network-timeout", "60");
     mpv_set_option_string(mpv, "video-latency-hacks", "yes");
 }
 
-void VideoPlayer::ConfigureHardwareDecoding() {
+void VideoPlayer::ConfigureHardwareDecoding(bool lavfi_mode) {
     // Threading
-    mpv_set_option_string(mpv, "vd-lavc-threads", "0"); // Use all CPU cores
+    if (lavfi_mode) {
+        // Limit threads for lavfi to reduce context switching overhead
+        mpv_set_option_string(mpv, "vd-lavc-threads", "8");
+        Debug::Log("ConfigureHardwareDecoding: Using 8 decoder threads for lavfi mode");
+    } else {
+        mpv_set_option_string(mpv, "vd-lavc-threads", "0");  // Auto for normal mode
+    }
+
     mpv_set_option_string(mpv, "vd-lavc-dr", "yes");
 
     // Platform-specific hardware decoding
 #ifdef _WIN32
     mpv_set_option_string(mpv, "gpu-api", "d3d11");
     mpv_set_option_string(mpv, "gpu-context", "d3d11");
-    mpv_set_option_string(mpv, "hwdec", "d3d11va");
+
+    if (lavfi_mode) {
+        // Use hwdec-copy for lavfi - allows CPU filter access to decoded frames
+        mpv_set_option_string(mpv, "hwdec", "d3d11va-copy");
+        Debug::Log("ConfigureHardwareDecoding: Using d3d11va-copy for lavfi filter access");
+    } else {
+        mpv_set_option_string(mpv, "hwdec", "d3d11va");
+    }
 #else
     mpv_set_option_string(mpv, "gpu-api", "opengl");
-    mpv_set_option_string(mpv, "hwdec", "auto");
+    mpv_set_option_string(mpv, "hwdec", lavfi_mode ? "auto-copy" : "auto");
 #endif
 
     mpv_set_option_string(mpv, "hwdec-preload", "auto");
@@ -481,6 +521,12 @@ void VideoPlayer::LoadFile(const std::string& path) {
     if (path.empty() || !mpv) return;
 
     std::cout << "Loading file: " << path << std::endl;
+
+    // Exit lavfi mode if currently active (lavfi options are initialization-only)
+    if (IsLavfiMode(comparison_mode_)) {
+        Debug::Log("LoadFile: Exiting lavfi mode before loading new file");
+        ExitLavfiMode();
+    }
 
     // Enhanced logging for media transitions
     if (is_exr_mode) {
@@ -717,6 +763,12 @@ void VideoPlayer::LoadPlaylist(const std::string& edl_content) {
     if (edl_content.empty()) {
         //Debug::Log("Empty EDL content, nothing to load");
         return;
+    }
+
+    // Exit lavfi mode if currently active (lavfi options are initialization-only)
+    if (IsLavfiMode(comparison_mode_)) {
+        Debug::Log("LoadPlaylist: Exiting lavfi mode before loading playlist");
+        ExitLavfiMode();
     }
 
     ConfigureForPlaylist();
@@ -1389,17 +1441,24 @@ void VideoPlayer::RenderVideoFrame() {
 void VideoPlayer::RenderVideoTexture() {
     // Check for comparison mode rendering
     if (comparison_mode_enabled_) {
-        if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
-            RenderDifference();
-        } else if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
-            RenderSplitScreen();
+        // NEW: Lavfi modes render composited output directly to video_texture
+        // They should use the standard single-video rendering path below
+        if (IsLavfiMode(comparison_mode_)) {
+            // Fall through to standard rendering - MPV already composited via lavfi
         } else {
-            RenderSideBySide();
+            // Legacy dual-player comparison modes require manual compositing
+            if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
+                RenderDifference();
+            } else if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
+                RenderSplitScreen();
+            } else {
+                RenderSideBySide();
+            }
+            return;
         }
-        return;
     }
 
-    // Standard single video rendering
+    // Standard single video rendering (also used for lavfi composited output)
     float aspect_ratio = (float)video_width / (float)video_height;
     ImVec2 content_region = ImGui::GetContentRegionAvail();
 
@@ -1677,8 +1736,10 @@ void VideoPlayer::UpdateProperties() {
 
     // ✅ Use cached FFmpeg metadata for static properties (instant, no MPV queries)
     // Skip for EXR sequences - they use DirectEXRCache, not FFmpeg metadata
+    // Skip for lavfi mode - dimensions come from MPV's composited output, not source files
     bool should_use_metadata = metadata_callback && !current_file_path.empty() &&
-                                current_file_path.find("exr://") != 0 && !is_exr_mode;
+                                current_file_path.find("exr://") != 0 && !is_exr_mode &&
+                                !IsLavfiMode(comparison_mode_);
 
     if (should_use_metadata) {
         VideoMetadata meta = metadata_callback(current_file_path);
@@ -1827,17 +1888,15 @@ void VideoPlayer::UpdateProperties() {
             }
         }
 
-        // Debounced seek sync (wait for scrubbing to settle)
+        // Immediate seek sync (no debounce - legacy view modes are for preview only)
+        // Lavfi modes provide the primary playback experience
         if (last_seek_time_ > 0.0) {
-            double now = glfwGetTime();
-            if (now - last_seek_time_ > 0.15) {  // 150ms debounce
-                Debug::Log("Debounced seek: syncing comparison to position " + std::to_string(cached_position));
-                comparison_video_->SyncToPosition(cached_position);
-                if (was_playing_before_seek_) {
-                    comparison_video_->SyncPlaybackState(true);
-                }
-                last_seek_time_ = 0.0;  // Reset
+            Debug::Log("Immediate seek: syncing comparison to position " + std::to_string(cached_position));
+            comparison_video_->SyncToPosition(cached_position);
+            if (was_playing_before_seek_) {
+                comparison_video_->SyncPlaybackState(true);
             }
+            last_seek_time_ = 0.0;  // Reset
         }
 
         // NOTE: UpdateVideoTexture() is called in RenderSideBySide(), not here
@@ -4604,6 +4663,13 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
 
         Debug::Log("VideoPlayer: Comparison mode enabled (side-by-side)");
     } else {
+        // Exit lavfi mode if currently active
+        if (IsLavfiMode(comparison_mode_)) {
+            Debug::Log("EnableComparisonMode(false): Exiting lavfi mode");
+            ExitLavfiMode();
+            return; // ExitLavfiMode already handles cleanup
+        }
+
         // Restore original video if we were in difference mode
         if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW && !original_video_path_before_difference_.empty() && is_exr_mode) {
             Debug::Log("VideoPlayer: Restoring original video after exiting difference mode: " + original_video_path_before_difference_);
@@ -4723,6 +4789,506 @@ std::string VideoPlayer::GetPendingViewportDrop() {
 
 void VideoPlayer::ClearPendingViewportDrop() {
     viewport_drop_pending_id_.clear();
+}
+
+// ============================================================================
+// Lavfi-based Comparison Mode (NEW)
+// ============================================================================
+
+bool VideoPlayer::IsLavfiMode(ComparisonMode mode) const {
+    return mode == ComparisonMode::SPLIT_HORIZONTAL ||
+           mode == ComparisonMode::SPLIT_VERTICAL ||
+           mode == ComparisonMode::SPLIT_5050_HORIZONTAL ||
+           mode == ComparisonMode::DIFFERENCE_BLEND;
+}
+
+void VideoPlayer::SetPrimaryTrimPoints(double start, double duration) {
+    primary_trim_start_ = start;
+    primary_trim_duration_ = duration;
+    Debug::Log("Primary trim set: start=" + std::to_string(start) + ", duration=" + std::to_string(duration));
+}
+
+void VideoPlayer::SetSecondaryTrimPoints(double start, double duration) {
+    secondary_trim_start_ = start;
+    secondary_trim_duration_ = duration;
+    Debug::Log("Secondary trim set: start=" + std::to_string(start) + ", duration=" + std::to_string(duration));
+}
+
+void VideoPlayer::ClearPrimaryTrimPoints() {
+    primary_trim_start_ = -1.0;
+    primary_trim_duration_ = -1.0;
+    Debug::Log("Primary trim cleared");
+}
+
+void VideoPlayer::ClearSecondaryTrimPoints() {
+    secondary_trim_start_ = -1.0;
+    secondary_trim_duration_ = -1.0;
+    Debug::Log("Secondary trim cleared");
+}
+
+void VideoPlayer::ExitLavfiMode() {
+    Debug::Log("ExitLavfiMode: Cleaning up lavfi state and recreating MPV");
+
+    //1. Clear lavfi state variables
+    lavfi_primary_path_.clear();
+    lavfi_secondary_path_.clear();
+    current_lavfi_filter_.clear();
+
+    // 2. Clear trim points
+    ClearPrimaryTrimPoints();
+    ClearSecondaryTrimPoints();
+
+    // 3. Clear comparison mode state
+    comparison_mode_ = ComparisonMode::DISABLED;
+    comparison_mode_enabled_ = false;
+
+    // 4. Unload legacy comparison player (if exists)
+    if (comparison_video_) {
+        comparison_video_->Cleanup();
+        comparison_video_.reset();
+    }
+
+    // 5. Destroy current MPV instance
+    if (mpv_gl) {
+        Debug::Log("ExitLavfiMode: Freeing MPV render context");
+        mpv_render_context_free(mpv_gl);
+        mpv_gl = nullptr;
+    }
+
+    if (mpv) {
+        Debug::Log("ExitLavfiMode: Destroying MPV instance");
+        mpv_terminate_destroy(mpv);
+        mpv = nullptr;
+    }
+
+    // 6. Recreate clean MPV instance (without lavfi options)
+    Debug::Log("ExitLavfiMode: Creating new MPV instance");
+    mpv = mpv_create();
+    if (!mpv) {
+        Debug::Log("ERROR: Failed to create MPV instance");
+        return;
+    }
+
+    // 7. Configure MPV with standard options (NO lavfi)
+    ConfigureBasicOptions();
+    ConfigureVideoOptions();
+    ConfigureAudioOptions();
+    ConfigureSeekingOptions();
+    ConfigureCacheOptions();
+    ConfigureHardwareDecoding();
+
+    // 8. Initialize MPV
+    Debug::Log("ExitLavfiMode: Initializing MPV");
+    if (mpv_initialize(mpv) < 0) {
+        Debug::Log("ERROR: Failed to initialize MPV");
+        return;
+    }
+
+    // 9. Setup OpenGL
+    if (!SetupOpenGL()) {
+        Debug::Log("ERROR: Failed to setup OpenGL");
+        return;
+    }
+
+    ApplyRenderOptimizations();
+    mpv_request_event(mpv, MPV_EVENT_FILE_LOADED, 1);
+
+    // 10. Setup property observation for transport controls
+    SetupPropertyObservation();
+
+    // 11. Reapply loop settings
+    SetLoop(loop_enabled);
+
+    Debug::Log("ExitLavfiMode: MPV recreated successfully without lavfi options");
+}
+
+void VideoPlayer::TransitionToLavfiMode(ComparisonMode lavfi_mode, int viewport_width, int viewport_height,
+                                       const std::string& primary_override, const std::string& secondary_override,
+                                       bool use_secondary_as_reference) {
+    if (!IsLavfiMode(lavfi_mode)) {
+        Debug::Log("ERROR: Target mode is not a lavfi mode");
+        return;
+    }
+
+    // Get paths - use overrides if provided (for EDL unwrapping), otherwise use current paths
+    std::string primary_path = primary_override.empty() ? GetFilePath() : primary_override;
+    std::string secondary_path = secondary_override;
+
+    if (secondary_path.empty()) {
+        if (comparison_video_ && comparison_video_->HasVideo()) {
+            secondary_path = comparison_video_->GetFilePath();
+        } else {
+            Debug::Log("ERROR: No comparison video loaded for transition");
+            return;
+        }
+    }
+
+    if (primary_path.empty()) {
+        Debug::Log("ERROR: No primary video loaded for transition");
+        return;
+    }
+
+    // If using secondary as reference, swap paths so secondary becomes "primary" in filter
+    if (use_secondary_as_reference) {
+        Debug::Log("Using secondary as reference - swapping primary and secondary");
+        std::swap(primary_path, secondary_path);
+    }
+
+    // Extract original paths and trim info from EDL if needed
+    std::string primary_original = primary_path;
+    std::string secondary_original = secondary_path;
+    double primary_trim_start = -1.0;
+    double primary_trim_duration = -1.0;
+    double secondary_trim_start = -1.0;
+    double secondary_trim_duration = -1.0;
+
+    // Parse EDL for primary: edl://path,start=X,length=Y
+    if (primary_path.find("edl://") == 0) {
+        Debug::Log("Primary is EDL, extracting original path and trim info");
+        size_t comma_pos = primary_path.find(',');
+        if (comma_pos != std::string::npos) {
+            primary_original = primary_path.substr(6, comma_pos - 6);  // Skip "edl://"
+
+            // Extract start and length from EDL
+            size_t start_pos = primary_path.find("start=");
+            size_t length_pos = primary_path.find("length=");
+            if (start_pos != std::string::npos && length_pos != std::string::npos) {
+                std::string start_str = primary_path.substr(start_pos + 6, length_pos - start_pos - 7);
+                std::string length_str = primary_path.substr(length_pos + 7);
+                primary_trim_start = std::stod(start_str);
+                primary_trim_duration = std::stod(length_str);
+                Debug::Log("  Extracted primary trim: start=" + std::to_string(primary_trim_start) +
+                          ", duration=" + std::to_string(primary_trim_duration));
+            }
+            Debug::Log("  Primary original path: " + primary_original);
+        }
+    }
+
+    // Parse EDL for secondary: edl://path,start=X,length=Y
+    if (secondary_path.find("edl://") == 0) {
+        Debug::Log("Secondary is EDL, extracting original path and trim info");
+        size_t comma_pos = secondary_path.find(',');
+        if (comma_pos != std::string::npos) {
+            secondary_original = secondary_path.substr(6, comma_pos - 6);  // Skip "edl://"
+
+            // Extract start and length from EDL
+            size_t start_pos = secondary_path.find("start=");
+            size_t length_pos = secondary_path.find("length=");
+            if (start_pos != std::string::npos && length_pos != std::string::npos) {
+                std::string start_str = secondary_path.substr(start_pos + 6, length_pos - start_pos - 7);
+                std::string length_str = secondary_path.substr(length_pos + 7);
+                secondary_trim_start = std::stod(start_str);
+                secondary_trim_duration = std::stod(length_str);
+                Debug::Log("  Extracted secondary trim: start=" + std::to_string(secondary_trim_start) +
+                          ", duration=" + std::to_string(secondary_trim_duration));
+            }
+            Debug::Log("  Secondary original path: " + secondary_original);
+        }
+    }
+
+    // Apply trim points (either from EDL or existing trim settings)
+    // If using secondary as reference, trim values are already swapped with paths
+    if (primary_trim_start >= 0.0) {
+        SetPrimaryTrimPoints(primary_trim_start, primary_trim_duration);
+        Debug::Log("Applied primary EDL trim to lavfi");
+    }
+    // Note: If no EDL trim and no existing trim, current trim settings are preserved
+
+    if (secondary_trim_start >= 0.0) {
+        SetSecondaryTrimPoints(secondary_trim_start, secondary_trim_duration);
+        Debug::Log("Applied secondary EDL trim to lavfi");
+    }
+    // Note: If no EDL trim and no existing trim, current trim settings are preserved
+
+    // If using secondary as reference, also swap the stored trim points
+    if (use_secondary_as_reference && (primary_trim_start >= 0.0 || secondary_trim_start >= 0.0)) {
+        Debug::Log("Swapping trim points to match swapped videos");
+        std::swap(primary_trim_start_, secondary_trim_start_);
+        std::swap(primary_trim_duration_, secondary_trim_duration_);
+    }
+
+    Debug::Log("Transitioning from setup mode to lavfi mode");
+    Debug::Log("  Primary: " + primary_original);
+    Debug::Log("  Secondary: " + secondary_original);
+    if (primary_path != primary_original) {
+        Debug::Log("  (Primary EDL unwrapped)");
+    }
+    if (secondary_path != secondary_original) {
+        Debug::Log("  (Secondary EDL unwrapped)");
+    }
+
+    // Disable legacy comparison mode (will unload the ComparisonVideoPlayer)
+    if (comparison_video_) {
+        comparison_video_->Unload();
+    }
+    comparison_mode_enabled_ = false;
+
+    // Load with lavfi using original paths
+    LoadLavfiComparison(primary_original, secondary_original, lavfi_mode, viewport_width, viewport_height);
+
+    Debug::Log("Transition to lavfi mode complete");
+}
+
+void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std::string& secondary_path,
+                                     ComparisonMode mode, int viewport_width, int viewport_height) {
+    if (!IsLavfiMode(mode)) {
+        Debug::Log("ERROR: Mode is not a lavfi mode");
+        return;
+    }
+
+    Debug::Log("LoadLavfiComparison: primary=" + primary_path + ", secondary=" + secondary_path);
+    Debug::Log("Mode: " + std::to_string(static_cast<int>(mode)) + ", Viewport: " +
+               std::to_string(viewport_width) + "x" + std::to_string(viewport_height));
+
+    // Store paths for state
+    lavfi_primary_path_ = primary_path;
+    lavfi_secondary_path_ = secondary_path;
+
+    // Extract video metadata for dimensions
+    VideoMetadata primary_metadata = ump::FFmpegMetadataExtractor::Extract(primary_path);
+    if (primary_metadata.width > 0 && primary_metadata.height > 0) {
+        primary_video_width_ = primary_metadata.width;
+        primary_video_height_ = primary_metadata.height;
+        Debug::Log("Primary video dimensions: " + std::to_string(primary_video_width_) + "x" + std::to_string(primary_video_height_));
+    } else {
+        Debug::Log("WARNING: Could not extract primary video dimensions, using defaults");
+        primary_video_width_ = 1920;
+        primary_video_height_ = 1080;
+    }
+
+    VideoMetadata secondary_metadata = ump::FFmpegMetadataExtractor::Extract(secondary_path);
+    if (secondary_metadata.width > 0 && secondary_metadata.height > 0) {
+        secondary_video_width_ = secondary_metadata.width;
+        secondary_video_height_ = secondary_metadata.height;
+        Debug::Log("Secondary video dimensions: " + std::to_string(secondary_video_width_) + "x" + std::to_string(secondary_video_height_));
+    } else {
+        Debug::Log("WARNING: Could not extract secondary video dimensions, using defaults");
+        secondary_video_width_ = 1920;
+        secondary_video_height_ = 1080;
+    }
+
+    // Generate lavfi filter
+    UpdateLavfiFilter(mode, viewport_width, viewport_height);
+    Debug::Log("Generated lavfi filter: " + current_lavfi_filter_);
+
+    // === CRITICAL: RECREATE MPV WITH LAVFI OPTIONS ===
+    // external-file and lavfi-complex are initialization-only options
+    // They MUST be set BEFORE mpv_initialize()
+
+    // 1. Destroy current MPV instance
+    if (mpv_gl) {
+        Debug::Log("LoadLavfiComparison: Freeing MPV render context");
+        mpv_render_context_free(mpv_gl);
+        mpv_gl = nullptr;
+    }
+
+    if (mpv) {
+        Debug::Log("LoadLavfiComparison: Destroying MPV instance");
+        mpv_terminate_destroy(mpv);
+        mpv = nullptr;
+    }
+
+    // 2. Create new MPV instance
+    Debug::Log("LoadLavfiComparison: Creating new MPV instance");
+    mpv = mpv_create();
+    if (!mpv) {
+        Debug::Log("ERROR: Failed to create MPV instance");
+        return;
+    }
+
+    // 3. Configure standard MPV options (with lavfi optimizations)
+    ConfigureBasicOptions();
+    ConfigureVideoOptions(true);  // true = lavfi mode (disables interpolation, adds vd-queue)
+    ConfigureAudioOptions();
+    ConfigureSeekingOptions();
+    ConfigureCacheOptions(true);  // true = lavfi mode (aggressive buffering)
+    ConfigureHardwareDecoding(true);  // true = lavfi mode (hwdec-copy, thread limit)
+
+    // 4. SET LAVFI OPTIONS BEFORE INITIALIZE (This is the key!)
+    Debug::Log("LoadLavfiComparison: Setting external-file option (BEFORE init)");
+    int ext_result = mpv_set_option_string(mpv, "external-file", secondary_path.c_str());
+    if (ext_result < 0) {
+        Debug::Log("WARNING: Failed to set external-file: " + std::string(mpv_error_string(ext_result)));
+        // Try plural version (different MPV versions)
+        ext_result = mpv_set_option_string(mpv, "external-files", secondary_path.c_str());
+        if (ext_result < 0) {
+            Debug::Log("ERROR: Failed to set external-files too: " + std::string(mpv_error_string(ext_result)));
+        }
+    }
+
+    Debug::Log("LoadLavfiComparison: Setting lavfi-complex option (BEFORE init)");
+    int lavfi_result = mpv_set_option_string(mpv, "lavfi-complex", current_lavfi_filter_.c_str());
+    if (lavfi_result < 0) {
+        Debug::Log("ERROR: Failed to set lavfi-complex: " + std::string(mpv_error_string(lavfi_result)));
+        return;
+    }
+
+    // 5. Initialize MPV (lavfi options are now locked in)
+    Debug::Log("LoadLavfiComparison: Initializing MPV with lavfi options");
+    if (mpv_initialize(mpv) < 0) {
+        Debug::Log("ERROR: Failed to initialize MPV");
+        return;
+    }
+
+    // 6. Setup OpenGL
+    if (!SetupOpenGL()) {
+        Debug::Log("ERROR: Failed to setup OpenGL");
+        return;
+    }
+
+    ApplyRenderOptimizations();
+    mpv_request_event(mpv, MPV_EVENT_FILE_LOADED, 1);
+
+    // Setup property observation for transport controls
+    SetupPropertyObservation();
+
+    // Reapply loop settings
+    SetLoop(loop_enabled);
+
+    // 7. Configure for single file mode (lavfi creates single composite output)
+    ConfigureForSingleFile();
+
+    // 8. Load primary file (MPV will automatically apply lavfi filter)
+    Debug::Log("LoadLavfiComparison: Loading primary file");
+    const char* cmd[] = {"loadfile", primary_path.c_str(), "replace", nullptr};
+    int result = mpv_command(mpv, cmd);
+
+    if (result < 0) {
+        Debug::Log("ERROR: Failed to load lavfi comparison: " + std::string(mpv_error_string(result)));
+        return;
+    }
+
+    // 9. Update mode state
+    comparison_mode_ = mode;
+    comparison_mode_enabled_ = true;
+
+    Debug::Log("LoadLavfiComparison: Success! Both videos should now be composited");
+}
+
+void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int viewport_height) {
+    if (!IsLavfiMode(mode)) {
+        Debug::Log("ERROR: Cannot update lavfi filter for non-lavfi mode");
+        return;
+    }
+
+    // Create filter configuration
+    ump::LavfiFilterGenerator::FilterConfig config;
+    config.mode = mode;
+    config.viewport_width = viewport_width;
+    config.viewport_height = viewport_height;
+    config.split_position = split_screen_position_;  // Use current split position
+    config.maintain_aspect = true;
+
+    // Create primary input configuration
+    ump::LavfiFilterGenerator::VideoInput primary_input;
+    primary_input.stream_id = "vid1";
+    primary_input.trim_start = primary_trim_start_;
+    primary_input.trim_duration = primary_trim_duration_;
+    primary_input.source_width = primary_video_width_;
+    primary_input.source_height = primary_video_height_;
+
+    // Create secondary input configuration
+    ump::LavfiFilterGenerator::VideoInput secondary_input;
+    secondary_input.stream_id = "vid2";
+    secondary_input.trim_start = secondary_trim_start_;
+    secondary_input.trim_duration = secondary_trim_duration_;
+    secondary_input.source_width = secondary_video_width_;
+    secondary_input.source_height = secondary_video_height_;
+
+    // Generate filter string
+    current_lavfi_filter_ = ump::LavfiFilterGenerator::GenerateLavfiFilter(
+        primary_input, secondary_input, config
+    );
+
+    Debug::Log("Generated lavfi filter: " + current_lavfi_filter_);
+
+    // If already in lavfi mode, recreate MPV with new filter
+    if (mpv && !lavfi_primary_path_.empty() && !lavfi_secondary_path_.empty()) {
+        Debug::Log("Recreating MPV with updated lavfi filter");
+
+        // Store current state
+        double current_position = GetPosition();
+        bool was_playing = IsPlaying();
+
+        // === RECREATE MPV WITH NEW FILTER ===
+        // 1. Destroy current MPV instance
+        if (mpv_gl) {
+            mpv_render_context_free(mpv_gl);
+            mpv_gl = nullptr;
+        }
+        if (mpv) {
+            mpv_terminate_destroy(mpv);
+            mpv = nullptr;
+        }
+
+        // 2. Create new MPV instance
+        mpv = mpv_create();
+        if (!mpv) {
+            Debug::Log("ERROR: Failed to create MPV instance");
+            return;
+        }
+
+        // 3. Configure standard MPV options (with lavfi optimizations)
+        ConfigureBasicOptions();
+        ConfigureVideoOptions(true);  // true = lavfi mode (disables interpolation, adds vd-queue)
+        ConfigureAudioOptions();
+        ConfigureSeekingOptions();
+        ConfigureCacheOptions(true);  // true = lavfi mode (aggressive buffering)
+        ConfigureHardwareDecoding(true);  // true = lavfi mode (hwdec-copy, thread limit)
+
+        // 4. SET LAVFI OPTIONS BEFORE INITIALIZE (initialization-only options!)
+        int ext_result = mpv_set_option_string(mpv, "external-file", lavfi_secondary_path_.c_str());
+        if (ext_result < 0) {
+            Debug::Log("Trying plural 'external-files' option");
+            ext_result = mpv_set_option_string(mpv, "external-files", lavfi_secondary_path_.c_str());
+        }
+
+        int lavfi_result = mpv_set_option_string(mpv, "lavfi-complex", current_lavfi_filter_.c_str());
+
+        Debug::Log("external-file result: " + std::to_string(ext_result));
+        Debug::Log("lavfi-complex result: " + std::to_string(lavfi_result));
+
+        // 5. Initialize MPV (lavfi options are now locked in)
+        if (mpv_initialize(mpv) < 0) {
+            Debug::Log("ERROR: Failed to initialize MPV");
+            return;
+        }
+
+        // 6. Setup OpenGL
+        SetupOpenGL();
+        ApplyRenderOptimizations();
+        mpv_request_event(mpv, MPV_EVENT_FILE_LOADED, 1);
+
+        // Setup property observation for transport controls
+        SetupPropertyObservation();
+
+        // Reapply loop settings
+        SetLoop(loop_enabled);
+
+        // Configure for single file mode (lavfi creates single composite output)
+        ConfigureForSingleFile();
+
+        // 7. Load primary file
+        const char* cmd[] = {"loadfile", lavfi_primary_path_.c_str(), "replace", nullptr};
+        int result = mpv_command(mpv, cmd);
+
+        if (result < 0) {
+            Debug::Log("ERROR: Failed to load file with updated filter: " + std::string(mpv_error_string(result)));
+            return;
+        }
+
+        Debug::Log("MPV loadfile command succeeded");
+
+        // 8. Restore state
+        if (current_position > 0.0) {
+            Seek(current_position);
+        }
+        if (was_playing) {
+            Play();
+        }
+
+        Debug::Log("Filter updated and MPV recreated successfully");
+    }
 }
 
 // ============================================================================
@@ -4943,62 +5509,158 @@ void VideoPlayer::RenderSideBySide() {
     }
 
     // Floating dropdown overlay - top-left corner to select comparison mode
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+    const float dropdown_width = 180.0f;
+    const float dropdown_height = 28.0f;
+    const float dropdown_spacing = 4.0f;  // Space between dropdowns
 
+    // View mode dropdown (legacy split view modes)
     ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
-    ImGui::BeginChild("##ComparisonModeToggle", ImVec2(150, 36), false,
+    ImGui::BeginChild("##ComparisonModeToggle", ImVec2(dropdown_width, dropdown_height), false,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-    // Determine current mode label
-    const char* mode_label = "Side-by-Side";
+    std::string view_label = "View: Side-by-Side";
     if (comparison_mode_ == ComparisonMode::SPLIT_SCREEN) {
-        mode_label = "Split Screen";
-    } else if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
-        mode_label = "Difference";
+        view_label = "View: Split Screen";
     }
 
-    ImGui::SetNextItemWidth(134);
-    if (ImGui::BeginCombo("##ModeSelect", mode_label, ImGuiComboFlags_NoArrowButton)) {
-        if (ImGui::Selectable("Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.15f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+    ImGui::SetNextItemWidth(dropdown_width);
+    if (ImGui::BeginCombo("##ViewModeSelect", view_label.c_str(), ImGuiComboFlags_NoArrowButton)) {
+        if (ImGui::Selectable("View Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
             SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
-            Debug::Log("Switched to Side-by-Side mode");
+            Debug::Log("Switched to Side-by-Side view mode");
         }
-        if (ImGui::Selectable("Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+        if (ImGui::Selectable("View Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
             SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
-            Debug::Log("Switched to Split Screen mode");
-        }
-
-        // Check if either video uses inter-frame codec (H.264/H.265)
-        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
-        bool comparison_is_h264 = false;
-        if (comparison_video_) {
-            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
-        }
-        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
-
-        if (diff_mode_disabled) {
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
-        }
-        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
-            if (!diff_mode_disabled) {
-                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-                Debug::Log("Switched to Difference mode");
-            }
-        }
-        if (diff_mode_disabled) {
-            ImGui::PopStyleVar();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
-            }
+            Debug::Log("Switched to Split Screen view mode");
         }
         ImGui::EndCombo();
     }
 
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar();
     ImGui::EndChild();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+
+    // Lavfi Mode Dropdown (positioned close below view picker)
+    if (primary_texture > 0 && comparison_video_ && comparison_video_->HasVideo()) {
+        const float lavfi_dropdown_y = viewport_pos.y + 10.0f + dropdown_height + dropdown_spacing;
+
+        ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10.0f, lavfi_dropdown_y));
+        ImGui::BeginChild("##LavfiModeDropdownSideBySide", ImVec2(dropdown_width, dropdown_height), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.15f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+        // Set popup height to fit all items without scrollbar
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, 270.0f));
+        ImGui::SetNextItemWidth(dropdown_width);
+        if (ImGui::BeginCombo("##LavfiModeSideBySide", "Play Modes...", ImGuiComboFlags_NoArrowButton | ImGuiComboFlags_HeightLarge)) {
+            if (ImGui::Selectable("Side-by-Side A")) {
+                Debug::Log("Lavfi: Side-by-Side A (primary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses left video resolution as reference\n(scales right video to match)");
+            }
+
+            if (ImGui::Selectable("Side-by-Side B")) {
+                Debug::Log("Lavfi: Side-by-Side B (secondary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses right video resolution as reference\n(scales left video to match)");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Top-Bottom A")) {
+                Debug::Log("Lavfi: Top-Bottom A (primary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_VERTICAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses top video resolution as reference\n(scales bottom video to match)");
+            }
+
+            if (ImGui::Selectable("Top-Bottom B")) {
+                Debug::Log("Lavfi: Top-Bottom B (secondary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_VERTICAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses bottom video resolution as reference\n(scales top video to match)");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Split-Screen A")) {
+                Debug::Log("Lavfi: Split-Screen A (50/50 split - primary on left)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_5050_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("50/50 split with left video on left side");
+            }
+
+            if (ImGui::Selectable("Split-Screen B")) {
+                Debug::Log("Lavfi: Split-Screen B (50/50 split - secondary on left)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_5050_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("50/50 split with right video on left side");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Difference A")) {
+                Debug::Log("Lavfi: Difference A (primary as base reference)");
+                TransitionToLavfiMode(ComparisonMode::DIFFERENCE_BLEND,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Pixel-level difference blend\nUses left video resolution as reference");
+            }
+
+            if (ImGui::Selectable("Difference B")) {
+                Debug::Log("Lavfi: Difference B (secondary as base reference)");
+                TransitionToLavfiMode(ComparisonMode::DIFFERENCE_BLEND,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Pixel-level difference blend\nUses right video resolution as reference");
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+    }
 
     // Show transcoding progress underneath toggle button
     if (transcoding_in_progress_ && transcode_manager_) {
@@ -5030,6 +5692,7 @@ void VideoPlayer::RenderSideBySide() {
         ImGui::PopStyleColor();
         ImGui::PopStyleVar(2);
     }
+
 }
 
 void VideoPlayer::RenderSplitScreen() {
@@ -5264,62 +5927,158 @@ void VideoPlayer::RenderSplitScreen() {
     }
 
     // Floating dropdown overlay - top-left corner to select comparison mode
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+    const float dropdown_width = 180.0f;
+    const float dropdown_height = 28.0f;
+    const float dropdown_spacing = 4.0f;  // Space between dropdowns
 
+    // View mode dropdown (legacy split view modes)
     ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
-    ImGui::BeginChild("##ComparisonModeToggleSplit", ImVec2(150, 36), false,
+    ImGui::BeginChild("##ComparisonModeToggleSplit", ImVec2(dropdown_width, dropdown_height), false,
         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-    // Determine current mode label
-    const char* mode_label = "Split Screen";
+    std::string view_label = "View: Split Screen";
     if (comparison_mode_ == ComparisonMode::SIDE_BY_SIDE) {
-        mode_label = "Side-by-Side";
-    } else if (comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW) {
-        mode_label = "Difference";
+        view_label = "View: Side-by-Side";
     }
 
-    ImGui::SetNextItemWidth(134);
-    if (ImGui::BeginCombo("##ModeSelect", mode_label, ImGuiComboFlags_NoArrowButton)) {
-        if (ImGui::Selectable("Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.15f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+    ImGui::SetNextItemWidth(dropdown_width);
+    if (ImGui::BeginCombo("##ViewModeSelect", view_label.c_str(), ImGuiComboFlags_NoArrowButton)) {
+        if (ImGui::Selectable("View Side-by-Side", comparison_mode_ == ComparisonMode::SIDE_BY_SIDE)) {
             SetComparisonMode(ComparisonMode::SIDE_BY_SIDE);
-            Debug::Log("Switched to Side-by-Side mode");
+            Debug::Log("Switched to Side-by-Side view mode");
         }
-        if (ImGui::Selectable("Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
+        if (ImGui::Selectable("View Split Screen", comparison_mode_ == ComparisonMode::SPLIT_SCREEN)) {
             SetComparisonMode(ComparisonMode::SPLIT_SCREEN);
-            Debug::Log("Switched to Split Screen mode");
-        }
-
-        // Check if either video uses inter-frame codec (H.264/H.265)
-        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
-        bool comparison_is_h264 = false;
-        if (comparison_video_) {
-            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
-        }
-        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
-
-        if (diff_mode_disabled) {
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
-        }
-        if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
-            if (!diff_mode_disabled) {
-                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-                Debug::Log("Switched to Difference mode");
-            }
-        }
-        if (diff_mode_disabled) {
-            ImGui::PopStyleVar();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
-            }
+            Debug::Log("Switched to Split Screen view mode");
         }
         ImGui::EndCombo();
     }
 
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar();
     ImGui::EndChild();
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
+
+    // Lavfi Mode Dropdown (positioned close below view picker)
+    if (primary_texture > 0 && comparison_texture > 0) {
+        const float lavfi_dropdown_y = viewport_pos.y + 10.0f + dropdown_height + dropdown_spacing;
+
+        ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10.0f, lavfi_dropdown_y));
+        ImGui::BeginChild("##LavfiModeDropdown", ImVec2(dropdown_width, dropdown_height), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
+
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.15f, 0.15f, 0.15f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+
+        // Set popup height to fit all items without scrollbar
+        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, 270.0f));
+        ImGui::SetNextItemWidth(dropdown_width);
+        if (ImGui::BeginCombo("##LavfiMode", "Play Modes...", ImGuiComboFlags_NoArrowButton | ImGuiComboFlags_HeightLarge)) {
+            if (ImGui::Selectable("Side-by-Side A")) {
+                Debug::Log("Lavfi: Side-by-Side A (primary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses left video resolution as reference\n(scales right video to match)");
+            }
+
+            if (ImGui::Selectable("Side-by-Side B")) {
+                Debug::Log("Lavfi: Side-by-Side B (secondary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses right video resolution as reference\n(scales left video to match)");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Top-Bottom A")) {
+                Debug::Log("Lavfi: Top-Bottom A (primary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_VERTICAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses top video resolution as reference\n(scales bottom video to match)");
+            }
+
+            if (ImGui::Selectable("Top-Bottom B")) {
+                Debug::Log("Lavfi: Top-Bottom B (secondary as reference)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_VERTICAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Uses bottom video resolution as reference\n(scales top video to match)");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Split-Screen A")) {
+                Debug::Log("Lavfi: Split-Screen A (50/50 split - primary on left)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_5050_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("50/50 split with left video on left side");
+            }
+
+            if (ImGui::Selectable("Split-Screen B")) {
+                Debug::Log("Lavfi: Split-Screen B (50/50 split - secondary on left)");
+                TransitionToLavfiMode(ComparisonMode::SPLIT_5050_HORIZONTAL,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("50/50 split with right video on left side");
+            }
+
+            ImGui::Separator();
+
+            if (ImGui::Selectable("Difference A")) {
+                Debug::Log("Lavfi: Difference A (primary as base reference)");
+                TransitionToLavfiMode(ComparisonMode::DIFFERENCE_BLEND,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y));
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Pixel-level difference blend\nUses left video resolution as reference");
+            }
+
+            if (ImGui::Selectable("Difference B")) {
+                Debug::Log("Lavfi: Difference B (secondary as base reference)");
+                TransitionToLavfiMode(ComparisonMode::DIFFERENCE_BLEND,
+                                     static_cast<int>(content_region.x),
+                                     static_cast<int>(content_region.y),
+                                     "", "", true);
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Pixel-level difference blend\nUses right video resolution as reference");
+            }
+
+            ImGui::EndCombo();
+        }
+
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar();
+        ImGui::EndChild();
+    }
 }
 
 void VideoPlayer::RenderDifference() {

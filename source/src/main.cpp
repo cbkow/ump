@@ -3231,7 +3231,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.4");
+                ImGui::TextDisabled("About u.m.p. v0.3.5");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -5514,6 +5514,9 @@ private:
         // Only show in comparison mode
         if (!video_player || !video_player->IsComparisonModeEnabled()) return;
 
+        // Hide in lavfi modes - they use a different trim workflow
+        if (video_player->IsLavfiMode(video_player->GetComparisonMode())) return;
+
         ImGuiWindow* video_window = ImGui::FindWindowByName("Video Viewport");
         if (!video_window) return;
 
@@ -7286,6 +7289,7 @@ private:
                     ImGui::SetTooltip(dual_view_enabled ? "Dual View ON" : "Dual View OFF");
                 }
             }
+
             ImGui::SameLine();
 
             // Fullscreen

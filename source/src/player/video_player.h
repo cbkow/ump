@@ -43,10 +43,14 @@ namespace ump {
 
 // Comparison mode for dual video review
 enum class ComparisonMode {
-    DISABLED,           // Single video (current behavior)
-    SIDE_BY_SIDE,       // Split viewport 50/50 (scaled down videos)
-    SPLIT_SCREEN,       // Full-screen split with draggable divider
-    DIFFERENCE_VIEW     // OpenGL shader composite showing pixel differences
+    DISABLED,                   // Single video (current behavior)
+    SIDE_BY_SIDE,               // Split viewport 50/50 (scaled down videos) - LEGACY, kept for setup UI
+    SPLIT_SCREEN,               // Full-screen split with draggable divider - LEGACY, kept for setup UI
+    DIFFERENCE_VIEW,            // OpenGL shader composite showing pixel differences - LEGACY
+    SPLIT_HORIZONTAL,           // Lavfi: horizontal stack (side-by-side)
+    SPLIT_VERTICAL,             // Lavfi: vertical stack (top/bottom)
+    SPLIT_5050_HORIZONTAL,      // Lavfi: 50/50 split with adjustable divider
+    DIFFERENCE_BLEND            // Lavfi: real-time difference blend
 };
 
 // Global pipeline configurations
@@ -168,6 +172,7 @@ public:
     int GetCurrentFrame() const;
 
     // File information
+    std::string GetFilePath() const { return current_file_path; }
     std::string GetVideoCodec() const;
     std::string GetPixelFormat() const;
     double GetVideoBitrate() const;
@@ -331,6 +336,22 @@ public:
     std::string GetPendingViewportDrop();  // Returns and clears pending media ID for main viewport
     void ClearPendingViewportDrop();
 
+    // Lavfi-based comparison mode (NEW)
+    void LoadLavfiComparison(const std::string& primary_path, const std::string& secondary_path,
+                            ComparisonMode mode, int viewport_width, int viewport_height);
+    void UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int viewport_height);
+    void TransitionToLavfiMode(ComparisonMode lavfi_mode, int viewport_width, int viewport_height,
+                              const std::string& primary_override = "", const std::string& secondary_override = "",
+                              bool use_secondary_as_reference = false);  // Transition from setup to lavfi
+    void SetPrimaryTrimPoints(double start, double duration);  // Per-comparison trim for primary video
+    void SetSecondaryTrimPoints(double start, double duration);  // Per-comparison trim for secondary video
+    void ClearPrimaryTrimPoints();
+    void ClearSecondaryTrimPoints();
+    bool IsLavfiMode(ComparisonMode mode) const;
+    std::string GetSecondaryVideoPath() const { return lavfi_secondary_path_; }
+    std::string GetCurrentLavfiFilter() const { return current_lavfi_filter_; }  // For debugging
+    void ExitLavfiMode();  // Clean exit from lavfi mode (recreates MPV)
+
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
     bool CaptureScreenshotToDesktop(const std::string& filename = "");
@@ -403,11 +424,11 @@ private:
 
     // Configuration methods
     void ConfigureBasicOptions();
-    void ConfigureVideoOptions();
+    void ConfigureVideoOptions(bool lavfi_mode = false);
     void ConfigureAudioOptions();
     void ConfigureSeekingOptions();
-    void ConfigureCacheOptions();
-    void ConfigureHardwareDecoding();
+    void ConfigureCacheOptions(bool lavfi_mode = false);
+    void ConfigureHardwareDecoding(bool lavfi_mode = false);
     bool SetupOpenGL();
     void CreateVideoTextures(int width, int height);
 
@@ -510,6 +531,19 @@ private:
     double last_position_ = 0.0;  // For loop detection
     double loop_sync_time_ = 0.0;  // Timer for loop sync delay
     bool loop_sync_pending_ = false;  // Waiting for loop sync to settle
+
+    // Lavfi-based comparison mode state (NEW)
+    std::string lavfi_primary_path_;          // Primary video path for lavfi mode
+    std::string lavfi_secondary_path_;        // Secondary video path (loaded via --external-file)
+    double primary_trim_start_ = -1.0;        // Per-comparison trim for primary (-1 = no trim)
+    double primary_trim_duration_ = -1.0;     // Per-comparison trim duration
+    double secondary_trim_start_ = -1.0;      // Per-comparison trim for secondary
+    double secondary_trim_duration_ = -1.0;   // Per-comparison trim duration
+    int primary_video_width_ = 0;             // Cached dimensions for filter generation
+    int primary_video_height_ = 0;
+    int secondary_video_width_ = 0;
+    int secondary_video_height_ = 0;
+    std::string current_lavfi_filter_;        // Current lavfi filter string
 
     // Difference compositor (old FBO-based - kept for fallback)
     GLuint difference_shader_program_ = 0;
