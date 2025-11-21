@@ -3231,7 +3231,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.5");
+                ImGui::TextDisabled("About u.m.p. v0.3.6");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -12640,6 +12640,9 @@ private:
             new_file_path.rfind("edl://", 0) != 0) {
             trim_mode_left = false;
             original_video_path_left.clear();
+            if (project_manager) {
+                project_manager->ClearInOutPoints();  // Clear loop points when exiting trimmed playback
+            }
             Debug::Log("Trim mode (left) reset due to video change");
         }
 
@@ -12649,6 +12652,9 @@ private:
             if (video_player && !video_player->IsComparisonModeEnabled()) {
                 trim_mode_right = false;
                 original_video_path_right.clear();
+                if (project_manager) {
+                    project_manager->ClearInOutPoints();  // Clear loop points when exiting trimmed playback
+                }
                 Debug::Log("Trim mode (right) reset due to comparison mode disabled");
             }
         }

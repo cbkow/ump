@@ -40,7 +40,17 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Stack horizontally
-            filter << "[v1][v2]hstack[vo]";
+            filter << "[v1][v2]hstack[vo];";
+
+            // Audio from primary (trimmed to match video)
+            filter << "[aid1]";
+            std::string audio_trim = GenerateAudioTrimFilter(primary);
+            if (!audio_trim.empty()) {
+                filter << audio_trim;
+            } else {
+                filter << "anull";  // Pass-through if no trim
+            }
+            filter << "[ao]";
             break;
         }
 
@@ -71,7 +81,17 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Stack vertically
-            filter << "[v1][v2]vstack[vo]";
+            filter << "[v1][v2]vstack[vo];";
+
+            // Audio from primary (trimmed to match video)
+            filter << "[aid1]";
+            std::string audio_trim = GenerateAudioTrimFilter(primary);
+            if (!audio_trim.empty()) {
+                filter << audio_trim;
+            } else {
+                filter << "anull";  // Pass-through if no trim
+            }
+            filter << "[ao]";
             break;
         }
 
@@ -110,7 +130,17 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Blend with difference mode
-            filter << "[v1][v2]blend=all_mode=difference[vo]";
+            filter << "[v1][v2]blend=all_mode=difference[vo];";
+
+            // Audio from primary (trimmed to match video)
+            filter << "[aid1]";
+            std::string audio_trim = GenerateAudioTrimFilter(primary);
+            if (!audio_trim.empty()) {
+                filter << audio_trim;
+            } else {
+                filter << "anull";  // Pass-through if no trim
+            }
+            filter << "[ao]";
             break;
         }
 
@@ -177,6 +207,25 @@ std::string LavfiFilterGenerator::GenerateTrimFilter(const VideoInput& input) {
     } else {
         // Only start specified - trim from start to end of video
         trim << "trim=start=" << input.trim_start << ",setpts=PTS-STARTPTS";
+    }
+
+    return trim.str();
+}
+
+std::string LavfiFilterGenerator::GenerateAudioTrimFilter(const VideoInput& input) {
+    if (input.trim_start < 0.0) {
+        return "";
+    }
+
+    std::ostringstream trim;
+
+    if (input.trim_duration > 0.0) {
+        // Both start and duration specified - use end time
+        double end_time = input.trim_start + input.trim_duration;
+        trim << "atrim=start=" << input.trim_start << ":end=" << end_time << ",asetpts=PTS-STARTPTS";
+    } else {
+        // Only start specified - trim from start to end of audio
+        trim << "atrim=start=" << input.trim_start << ",asetpts=PTS-STARTPTS";
     }
 
     return trim.str();
@@ -266,7 +315,17 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
     filter << "[v2];";
 
     // Stack horizontally
-    filter << "[v1][v2]hstack[vo]";
+    filter << "[v1][v2]hstack[vo];";
+
+    // Audio from primary (trimmed to match video)
+    filter << "[aid1]";
+    std::string audio_trim = GenerateAudioTrimFilter(primary);
+    if (!audio_trim.empty()) {
+        filter << audio_trim;
+    } else {
+        filter << "anull";  // Pass-through if no trim
+    }
+    filter << "[ao]";
 
     return filter.str();
 }

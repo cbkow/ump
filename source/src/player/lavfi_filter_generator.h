@@ -79,6 +79,12 @@ private:
     static std::string GenerateTrimFilter(const VideoInput& input);
 
     /**
+     * @brief Generate audio trim filter for an audio stream
+     * @return Filter string like "atrim=start=2:end=5,asetpts=PTS-STARTPTS"
+     */
+    static std::string GenerateAudioTrimFilter(const VideoInput& input);
+
+    /**
      * @brief Generate scale filter for a video stream
      * @param scaler_flags FFmpeg scaler flags (fast_bilinear, area, bicubic, lanczos)
      * @return Filter string like "scale=1920:1080:flags=fast_bilinear" or "null" if no scaling needed
