@@ -2,6 +2,7 @@
 // PLATFORM AND SYSTEM INCLUDES
 // ============================================================================
 #ifdef _WIN32
+// NOMINMAX defined globally in CMakeLists.txt for OCIO 2.5 compatibility
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <shellapi.h>
@@ -3231,7 +3232,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.6");
+                ImGui::TextDisabled("About u.m.p. v0.3.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6490,8 +6491,8 @@ private:
         ImVec2 video_pos = video_window->Pos;
         ImVec2 video_size = video_window->Size;
 
-        const float panel_width = 280.0f;
-        const float panel_height = 430.0f;
+        const float panel_width = 400.0f;
+        const float panel_height = 580.0f;  // Increased from 430 to accommodate Blender 5.0 section
         const float margin = 10.0f;
 
         // Position in top-right corner (same as background panel)
@@ -6530,9 +6531,9 @@ private:
                 ImGui::PopStyleColor();
             }
 
-            // ACES Presets Section
+            // ACES 1.3 Presets Section
             ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("ACES Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader("ACES 1.3 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PopStyleColor();
                 ImGui::Spacing();
                 CreateACESPresets();
@@ -6542,12 +6543,36 @@ private:
                 ImGui::PopStyleColor();
             }
 
-            // Blender Presets Section
+            // ACES 2.0 Presets Section
             ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("Blender Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (ImGui::CollapsingHeader("ACES 2.0 Workflows")) {
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                CreateACES20Presets();
+                ImGui::Spacing();
+            }
+            else {
+                ImGui::PopStyleColor();
+            }
+
+            // Blender 4.5 Presets Section
+            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
+            if (ImGui::CollapsingHeader("Blender 4.5 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PopStyleColor();
                 ImGui::Spacing();
                 CreateBlenderPresets();
+                ImGui::Spacing();
+            }
+            else {
+                ImGui::PopStyleColor();
+            }
+
+            // Blender 5.0 Presets Section
+            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
+            if (ImGui::CollapsingHeader("Blender 5.0 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::PopStyleColor();
+                ImGui::Spacing();
+                CreateBlender5Presets();
                 ImGui::Spacing();
             }
             else {
@@ -9376,9 +9401,21 @@ private:
             ImGui::TreePop();
         }
 
-        // Blender Presets
-        if (ImGui::TreeNode("Blender")) {
+        // ACES 2.0 Presets
+        if (ImGui::TreeNode("ACES 2.0")) {
+            CreateACES20Presets();
+            ImGui::TreePop();
+        }
+
+        // Blender 4.5 Presets
+        if (ImGui::TreeNode("Blender 4.5")) {
             CreateBlenderPresets();
+            ImGui::TreePop();
+        }
+
+        // Blender 5.0 Presets
+        if (ImGui::TreeNode("Blender 5.0")) {
+            CreateBlender5Presets();
             ImGui::TreePop();
         }
 
@@ -9403,16 +9440,8 @@ private:
             ApplyAliasPreset("lin_ap1", "srgb_display", "ACES 1.0 - SDR Video");
         }
 
-        if (ImGui::Selectable("ACEScg -> Rec.709")) {
-            ApplyAliasPreset("lin_ap1", "rec1886_rec709_display", "ACES 1.0 - SDR Video");
-        }
-
         if (ImGui::Selectable("ACES2065-1 -> sRGB")) {
             ApplyAliasPreset("aces2065_1", "srgb_display", "ACES 1.0 - SDR Video");
-        }
-
-        if (ImGui::Selectable("ACES2065-1 -> Rec.709")) {
-            ApplyAliasPreset("aces2065_1", "rec1886_rec709_display", "ACES 1.0 - SDR Video");
         }
         if (font_mono) ImGui::PopFont();
     }
@@ -9467,18 +9496,6 @@ private:
             })");
         }
 
-        if (ImGui::Selectable("Linear Rec.709 -> rec.709 Standard")) {
-            ApplyPreset(R"({
-                "name": "Linear Rec.709 to Rec.709 Standard",
-                "ocio_config": "Blender",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.1886", "view": "Standard", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
-        }
-
         if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB AgX",
@@ -9491,16 +9508,176 @@ private:
             })");
         }
 
-        if (ImGui::Selectable("Linear Rec.709 -> rec.709 AgX")) {
+        if (font_mono) ImGui::PopFont();
+    }
+
+    void CreateBlender5Presets() {
+        if (font_mono) ImGui::PushFont(font_mono);
+
+        // Use ## to add unique IDs to prevent ImGui ID collisions with Blender 4.5 presets
+        if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard##B5")) {
             ApplyPreset(R"({
-                "name": "Linear Rec.709 to Rec.709 AgX",
-                "ocio_config": "Blender",
+                "name": "Linear Rec.709 to sRGB Standard",
+                "ocio_config": "Blender5",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.1886", "view": "AgX", "position": [400, 100]}
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "Standard", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-          })");
+            })");
+        }
+
+        if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX##B5")) {
+            ApplyPreset(R"({
+                "name": "Linear Rec.709 to sRGB AgX",
+                "ocio_config": "Blender5",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "AgX", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })");
+        }
+
+        if (ImGui::Selectable("ACEScg -> sRGB ACES 2.0##B5")) {
+            ApplyPreset(R"({
+                "name": "ACEScg to sRGB ACES 2.0",
+                "ocio_config": "Blender5",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "ACES 2.0", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })");
+        }
+
+        if (ImGui::Selectable("ACEScg -> sRGB AgX##B5")) {
+            ApplyPreset(R"({
+                "name": "ACEScg to sRGB AgX",
+                "ocio_config": "Blender5",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "AgX", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })");
+        }
+
+        if (ImGui::Selectable("ACEScg -> sRGB ACES 1.3##B5")) {
+            ApplyPreset(R"({
+                "name": "ACEScg to sRGB ACES 1.3",
+                "ocio_config": "Blender5",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "ACES 1.3", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })");
+        }
+
+        if (ImGui::Selectable("Linear Rec.2020 -> Rec.2100-PQ HDR 1000 nits##B5")) {
+            ApplyPreset(R"({
+                "name": "Linear Rec.2020 to Rec.2100-PQ HDR 1000 nits",
+                "ocio_config": "Blender5",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.2020", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })");
+        }
+
+        if (font_mono) ImGui::PopFont();
+    }
+
+    void CreateACES20Presets() {
+        if (font_mono) ImGui::PushFont(font_mono);
+
+        // Use ##A20 to add unique IDs for ACES 2.0 presets
+        if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 1000 nits##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to Rec.2100-PQ HDR 1000 nits",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 1000 nits (Rec.2020)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        // Video (colorimetric) presets
+        if (ImGui::Selectable("ACES2065-1 -> sRGB Video (colorimetric)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACES2065-1 to sRGB Video (colorimetric)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        if (ImGui::Selectable("ACEScg -> sRGB Video (colorimetric)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to sRGB Video (colorimetric)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        if (ImGui::Selectable("ACES2065-1 -> P3-D65 Video (colorimetric)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACES2065-1 to P3-D65 Video (colorimetric)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "P3-D65 - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        if (ImGui::Selectable("ACEScg -> P3-D65 Video (colorimetric)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to P3-D65 Video (colorimetric)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "P3-D65 - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        // HDR 500 nits presets
+        if (ImGui::Selectable("ACES2065-1 -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACES2065-1 to Rec.2100-PQ HDR 500 nits (Rec.2020)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 500 nits (Rec.2020)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+
+        if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to Rec.2100-PQ HDR 500 nits (Rec.2020)",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 500 nits (Rec.2020)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
         }
 
         if (font_mono) ImGui::PopFont();
@@ -9542,8 +9719,12 @@ private:
                 OCIOConfigType config_type = ocio_manager->GetActiveConfigType();
                 if (config_type == OCIOConfigType::ACES_13) {
                     preset["ocio_config"] = "ACES_1.3";
+                } else if (config_type == OCIOConfigType::ACES_20) {
+                    preset["ocio_config"] = "ACES_2.0";
                 } else if (config_type == OCIOConfigType::BLENDER) {
                     preset["ocio_config"] = "Blender";
+                } else if (config_type == OCIOConfigType::BLENDER5) {
+                    preset["ocio_config"] = "Blender5";
                 } else if (config_type == OCIOConfigType::CUSTOM) {
                     preset["ocio_config"] = "Custom";
                 }
@@ -9842,8 +10023,12 @@ private:
 
                 if (config_str == "ACES_1.3") {
                     target_config = OCIOConfigType::ACES_13;
+                } else if (config_str == "ACES_2.0") {
+                    target_config = OCIOConfigType::ACES_20;
                 } else if (config_str == "Blender") {
                     target_config = OCIOConfigType::BLENDER;
+                } else if (config_str == "Blender5") {
+                    target_config = OCIOConfigType::BLENDER5;
                 } else if (config_str == "Custom") {
                     target_config = OCIOConfigType::CUSTOM;
                 }
@@ -10353,43 +10538,96 @@ private:
 
         // Get available views from OCIO config
         if (ocio_manager && ocio_manager->IsConfigLoaded()) {
-            auto config = ocio_manager->GetConfig();
+            // Find connected input colorspace for ACES 2.0 viewing rules
+            std::string src_colorspace;
+            if (node_manager) {
+                // Trace back through connections to find INPUT_COLORSPACE node
+                auto connections = node_manager->GetConnections();
+                for (const auto& conn : connections) {
+                    // Check if this connection feeds into our display node
+                    for (const auto& pin : display_node->GetInputPins()) {
+                        if (pin.id == conn.to_pin) {
+                            // Found connection to this display node, find the source node
+                            auto all_nodes = node_manager->GetAllNodes();
+                            for (auto* source_node : all_nodes) {
+                                if (!source_node) continue;
 
-            // Get views for this display
-            int num_views = config->getNumViews(current_display.c_str());
+                                // Check if source node has the from_pin
+                                for (const auto& out_pin : source_node->GetOutputPins()) {
+                                    if (out_pin.id == conn.from_pin) {
+                                        // Found the source node, check if it's an input colorspace
+                                        if (source_node->GetType() == ump::NodeType::INPUT_COLORSPACE) {
+                                            auto* cs_node = dynamic_cast<ump::InputColorSpaceNode*>(source_node);
+                                            if (cs_node) {
+                                                src_colorspace = cs_node->GetColorSpace();
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                                if (!src_colorspace.empty()) break;
+                            }
+                            break;
+                        }
+                    }
+                    if (!src_colorspace.empty()) break;
+                }
+            }
 
-            if (num_views > 0) {
+            // Get views - use encoding-aware method if we have source colorspace (ACES 2.0)
+            std::vector<std::string> available_views;
+            if (!src_colorspace.empty()) {
+                // ACES 2.0 viewing rules: filter by source encoding
+                available_views = ocio_manager->GetViewsForSource(current_display, src_colorspace);
+            } else {
+                // Fallback: get all views (for standalone OUTPUT node or configs without viewing rules)
+                available_views = ocio_manager->GetViews(current_display);
+            }
+
+            if (!available_views.empty()) {
                 ImGui::Indent();
 
-                for (int i = 0; i < num_views; ++i) {
-                    const char* view_name = config->getView(current_display.c_str(), i);
-                    bool is_selected = (std::string(view_name) == current_view);
+                for (const auto& view_name : available_views) {
+                    bool is_selected = (view_name == current_view);
 
-                    if (ImGui::RadioButton(view_name, is_selected)) {
+                    if (ImGui::RadioButton(view_name.c_str(), is_selected)) {
                         display_node->SetView(view_name);
-                        Debug::Log("View changed to: " + std::string(view_name));
+                        Debug::Log("View changed to: " + view_name);
                     }
 
                     // Add description if it's a special view
-                    if (std::string(view_name) == "AgX") {
+                    if (view_name == "AgX") {
                         ImGui::SameLine();
                         ImGui::TextDisabled("(Filmic tone mapping)");
                     }
-                    else if (std::string(view_name) == "Standard") {
+                    else if (view_name == "Standard") {
                         ImGui::SameLine();
                         ImGui::TextDisabled("(Default)");
                     }
-                    else if (std::string(view_name) == "False Color") {
+                    else if (view_name == "False Color") {
                         ImGui::SameLine();
                         ImGui::TextDisabled("(Exposure visualization)");
+                    }
+                    else if (view_name.find("ACES 2.0 - SDR") != std::string::npos) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(ACES 2.0 SDR tone map)");
+                    }
+                    else if (view_name.find("ACES 2.0 - HDR") != std::string::npos) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(ACES 2.0 HDR tone map)");
                     }
                 }
 
                 ImGui::Unindent();
             }
             else {
-                ImGui::TextColored(MutedLight(GetWindowsAccentColor()),
-                    "No views found for display '%s'", current_display.c_str());
+                if (!src_colorspace.empty()) {
+                    ImGui::TextColored(MutedLight(GetWindowsAccentColor()),
+                        "No compatible views for source '%s'", src_colorspace.c_str());
+                } else {
+                    ImGui::TextColored(MutedLight(GetWindowsAccentColor()),
+                        "No views found (connect an input colorspace)");
+                }
             }
         }
         else {

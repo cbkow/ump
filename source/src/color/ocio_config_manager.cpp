@@ -3,21 +3,49 @@
 #include <filesystem>
 
 OCIOConfigManager::OCIOConfigManager() {
+    std::cout << "=== OCIOConfigManager Constructor START ===" << std::endl;
+    std::cout.flush();
+
     ScanForConfigs();
+
+    // TEMP: Test loading built-in ACES 2.0 config directly
+    std::cout << "TESTING: Attempting to load built-in ACES 2.0 config..." << std::endl;
+    std::cout.flush();
+    try {
+        auto test_config = OCIO::Config::CreateFromFile("ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5");
+        std::cout << "SUCCESS: Built-in ACES 2.0 config loaded!" << std::endl;
+        std::cout << "  Config name: " << test_config->getName() << std::endl;
+        std::cout << "  Num displays: " << test_config->getNumDisplays() << std::endl;
+        std::cout.flush();
+    } catch (const OCIO::Exception& e) {
+        std::cout << "FAILED: Could not load built-in config: " << e.what() << std::endl;
+        std::cout.flush();
+    }
 
     // Load Blender config as default for Standard workflows
     std::cout << "OCIOConfigManager: Loading default Blender config..." << std::endl;
+    std::cout.flush();
     if (!LoadConfiguration(OCIOConfigType::BLENDER)) {
         std::cout << "Failed to load Blender config - check assets/OCIO/Blender/config.ocio" << std::endl;
     } else {
         std::cout << "Blender config loaded. Standard workflows available." << std::endl;
     }
+    std::cout << "=== OCIOConfigManager Constructor END ===" << std::endl;
+    std::cout.flush();
 }
 
 void OCIOConfigManager::ScanForConfigs() {
     available_configs.clear();
 
     // Built-in fake sRGB config removed - now using Blender config for Standard workflows
+
+    // Add built-in ACES 2.0 config (embedded in OCIO 2.5 library)
+    available_configs.push_back({
+        "ACES 2.0",
+        "Built-in ACES 2.0 Studio Config (OCIO 2.5)",
+        "ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5",  // URI, not file path
+        OCIOConfigType::ACES_20
+    });
 
     // Scan assets/OCIO/ directory for config files
     std::string assets_ocio_path = "assets/OCIO";
@@ -26,17 +54,21 @@ void OCIOConfigManager::ScanForConfigs() {
         std::cout << "Scanning for OCIO configs in: " << assets_ocio_path << std::endl;
 
         // Look for common config structures
-        std::vector<std::pair<std::string, OCIOConfigType>> config_folders = {
-            {"ACES_1.3", OCIOConfigType::ACES_13},
-            {"Blender", OCIOConfigType::BLENDER}
+        // Format: {folder_name, display_name, config_type}
+        // Note: ACES_2.0 is NOT scanned here - we use the built-in config instead
+        std::vector<std::tuple<std::string, std::string, OCIOConfigType>> config_folders = {
+            {"ACES_1.3", "ACES_1.3", OCIOConfigType::ACES_13},
+            // {"ACES_2.0", "ACES 2.0", OCIOConfigType::ACES_20},  // Removed - using built-in
+            {"Blender", "Blender 4.5", OCIOConfigType::BLENDER},
+            {"Blender5", "Blender 5.0", OCIOConfigType::BLENDER5}
         };
 
-        for (const auto& [folder, type] : config_folders) {
+        for (const auto& [folder, display_name, type] : config_folders) {
             std::string config_path = assets_ocio_path + "/" + folder + "/config.ocio";
             std::cout << "Checking for config: " << config_path << std::endl;
             if (std::filesystem::exists(config_path)) {
                 available_configs.push_back({
-                    folder + " (Custom)",
+                    display_name,
                     "Custom OCIO configuration",
                     config_path,
                     type
@@ -63,10 +95,26 @@ std::string OCIOConfigManager::GetConfigPath(OCIOConfigType type) const {
 
 bool OCIOConfigManager::LoadConfiguration(OCIOConfigType type) {
     try {
-
         std::string config_path = GetConfigPath(type);
         std::cout << "Trying to load config type " << static_cast<int>(type) << " from path: " << config_path << std::endl;
-        if (!config_path.empty() && std::filesystem::exists(config_path)) {
+
+        if (config_path.empty()) {
+            std::cout << "Config path empty" << std::endl;
+            return false;
+        }
+
+        // Check if this is a URI (starts with "ocio://")
+        if (config_path.substr(0, 7) == "ocio://") {
+            std::cout << "Loading built-in config via URI: " << config_path << std::endl;
+            config = OCIO::Config::CreateFromFile(config_path.c_str());
+            active_config_type = type;
+            BuildAliasMappings();
+            std::cout << "Loaded built-in config successfully" << std::endl;
+            return true;
+        }
+
+        // Otherwise, load from file system
+        if (std::filesystem::exists(config_path)) {
             std::cout << "Config file exists, loading..." << std::endl;
             config = OCIO::Config::CreateFromFile(config_path.c_str());
             active_config_type = type;
@@ -86,6 +134,10 @@ bool OCIOConfigManager::LoadConfiguration(OCIOConfigType type) {
 }
 
 bool OCIOConfigManager::SwitchToConfig(OCIOConfigType type) {
+    std::cout << "SwitchToConfig called: requested type=" << static_cast<int>(type)
+              << ", current type=" << static_cast<int>(active_config_type)
+              << ", config=" << (config ? "loaded" : "null") << std::endl;
+
     // Check if we're already using this config
     if (active_config_type == type && config != nullptr) {
         std::cout << "Already using config type " << static_cast<int>(type) << std::endl;
@@ -123,6 +175,11 @@ std::string OCIOConfigManager::GetActiveConfigName() const {
 }
 
 std::vector<std::string> OCIOConfigManager::GetInputColorSpaces() const {
+    // Default behavior: include all colorspaces
+    return GetInputColorSpaces(false);
+}
+
+std::vector<std::string> OCIOConfigManager::GetInputColorSpaces(bool exclude_display_colorspaces) const {
     std::vector<std::string> colorspaces;
 
     if (!config) {
@@ -133,7 +190,25 @@ std::vector<std::string> OCIOConfigManager::GetInputColorSpaces() const {
     try {
         for (int i = 0; i < config->getNumColorSpaces(); ++i) {
             const char* name = config->getColorSpaceNameByIndex(i);
-            if (name) colorspaces.push_back(name);
+            if (!name) continue;
+
+            // If filtering is enabled (for ACES 2.0), check encoding
+            if (exclude_display_colorspaces) {
+                auto cs = config->getColorSpace(name);
+                if (cs) {
+                    const char* encoding = cs->getEncoding();
+                    if (encoding) {
+                        std::string enc(encoding);
+                        // Skip display-referred encodings
+                        if (enc == "sdr-video" || enc == "hdr-video" ||
+                            enc == "edr-video" || enc == "display-linear") {
+                            continue;  // Skip this colorspace
+                        }
+                    }
+                }
+            }
+
+            colorspaces.push_back(name);
         }
     }
     catch (const OCIO::Exception& e) {
@@ -328,4 +403,46 @@ std::string OCIOConfigManager::GetUIName(const std::string& full_name) const {
 std::string OCIOConfigManager::GetFullName(const std::string& ui_name) const {
     auto it = ui_to_full.find(ui_name);
     return (it != ui_to_full.end()) ? it->second : ui_name;
+}
+
+std::vector<std::string> OCIOConfigManager::GetViewsForSource(
+    const std::string& display,
+    const std::string& src_colorspace) const {
+
+    std::vector<std::string> compatible_views;
+    if (!config) return compatible_views;
+
+    try {
+        // Get all views for this display
+        int num_views = config->getNumViews(display.c_str());
+
+        for (int i = 0; i < num_views; ++i) {
+            const char* view_name = config->getView(display.c_str(), i);
+            if (!view_name) continue;
+
+            // Test if this view is compatible with the source colorspace
+            // by attempting to create a DisplayViewTransform
+            try {
+                OCIO::DisplayViewTransformRcPtr test_transform = OCIO::DisplayViewTransform::Create();
+                test_transform->setSrc(src_colorspace.c_str());
+                test_transform->setDisplay(display.c_str());
+                test_transform->setView(view_name);
+
+                // Try to get a processor - if this fails, the view is incompatible
+                auto test_processor = config->getProcessor(test_transform);
+
+                // If we got here, the view is compatible
+                compatible_views.push_back(view_name);
+            }
+            catch (const OCIO::Exception&) {
+                // View not compatible with this source encoding - skip it
+            }
+        }
+    }
+    catch (const OCIO::Exception& e) {
+        std::cerr << "Error getting views for source '" << src_colorspace
+                  << "': " << e.what() << std::endl;
+    }
+
+    return compatible_views;
 }

@@ -31,6 +31,9 @@ public:
     // Get the LUT texture IDs (if needed)
     const std::vector<unsigned int>& GetLUTTextureIDs() const { return lut_texture_ids; }
 
+    // Get LUT texture dimensions (1 for 1D LUTs, 3 for 3D LUTs)
+    const std::vector<int>& GetLUTTextureDimensions() const { return lut_texture_dimensions; }
+
     // Check if pipeline is valid and ready to use
     bool IsValid() const { return is_valid; }
 
@@ -46,6 +49,7 @@ private:
     unsigned int vertex_shader;
     unsigned int fragment_shader;
     std::vector<unsigned int> lut_texture_ids;
+    std::vector<int> lut_texture_dimensions;  // 1 for 1D LUTs, 3 for 3D LUTs
 
     std::vector<std::string> lut_sampler_names;
 

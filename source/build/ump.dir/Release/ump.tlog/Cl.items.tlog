@@ -32,6 +32,7 @@ D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp;D:\z_DevTemp\UnionPlayer\
 D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\frame_cache.obj
 D:\z_DevTemp\UnionPlayer\src\player\image_loaders.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\image_loaders.obj
 D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\image_sequence_config.obj
+D:\z_DevTemp\UnionPlayer\src\player\lavfi_filter_generator.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\lavfi_filter_generator.obj
 D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\media_background_extractor.obj
 D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\thumbnail_cache.obj
 D:\z_DevTemp\UnionPlayer\src\player\video_player.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\video_player.obj

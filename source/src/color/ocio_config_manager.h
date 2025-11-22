@@ -9,7 +9,9 @@ namespace OCIO = OCIO_NAMESPACE;
 enum class OCIOConfigType {
     ACES_12,
     ACES_13,
+    ACES_20,     // ACES 2.0 config with OCIO v2.5 features (shared_views, viewing_rules)
     BLENDER,
+    BLENDER5,    // Blender 5 config with OCIO v2.4 features
     CUSTOM
 };
 
@@ -32,9 +34,11 @@ public:
 
     // Component queries for UI
     std::vector<std::string> GetInputColorSpaces() const;
+    std::vector<std::string> GetInputColorSpaces(bool exclude_display_colorspaces) const;  // For ACES 2.0
     std::vector<std::string> GetLooks() const;
     std::vector<std::string> GetDisplays() const;
     std::vector<std::string> GetViews(const std::string& display) const;
+    std::vector<std::string> GetViewsForSource(const std::string& display, const std::string& src_colorspace) const;  // Encoding-aware for ACES 2.0
 
     // Config info
     OCIO::ConstConfigRcPtr GetConfig() const { return config; }

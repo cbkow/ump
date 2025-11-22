@@ -13,6 +13,7 @@
 #include <fstream>
 #include <vector>
 #include <cstdint>
+#include <map>
 
 #include "OpenColorABI.h"
 #include "OpenColorTypes.h"
@@ -218,8 +219,8 @@ extern OCIOEXPORT void SetCurrentConfig(const ConstConfigRcPtr & config);
  * "ocio://studio-config-latest" will point to newer versions of those configs. Therefore, it is 
  * recommended that application developers not save those strings and instead save the string that 
  * refers to the current version of that config. That way, it's guaranteed that there will be no 
- * change of behavior in the future. For example, as of OCIO 2.4, "ocio://default" should be saved
- * as "ocio://cg-config-v2.2.0_aces-v1.3_ocio-v2.4".
+ * change of behavior in the future. For example, as of OCIO 2.5, "ocio://default" should be saved
+ * as "ocio://cg-config-v4.0.0_aces-v2.0_ocio-v2.5".
  * 
  * Note that there is no validation done on the path. That is left to the application since 
  * typically the application will load the config before attempting to save its path
@@ -377,11 +378,13 @@ public:
      * "studio-config-v1.0.0_aces-v1.3_ocio-v2.1"
      * "studio-config-v2.1.0_aces-v1.3_ocio-v2.3"
      * "studio-config-v2.2.0_aces-v1.3_ocio-v2.4"
+     * "studio-config-v4.0.0_aces-v2.0_ocio-v2.5"
      * 
      * ACES CG config, basic color spaces for computer graphics apps:
      * "cg-config-v1.0.0_aces-v1.3_ocio-v2.1"
      * "cg-config-v2.1.0_aces-v1.3_ocio-v2.3"
      * "cg-config-v2.2.0_aces-v1.3_ocio-v2.4"
+     * "cg-config-v4.0.0_aces-v2.0_ocio-v2.5"
      * 
      * More information is available at: 
      * %https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES
@@ -852,12 +855,19 @@ public:
      * \ref Config::validate will throw if the config does not contain
      * the matching display color space.
      */
+
+    /// Check if a view within a given display is referencing one of the config's shared views.
+    bool isViewShared(const char * dispName, const char * viewName) const;
+
     /// Will throw if view or colorSpaceName are null or empty.
     void addSharedView(const char * view, const char * viewTransformName,
                        const char * colorSpaceName, const char * looks,
                        const char * ruleName, const char * description);
     /// Remove a shared view.  Will throw if the view does not exist.
     void removeSharedView(const char * view);
+
+    /// Clear all shared views. This will throw if any displays are still using the shared views.
+    void clearSharedViews();
 
     const char * getDefaultDisplay() const;
     int getNumDisplays() const;
@@ -870,7 +880,7 @@ public:
     const char * getDefaultView(const char * display, const char * colorspaceName) const;
 
     /**
-     * Return the number of views attached to the display including the number of
+     * Return the number of active views attached to the display including the number of
      * shared views if any. Return 0 if display does not exist.
      */
     int getNumViews(const char * display) const;
@@ -882,6 +892,23 @@ public:
      */
     int getNumViews(const char * display, const char * colorspaceName) const;
     const char * getView(const char * display, const char * colorspaceName, int index) const;
+
+    /**
+     * \brief Compare views in a pair of configs.
+     *
+     * Will return false if either of the views does not exist. This will return true even
+     * if the view is display-defined in one config and a reference to a shared view in the
+     * other config (both within the same display), as long as the contents match. The
+     * description text (if any) is ignored, since it is not a functional difference.
+     * 
+     * Note that the comparison is only on the strings contained in the view definition,
+     * the function does not attempt to compare that the color spaces or view transforms
+     * being referenced are identical (only that they have the same name).
+     */
+    static bool AreViewsEqual(const ConstConfigRcPtr & first,
+                              const ConstConfigRcPtr & second,
+                              const char * dispName,
+                              const char * viewName);
 
     /**
      * Returns the view_transform attribute of the (display, view) pair. View can
@@ -899,6 +926,17 @@ public:
     const char * getDisplayViewRule(const char * display, const char * view) const noexcept;
     /// Returns the description attribute of a (display, view) pair.
     const char * getDisplayViewDescription(const char * display, const char * view) const noexcept;
+
+    /**
+     * \brief Determine if a display and view exist.
+     *
+     * This returns false if either the display or view doesn't exist. It works regardless
+     * of whether the display or view are active, and it works regardless of whether the
+     * view is display-defined or if the display has this as a shared view. It will only
+     * check config-level shared views if dispName is null. It will not check config level
+     * shared views if dispName is not null.
+     */
+    bool hasView(const char * dispName, const char * viewName) const;
 
     /**
      * For the (display, view) pair, specify which color space and look to use.
@@ -963,6 +1001,18 @@ public:
      *
      */
 
+    /**
+     * \brief Determine if a virtual view exists.
+     *
+     * This returns false if the virtual view doesn't exist. It works regardless of
+     * whether the virtual view is active, and it works regardless of whether the virtual
+     * view is display-defined or if the display has this as a shared virtual view.
+     */
+    bool hasVirtualView(const char * viewName) const;
+
+    /// Check if a given virtual view is referencing one of the config's shared views.
+    bool isVirtualViewShared(const char * viewName) const;
+
     void addVirtualDisplayView(const char * view,
                                const char * viewTransformName,
                                const char * colorSpaceName,
@@ -976,6 +1026,23 @@ public:
     int getVirtualDisplayNumViews(ViewType type) const noexcept;
     /// Get the view name at a specific index.
     const char * getVirtualDisplayView(ViewType type, int index) const noexcept;
+
+    /**
+     * \brief Compare virtual views in a pair of configs.
+     *
+     * Will return false if either of the virtual views does not exist. This will return true
+     * even if the virtual view is display-defined in one config and a reference to a shared
+     * virtual view in the other config, as long as the contents match.
+     * 
+     * The description text (if any) is ignored, since it is not a functional difference.
+     * 
+     * Note that the comparison is only on the strings contained in the view definition,
+     * the function does not attempt to compare that the color spaces or view transforms
+     * being referenced are identical (only that they have the same name).
+     */
+    static bool AreVirtualViewsEqual(const ConstConfigRcPtr & first,
+                                     const ConstConfigRcPtr & second,
+                                     const char * viewName);
 
     const char * getVirtualDisplayViewTransformName(const char * view) const noexcept;
     const char * getVirtualDisplayViewColorSpaceName(const char * view) const noexcept;
@@ -1031,37 +1098,78 @@ public:
     /**
      * \brief
      * 
-     * $OCIO_ACTIVE_DISPLAYS envvar can, at runtime, optionally override the
-     * allowed displays. It is a comma or colon delimited list. Active displays
-     * that are not in the specified profile will be ignored, and the
-     * left-most defined display will be the default.
+     * The Active Displays list allows end users, config authors, and client apps to filter and
+     * reorder of the list of displays available in a user-interface. The list may be left empty
+     * to indicate all displays are active.
+     *
+     * The first active display is the config's Default Display.
+     *
+     * If the active list would remove all displays from a config, it is ignored (though the
+     * config won't validate).
+     *
+     * When serialized in the config, commas are used as separators. However, if a display name
+     * contains a comma, the name will be enclosed in quotes so its comma is not a separator.
      * 
-     * Comma-delimited list of names to filter and order the active displays.
-     * 
-     * \note
-     *      The setter does not override the envvar.  The getter does not take into
-     *      account the envvar value and thus may not represent what the user is seeing.
+     * The OCIO_ACTIVE_DISPLAYS environment variable will override the active list specified in
+     * the config file as well as any modifications made by the client app. These functions
+     * only get and set what is in the config object and do not take into account the override
+     * and thus may not represent the actual user experience.
      */
+    /// Set all active displays at once as a comma or colon delimited string. This replaces any
+    /// previous contents of the list.
     void setActiveDisplays(const char * displays);
+    /// Get a string with all active displays (as it would appear in a config file).
+    /// Commas are always used as the separator.
     const char * getActiveDisplays() const;
+    /// Get the number of active displays.
+    int getNumActiveDisplays() const;
+    /// Get a single active display, by index. Returns nullptr if the index is out of range.
+    const char * getActiveDisplay(int index) const;
+    /// Add a single active display to the end of the list. If the display is already present,
+    /// no action is taken.
+    void addActiveDisplay(const char * display);
+    /// Remove a single display. Will throw if the display is not present.
+    void removeActiveDisplay(const char * display);
+    /// Clear the active displays list.
+    void clearActiveDisplays();
 
     /**
      * \brief
      * 
-     * $OCIO_ACTIVE_VIEWS envvar can, at runtime, optionally override the allowed views.
-     * It is a comma or colon delimited list.
-     * Active views that are not in the specified profile will be ignored, and the
-     * left-most defined view will be the default.
+     * The Active Views list allows end users, config authors, and client apps to filter and
+     * reorder of the list of views available in a user-interface. The list may be left empty
+     * to indicate all views are active.
+     *
+     * The first active view for a display is its Default View.
+     *
+     * If the active list would remove all views from a display, the list is ignored for that
+     * display and all views are shown for it.
+     *
+     * When serialized in the config, commas are used as separators. However, if a view name
+     * contains a comma, the name will be enclosed in quotes so its comma is not a separator.
      * 
-     * Comma-delimited list of names to filter and order the active views.
-     * 
-     * \note
-     *     The setter does not override the envvar. The getter does not take
-     *     into account the envvar value and thus may not represent what the
-     *     user is seeing.
+     * The OCIO_ACTIVE_VIEWS environment variable will override the active list specified in
+     * the config file as well as any modifications made by the client app. These functions
+     * only get and set what is in the config object and do not take into account the override
+     * and thus may not represent the actual user experience.
      */
+    /// Set all active views at once as a comma or colon delimited string. This replaces any
+    /// previous contents of the list.
     void setActiveViews(const char * views);
+    /// Get a string with all active views (as it would appear in a config file).
+    /// Commas are always used as the separator.
     const char * getActiveViews() const;
+    /// Get the number of active views.
+    int getNumActiveViews() const;
+    /// Get a single active view, by index. Returns nullptr if the index is out of range.
+    const char * getActiveView(int index) const;
+    /// Add a single active view to the end of the list. If the view is already present,
+    /// no action is taken.
+    void addActiveView(const char * view);
+    /// Remove a single view. Will throw if the view is not present.
+    void removeActiveView(const char * view);
+    /// Clear the active views list.
+    void clearActiveViews();
 
     /// Get all displays in the config, ignoring the active_displays list.
     int getNumDisplaysAll() const noexcept;
@@ -1072,6 +1180,11 @@ public:
      * intended to be temporary (i.e. for the current session) and are not saved to a config file.
      */
     bool isDisplayTemporary(int index) const noexcept;
+    /**
+     * Allows setting the flag that controls whether a display is temporary. This may be helpful,
+     * for example, to share a config with a temporary instantiated display with an OFX plug-in.
+     */
+    void setDisplayTemporary(int index, bool isTemporary) noexcept;
 
     /**
      * Get either the shared or display-defined views for a display. The
@@ -1214,6 +1327,11 @@ public:
      *    if the name or the aliases conflict with names or aliases already in the config.
      */
     void addNamedTransform(const ConstNamedTransformRcPtr & namedTransform);
+
+    /**
+     * \brief Remove a named transform. (Does nothing if name is not found.)
+     */
+    void removeNamedTransform(const char * name);
 
     /// Clear all named transforms.
     void clearNamedTransforms();
@@ -1626,7 +1744,7 @@ public:
     /// Does include default rule. Result will be at least 1.
     size_t getNumEntries() const noexcept;
 
-    /// Get the index from the rule name.
+    /// Get the index from the rule name. Throws if the rule is not found.
     size_t getIndexForRule(const char * ruleName) const;
 
     /// Get name of the rule.
@@ -1914,6 +2032,40 @@ public:
 
     const char * getDescription() const noexcept;
     void setDescription(const char * description);
+
+    /**
+     * Get/Set the interop ID for the color space. The interop ID is a
+     * structured string defined by the Color Interop Forum. It is intended to
+     * identify color spaces in a way that is portable across different configs,
+     * making it suitable for use in various file formats. The Color Interop
+     * Forum publishes ID strings for common color spaces. If you create your
+     * own IDs, they must be preceded by a namespace string. The setter will
+     * throw if the string does not follow certain rules (run ociocheck for a
+     * more complete validation).
+     */
+    const char * getInteropID() const noexcept;
+    void setInteropID(const char * interopID);
+
+    /**
+     * Get/Set the interchange attributes.
+     *
+     * Currently supported attribute names are "amf_transform_ids" and
+     * "icc_profile_name". Using any other name will throw. If the attribute is
+     * not defined, it will return an empty string. Setting the value to an empty
+     * string will effectively delete the attribute.
+     *
+     * The AMF transform IDs are used to identify specific transforms in the
+     * ACES Metadata File. Multiple transform IDs can be specified in a
+     * newline-separated string.
+     *
+     * The ICC profile name identifies the ICC color profile associated with
+     * this color space. This can be used to link OCIO color spaces with
+     * corresponding ICC profiles for applications that need to work with both
+     * color management systems.
+     */
+    const char *getInterchangeAttribute(const char *attrName) const;
+    void setInterchangeAttribute(const char* attrName, const char *value);
+    std::map<std::string, std::string> getInterchangeAttributes() const noexcept;
 
     BitDepth getBitDepth() const noexcept;
     void setBitDepth(BitDepth bitDepth);
@@ -2262,6 +2414,22 @@ public:
     const char * getDescription() const;
     void setDescription(const char * description);
 
+    /**
+    * Get/Set the interchange attributes.
+    *
+    * Currently the only supported attribute name is "amf_transform_ids". Using
+    * any other name will throw. If the attribute is not defined, it will return
+    * an empty string. Setting the value to an empty string will effectively
+    * delete the attribute.
+    *
+    * The AMF transform IDs are used to identify specific transforms in the ACES
+    * Metadata File. Multiple transform IDs can be specified in a
+    * newline-separated string.
+    */
+    const char *getInterchangeAttribute(const char *attrName) const;
+    void setInterchangeAttribute(const char* attrName, const char *value);
+    std::map<std::string, std::string> getInterchangeAttributes() const noexcept;
+
     Look(const Look &) = delete;
     Look& operator= (const Look &) = delete;
     /// Do not use (needed only for pybind11).
@@ -2396,6 +2564,22 @@ public:
 
     const char * getDescription() const noexcept;
     void setDescription(const char * description);
+
+    /**
+    * Get/Set the interchange attributes.
+    *
+    * Currently the only supported attribute name is "amf_transform_ids". Using
+    * any other name will throw. If the attribute is not defined, it will return
+    * an empty string. Setting the value to an empty string will effectively
+    * delete the attribute.
+    *
+    * The AMF transform IDs are used to identify specific transforms in the ACES
+    * Metadata File. Multiple transform IDs can be specified in a
+    * newline-separated string.
+    */
+    const char *getInterchangeAttribute(const char *attrName) const;
+    void setInterchangeAttribute(const char* attrName, const char *value);
+    std::map<std::string, std::string> getInterchangeAttributes() const noexcept;
 
     /// \see ColorSpace::hasCategory
     bool hasCategory(const char * category) const;
@@ -2905,7 +3089,7 @@ private:
 ///////////////////////////////////////////////////////////////////////////
 // ImageDesc
 
-const ptrdiff_t AutoStride = (std::numeric_limits<ptrdiff_t>::min)();
+const ptrdiff_t AutoStride = std::numeric_limits<ptrdiff_t>::min();
 
 /**
  * \brief
@@ -3206,6 +3390,23 @@ public:
     ///  Set a prefix to the resource name
     void setResourcePrefix(const char * prefix) noexcept;
 
+    /**
+    * \brief Set the descriptor set index and texture binding start index to use for the shader program.
+    * 
+    * \note Only supported for shading languages, such as Vulkan, that use descriptor sets and texture bindings.
+    * 
+    * \param index The descriptor set index to use.
+    * \param textureBindingStart The texture binding start index to use. The default index starts at 1
+    *                            and is incremented by 1 for each texture. Otherwise, the texture binding starts
+    *                            at textureBindingStart and is incremented by 1 for each texture. 
+    *                            The binding of a texture is equal to the texture index + textureBindingStart.
+    *                            The texture binding start index must be greater than 0, as binding 0 is reserved
+    *                            for the uniform buffer binding
+    * */
+    void setDescriptorSetIndex(unsigned index, unsigned textureBindingStart = 1);
+    unsigned getDescriptorSetIndex() const noexcept;
+    unsigned getTextureBindingStart() const noexcept;
+
     virtual const char * getCacheID() const noexcept;
 
     /// Start to collect the shader data.
@@ -3249,13 +3450,23 @@ public:
     virtual bool addUniform(const char * name,
                             const Float3Getter & getFloat3) = 0;
 
+    /// The size of the vector can be smaller than the size of the corresponding 
+    /// array that is declared in the shader. The parameter maxSize must be used 
+    /// to pass the size of the array declared in the shader. This is important for
+    /// being able to calculate the correct uniform buffer offset for subsequent uniforms
     virtual bool addUniform(const char * name,
                             const SizeGetter & getSize,
-                            const VectorFloatGetter & getVectorFloat) = 0;
+                            const VectorFloatGetter & getVectorFloat,
+                            const unsigned maxSize) = 0;
 
+    /// The size of the vector can be smaller than the size of the corresponding 
+    /// array that is declared in the shader. The parameter maxSize must be used 
+    /// to pass the size of the array declared in the shader. This is important for
+    /// being able to calculate the correct uniform buffer offset for subsequent uniforms
     virtual bool addUniform(const char * name,
                             const SizeGetter & getSize,
-                            const VectorIntGetter & getVectorInt) = 0;
+                            const VectorIntGetter & getVectorInt,
+                            const unsigned maxSize) = 0;
 
     /// Adds the property (used internally).
     void addDynamicProperty(DynamicPropertyRcPtr & prop);
@@ -3291,14 +3502,17 @@ public:
      * \note
      *   The 'values' parameter contains the LUT data which must be used as-is as the dimensions and
      *   origin are hard-coded in the fragment shader program. So, it means one GPU texture per entry.
+     * 
+     * \return Index of the texture. For shading languages using explicit texture bindings, the return
+     *         value is the same as the texture binding index in the generated shader program.
      **/
-    virtual void addTexture(const char * textureName,
-                            const char * samplerName,
-                            unsigned width, unsigned height,
-                            TextureType channel,
-                            TextureDimensions dimensions,
-                            Interpolation interpolation,
-                            const float * values) = 0;
+    virtual unsigned addTexture(const char * textureName,
+                                const char * samplerName,
+                                unsigned width, unsigned height,
+                                TextureType channel,
+                                TextureDimensions dimensions,
+                                Interpolation interpolation,
+                                const float * values) = 0;
 
     /**
      *  Add a 3D texture with RGB channel type.
@@ -3307,15 +3521,19 @@ public:
      *   The 'values' parameter contains the 3D LUT data which must be used as-is as the dimension
      *   and origin are hard-coded in the fragment shader program. So, it means one GPU 3D texture
      *   per entry.
+     * 
+     * \return Index of the texture. For shading languages using explicit texture bindings, the return
+     *         value is the same as the texture binding index in the generated shader program.
      **/
-    virtual void add3DTexture(const char * textureName,
+    virtual unsigned add3DTexture(const char * textureName,
                               const char * samplerName,
                               unsigned edgelen,
                               Interpolation interpolation,
                               const float * values) = 0;
 
     // Methods to specialize parts of a OCIO shader program
-    virtual void addToDeclareShaderCode(const char * shaderCode);
+    virtual void addToParameterDeclareShaderCode(const char * shaderCode);
+    virtual void addToTextureDeclareShaderCode(const char* shaderCode);
     virtual void addToHelperShaderCode(const char * shaderCode);
     virtual void addToFunctionHeaderShaderCode(const char * shaderCode);
     virtual void addToFunctionShaderCode(const char * shaderCode);
@@ -3329,7 +3547,8 @@ public:
      *   to change some parts. Some product integrations add the color processing
      *   within a client shader program, imposing constraints requiring this flexibility.
      */
-    virtual void createShaderText(const char * shaderDeclarations,
+    virtual void createShaderText(const char * shaderParameterDeclarations,
+                                  const char * shaderTextureDeclarations,
                                   const char * shaderHelperMethods,
                                   const char * shaderFunctionHeader,
                                   const char * shaderFunctionBody,
@@ -3518,10 +3737,16 @@ public:
      * * UNIFORM_FLOAT3: m_getFloat3.
      * * UNIFORM_VECTOR_FLOAT: m_vectorFloat.
      * * UNIFORM_VECTOR_INT: m_vectorInt.
+     * 
+     * The m_bufferOffset is the offset in bytes from the start of the uniform buffer.
+     * For shading languages that use uniform buffers, the offset can be used to
+     * determine the location of the uniform in the buffer and fill it with the 
+     * corresponding data.
      */
     struct UniformData
     {
         UniformDataType m_type{ UNIFORM_UNKNOWN };
+        std::size_t m_bufferOffset{};
         DoubleGetter m_getDouble{};
         BoolGetter m_getBool{};
         Float3Getter m_getFloat3{};
@@ -3539,6 +3764,16 @@ public:
     virtual unsigned getNumUniforms() const noexcept = 0;
     /// Returns name of uniform and data as parameter.
     virtual const char * getUniform(unsigned index, UniformData & data) const = 0;
+
+    /**
+    * For shading languages that use uniform buffers, a uniform buffer
+    * containing all uniforms is generated in the shader code. This method can
+    * be used to create a buffer of the same size in the client code that can
+    * be filled with the corresponding data.
+    * 
+    * \return Size of the uniform buffer in bytes
+    **/
+    virtual std::size_t getUniformBufferSize() const noexcept = 0;
 
     // 1D lut related methods
     virtual unsigned getNumTextures() const noexcept = 0;
@@ -3781,9 +4016,6 @@ public:
      */
     virtual bool isBuiltinConfigRecommended(size_t configIndex) const = 0;
 
-    // Return the full forward-compatible name of the default built-in config.
-    OCIO_DEPRECATED("This was marked as deprecated starting in v2.3, please use ResolveConfigPath(\"ocio://default\").")
-    virtual const char * getDefaultBuiltinConfigName() const = 0;
 protected:
     BuiltinConfigRegistry() = default;
     virtual ~BuiltinConfigRegistry() = default;

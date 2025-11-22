@@ -7,7 +7,7 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeDetermineSystem.cmake:212 (message)"
       - "CMakeLists.txt:2 (project)"
     message: |
-      The system is: Windows - 10.0.26100 - AMD64
+      The system is: Windows - 10.0.26200 - AMD64
   -
     kind: "find-v1"
     backtrace:
@@ -35,50 +35,63 @@ events:
     found: "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeCXXCompilerId.cpp.in"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
       ENV{INCLUDE}:
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\include"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\ATLMFC\\include"
@@ -104,8 +117,8 @@ events:
       
       The output was:
       0
-      MSBuild version 17.14.19+164abd434 for .NET Framework
-      Build started 10/16/2025 3:44:27 PM.
+      MSBuild version 17.14.23+b0019275e for .NET Framework
+      Build started 11/22/2025 3:26:53 PM.
       
       Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -116,20 +129,20 @@ events:
         Creating "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
         Touching "Debug\\CompilerIdCXX.tlog\\unsuccessfulbuild".
       VcpkgTripletSelection:
-        Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+        Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
         Using normalized configuration "Release"
       ClCompile:
-        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TP /FC /errorReport:queue CMakeCXXCompilerId.cpp
         CMakeCXXCompilerId.cpp
       Link:
-        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdCXX.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdCXX.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdCXX.lib" /MACHINE:X64 Debug\\CMakeCXXCompilerId.obj
         CompilerIdCXX.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe
       AppLocalFromInstalled:
-        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
         'pwsh.exe' is not recognized as an internal or external command,
         operable program or batch file.
-        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
-        "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
+        "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdCXX.tlog\\CompilerIdCXX.write.1u.tlog" "Debug\\vcpkg.applocal.log"
       PostBuildEvent:
         for %%i in (cl.exe) do @echo CMAKE_CXX_COMPILER=%%~$PATH:i
         :VCEnd
@@ -143,7 +156,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.69
+      Time Elapsed 00:00:00.68
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -176,6 +189,10 @@ events:
       - "link"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -205,69 +222,87 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.com"
     found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -291,6 +326,10 @@ events:
       - "lld-link"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -320,24 +359,41 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
+      - "C:/Users/Chris/bin/lld-link.com"
+      - "C:/Users/Chris/bin/lld-link.exe"
+      - "C:/Users/Chris/bin/lld-link"
+      - "C:/Program Files/Git/mingw64/bin/lld-link.com"
+      - "C:/Program Files/Git/mingw64/bin/lld-link.exe"
+      - "C:/Program Files/Git/mingw64/bin/lld-link"
+      - "C:/Program Files/Git/usr/local/bin/lld-link.com"
+      - "C:/Program Files/Git/usr/local/bin/lld-link.exe"
+      - "C:/Program Files/Git/usr/local/bin/lld-link"
+      - "C:/Program Files/Git/usr/bin/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link"
@@ -425,9 +481,6 @@ events:
       - "C:/Program Files/Git LFS/lld-link.com"
       - "C:/Program Files/Git LFS/lld-link.exe"
       - "C:/Program Files/Git LFS/lld-link"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
       - "C:/Program Files/CMake/bin/lld-link.com"
       - "C:/Program Files/CMake/bin/lld-link.exe"
       - "C:/Program Files/CMake/bin/lld-link"
@@ -440,6 +493,15 @@ events:
       - "C:/ProgramData/chocolatey/bin/lld-link.com"
       - "C:/ProgramData/chocolatey/bin/lld-link.exe"
       - "C:/ProgramData/chocolatey/bin/lld-link"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link.com"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link.exe"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/Users/Chris/.cargo/bin/lld-link.com"
+      - "C:/Users/Chris/.cargo/bin/lld-link.exe"
+      - "C:/Users/Chris/.cargo/bin/lld-link"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link"
@@ -455,6 +517,9 @@ events:
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link.com"
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link.exe"
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link"
@@ -467,53 +532,72 @@ events:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link"
     found: false
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -535,6 +619,10 @@ events:
       - "link"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -564,69 +652,87 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.com"
     found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/link.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -648,6 +754,10 @@ events:
       - "mt"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -677,24 +787,41 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/mt"
+      - "C:/Users/Chris/bin/mt.com"
+      - "C:/Users/Chris/bin/mt.exe"
+      - "C:/Users/Chris/bin/mt"
+      - "C:/Program Files/Git/mingw64/bin/mt.com"
+      - "C:/Program Files/Git/mingw64/bin/mt.exe"
+      - "C:/Program Files/Git/mingw64/bin/mt"
+      - "C:/Program Files/Git/usr/local/bin/mt.com"
+      - "C:/Program Files/Git/usr/local/bin/mt.exe"
+      - "C:/Program Files/Git/usr/local/bin/mt"
+      - "C:/Program Files/Git/usr/bin/mt.com"
+      - "C:/Program Files/Git/usr/bin/mt.exe"
+      - "C:/Program Files/Git/usr/bin/mt"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/mt.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/mt.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/mt"
@@ -720,50 +847,63 @@ events:
     found: "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/mt.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -785,6 +925,10 @@ events:
       - "lib"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -814,69 +958,87 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.com"
     found: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -904,50 +1066,63 @@ events:
     found: "C:/Program Files/CMake/share/cmake-4.1/Modules/CMakeCCompilerId.c.in"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
       ENV{INCLUDE}:
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\include"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\ATLMFC\\include"
@@ -973,8 +1148,8 @@ events:
       
       The output was:
       0
-      MSBuild version 17.14.19+164abd434 for .NET Framework
-      Build started 10/16/2025 3:44:28 PM.
+      MSBuild version 17.14.23+b0019275e for .NET Framework
+      Build started 11/22/2025 3:26:54 PM.
       
       Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -985,20 +1160,20 @@ events:
         Creating "Debug\\CompilerIdC.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
         Touching "Debug\\CompilerIdC.tlog\\unsuccessfulbuild".
       VcpkgTripletSelection:
-        Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+        Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
         Using normalized configuration "Release"
       ClCompile:
-        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /nologo /W0 /WX- /diagnostics:column /Od /D _MBCS /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /Fo"Debug\\\\" /Fd"Debug\\vc143.pdb" /external:W0 /Gd /TC /FC /errorReport:queue CMakeCCompilerId.c
         CMakeCCompilerId.c
       Link:
-        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
+        C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /ERRORREPORT:QUEUE /OUT:".\\CompilerIdC.exe" /INCREMENTAL:NO /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /PDB:".\\CompilerIdC.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /DYNAMICBASE /NXCOMPAT /IMPLIB:".\\CompilerIdC.lib" /MACHINE:X64 Debug\\CMakeCCompilerId.obj
         CompilerIdC.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe
       AppLocalFromInstalled:
-        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
         'pwsh.exe' is not recognized as an internal or external command,
         operable program or batch file.
-        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
-        "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
+        The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"" exited with code 9009.
+        "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\bin" "Debug\\CompilerIdC.tlog\\CompilerIdC.write.1u.tlog" "Debug\\vcpkg.applocal.log"
       PostBuildEvent:
         for %%i in (cl.exe) do @echo CMAKE_C_COMPILER=%%~$PATH:i
         :VCEnd
@@ -1012,7 +1187,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.59
+      Time Elapsed 00:00:00.64
       
       
       Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
@@ -1045,6 +1220,10 @@ events:
       - "lld-link"
     candidate_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/"
@@ -1074,24 +1253,41 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lld-link"
+      - "C:/Users/Chris/bin/lld-link.com"
+      - "C:/Users/Chris/bin/lld-link.exe"
+      - "C:/Users/Chris/bin/lld-link"
+      - "C:/Program Files/Git/mingw64/bin/lld-link.com"
+      - "C:/Program Files/Git/mingw64/bin/lld-link.exe"
+      - "C:/Program Files/Git/mingw64/bin/lld-link"
+      - "C:/Program Files/Git/usr/local/bin/lld-link.com"
+      - "C:/Program Files/Git/usr/local/bin/lld-link.exe"
+      - "C:/Program Files/Git/usr/local/bin/lld-link"
+      - "C:/Program Files/Git/usr/bin/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/lld-link"
@@ -1179,9 +1375,6 @@ events:
       - "C:/Program Files/Git LFS/lld-link.com"
       - "C:/Program Files/Git LFS/lld-link.exe"
       - "C:/Program Files/Git LFS/lld-link"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
       - "C:/Program Files/CMake/bin/lld-link.com"
       - "C:/Program Files/CMake/bin/lld-link.exe"
       - "C:/Program Files/CMake/bin/lld-link"
@@ -1194,6 +1387,15 @@ events:
       - "C:/ProgramData/chocolatey/bin/lld-link.com"
       - "C:/ProgramData/chocolatey/bin/lld-link.exe"
       - "C:/ProgramData/chocolatey/bin/lld-link"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link.com"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link.exe"
+      - "C:/Program Files/gs/gs10.06.0/bin/lld-link"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
+      - "C:/Users/Chris/.cargo/bin/lld-link.com"
+      - "C:/Users/Chris/.cargo/bin/lld-link.exe"
+      - "C:/Users/Chris/.cargo/bin/lld-link"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/lld-link"
@@ -1209,6 +1411,9 @@ events:
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link.com"
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link.exe"
       - "C:/Users/Chris/AppData/Roaming/npm/lld-link"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link"
@@ -1221,53 +1426,72 @@ events:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/lld-link"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/lld-link"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link.com"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link.exe"
+      - "C:/Program Files/Git/usr/bin/core_perl/lld-link"
     found: false
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
   -
     kind: "find-v1"
     backtrace:
@@ -1291,6 +1515,10 @@ events:
     names:
       - "rc"
     candidate_directories:
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
@@ -1321,20 +1549,25 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
       - "C:/Program Files/bin/"
       - "C:/Program Files/sbin/"
       - "C:/Program Files/"
@@ -1344,10 +1577,22 @@ events:
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/CMake/sbin/"
       - "C:/Program Files/CMake/"
-      - "C:/Program Files/ump/bin/"
-      - "C:/Program Files/ump/sbin/"
-      - "C:/Program Files/ump/"
+      - "C:/Program Files (x86)/ump/bin/"
+      - "C:/Program Files (x86)/ump/sbin/"
+      - "C:/Program Files (x86)/ump/"
     searched_directories:
+      - "C:/Users/Chris/bin/rc.com"
+      - "C:/Users/Chris/bin/rc.exe"
+      - "C:/Users/Chris/bin/rc"
+      - "C:/Program Files/Git/mingw64/bin/rc.com"
+      - "C:/Program Files/Git/mingw64/bin/rc.exe"
+      - "C:/Program Files/Git/mingw64/bin/rc"
+      - "C:/Program Files/Git/usr/local/bin/rc.com"
+      - "C:/Program Files/Git/usr/local/bin/rc.exe"
+      - "C:/Program Files/Git/usr/local/bin/rc"
+      - "C:/Program Files/Git/usr/bin/rc.com"
+      - "C:/Program Files/Git/usr/bin/rc.exe"
+      - "C:/Program Files/Git/usr/bin/rc"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/rc.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/rc.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/rc"
@@ -1376,56 +1621,69 @@ events:
     found: "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/rc.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
-      CMAKE_INSTALL_PREFIX: "C:/Program Files/ump"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ump"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "C:/Program Files"
         - "C:/Program Files (x86)"
         - "C:/Program Files/CMake"
-        - "C:/Program Files/ump"
+        - "C:/Program Files (x86)/ump"
   -
     kind: "try_compile-v1"
     backtrace:
@@ -1435,8 +1693,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-ldpk0z"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-ldpk0z"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-0cjd59"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-0cjd59"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1446,49 +1704,49 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-ldpk0z'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-0cjd59'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_4d1d8.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
-        MSBuild version 17.14.19+164abd434 for .NET Framework
-        Build started 10/16/2025 3:44:29 PM.
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_45f29.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 11/22/2025 3:26:55 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\cmTC_4d1d8.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\cmTC_45f29.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_4d1d8.dir\\Debug\\".
+          Creating directory "cmTC_45f29.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\".
-          Creating directory "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\".
+          Creating directory "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\unsuccessfulbuild".
+          Creating "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
-          Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+          Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_4d1d8.dir\\Debug\\\\" /Fd"cmTC_4d1d8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
-          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35215 for x64
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_45f29.dir\\Debug\\\\" /Fd"cmTC_45f29.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_4d1d8.dir\\Debug\\\\" /Fd"cmTC_4d1d8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_45f29.dir\\Debug\\\\" /Fd"cmTC_45f29.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\cmTC_4d1d8.exe" /INCREMENTAL /ILK:"cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.ilk" /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-ldpk0z/Debug/cmTC_4d1d8.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-ldpk0z/Debug/cmTC_4d1d8.lib" /MACHINE:X64  /machine:x64 cmTC_4d1d8.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_4d1d8.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\cmTC_4d1d8.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\cmTC_45f29.exe" /INCREMENTAL /ILK:"cmTC_45f29.dir\\Debug\\cmTC_45f29.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-0cjd59/Debug/cmTC_45f29.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-0cjd59/Debug/cmTC_45f29.lib" /MACHINE:X64  /machine:x64 cmTC_45f29.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_45f29.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\cmTC_45f29.exe
         AppLocalFromInstalled:
-          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\cmTC_4d1d8.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\cmTC_4d1d8.write.1u.tlog" "cmTC_4d1d8.dir\\Debug\\vcpkg.applocal.log"
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\cmTC_45f29.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\cmTC_45f29.write.1u.tlog" "cmTC_45f29.dir\\Debug\\vcpkg.applocal.log"
           'pwsh.exe' is not recognized as an internal or external command,
           operable program or batch file.
-          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\cmTC_4d1d8.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\cmTC_4d1d8.write.1u.tlog" "cmTC_4d1d8.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
-          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\Debug\\cmTC_4d1d8.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\cmTC_4d1d8.write.1u.tlog" "cmTC_4d1d8.dir\\Debug\\vcpkg.applocal.log"
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\cmTC_45f29.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\cmTC_45f29.write.1u.tlog" "cmTC_45f29.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\Debug\\cmTC_45f29.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\cmTC_45f29.write.1u.tlog" "cmTC_45f29.dir\\Debug\\vcpkg.applocal.log"
         FinalizeBuildStatus:
-          Deleting file "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\unsuccessfulbuild".
-          Touching "cmTC_4d1d8.dir\\Debug\\cmTC_4d1d8.tlog\\cmTC_4d1d8.lastbuildstate".
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-ldpk0z\\cmTC_4d1d8.vcxproj" (default targets).
+          Deleting file "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\unsuccessfulbuild".
+          Touching "cmTC_45f29.dir\\Debug\\cmTC_45f29.tlog\\cmTC_45f29.lastbuildstate".
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-0cjd59\\cmTC_45f29.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.61
+        Time Elapsed 00:00:00.63
         
       exitCode: 0
   -
@@ -1517,7 +1775,7 @@ events:
       - "CMakeLists.txt:2 (project)"
     message: |
       Running the CXX compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
-      Microsoft (R) Incremental Linker Version 14.44.35215.0
+      Microsoft (R) Incremental Linker Version 14.44.35220.0
       Copyright (C) Microsoft Corporation.  All rights reserved.
   -
     kind: "try_compile-v1"
@@ -1528,8 +1786,8 @@ events:
     checks:
       - "Detecting C compiler ABI info"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-bi4cm1"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-bi4cm1"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mx1jez"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mx1jez"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1538,49 +1796,49 @@ events:
       variable: "CMAKE_C_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-bi4cm1'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mx1jez'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_22297.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
-        MSBuild version 17.14.19+164abd434 for .NET Framework
-        Build started 10/16/2025 3:44:30 PM.
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_b9bbd.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 11/22/2025 3:26:56 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\cmTC_22297.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\cmTC_b9bbd.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_22297.dir\\Debug\\".
+          Creating directory "cmTC_b9bbd.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\".
-          Creating directory "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\".
+          Creating directory "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\unsuccessfulbuild".
+          Creating "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
-          Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+          Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_22297.dir\\Debug\\\\" /Fd"cmTC_22297.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
-          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35215 for x64
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_b9bbd.dir\\Debug\\\\" /Fd"cmTC_b9bbd.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_22297.dir\\Debug\\\\" /Fd"cmTC_22297.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_b9bbd.dir\\Debug\\\\" /Fd"cmTC_b9bbd.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
           CMakeCCompilerABI.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\cmTC_22297.exe" /INCREMENTAL /ILK:"cmTC_22297.dir\\Debug\\cmTC_22297.ilk" /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-bi4cm1/Debug/cmTC_22297.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-bi4cm1/Debug/cmTC_22297.lib" /MACHINE:X64  /machine:x64 cmTC_22297.dir\\Debug\\CMakeCCompilerABI.obj
-          cmTC_22297.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\cmTC_22297.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\cmTC_b9bbd.exe" /INCREMENTAL /ILK:"cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mx1jez/Debug/cmTC_b9bbd.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mx1jez/Debug/cmTC_b9bbd.lib" /MACHINE:X64  /machine:x64 cmTC_b9bbd.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_b9bbd.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\cmTC_b9bbd.exe
         AppLocalFromInstalled:
-          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\cmTC_22297.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\cmTC_22297.write.1u.tlog" "cmTC_22297.dir\\Debug\\vcpkg.applocal.log"
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\cmTC_b9bbd.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\cmTC_b9bbd.write.1u.tlog" "cmTC_b9bbd.dir\\Debug\\vcpkg.applocal.log"
           'pwsh.exe' is not recognized as an internal or external command,
           operable program or batch file.
-          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\cmTC_22297.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\cmTC_22297.write.1u.tlog" "cmTC_22297.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
-          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\Dev\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\Debug\\cmTC_22297.exe" "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\cmTC_22297.write.1u.tlog" "cmTC_22297.dir\\Debug\\vcpkg.applocal.log"
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\cmTC_b9bbd.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\cmTC_b9bbd.write.1u.tlog" "cmTC_b9bbd.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\Debug\\cmTC_b9bbd.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\cmTC_b9bbd.write.1u.tlog" "cmTC_b9bbd.dir\\Debug\\vcpkg.applocal.log"
         FinalizeBuildStatus:
-          Deleting file "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\unsuccessfulbuild".
-          Touching "cmTC_22297.dir\\Debug\\cmTC_22297.tlog\\cmTC_22297.lastbuildstate".
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-bi4cm1\\cmTC_22297.vcxproj" (default targets).
+          Deleting file "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\unsuccessfulbuild".
+          Touching "cmTC_b9bbd.dir\\Debug\\cmTC_b9bbd.tlog\\cmTC_b9bbd.lastbuildstate".
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mx1jez\\cmTC_b9bbd.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.60
+        Time Elapsed 00:00:00.63
         
       exitCode: 0
   -
@@ -1609,7 +1867,7 @@ events:
       - "CMakeLists.txt:2 (project)"
     message: |
       Running the C compiler's linker: "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/HostX64/x64/link.exe" "-v"
-      Microsoft (R) Incremental Linker Version 14.44.35215.0
+      Microsoft (R) Incremental Linker Version 14.44.35220.0
       Copyright (C) Microsoft Corporation.  All rights reserved.
   -
     kind: "try_compile-v1"
@@ -1618,12 +1876,12 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckCSourceCompiles.cmake:103 (cmake_check_source_compiles)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:97 (check_c_source_compiles)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:163 (_threads_check_libc)"
-      - "CMakeLists.txt:30 (find_package)"
+      - "CMakeLists.txt:33 (find_package)"
     checks:
       - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x6bhxt"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x6bhxt"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-f0nin4"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-f0nin4"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1632,38 +1890,38 @@ events:
       variable: "CMAKE_HAVE_LIBC_PTHREAD"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x6bhxt'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-f0nin4'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_d3a13.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
-        MSBuild version 17.14.19+164abd434 for .NET Framework
-        Build started 10/16/2025 3:44:30 PM.
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_0a727.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 11/22/2025 3:26:56 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\cmTC_d3a13.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\cmTC_0a727.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_d3a13.dir\\Debug\\".
+          Creating directory "cmTC_0a727.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\Debug\\".
-          Creating directory "cmTC_d3a13.dir\\Debug\\cmTC_d3a13.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\Debug\\".
+          Creating directory "cmTC_0a727.dir\\Debug\\cmTC_0a727.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_d3a13.dir\\Debug\\cmTC_d3a13.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_d3a13.dir\\Debug\\cmTC_d3a13.tlog\\unsuccessfulbuild".
+          Creating "cmTC_0a727.dir\\Debug\\cmTC_0a727.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_0a727.dir\\Debug\\cmTC_0a727.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
-          Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+          Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_d3a13.dir\\Debug\\\\" /Fd"cmTC_d3a13.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\src.c"
-          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35215 for x64
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_0a727.dir\\Debug\\\\" /Fd"cmTC_0a727.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\src.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_d3a13.dir\\Debug\\\\" /Fd"cmTC_d3a13.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\src.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_0a727.dir\\Debug\\\\" /Fd"cmTC_0a727.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\src.c"
           src.c
-        D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\cmTC_d3a13.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\cmTC_d3a13.vcxproj" (default targets) -- FAILED.
+        D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\cmTC_0a727.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\cmTC_0a727.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\cmTC_d3a13.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\cmTC_0a727.vcxproj" (default target) (1) ->
         (ClCompile target) -> 
-          D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x6bhxt\\cmTC_d3a13.vcxproj]
+          D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-f0nin4\\cmTC_0a727.vcxproj]
         
             0 Warning(s)
             1 Error(s)
@@ -1677,12 +1935,12 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckLibraryExists.cmake:154 (try_compile)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:112 (check_library_exists)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:175 (_threads_check_lib)"
-      - "CMakeLists.txt:30 (find_package)"
+      - "CMakeLists.txt:33 (find_package)"
     checks:
       - "Looking for pthread_create in pthreads"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-dzeqyy"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-dzeqyy"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-u4o4bi"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-u4o4bi"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1691,45 +1949,45 @@ events:
       variable: "CMAKE_HAVE_PTHREADS_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-dzeqyy'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-u4o4bi'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_3b659.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
-        MSBuild version 17.14.19+164abd434 for .NET Framework
-        Build started 10/16/2025 3:44:31 PM.
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_445a8.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 11/22/2025 3:26:57 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\cmTC_3b659.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\cmTC_445a8.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_3b659.dir\\Debug\\".
+          Creating directory "cmTC_445a8.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\Debug\\".
-          Creating directory "cmTC_3b659.dir\\Debug\\cmTC_3b659.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\Debug\\".
+          Creating directory "cmTC_445a8.dir\\Debug\\cmTC_445a8.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_3b659.dir\\Debug\\cmTC_3b659.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_3b659.dir\\Debug\\cmTC_3b659.tlog\\unsuccessfulbuild".
+          Creating "cmTC_445a8.dir\\Debug\\cmTC_445a8.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_445a8.dir\\Debug\\cmTC_445a8.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
-          Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+          Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_3b659.dir\\Debug\\\\" /Fd"cmTC_3b659.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\CheckFunctionExists.c"
-          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35215 for x64
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_445a8.dir\\Debug\\\\" /Fd"cmTC_445a8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_3b659.dir\\Debug\\\\" /Fd"cmTC_3b659.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\CheckFunctionExists.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_445a8.dir\\Debug\\\\" /Fd"cmTC_445a8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\Debug\\cmTC_3b659.exe" /INCREMENTAL /ILK:"cmTC_3b659.dir\\Debug\\cmTC_3b659.ilk" /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-dzeqyy/Debug/cmTC_3b659.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-dzeqyy/Debug/cmTC_3b659.lib" /MACHINE:X64  /machine:x64 cmTC_3b659.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\cmTC_3b659.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\cmTC_3b659.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\Debug\\cmTC_445a8.exe" /INCREMENTAL /ILK:"cmTC_445a8.dir\\Debug\\cmTC_445a8.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-u4o4bi/Debug/cmTC_445a8.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-u4o4bi/Debug/cmTC_445a8.lib" /MACHINE:X64  /machine:x64 cmTC_445a8.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\cmTC_445a8.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\cmTC_445a8.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\cmTC_3b659.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\cmTC_445a8.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-dzeqyy\\cmTC_3b659.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-u4o4bi\\cmTC_445a8.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.26
+        Time Elapsed 00:00:00.27
         
       exitCode: 1
   -
@@ -1738,12 +1996,12 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/CheckLibraryExists.cmake:154 (try_compile)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:112 (check_library_exists)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FindThreads.cmake:176 (_threads_check_lib)"
-      - "CMakeLists.txt:30 (find_package)"
+      - "CMakeLists.txt:33 (find_package)"
     checks:
       - "Looking for pthread_create in pthread"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zq4vww"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zq4vww"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-lekfh4"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-lekfh4"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1752,45 +2010,45 @@ events:
       variable: "CMAKE_HAVE_PTHREAD_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zq4vww'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-lekfh4'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_9741b.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
-        MSBuild version 17.14.19+164abd434 for .NET Framework
-        Build started 10/16/2025 3:44:31 PM.
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_687ec.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        MSBuild version 17.14.23+b0019275e for .NET Framework
+        Build started 11/22/2025 3:26:57 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\cmTC_9741b.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\cmTC_687ec.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_9741b.dir\\Debug\\".
+          Creating directory "cmTC_687ec.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\Debug\\".
-          Creating directory "cmTC_9741b.dir\\Debug\\cmTC_9741b.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\Debug\\".
+          Creating directory "cmTC_687ec.dir\\Debug\\cmTC_687ec.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_9741b.dir\\Debug\\cmTC_9741b.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_9741b.dir\\Debug\\cmTC_9741b.tlog\\unsuccessfulbuild".
+          Creating "cmTC_687ec.dir\\Debug\\cmTC_687ec.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_687ec.dir\\Debug\\cmTC_687ec.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
-          Using triplet "x64-windows" from "C:\\Dev\\vcpkg\\installed\\x64-windows\\"
+          Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9741b.dir\\Debug\\\\" /Fd"cmTC_9741b.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\CheckFunctionExists.c"
-          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35215 for x64
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_687ec.dir\\Debug\\\\" /Fd"cmTC_687ec.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\CheckFunctionExists.c"
+          Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\Dev\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9741b.dir\\Debug\\\\" /Fd"cmTC_9741b.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\CheckFunctionExists.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_687ec.dir\\Debug\\\\" /Fd"cmTC_687ec.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\Debug\\cmTC_9741b.exe" /INCREMENTAL /ILK:"cmTC_9741b.dir\\Debug\\cmTC_9741b.ilk" /NOLOGO /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\Dev\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zq4vww/Debug/cmTC_9741b.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zq4vww/Debug/cmTC_9741b.lib" /MACHINE:X64  /machine:x64 cmTC_9741b.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\cmTC_9741b.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\cmTC_9741b.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\Debug\\cmTC_687ec.exe" /INCREMENTAL /ILK:"cmTC_687ec.dir\\Debug\\cmTC_687ec.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-lekfh4/Debug/cmTC_687ec.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-lekfh4/Debug/cmTC_687ec.lib" /MACHINE:X64  /machine:x64 cmTC_687ec.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\cmTC_687ec.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\cmTC_687ec.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\cmTC_9741b.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\cmTC_687ec.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zq4vww\\cmTC_9741b.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-lekfh4\\cmTC_687ec.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.26
+        Time Elapsed 00:00:00.27
         
       exitCode: 1
   -
@@ -1818,6 +2076,10 @@ events:
       - "git.cmd"
       - "git"
     candidate_directories:
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
@@ -1848,20 +2110,25 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
       - "C:/Program Files/bin/"
       - "C:/Program Files/sbin/"
       - "C:/Program Files/"
@@ -1871,11 +2138,23 @@ events:
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/CMake/sbin/"
       - "C:/Program Files/CMake/"
-      - "C:/Program Files/ump/bin/"
-      - "C:/Program Files/ump/sbin/"
-      - "C:/Program Files/ump/"
+      - "C:/Program Files (x86)/ump/bin/"
+      - "C:/Program Files (x86)/ump/sbin/"
+      - "C:/Program Files (x86)/ump/"
       - "C:/Users/Chris/AppData/Local/Atlassian/SourceTree/git_local/bin/"
     searched_directories:
+      - "C:/Users/Chris/bin/git.cmd.com"
+      - "C:/Users/Chris/bin/git.cmd.exe"
+      - "C:/Users/Chris/bin/git.cmd"
+      - "C:/Program Files/Git/mingw64/bin/git.cmd.com"
+      - "C:/Program Files/Git/mingw64/bin/git.cmd.exe"
+      - "C:/Program Files/Git/mingw64/bin/git.cmd"
+      - "C:/Program Files/Git/usr/local/bin/git.cmd.com"
+      - "C:/Program Files/Git/usr/local/bin/git.cmd.exe"
+      - "C:/Program Files/Git/usr/local/bin/git.cmd"
+      - "C:/Program Files/Git/usr/bin/git.cmd.com"
+      - "C:/Program Files/Git/usr/bin/git.cmd.exe"
+      - "C:/Program Files/Git/usr/bin/git.cmd"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git.cmd.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git.cmd.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git.cmd"
@@ -1966,9 +2245,6 @@ events:
       - "C:/Program Files/Git LFS/git.cmd.com"
       - "C:/Program Files/Git LFS/git.cmd.exe"
       - "C:/Program Files/Git LFS/git.cmd"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.com"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd"
       - "C:/Program Files/CMake/bin/git.cmd.com"
       - "C:/Program Files/CMake/bin/git.cmd.exe"
       - "C:/Program Files/CMake/bin/git.cmd"
@@ -1981,6 +2257,15 @@ events:
       - "C:/ProgramData/chocolatey/bin/git.cmd.com"
       - "C:/ProgramData/chocolatey/bin/git.cmd.exe"
       - "C:/ProgramData/chocolatey/bin/git.cmd"
+      - "C:/Program Files/gs/gs10.06.0/bin/git.cmd.com"
+      - "C:/Program Files/gs/gs10.06.0/bin/git.cmd.exe"
+      - "C:/Program Files/gs/gs10.06.0/bin/git.cmd"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.com"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.exe"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd"
+      - "C:/Users/Chris/.cargo/bin/git.cmd.com"
+      - "C:/Users/Chris/.cargo/bin/git.cmd.exe"
+      - "C:/Users/Chris/.cargo/bin/git.cmd"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/git.cmd.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/git.cmd.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/git.cmd"
@@ -1996,6 +2281,9 @@ events:
       - "C:/Users/Chris/AppData/Roaming/npm/git.cmd.com"
       - "C:/Users/Chris/AppData/Roaming/npm/git.cmd.exe"
       - "C:/Users/Chris/AppData/Roaming/npm/git.cmd"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd"
@@ -2008,6 +2296,12 @@ events:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/git.cmd.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/git.cmd.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/git.cmd"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/git.cmd.com"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/git.cmd.exe"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/git.cmd"
+      - "C:/Program Files/Git/usr/bin/core_perl/git.cmd.com"
+      - "C:/Program Files/Git/usr/bin/core_perl/git.cmd.exe"
+      - "C:/Program Files/Git/usr/bin/core_perl/git.cmd"
       - "C:/Program Files/bin/git.cmd.com"
       - "C:/Program Files/bin/git.cmd.exe"
       - "C:/Program Files/bin/git.cmd"
@@ -2035,156 +2329,88 @@ events:
       - "C:/Program Files/CMake/git.cmd.com"
       - "C:/Program Files/CMake/git.cmd.exe"
       - "C:/Program Files/CMake/git.cmd"
-      - "C:/Program Files/ump/bin/git.cmd.com"
-      - "C:/Program Files/ump/bin/git.cmd.exe"
-      - "C:/Program Files/ump/bin/git.cmd"
-      - "C:/Program Files/ump/sbin/git.cmd.com"
-      - "C:/Program Files/ump/sbin/git.cmd.exe"
-      - "C:/Program Files/ump/sbin/git.cmd"
-      - "C:/Program Files/ump/git.cmd.com"
-      - "C:/Program Files/ump/git.cmd.exe"
-      - "C:/Program Files/ump/git.cmd"
+      - "C:/Program Files (x86)/ump/bin/git.cmd.com"
+      - "C:/Program Files (x86)/ump/bin/git.cmd.exe"
+      - "C:/Program Files (x86)/ump/bin/git.cmd"
+      - "C:/Program Files (x86)/ump/sbin/git.cmd.com"
+      - "C:/Program Files (x86)/ump/sbin/git.cmd.exe"
+      - "C:/Program Files (x86)/ump/sbin/git.cmd"
+      - "C:/Program Files (x86)/ump/git.cmd.com"
+      - "C:/Program Files (x86)/ump/git.cmd.exe"
+      - "C:/Program Files (x86)/ump/git.cmd"
       - "C:/Users/Chris/AppData/Local/Atlassian/SourceTree/git_local/bin/git.cmd.com"
       - "C:/Users/Chris/AppData/Local/Atlassian/SourceTree/git_local/bin/git.cmd.exe"
       - "C:/Users/Chris/AppData/Local/Atlassian/SourceTree/git_local/bin/git.cmd"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TeamFoundation/Team Explorer/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/Roslyn/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/Roslyn/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/Roslyn/git"
-      - "C:/Program Files (x86)/Microsoft SDKs/Windows/v10.0A/bin/NETFX 4.8 Tools/x64/git.com"
-      - "C:/Program Files (x86)/Microsoft SDKs/Windows/v10.0A/bin/NETFX 4.8 Tools/x64/git.exe"
-      - "C:/Program Files (x86)/Microsoft SDKs/Windows/v10.0A/bin/NETFX 4.8 Tools/x64/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/FSharp/Tools/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/FSharp/Tools/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/FSharp/Tools/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Team Tools/DiagnosticsHub/Collector/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Team Tools/DiagnosticsHub/Collector/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Team Tools/DiagnosticsHub/Collector/git"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/git.com"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/git.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/git"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/x64/git.com"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/x64/git.exe"
-      - "C:/Program Files (x86)/Windows Kits/10/bin/x64/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/git"
-      - "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/git.com"
-      - "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/git.exe"
-      - "C:/Windows/Microsoft.NET/Framework64/v4.0.30319/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/git"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/git.com"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/git.exe"
-      - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/Tools/git"
-      - "C:/Program Files/LucidLink/bin/git.com"
-      - "C:/Program Files/LucidLink/bin/git.exe"
-      - "C:/Program Files/LucidLink/bin/git"
-      - "C:/Program Files/ImageMagick-7.1.2-Q16-HDRI/git.com"
-      - "C:/Program Files/ImageMagick-7.1.2-Q16-HDRI/git.exe"
-      - "C:/Program Files/ImageMagick-7.1.2-Q16-HDRI/git"
-      - "C:/Python313/Scripts/git.com"
-      - "C:/Python313/Scripts/git.exe"
-      - "C:/Python313/Scripts/git"
-      - "C:/Python313/git.com"
-      - "C:/Python313/git.exe"
-      - "C:/Python313/git"
-      - "C:/Windows/System32/git.com"
-      - "C:/Windows/System32/git.exe"
-      - "C:/Windows/System32/git"
-      - "C:/Windows/git.com"
-      - "C:/Windows/git.exe"
-      - "C:/Windows/git"
-      - "C:/Windows/System32/wbem/git.com"
-      - "C:/Windows/System32/wbem/git.exe"
-      - "C:/Windows/System32/wbem/git"
-      - "C:/Windows/System32/WindowsPowerShell/v1.0/git.com"
-      - "C:/Windows/System32/WindowsPowerShell/v1.0/git.exe"
-      - "C:/Windows/System32/WindowsPowerShell/v1.0/git"
-      - "C:/Windows/System32/OpenSSH/git.com"
-      - "C:/Windows/System32/OpenSSH/git.exe"
-      - "C:/Windows/System32/OpenSSH/git"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/git.com"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/git.exe"
-      - "C:/Program Files/NVIDIA Corporation/NVIDIA app/NvDLISR/git"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/git.com"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/git.exe"
-      - "C:/Program Files (x86)/NVIDIA Corporation/PhysX/Common/git"
-      - "C:/Program Files/dotnet/git.com"
-      - "C:/Program Files/dotnet/git.exe"
-      - "C:/Program Files/dotnet/git"
-      - "C:/Program Files/WireGuard/git.com"
-      - "C:/Program Files/WireGuard/git.exe"
-      - "C:/Program Files/WireGuard/git"
-      - "C:/Program Files/Tailscale/git.com"
-      - "C:/Program Files/Tailscale/git.exe"
-      - "C:/Program Files/Tailscale/git"
-      - "C:/Program Files/Git/cmd/git.com"
-    found: "C:/Program Files/Git/cmd/git.exe"
+      - "C:/Users/Chris/bin/git.com"
+      - "C:/Users/Chris/bin/git.exe"
+      - "C:/Users/Chris/bin/git"
+      - "C:/Program Files/Git/mingw64/bin/git.com"
+    found: "C:/Program Files/Git/mingw64/bin/git.exe"
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
-      CMAKE_INSTALL_PREFIX: "C:/Program Files/ump"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ump"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "C:/Program Files"
         - "C:/Program Files (x86)"
         - "C:/Program Files/CMake"
-        - "C:/Program Files/ump"
+        - "C:/Program Files (x86)/ump"
   -
     kind: "find-v1"
     backtrace:
@@ -2208,6 +2434,10 @@ events:
       - "C:/Program Files (x86)/Windows Kits/NETFXSDK/4.8/Lib/um/x64/"
       - "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64/"
       - "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
@@ -2238,29 +2468,34 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
       - "C:/Program Files/lib/"
       - "C:/Program Files/"
       - "C:/Program Files (x86)/lib/"
       - "C:/Program Files (x86)/"
       - "C:/Program Files/CMake/lib/"
       - "C:/Program Files/CMake/"
-      - "C:/Program Files/ump/lib/"
-      - "C:/Program Files/ump/"
-      - "C:/Program Files/ump/bin/"
+      - "C:/Program Files (x86)/ump/lib/"
+      - "C:/Program Files (x86)/ump/"
+      - "C:/Program Files (x86)/ump/bin/"
       - "/bin/"
     searched_directories:
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/atlmfc/lib/x64/"
@@ -2268,6 +2503,10 @@ events:
       - "C:/Program Files (x86)/Windows Kits/NETFXSDK/4.8/Lib/um/x64/"
       - "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/ucrt/x64/"
       - "C:/Program Files (x86)/Windows Kits/10/Lib/10.0.26100.0/um/x64/"
+      - "C:/Users/Chris/bin/"
+      - "C:/Program Files/Git/mingw64/bin/"
+      - "C:/Program Files/Git/usr/local/bin/"
+      - "C:/Program Files/Git/usr/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/vcpackages/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/TestWindow/"
@@ -2298,85 +2537,103 @@ events:
       - "C:/Program Files/Tailscale/"
       - "C:/Program Files/Git/cmd/"
       - "C:/Program Files/Git LFS/"
-      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
       - "C:/Program Files/CMake/bin/"
       - "C:/Program Files/Process Lasso/"
       - "C:/Program Files/nodejs/"
       - "C:/ProgramData/chocolatey/bin/"
+      - "C:/Program Files/gs/gs10.06.0/bin/"
+      - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
+      - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
       - "C:/Users/Chris/.dotnet/tools/"
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/VC/vcpkg/"
+      - "C:/Program Files/Git/usr/bin/vendor_perl/"
+      - "C:/Program Files/Git/usr/bin/core_perl/"
       - "C:/Program Files/lib/"
       - "C:/Program Files/"
       - "C:/Program Files (x86)/lib/"
       - "C:/Program Files (x86)/"
       - "C:/Program Files/CMake/lib/"
       - "C:/Program Files/CMake/"
-      - "C:/Program Files/ump/lib/"
-      - "C:/Program Files/ump/"
-      - "C:/Program Files/ump/bin/"
+      - "C:/Program Files (x86)/ump/lib/"
+      - "C:/Program Files (x86)/ump/"
+      - "C:/Program Files (x86)/ump/bin/"
       - "/bin/"
     found: false
     search_context:
       ENV{PATH}:
+        - "C:\\Users\\Chris\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\local\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Program Files\\Git\\mingw64\\bin"
+        - "C:\\Program Files\\Git\\usr\\bin"
+        - "C:\\Users\\Chris\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\VCPackages"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TestWindow"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\TeamFoundation\\Team Explorer"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\bin\\Roslyn"
-        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64\\"
+        - "C:\\Program Files (x86)\\Microsoft SDKs\\Windows\\v10.0A\\bin\\NETFX 4.8 Tools\\x64"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\FSharp\\Tools"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Team Tools\\DiagnosticsHub\\Collector"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\\\x64"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\\\x64"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\\\MSBuild\\Current\\Bin\\amd64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\10.0.26100.0\\x64"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\bin\\x64"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\amd64"
         - "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\"
-        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools\\"
-        - "C:\\Program Files\\LucidLink\\bin\\"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE"
+        - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\Tools"
+        - "C:\\Program Files\\LucidLink\\bin"
         - "C:\\Program Files\\ImageMagick-7.1.2-Q16-HDRI"
-        - "C:\\Python313\\Scripts\\"
-        - "C:\\Python313\\"
+        - "C:\\Python313\\Scripts"
+        - "C:\\Python313"
         - "C:\\WINDOWS\\system32"
         - "C:\\WINDOWS"
         - "C:\\WINDOWS\\System32\\Wbem"
-        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\"
-        - "C:\\WINDOWS\\System32\\OpenSSH\\"
+        - "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0"
+        - "C:\\WINDOWS\\System32\\OpenSSH"
         - "C:\\Program Files\\NVIDIA Corporation\\NVIDIA app\\NvDLISR"
         - "C:\\Program Files (x86)\\NVIDIA Corporation\\PhysX\\Common"
-        - "C:\\Program Files\\dotnet\\"
-        - "C:\\Program Files\\WireGuard\\"
-        - "C:\\Program Files\\Tailscale\\"
+        - "C:\\Program Files\\dotnet"
+        - "C:\\Program Files\\WireGuard"
+        - "C:\\Program Files\\Tailscale"
         - "C:\\Program Files\\Git\\cmd"
         - "C:\\Program Files\\Git LFS"
-        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit\\"
         - "C:\\Program Files\\CMake\\bin"
-        - "C:\\Program Files\\Process Lasso\\"
-        - "C:\\Program Files\\nodejs\\"
+        - "C:\\Program Files\\Process Lasso"
+        - "C:\\Program Files\\nodejs"
         - "C:\\ProgramData\\chocolatey\\bin"
+        - "C:\\Program Files\\gs\\gs10.06.0\\bin"
+        - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
+        - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
         - "C:\\Users\\Chris\\.dotnet\\tools"
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\vcpkg"
-      CMAKE_INSTALL_PREFIX: "C:/Program Files/ump"
+        - "C:\\Program Files\\Git\\usr\\bin\\vendor_perl"
+        - "C:\\Program Files\\Git\\usr\\bin\\core_perl"
+      CMAKE_INSTALL_PREFIX: "C:/Program Files (x86)/ump"
       CMAKE_SYSTEM_PREFIX_PATH:
         - "C:/Program Files"
         - "C:/Program Files (x86)"
         - "C:/Program Files/CMake"
-        - "C:/Program Files/ump"
+        - "C:/Program Files (x86)/ump"
       CMAKE_SYSTEM_LIBRARY_PATH:
-        - "C:/Program Files/ump/bin"
+        - "C:/Program Files (x86)/ump/bin"
         - "C:/Program Files/CMake/bin"
         - "/bin"
       ENV{LIB}:

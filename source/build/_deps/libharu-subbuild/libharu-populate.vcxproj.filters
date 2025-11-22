@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\79245469587f4e977b87569f172adb6a\libharu-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\5dcd11c260fe480f3c9f0d7319ad161f\libharu-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\6bda889c4e36243db3335e50ff65876f\libharu-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\z_DevTemp\UnionPlayer\build\_deps\libharu-subbuild\CMakeFiles\libharu-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{FEC44DED-4066-3FC4-9C55-5CAD48C4D9A4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

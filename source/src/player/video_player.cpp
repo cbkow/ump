@@ -2827,12 +2827,28 @@ void VideoPlayer::RenderTextureWithOCIO(GLuint texture_id, int tex_width, int te
 
     // Bind all LUT textures if needed
     const auto& lut_ids = color_pipeline->GetLUTTextureIDs();
+    const auto& lut_dims = color_pipeline->GetLUTTextureDimensions();
     if (!lut_ids.empty()) {
         for (size_t i = 0; i < lut_ids.size(); ++i) {
             int texture_unit = 1 + i; // Start from GL_TEXTURE1
             glActiveTexture(GL_TEXTURE0 + texture_unit);
-            glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
-            Debug::Log("Bound 3D LUT texture " + std::to_string(lut_ids[i]) + " to texture unit " + std::to_string(texture_unit));
+
+            // Bind as 1D, 2D, or 3D based on dimension info
+            if (i < lut_dims.size()) {
+                if (lut_dims[i] == 1) {
+                    glBindTexture(GL_TEXTURE_1D, lut_ids[i]);
+                    Debug::Log("Bound 1D LUT texture " + std::to_string(lut_ids[i]) + " to texture unit " + std::to_string(texture_unit));
+                } else if (lut_dims[i] == 2) {
+                    glBindTexture(GL_TEXTURE_2D, lut_ids[i]);
+                    Debug::Log("Bound 2D LUT texture " + std::to_string(lut_ids[i]) + " to texture unit " + std::to_string(texture_unit));
+                } else {
+                    glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+                    Debug::Log("Bound 3D LUT texture " + std::to_string(lut_ids[i]) + " to texture unit " + std::to_string(texture_unit));
+                }
+            } else {
+                glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+                Debug::Log("Bound 3D LUT texture " + std::to_string(lut_ids[i]) + " to texture unit " + std::to_string(texture_unit));
+            }
         }
     } else {
         Debug::Log("No LUT textures to bind");
@@ -2924,11 +2940,23 @@ GLuint VideoPlayer::CreateColorCorrectedTexture(GLuint input_texture_id, int tex
 
     // Bind all LUT textures if needed
     const auto& lut_ids = color_pipeline->GetLUTTextureIDs();
+    const auto& lut_dims = color_pipeline->GetLUTTextureDimensions();
     if (!lut_ids.empty()) {
         for (size_t i = 0; i < lut_ids.size(); ++i) {
             int texture_unit = 1 + i; // Start from GL_TEXTURE1
             glActiveTexture(GL_TEXTURE0 + texture_unit);
-            glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+            // Bind as 1D, 2D, or 3D based on dimension info
+            if (i < lut_dims.size()) {
+                if (lut_dims[i] == 1) {
+                    glBindTexture(GL_TEXTURE_1D, lut_ids[i]);
+                } else if (lut_dims[i] == 2) {
+                    glBindTexture(GL_TEXTURE_2D, lut_ids[i]);
+                } else {
+                    glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+                }
+            } else {
+                glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+            }
         }
     }
 
@@ -3022,11 +3050,23 @@ void VideoPlayer::ApplyColorPipeline() {
 
     // Bind all LUT textures if needed
     const auto& lut_ids = color_pipeline->GetLUTTextureIDs();
+    const auto& lut_dims = color_pipeline->GetLUTTextureDimensions();
     if (!lut_ids.empty()) {
         for (size_t i = 0; i < lut_ids.size(); ++i) {
             int texture_unit = 1 + i; // Start from GL_TEXTURE1
             glActiveTexture(GL_TEXTURE0 + texture_unit);
-            glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+            // Bind as 1D, 2D, or 3D based on dimension info
+            if (i < lut_dims.size()) {
+                if (lut_dims[i] == 1) {
+                    glBindTexture(GL_TEXTURE_1D, lut_ids[i]);
+                } else if (lut_dims[i] == 2) {
+                    glBindTexture(GL_TEXTURE_2D, lut_ids[i]);
+                } else {
+                    glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+                }
+            } else {
+                glBindTexture(GL_TEXTURE_3D, lut_ids[i]);
+            }
            /* Debug::Log("  LUT texture bound: " + std::to_string(lut_ids[i]) + " to unit " + std::to_string(texture_unit));*/
         }
     }

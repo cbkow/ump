@@ -1,0 +1,10 @@
+^D:\Z_DEVTEMP\UNIONPLAYER\BUILD\_DEPS\NFD-SUBBUILD\CMAKEFILES\4831C3EA175FEAB9AA31D020F9A7494B\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/z_DevTemp/UnionPlayer/build/_deps/nfd-subbuild -BD:/z_DevTemp/UnionPlayer/build/_deps/nfd-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/z_DevTemp/UnionPlayer/build/_deps/nfd-subbuild/nfd-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

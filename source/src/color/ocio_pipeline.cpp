@@ -328,6 +328,11 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
             }
         } else {
             // Create DisplayViewTransform without additional looks
+            Debug::Log("Creating simple DisplayViewTransform:");
+            Debug::Log("  Src: " + src_colorspace);
+            Debug::Log("  Display: " + display);
+            Debug::Log("  View: " + view);
+
             OCIO::DisplayViewTransformRcPtr transform = OCIO::DisplayViewTransform::Create();
             transform->setSrc(src_colorspace.c_str());
             transform->setDisplay(display.c_str());
@@ -335,6 +340,7 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
 
             // Create processor
             processor = config->getProcessor(transform);
+            Debug::Log("Processor created successfully");
         }
 
         if (!processor) {
@@ -342,9 +348,9 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
             return CreatePassthroughPipeline();  // Fallback
         }
 
-        /*Debug::Log("OCIO processor created successfully");
+        Debug::Log("OCIO processor created successfully");
         Debug::Log("  Source: " + src_colorspace);
-        Debug::Log("  Display: " + display + " - " + view);*/
+        Debug::Log("  Display: " + display + " - " + view);
         if (!looks.empty()) {
             Debug::Log("  Looks: " + looks);
         }
@@ -434,22 +440,140 @@ bool OCIOPipeline::GenerateAndCompileShader() {
 
         // Get the shader source
         const char* shader_src = shaderDesc->getShaderText();
+        std::string shader_text(shader_src ? shader_src : "");
+        Debug::Log("OCIO shader function length: " + std::to_string(shader_text.length()) + " characters");
 
-        // Check if we need 3D LUTs
-        int num_luts = shaderDesc->getNum3DTextures();
-        if (num_luts > 0) {
+        // Log first 500 chars of shader to see what's in it
+        if (!shader_text.empty()) {
+            std::string preview = shader_text.substr(0, std::min(size_t(500), shader_text.length()));
+            Debug::Log("OCIO shader preview: " + preview);
+        }
+
+        // Check if we need LUTs
+        int num_3d_luts = shaderDesc->getNum3DTextures();
+        int num_1d_luts = shaderDesc->getNumTextures();  // 1D LUTs
+        Debug::Log("Shader generation: " + std::to_string(num_3d_luts) + " 3D LUT(s), " +
+                   std::to_string(num_1d_luts) + " 1D LUT(s) required");
+
+        // Clear existing LUTs
+        if (!lut_texture_ids.empty()) {
+            glDeleteTextures(lut_texture_ids.size(), lut_texture_ids.data());
+        }
+        lut_texture_ids.clear();
+        lut_texture_dimensions.clear();
+        lut_sampler_names.clear();
+
+        // Create 1D LUTs (ACES 2.0 gamut mapping tables)
+        if (num_1d_luts > 0) {
             needs_lut = true;
-            //Debug::Log("Shader requires " + std::to_string(num_luts) + " 3D LUT(s)");
+            Debug::Log("Creating " + std::to_string(num_1d_luts) + " 1D LUT texture(s)");
 
-            // Clear existing LUTs
-            if (!lut_texture_ids.empty()) {
-                glDeleteTextures(lut_texture_ids.size(), lut_texture_ids.data());
+            for (int lut_index = 0; lut_index < num_1d_luts; ++lut_index) {
+                const char* textureName = nullptr;
+                const char* samplerName = nullptr;
+                unsigned width = 0;
+                unsigned height = 0;
+                OCIO::GpuShaderDesc::TextureType channel;
+                OCIO::GpuShaderDesc::TextureDimensions dimensions;
+                OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+                shaderDesc->getTexture(lut_index, textureName, samplerName, width, height,
+                                      channel, dimensions, interp);
+
+                std::string current_sampler_name = samplerName ? samplerName : ("ocio_lut1d_" + std::to_string(lut_index));
+                lut_sampler_names.push_back(current_sampler_name);
+
+                // Debug: Log channel type and dimensions
+                std::string channel_type = (channel == OCIO::GpuShaderDesc::TEXTURE_RED_CHANNEL) ? "RED" : "RGB";
+                std::string dim_type = (dimensions == OCIO::GpuShaderDesc::TEXTURE_1D) ? "1D" : "2D";
+                Debug::Log("LUT " + std::to_string(lut_index) + " sampler: " + current_sampler_name +
+                          ", width: " + std::to_string(width) + ", height: " + std::to_string(height) +
+                          ", channel: " + channel_type + ", dimensions: " + dim_type);
+
+                if (width > 0) {
+                    unsigned int lut_texture_id;
+                    glGenTextures(1, &lut_texture_id);
+                    lut_texture_ids.push_back(lut_texture_id);
+
+                    // Determine texture type based on dimensions
+                    bool is_1d = (dimensions == OCIO::GpuShaderDesc::TEXTURE_1D);
+                    bool is_red_channel = (channel == OCIO::GpuShaderDesc::TEXTURE_RED_CHANNEL);
+
+                    lut_texture_dimensions.push_back(is_1d ? 1 : 2);
+
+                    if (is_1d) {
+                        glBindTexture(GL_TEXTURE_1D, lut_texture_id);
+
+                        // Allocate data based on channel type
+                        unsigned int num_components = is_red_channel ? 1 : 3;
+                        std::vector<float> lut_data(width * num_components);
+
+                        const float* lut_ptr = nullptr;
+                        shaderDesc->getTextureValues(lut_index, lut_ptr);
+                        if (lut_ptr) {
+                            std::memcpy(lut_data.data(), lut_ptr, lut_data.size() * sizeof(float));
+                            Debug::Log("1D LUT " + std::to_string(lut_index) + " data loaded (" +
+                                      std::to_string(lut_data.size()) + " floats)");
+                        } else {
+                            Debug::Log("WARNING: No 1D LUT " + std::to_string(lut_index) + " data, using identity");
+                            for (unsigned i = 0; i < width; ++i) {
+                                if (is_red_channel) {
+                                    lut_data[i] = float(i) / float(width - 1);
+                                } else {
+                                    float val = float(i) / float(width - 1);
+                                    lut_data[i * 3 + 0] = val;
+                                    lut_data[i * 3 + 1] = val;
+                                    lut_data[i * 3 + 2] = val;
+                                }
+                            }
+                        }
+
+                        // Create texture with correct format
+                        if (is_red_channel) {
+                            glTexImage1D(GL_TEXTURE_1D, 0, GL_R32F, width, 0, GL_RED, GL_FLOAT, lut_data.data());
+                        } else {
+                            glTexImage1D(GL_TEXTURE_1D, 0, GL_RGB32F, width, 0, GL_RGB, GL_FLOAT, lut_data.data());
+                        }
+
+                        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    } else {
+                        // Handle 2D texture case
+                        glBindTexture(GL_TEXTURE_2D, lut_texture_id);
+
+                        unsigned int num_components = is_red_channel ? 1 : 3;
+                        std::vector<float> lut_data(width * height * num_components);
+
+                        const float* lut_ptr = nullptr;
+                        shaderDesc->getTextureValues(lut_index, lut_ptr);
+                        if (lut_ptr) {
+                            std::memcpy(lut_data.data(), lut_ptr, lut_data.size() * sizeof(float));
+                            Debug::Log("2D LUT " + std::to_string(lut_index) + " data loaded (" +
+                                      std::to_string(lut_data.size()) + " floats)");
+                        }
+
+                        if (is_red_channel) {
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_R32F, width, height, 0, GL_RED, GL_FLOAT, lut_data.data());
+                        } else {
+                            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, width, height, 0, GL_RGB, GL_FLOAT, lut_data.data());
+                        }
+
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    }
+                }
             }
-            lut_texture_ids.clear();
-            lut_sampler_names.clear();
+        }
 
-            // Create all required LUTs
-            for (int lut_index = 0; lut_index < num_luts; ++lut_index) {
+        // Create 3D LUTs (traditional color transforms)
+        if (num_3d_luts > 0) {
+            needs_lut = true;
+            Debug::Log("Creating " + std::to_string(num_3d_luts) + " 3D LUT texture(s)");
+
+            for (int lut_index = 0; lut_index < num_3d_luts; ++lut_index) {
                 // Get LUT information
                 const char* textureName = nullptr;
                 const char* samplerName = nullptr;
@@ -468,6 +592,7 @@ bool OCIOPipeline::GenerateAndCompileShader() {
                     unsigned int lut_texture_id;
                     glGenTextures(1, &lut_texture_id);
                     lut_texture_ids.push_back(lut_texture_id);
+                    lut_texture_dimensions.push_back(3);  // Mark as 3D LUT
 
                     glBindTexture(GL_TEXTURE_3D, lut_texture_id);
 

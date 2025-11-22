@@ -97,28 +97,23 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>Disabled</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
@@ -130,7 +125,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Debug/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -249,7 +244,7 @@ exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/Debug/
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_5.dll D:/z_DevTemp/UnionPlayer/build/Debug/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -403,22 +398,18 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3.lib;external\Debug\glad.lib;external\Debug\imgui.lib;external\Debug\implot.lib;_deps\nfd-build\src\Debug\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Debug\imgui.lib;external\glfw\src\Debug\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3.lib;external\Debug\glad.lib;external\Debug\imgui.lib;external\Debug\implot.lib;_deps\nfd-build\src\Debug\nfd.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Debug\imgui.lib;external\glfw\src\Debug\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Debug/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Debug/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -433,30 +424,25 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
@@ -468,7 +454,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Release/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -587,7 +573,7 @@ exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/Release/
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_5.dll D:/z_DevTemp/UnionPlayer/build/Release/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -741,22 +727,18 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/Release/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/Release/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -771,30 +753,25 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MinSpace</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
@@ -806,7 +783,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/MinSizeRel/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -925,7 +902,7 @@ exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_5.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -1079,22 +1056,18 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/MinSizeRel/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -1110,28 +1083,23 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
       <DisableSpecificWarnings>4996</DisableSpecificWarnings>
       <ExceptionHandling>Sync</ExceptionHandling>
-      <ForceConformanceInForLoopScope>
-      </ForceConformanceInForLoopScope>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
       <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <MinimalRebuild>
-      </MinimalRebuild>
+      <MinimalRebuild></MinimalRebuild>
       <Optimization>MaxSpeed</Optimization>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <RemoveUnreferencedCodeData>
-      </RemoveUnreferencedCodeData>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <SupportJustMyCode>
-      </SupportJustMyCode>
-      <TreatWChar_tAsBuiltInType>
-      </TreatWChar_tAsBuiltInType>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
       <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
@@ -1143,7 +1111,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_4.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
+      <Message>Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -1262,7 +1230,7 @@ exit /b %1
 :cmDone
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_4.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ocio/bin/OpenColorIO_2_5.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -1416,22 +1384,18 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_3.lib;IlmThread-3_3.lib;OpenEXRCore-3_3.lib;OpenEXRUtil-3_3.lib;OpenEXR-3_3.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\libmpv.dll.a;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
       <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
-      <DataExecutionPrevention>
-      </DataExecutionPrevention>
+      <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
-      <ImageHasSafeExceptionHandlers>
-      </ImageHasSafeExceptionHandlers>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
       <ImportLibrary>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.lib</ImportLibrary>
-      <LinkErrorReporting>
-      </LinkErrorReporting>
+      <LinkErrorReporting></LinkErrorReporting>
       <ProgramDataBaseFile>D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/ump.pdb</ProgramDataBaseFile>
-      <RandomizedBaseAddress>
-      </RandomizedBaseAddress>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
       <SubSystem>Windows</SubSystem>
     </Link>
     <ProjectReference>
@@ -1565,6 +1529,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_loaders.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\lavfi_filter_generator.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\lavfi_filter_generator.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h" />
@@ -1616,11 +1582,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
-    <ClInclude Include="resource5.h" />
   </ItemGroup>
-  <ItemGroup>
-    <ResourceCompile Include="ump5.rc" />
-  </ItemGroup>
+  <ItemGroup />
   <ItemGroup>
     <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ZERO_CHECK.vcxproj">
       <Project>{F99B75F5-D6EE-3496-8558-11C0AAA6FBF9}</Project>
@@ -1652,9 +1615,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{34B72ED6-7976-31CC-B1EA-2A77E896F919}</Project>
       <Name>nfd</Name>
     </ProjectReference>
-  </ItemGroup>
-  <ItemGroup>
-    <Image Include="..\assets\icons\ump.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

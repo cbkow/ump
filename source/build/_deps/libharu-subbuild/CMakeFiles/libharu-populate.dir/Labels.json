@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/libharu-populate"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/6bda889c4e36243db3335e50ff65876f/libharu-populate.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/5dcd11c260fe480f3c9f0d7319ad161f/libharu-populate-complete.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-build.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-configure.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-download.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-install.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-patch.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-test.rule"
+		},
+		{
+			"file" : "D:/z_DevTemp/UnionPlayer/build/_deps/libharu-subbuild/CMakeFiles/79245469587f4e977b87569f172adb6a/libharu-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"libharu-populate"
+		],
+		"name" : "libharu-populate"
+	}
+}

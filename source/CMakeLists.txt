@@ -21,6 +21,9 @@ if(MSVC)
     # Enable UTF-8 support
     add_compile_options(/utf-8)
 
+    # Disable min/max macros from Windows headers (for OCIO 2.5 compatibility)
+    add_compile_definitions(NOMINMAX)
+
     # Disable specific warnings if needed
     add_compile_options(/wd4996)  # Disable deprecated warnings
 endif()
@@ -71,6 +74,10 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/utils/system_pressure_monitor.h"
     "src/utils/system_pressure_monitor.cpp"
     "src/metadata/video_metadata.cpp"
+    "src/metadata/exr_metadata.h"
+    "src/metadata/exr_metadata.cpp"
+    "src/metadata/ffmpeg_metadata_extractor.h"
+    "src/metadata/ffmpeg_metadata_extractor.cpp"
     "src/player/media_background_extractor.h"
     "src/player/media_background_extractor.cpp"
     "src/player/conversion_strategy.cpp"
@@ -86,6 +93,12 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/image_loaders.cpp"
     "src/player/thumbnail_cache.h"
     "src/player/thumbnail_cache.cpp"
+    "src/player/comparison_video_player.h"
+    "src/player/comparison_video_player.cpp"
+    "src/player/difference_cache.h"
+    "src/player/difference_cache.cpp"
+    "src/player/lavfi_filter_generator.h"
+    "src/player/lavfi_filter_generator.cpp"
     "src/annotations/annotation_note.h"
     "src/annotations/annotation_manager.h"
     "src/annotations/annotation_manager.cpp"
@@ -111,6 +124,28 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/integrations/frameio_client.cpp"
     "src/integrations/frameio_converter.h"
     "src/integrations/frameio_converter.cpp"
+    # Transcode system
+    "src/transcode/sequential_frame_loader.h"
+    "src/transcode/sequential_frame_loader.cpp"
+    "src/transcode/ocio_cpu_transform.h"
+    "src/transcode/ocio_cpu_transform.cpp"
+    "src/transcode/ffmpeg_video_encoder.h"
+    "src/transcode/ffmpeg_video_encoder.cpp"
+    "src/transcode/video_transcoder.h"
+    "src/transcode/video_transcoder.cpp"
+    "src/transcode/transcode_job.h"
+    "src/transcode/transcode_job.cpp"
+    "src/transcode/transcode_queue.h"
+    "src/transcode/transcode_queue.cpp"
+    "src/transcode/transcode_worker_pool.h"
+    "src/transcode/transcode_worker_pool.cpp"
+    "src/transcode/difference_sequence_transcoder.h"
+    "src/transcode/difference_sequence_transcoder.cpp"
+    "src/transcode/transcode_manager.h"
+    "src/transcode/transcode_manager.cpp"
+    "src/ui/transcode_queue_window.h"
+    "src/ui/transcode_queue_window.cpp"
+    "src/project/project_manager_transcode.cpp"
 )
 
 # Include directories
@@ -158,13 +193,14 @@ target_link_libraries(${PROJECT_NAME}
     imgui
     implot
     nfd
-    OpenColorIO    # Add OpenColorIO
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/lib/OpenColorIO.lib"    # OpenColorIO 2.5
     # FFmpeg libraries
     avcodec
     avformat
     avutil
     avfilter
     swscale
+    swresample
     # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
     Imath-3_2          # Must be first for half-float support
     Iex-3_3
@@ -271,7 +307,7 @@ if(WIN32)
         "Iex-3_3.dll"
         "IlmThread-3_3.dll"
         "Imath-3_2.dll"
-        "OpenColorIO_2_4.dll"
+        "OpenColorIO_2_5.dll"
         "OpenEXR-3_3.dll"        # C++ API for DWAB compression (direct, no OIIO)
         "OpenEXRCore-3_3.dll"
         "OpenEXRUtil-3_3.dll"
