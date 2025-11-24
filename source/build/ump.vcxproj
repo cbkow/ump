@@ -1582,6 +1582,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\gpu_scheduler.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\system_pressure_monitor.h" />
+    <ResourceCompile Include="D:\z_DevTemp\UnionPlayer\resources\ump.rc" />
   </ItemGroup>
   <ItemGroup />
   <ItemGroup>

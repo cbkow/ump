@@ -374,6 +374,11 @@
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
+    <ResourceCompile Include="D:\z_DevTemp\UnionPlayer\resources\ump.rc">
+      <Filter>Source Files</Filter>
+    </ResourceCompile>
+  </ItemGroup>
+  <ItemGroup>
     <Filter Include="Header Files">
       <UniqueIdentifier>{22A91275-2E9D-375B-AF92-E238D9CAA772}</UniqueIdentifier>
     </Filter>

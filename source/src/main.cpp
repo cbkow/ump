@@ -1505,7 +1505,7 @@ private:
         colors[ImGuiCol_WindowBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
         colors[ImGuiCol_ChildBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
         colors[ImGuiCol_PopupBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
-        colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.40f);
+        colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.50f);
         colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
         colors[ImGuiCol_FrameBg] = ImVec4(0.060f, 0.060f, 0.060f, 1.00f);
         colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
@@ -1521,13 +1521,13 @@ private:
         colors[ImGuiCol_CheckMark] = GetWindowsAccentColor();
         colors[ImGuiCol_SliderGrab] = ImVec4(0.54f, 0.54f, 0.54f, 1.00f);
         colors[ImGuiCol_SliderGrabActive] = ImVec4(0.67f, 0.67f, 0.67f, 1.00f);
-        colors[ImGuiCol_Button] = ImVec4(0.22f, 0.22f, 0.22f, 1.00f);
+        colors[ImGuiCol_Button] = ImVec4(0.02f, 0.02f, 0.02f, 0.50f);
         colors[ImGuiCol_ButtonHovered] = ImVec4(0.26f, 0.26f, 0.26f, 1.00f);
         colors[ImGuiCol_ButtonActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
         colors[ImGuiCol_Header] = ImVec4(0.19f, 0.19f, 0.19f, 0.55f);
         colors[ImGuiCol_HeaderHovered] = ImVec4(0.28f, 0.28f, 0.28f, 0.80f);
         colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-        colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.30f, 0.30f, 0.29f);
+        colors[ImGuiCol_Separator] = ImVec4(0.30f, 0.30f, 0.30f, 0.44f);
         colors[ImGuiCol_SeparatorHovered] = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
         colors[ImGuiCol_SeparatorActive] = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
         colors[ImGuiCol_ResizeGrip] = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
@@ -1565,19 +1565,19 @@ private:
         style.IndentSpacing = 25;
         style.ScrollbarSize = 15;
         style.GrabMinSize = 10;
-        style.WindowBorderSize = 0;
+        style.WindowBorderSize = 1;
         style.ChildBorderSize = 0;
         style.PopupBorderSize = 0;
-        style.FrameBorderSize = 0;
-        style.TabBorderSize = 0;
+        style.FrameBorderSize = 1;
+        style.TabBorderSize = 1;
         style.WindowRounding = 2;
-        style.ChildRounding = 2;
-        style.FrameRounding = 2;
+        style.ChildRounding = 4;
+        style.FrameRounding = 4;
         style.PopupRounding = 4;
         style.ScrollbarRounding = 9;
         style.GrabRounding = 3;
         style.LogSliderDeadzone = 4;
-        style.TabRounding = 2;
+        style.TabRounding = 0;
     }
 
     void SetupDragDrop() {
@@ -3232,7 +3232,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.3.7");
+                ImGui::TextDisabled("About u.m.p. v0.3.8");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
