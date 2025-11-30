@@ -5522,7 +5522,7 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
     lavfi_primary_path_ = primary_path;
     lavfi_secondary_path_ = secondary_path;
 
-    // Extract video metadata for dimensions
+    // Extract video metadata for dimensions and audio info
     VideoMetadata primary_metadata = ump::FFmpegMetadataExtractor::Extract(primary_path);
     if (primary_metadata.width > 0 && primary_metadata.height > 0) {
         primary_video_width_ = primary_metadata.width;
@@ -5533,6 +5533,12 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
         primary_video_width_ = 1920;
         primary_video_height_ = 1080;
     }
+
+    // Check if primary video has audio (for lavfi filter generation)
+    primary_has_audio_ = (!primary_metadata.audio_codec.empty() &&
+                          primary_metadata.audio_codec != "Unknown" &&
+                          primary_metadata.audio_sample_rate > 0);
+    Debug::Log("Primary video has audio: " + std::string(primary_has_audio_ ? "yes" : "no"));
 
     VideoMetadata secondary_metadata = ump::FFmpegMetadataExtractor::Extract(secondary_path);
     if (secondary_metadata.width > 0 && secondary_metadata.height > 0) {
@@ -5664,6 +5670,7 @@ void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int
     primary_input.trim_duration = primary_trim_duration_;
     primary_input.source_width = primary_video_width_;
     primary_input.source_height = primary_video_height_;
+    primary_input.has_audio = primary_has_audio_;
 
     // Create secondary input configuration
     ump::LavfiFilterGenerator::VideoInput secondary_input;
@@ -5672,6 +5679,7 @@ void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int
     secondary_input.trim_duration = secondary_trim_duration_;
     secondary_input.source_width = secondary_video_width_;
     secondary_input.source_height = secondary_video_height_;
+    secondary_input.has_audio = false;  // Secondary audio not used in lavfi comparison
 
     // Generate filter string
     current_lavfi_filter_ = ump::LavfiFilterGenerator::GenerateLavfiFilter(
