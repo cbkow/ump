@@ -1,0 +1,7 @@
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/tests/CMakeLists.txt
+  utils.cpp
+  test_timeline.cpp
+  Generating Code...
+  test_timeline.vcxproj -> D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\Release\test_timeline.exe
+  'pwsh.exe' is not recognized as an internal or external command,
+  operable program or batch file.

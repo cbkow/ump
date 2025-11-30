@@ -729,6 +729,9 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, GLuint te
     // Add to cache
     scrub_cache[frame_number] = std::move(cached_frame);
 
+    // Register with SharedMemoryPool for global LRU coordination
+    RegisterWithPool(frame_number, static_cast<size_t>(width) * height * 4);  // RGBA
+
     //Debug::Log("FrameCache: Added extracted frame " + std::to_string(frame_number) +
     //           " (" + std::to_string(timestamp) + "s) to cache");
 }
@@ -812,6 +815,9 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
 
     // Add to cache
     scrub_cache[frame_number] = std::move(cached_frame);
+
+    // Register with SharedMemoryPool for global LRU coordination
+    RegisterWithPool(frame_number, pixel_data.size());
 
     //Debug::Log("FrameCache: Added extracted frame " + std::to_string(frame_number) +
     //           " (" + std::to_string(timestamp) + "s) with texture " + std::to_string(texture_id));
@@ -932,6 +938,7 @@ void FrameCache::EvictFramesBeyondWindow(double center_timestamp, double window_
         if (frame_distance > window_frames) {
             int frame_number = it->first;
             // Removed: memory usage tracking (memory-based eviction removed)
+            RemoveFromPool(frame_number);  // Remove from SharedMemoryPool first
             it = scrub_cache.erase(it);
 
             // Notify background extractor to remove from tracking
@@ -986,6 +993,7 @@ void FrameCache::EvictFramesBeyondSeconds(double center_timestamp, int max_secon
         int frame_number = it->first;
         if (frame_number < window_start || frame_number > window_end) {
             // Removed: memory usage tracking (memory-based eviction removed)
+            RemoveFromPool(frame_number);  // Remove from SharedMemoryPool first
             it = scrub_cache.erase(it);
 
             // Notify background extractor to remove from tracking
@@ -1153,6 +1161,16 @@ void FrameCache::UpdateVideoMetadata(const std::string& video_path, const VideoM
 void FrameCache::InvalidateCache() {
     std::lock_guard<std::mutex> lock(cache_mutex);
 
+    // Remove all entries from SharedMemoryPool first
+    if (config.use_shared_pool) {
+        for (const auto& pair : scrub_cache) {
+            RemoveFromPool(pair.first);
+        }
+        for (const auto& pair : keyframe_cache) {
+            RemoveFromPool(pair.first);
+        }
+    }
+
     // Notify background extractor to clear tracking for all frames being removed
     if (background_extractor) {
         for (const auto& pair : scrub_cache) {
@@ -1211,6 +1229,16 @@ bool FrameCache::IsInitialized() const {
 void FrameCache::ClearCachedFrames() {
     std::lock_guard<std::mutex> lock(cache_mutex);
 
+    // Remove all entries from SharedMemoryPool first
+    if (config.use_shared_pool) {
+        for (const auto& pair : scrub_cache) {
+            RemoveFromPool(pair.first);
+        }
+        for (const auto& pair : keyframe_cache) {
+            RemoveFromPool(pair.first);
+        }
+    }
+
     // Clear all cached frames but keep the cache structure
     scrub_cache.clear();     // Main RAM cache
     keyframe_cache.clear();  // Keyframe cache
@@ -1255,6 +1283,10 @@ bool FrameCache::GetFrameFromRAM(int frame_number, GLuint& texture_id, int& widt
         width = it->second->width;
         height = it->second->height;
         it->second->last_accessed = std::chrono::steady_clock::now();
+
+        // Touch in SharedMemoryPool for LRU updates (cache hit)
+        TouchInPool(frame_number);
+
         return true;
     }
     return false;
@@ -1281,3 +1313,61 @@ bool FrameCache::GetFrameFromRAM(int frame_number, GLuint& texture_id, int& widt
 // Removed: ExtractAndCacheEXRFrame (disk cache removed)
 
 // Removed: ExtractAndCacheVideoFrame (disk cache removed)
+
+//=============================================================================
+// SharedMemoryPool Integration
+//=============================================================================
+
+void FrameCache::RegisterWithPool(int frame, size_t bytes) {
+    if (!config.use_shared_pool) return;
+    if (current_video_path.empty()) return;
+
+    auto key = ump::MakeVideoKey(current_video_path, frame);
+
+    // Create eviction callback that removes from our local cache
+    auto eviction_callback = [this, frame]() {
+        OnPoolEviction(frame);
+    };
+
+    ump::SharedMemoryPool::Instance().RegisterEntry(key, bytes, eviction_callback);
+}
+
+void FrameCache::TouchInPool(int frame) {
+    if (!config.use_shared_pool) return;
+    if (current_video_path.empty()) return;
+
+    auto key = ump::MakeVideoKey(current_video_path, frame);
+    ump::SharedMemoryPool::Instance().TouchEntry(key);
+}
+
+void FrameCache::RemoveFromPool(int frame) {
+    if (!config.use_shared_pool) return;
+    if (current_video_path.empty()) return;
+
+    auto key = ump::MakeVideoKey(current_video_path, frame);
+    ump::SharedMemoryPool::Instance().RemoveEntry(key);
+}
+
+void FrameCache::OnPoolEviction(int frame) {
+    // Called by SharedMemoryPool when this frame is evicted due to memory pressure
+    // Remove from our local cache (thread-safe via cache_mutex)
+    std::lock_guard<std::mutex> lock(cache_mutex);
+
+    auto it = scrub_cache.find(frame);
+    if (it != scrub_cache.end()) {
+        // Release the texture
+        if (it->second) {
+            it->second->ReleaseTexture();
+        }
+        scrub_cache.erase(it);
+    }
+
+    // Also check keyframe_cache
+    auto kit = keyframe_cache.find(frame);
+    if (kit != keyframe_cache.end()) {
+        if (kit->second) {
+            kit->second->ReleaseTexture();
+        }
+        keyframe_cache.erase(kit);
+    }
+}

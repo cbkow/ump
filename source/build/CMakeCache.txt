@@ -14,8 +14,14 @@
 # EXTERNAL cache entries
 ########################
 
-//Build shared libraries (.dll/.so) instead of static ones (.lib/.a)
+//Build shared libraries
 BUILD_SHARED_LIBS:BOOL=OFF
+
+//Build the testing tree.
+BUILD_TESTING:BOOL=ON
+
+//Set ON to build the readthedocs website source
+BUILD_WEBSITE:BOOL=OFF
 
 //Path to a program.
 CMAKE_AR:FILEPATH=C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/lib.exe
@@ -60,6 +66,9 @@ CMAKE_C_FLAGS_RELWITHDEBINFO:STRING=/Zi /O2 /Ob1 /DNDEBUG
 
 //Libraries linked by default with all C applications.
 CMAKE_C_STANDARD_LIBRARIES:STRING=kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib
+
+//Suffix for debug builds
+CMAKE_DEBUG_POSTFIX:STRING=_d
 
 //Flags used by the linker during all build types.
 CMAKE_EXE_LINKER_FLAGS:STRING=/machine:x64
@@ -116,7 +125,7 @@ CMAKE_INSTALL_MANDIR:PATH=
 CMAKE_INSTALL_OLDINCLUDEDIR:PATH=/usr/include
 
 //Install path prefix, prepended onto install directories.
-CMAKE_INSTALL_PREFIX:PATH=C:/Program Files (x86)/ump
+CMAKE_INSTALL_PREFIX:PATH=C:/Program Files/ump
 
 //Run-time variable data (LOCALSTATEDIR/run)
 CMAKE_INSTALL_RUNSTATEDIR:PATH=
@@ -155,6 +164,11 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO:STRING=/debug /INCREMENTAL
 
 //Path to a program.
 CMAKE_MT:FILEPATH=C:/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64/mt.exe
+
+CMAKE_OSX_ARCHITECTURES:STRING=arm64;x86_64
+
+//Minimum OS X deployment version
+CMAKE_OSX_DEPLOYMENT_TARGET:STRING=10.14
 
 //Value Computed by CMake
 CMAKE_PROJECT_COMPAT_VERSION:STATIC=
@@ -254,6 +268,22 @@ CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO:STRING=
 // Studio IDE projects all commands are done without /nologo.
 CMAKE_VERBOSE_MAKEFILE:BOOL=FALSE
 
+//Path to the coverage program that CTest uses for performing coverage
+// inspection
+COVERAGE_COMMAND:FILEPATH=COVERAGE_COMMAND-NOTFOUND
+
+//Extra command line flags to pass to the coverage tool
+COVERAGE_EXTRA_FLAGS:STRING=-l
+
+//How many times to retry timed-out CTest submissions.
+CTEST_SUBMIT_RETRY_COUNT:STRING=3
+
+//How long to wait between timed-out CTest submissions.
+CTEST_SUBMIT_RETRY_DELAY:STRING=5
+
+//Maximum time allowed before CTest will kill the test.
+DART_TESTING_TIMEOUT:STRING=1500
+
 //Don't create DevPackage
 DEVPAK:BOOL=OFF
 
@@ -275,6 +305,10 @@ FETCHCONTENT_SOURCE_DIR_LIBHARU:PATH=
 // for nfd
 FETCHCONTENT_SOURCE_DIR_NFD:PATH=
 
+//When not empty, overrides where to find pre-populated content
+// for opentimelineio
+FETCHCONTENT_SOURCE_DIR_OPENTIMELINEIO:PATH=
+
 //Enables UPDATE_DISCONNECTED behavior for all content population
 FETCHCONTENT_UPDATES_DISCONNECTED:BOOL=OFF
 
@@ -284,8 +318,17 @@ FETCHCONTENT_UPDATES_DISCONNECTED_LIBHARU:BOOL=OFF
 //Enables UPDATE_DISCONNECTED behavior just for population of nfd
 FETCHCONTENT_UPDATES_DISCONNECTED_NFD:BOOL=OFF
 
+//Enables UPDATE_DISCONNECTED behavior just for population of opentimelineio
+FETCHCONTENT_UPDATES_DISCONNECTED_OPENTIMELINEIO:BOOL=OFF
+
+//Path to a program.
+GITCOMMAND:FILEPATH=C:/Program Files/Git/mingw64/bin/git.exe
+
 //Git command line client
 GIT_EXECUTABLE:FILEPATH=C:/Program Files/Git/mingw64/bin/git.exe
+
+//Update submodules each build
+GIT_UPDATE_SUBMODULES:BOOL=ON
 
 //Value Computed by CMake
 GLFW_BINARY_DIR:STATIC=D:/z_DevTemp/UnionPlayer/build/external/glfw
@@ -318,6 +361,71 @@ GLFW_SOURCE_DIR:STATIC=D:/z_DevTemp/UnionPlayer/external/glfw
 //Force use of high-performance GPU on hybrid systems
 GLFW_USE_HYBRID_HPG:BOOL=OFF
 
+//C++ standard to compile against
+IMATH_CXX_STANDARD:STRING=17
+
+//Enables code to take advantage of large stack support
+IMATH_ENABLE_LARGE_STACK:BOOL=OFF
+
+//Convert half-to-float using a lookup table (on by default)
+IMATH_HALF_USE_LOOKUP_TABLE:BOOL=ON
+
+//Install Imath library
+IMATH_INSTALL:BOOL=ON
+
+//Install Imath.pc file
+IMATH_INSTALL_PKG_CONFIG:BOOL=ON
+
+//Create symbolic links for shared objects
+IMATH_INSTALL_SYM_LINK:BOOL=OFF
+
+//Real namespace for Imath that will end up in compiled symbols
+IMATH_INTERNAL_NAMESPACE:STRING=Imath_3_2
+
+//string added to the end of all the libraries
+IMATH_LIB_SUFFIX:STRING=-3_2
+
+//Public namespace alias for Imath
+IMATH_NAMESPACE:STRING=Imath
+
+//Whether the namespace has been customized (so external users
+// know)
+IMATH_NAMESPACE_CUSTOM:STRING=0
+
+//Destination sub-folder of the include path for install
+IMATH_OUTPUT_SUBDIR:STRING=Imath
+
+//Public string / label for displaying package
+IMATH_PACKAGE_NAME:STRING=Imath 3.2.0-dev
+
+//name to append to static library (in addition to normal suffix)
+IMATH_STATIC_LIB_SUFFIX:STRING=_static
+
+//Check if clang-tidy is available, and enable that
+IMATH_USE_CLANG_TIDY:BOOL=OFF
+
+//Makes the compile use default visibility (by default compiles
+// tidy, hidden-by-default)
+IMATH_USE_DEFAULT_VISIBILITY:BOOL=OFF
+
+//Compile with noexcept specifier
+IMATH_USE_NOEXCEPT:BOOL=ON
+
+//Extra version tag string for Imath build, such as -dev, -beta1,
+// etc.
+IMATH_VERSION_RELEASE_TYPE:STRING=-dev
+
+//Value Computed by CMake
+Imath_BINARY_DIR:STATIC=D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-build/src/deps/Imath
+
+Imath_DIR:PATH=D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-build/src/deps/Imath/config
+
+//Value Computed by CMake
+Imath_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+Imath_SOURCE_DIR:STATIC=D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/src/deps/Imath
+
 //Enable HPDF Debug
 LIBHPDF_DEBUG:BOOL=OFF
 
@@ -332,6 +440,15 @@ LIBHPDF_SHARED:BOOL=OFF
 
 //Build static library
 LIBHPDF_STATIC:BOOL=ON
+
+//Command to build the project
+MAKECOMMAND:STRING="C:\Program Files\CMake\bin\cmake.exe" --build . --config "${CTEST_CONFIGURATION_TYPE}"
+
+//Path to the memory checking command, used for memory error detection.
+MEMORYCHECK_COMMAND:FILEPATH=MEMORYCHECK_COMMAND-NOTFOUND
+
+//File that contains suppressions for the memory checker
+MEMORYCHECK_SUPPRESSIONS_FILE:FILEPATH=
 
 //Path to a library.
 M_LIB:FILEPATH=M_LIB-NOTFOUND
@@ -348,6 +465,55 @@ OPENGL_gl_LIBRARY:STRING=opengl32
 //GLU library for win32
 OPENGL_glu_LIBRARY:STRING=glu32
 
+//Fetch submodules automatically
+OTIO_AUTOMATIC_SUBMODULES:BOOL=ON
+
+//Invoke code coverage if lcov/gcov is available
+OTIO_CXX_COVERAGE:BOOL=OFF
+
+//Build CXX examples (also requires OTIO_PYTHON_INSTALL=ON)
+OTIO_CXX_EXAMPLES:BOOL=OFF
+
+//Install the C++ bindings
+OTIO_CXX_INSTALL:BOOL=OFF
+
+//Install OTIO's C++ header dependencies (any and nonstd)
+OTIO_DEPENDENCIES_INSTALL:BOOL=OFF
+
+//Find Imath using find_package, ignored if OTIO_IMATH_LIBS is
+// set
+OTIO_FIND_IMATH:BOOL=OFF
+
+//Imath library overrides to use instead of src/deps or find_package
+OTIO_IMATH_LIBS:STRING=
+
+//Install the OTIO command line tools
+OTIO_INSTALL_COMMANDLINE_TOOLS:BOOL=ON
+
+//Install the opentimelineio_contrib Python package
+OTIO_INSTALL_CONTRIB:BOOL=ON
+
+//Install OTIO pure Python modules/files
+OTIO_INSTALL_PYTHON_MODULES:BOOL=ON
+
+//Install the Python bindings
+OTIO_PYTHON_INSTALL:BOOL=OFF
+
+//Python installation dir (such as the site-packages dir)
+OTIO_PYTHON_INSTALL_DIR:STRING=
+
+//Build shared if ON, static if OFF
+OTIO_SHARED_LIBS:BOOL=OFF
+
+//Value Computed by CMake
+OpenTimelineIO_BINARY_DIR:STATIC=D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-build
+
+//Value Computed by CMake
+OpenTimelineIO_IS_TOP_LEVEL:STATIC=OFF
+
+//Value Computed by CMake
+OpenTimelineIO_SOURCE_DIR:STATIC=D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src
+
 //PNG include dir
 PNG_INCLUDE_DIR:PATH=D:/z_DevTemp/UnionPlayer/external/png/include
 
@@ -356,6 +522,15 @@ PNG_LIBRARY:FILEPATH=D:/z_DevTemp/UnionPlayer/external/png/lib/libpng16.lib
 
 //PNG include dir
 PNG_PNG_INCLUDE_DIR:PATH=D:/z_DevTemp/UnionPlayer/external/png/include
+
+//Set ON to compile pybind11 PyImath bindings
+PYBIND11:BOOL=OFF
+
+//Set ON to compile boost PyImath bindings
+PYTHON:BOOL=OFF
+
+//Name of the computer/site where compile is being run
+SITE:STRING=Rhombus-w880
 
 //Use MSVC runtime library DLL
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
@@ -415,6 +590,8 @@ CMAKE_CACHE_PATCH_VERSION:INTERNAL=0
 CMAKE_COMMAND:INTERNAL=C:/Program Files/CMake/bin/cmake.exe
 //Path to cpack program executable.
 CMAKE_CPACK_COMMAND:INTERNAL=C:/Program Files/CMake/bin/cpack.exe
+//ADVANCED property for variable: CMAKE_CTEST_COMMAND
+CMAKE_CTEST_COMMAND-ADVANCED:INTERNAL=1
 //Path to ctest program executable.
 CMAKE_CTEST_COMMAND:INTERNAL=C:/Program Files/CMake/bin/ctest.exe
 //ADVANCED property for variable: CMAKE_CXX_FLAGS
@@ -460,7 +637,7 @@ CMAKE_GENERATOR:INTERNAL=Visual Studio 17 2022
 //Generator instance identifier.
 CMAKE_GENERATOR_INSTANCE:INTERNAL=C:/Program Files/Microsoft Visual Studio/2022/Community
 //Name of generator platform.
-CMAKE_GENERATOR_PLATFORM:INTERNAL=
+CMAKE_GENERATOR_PLATFORM:INTERNAL=x64
 //Name of generator toolset.
 CMAKE_GENERATOR_TOOLSET:INTERNAL=
 //Test CMAKE_HAVE_LIBC_PTHREAD
@@ -521,7 +698,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_MT
 CMAKE_MT-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=8
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=16
 //Platform information initialized
 CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1
 //noop for ranlib
@@ -567,6 +744,16 @@ CMAKE_STATIC_LINKER_FLAGS_RELEASE-ADVANCED:INTERNAL=1
 CMAKE_STATIC_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_VERBOSE_MAKEFILE
 CMAKE_VERBOSE_MAKEFILE-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: COVERAGE_COMMAND
+COVERAGE_COMMAND-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: COVERAGE_EXTRA_FLAGS
+COVERAGE_EXTRA_FLAGS-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CTEST_SUBMIT_RETRY_COUNT
+CTEST_SUBMIT_RETRY_COUNT-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: CTEST_SUBMIT_RETRY_DELAY
+CTEST_SUBMIT_RETRY_DELAY-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: DART_TESTING_TIMEOUT
+DART_TESTING_TIMEOUT-ADVANCED:INTERNAL=1
 //Details about finding OpenGL
 FIND_PACKAGE_MESSAGE_DETAILS_OpenGL:INTERNAL=[opengl32][ ][v()]
 //Details about finding PNG
@@ -575,20 +762,32 @@ FIND_PACKAGE_MESSAGE_DETAILS_PNG:INTERNAL=[D:/z_DevTemp/UnionPlayer/external/png
 FIND_PACKAGE_MESSAGE_DETAILS_Threads:INTERNAL=[TRUE][v()]
 //Details about finding ZLIB
 FIND_PACKAGE_MESSAGE_DETAILS_ZLIB:INTERNAL=[D:/z_DevTemp/UnionPlayer/external/ocio/lib/zlib.lib][D:/z_DevTemp/UnionPlayer/external/ocio/include][ ][v()]
+//ADVANCED property for variable: GITCOMMAND
+GITCOMMAND-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: GIT_EXECUTABLE
 GIT_EXECUTABLE-ADVANCED:INTERNAL=1
 //GLFW pkg-config Libs.private
 GLFW_PKG_CONFIG_LIBS_PRIVATE:INTERNAL=-lgdi32
 //GLFW pkg-config Requires.private
 GLFW_PKG_CONFIG_REQUIRES_PRIVATE:INTERNAL=
+//Have library m
+HAVE_LIB_M:INTERNAL=
+//ADVANCED property for variable: MAKECOMMAND
+MAKECOMMAND-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MEMORYCHECK_COMMAND
+MEMORYCHECK_COMMAND-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: MEMORYCHECK_SUPPRESSIONS_FILE
+MEMORYCHECK_SUPPRESSIONS_FILE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: OPENGL_gl_LIBRARY
 OPENGL_gl_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: OPENGL_glu_LIBRARY
 OPENGL_glu_LIBRARY-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: PNG_PNG_INCLUDE_DIR
 PNG_PNG_INCLUDE_DIR-ADVANCED:INTERNAL=1
+//ADVANCED property for variable: SITE
+SITE-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: ZLIB_INCLUDE_DIR
 ZLIB_INCLUDE_DIR-ADVANCED:INTERNAL=1
 //CMAKE_INSTALL_PREFIX during last run
-_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=C:/Program Files (x86)/ump
+_GNUInstallDirs_LAST_CMAKE_INSTALL_PREFIX:INTERNAL=C:/Program Files/ump
 

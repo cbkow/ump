@@ -180,6 +180,15 @@ DirectEXRCache::~DirectEXRCache() {
         }
     }
     glTextureCache_.clear();
+
+    // Also delete any textures queued for deletion (from Shutdown() calls)
+    for (GLuint tex_id : texturesToDelete_) {
+        if (tex_id != 0) {
+            glDeleteTextures(1, &tex_id);
+            texture_count++;
+        }
+    }
+    texturesToDelete_.clear();
     //Debug::Log("DirectEXRCache: Deleted " + std::to_string(texture_count) + " GL textures");
 
     //Debug::Log("DirectEXRCache: Clearing pixel cache...");
@@ -338,10 +347,19 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
     // Step 1: Check if we have pixel data in the cache
     std::shared_ptr<PixelData> pixels;
     if (!pixelCache_.Peek(frame, pixels) || !pixels) {
+        // FALLBACK: Return last good frame instead of black
+        if (last_good_texture_ != 0) {
+            width = last_good_width_;
+            height = last_good_height_;
+            return last_good_texture_;
+        }
         width = 0;
         height = 0;
         return 0;  // Frame not in cache yet
     }
+
+    // Touch in SharedMemoryPool for LRU updates (this is a cache hit)
+    TouchInPool(frame);
 
     // Step 2: Check if we already have a GL texture for this frame
     {
@@ -350,6 +368,11 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
         if (it != glTextureCache_.end() && it->second && it->second->texture_id != 0) {
             width = it->second->width;
             height = it->second->height;
+
+            // Track as last good frame for fallback
+            last_good_texture_ = it->second->texture_id;
+            last_good_width_ = width;
+            last_good_height_ = height;
             return it->second->texture_id;  // Return existing GL texture
         }
     }
@@ -357,6 +380,12 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
     // Step 3: Create GL texture on-demand from pixel data
     GLuint texId = CreateGLTexture(pixels);
     if (texId == 0) {
+        // FALLBACK: Return last good frame instead of black
+        if (last_good_texture_ != 0) {
+            width = last_good_width_;
+            height = last_good_height_;
+            return last_good_texture_;
+        }
         width = 0;
         height = 0;
         return 0;
@@ -388,6 +417,10 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
         height = pixels->height;
     }
 
+    // Track as last good frame for fallback
+    last_good_texture_ = texId;
+    last_good_width_ = width;
+    last_good_height_ = height;
     return texId;
 }
 
@@ -514,6 +547,11 @@ void DirectEXRCache::ProcessReadyTextures() {
     }
 }
 
+bool DirectEXRCache::HasPendingTextureDeletions() const {
+    std::lock_guard<std::mutex> lock(textureMutex_);
+    return !texturesToDelete_.empty();
+}
+
 void DirectEXRCache::ClearRequests() {
     size_t pending = 0;
     size_t inProgress = 0;
@@ -544,6 +582,14 @@ void DirectEXRCache::ClearCache() {
     // Clear pixel cache
     auto pixel_keys = pixelCache_.GetKeys();
     size_t pixel_count = pixel_keys.size();
+
+    // Remove all entries from SharedMemoryPool first
+    if (config_.use_shared_pool) {
+        for (int frame : pixel_keys) {
+            RemoveFromPool(frame);
+        }
+    }
+
     pixelCache_.Clear();
 
     // Clear GL texture cache and queue textures for deletion
@@ -738,6 +784,12 @@ void DirectEXRCache::CacheThread() {
             // Get sequence size for wrap-around calculations
             int sequence_size = static_cast<int>(sequenceFiles_.size());
 
+            // Guard against race condition: Shutdown() may have cleared sequenceFiles_
+            // between the check at line 725 and here
+            if (sequence_size == 0) {
+                continue;
+            }
+
             // CRITICAL: Detect seeks BEFORE updating cacheIterationCount_
             // If position jumped >20 frames, reset iteration counter for post-seek boost
             bool isSeek = false;
@@ -779,6 +831,7 @@ void DirectEXRCache::CacheThread() {
                     }
 
                     if (should_evict) {
+                        RemoveFromPool(frame);  // Remove from SharedMemoryPool first
                         pixelCache_.Remove(frame);
                         immediate_evicted++;
                     }
@@ -832,6 +885,7 @@ void DirectEXRCache::CacheThread() {
                 }
 
                 if (should_evict) {
+                    RemoveFromPool(frame);  // Remove from SharedMemoryPool first
                     pixelCache_.Remove(frame);
                     evicted_count++;
                 }
@@ -1160,6 +1214,10 @@ void DirectEXRCache::IOWorkerThread() {
                             // Add directly to pixel cache (no intermediate queue!)
                             size_t byteCount = pixelData->pixels.size();  // Already in bytes (uint8_t vector)
                             pixelCache_.Add(it->first, pixelData, byteCount);
+
+                            // Register with SharedMemoryPool for global LRU coordination
+                            RegisterWithPool(it->first, byteCount);
+
                             segmentsDirty_ = true;  // Mark segments dirty for UI update
                             completed++;
                           /*  Debug::Log("DirectEXRCache: [IO-COMPLETE] Frame " + std::to_string(it->first) +
@@ -1488,6 +1546,68 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
     glBindTexture(GL_TEXTURE_2D, 0);
 
     return texId;
+}
+
+//=============================================================================
+// SharedMemoryPool Integration
+//=============================================================================
+
+void DirectEXRCache::RegisterWithPool(int frame, size_t bytes) {
+    if (!config_.use_shared_pool) return;
+
+    std::string seq_id = GetSequenceIdentifier();
+    if (seq_id.empty()) return;
+
+    auto key = MakeEXRKey(seq_id, frame);
+
+    // Create eviction callback that removes from our local cache
+    auto eviction_callback = [this, frame]() {
+        OnPoolEviction(frame);
+    };
+
+    SharedMemoryPool::Instance().RegisterEntry(key, bytes, eviction_callback);
+}
+
+void DirectEXRCache::TouchInPool(int frame) {
+    if (!config_.use_shared_pool) return;
+
+    std::string seq_id = GetSequenceIdentifier();
+    if (seq_id.empty()) return;
+
+    auto key = MakeEXRKey(seq_id, frame);
+    SharedMemoryPool::Instance().TouchEntry(key);
+}
+
+void DirectEXRCache::RemoveFromPool(int frame) {
+    if (!config_.use_shared_pool) return;
+
+    std::string seq_id = GetSequenceIdentifier();
+    if (seq_id.empty()) return;
+
+    auto key = MakeEXRKey(seq_id, frame);
+    SharedMemoryPool::Instance().RemoveEntry(key);
+}
+
+void DirectEXRCache::OnPoolEviction(int frame) {
+    // Called by SharedMemoryPool when this frame is evicted due to memory pressure
+    // Remove from our local cache (this is thread-safe via pixelCache_ mutex)
+
+    // Check if we also have a GL texture for this frame
+    std::lock_guard<std::mutex> lock(textureMutex_);
+
+    auto gl_it = glTextureCache_.find(frame);
+    if (gl_it != glTextureCache_.end()) {
+        // Queue texture for deletion on main thread
+        if (gl_it->second && gl_it->second->texture_id != 0) {
+            texturesToDelete_.push_back(gl_it->second->texture_id);
+        }
+        glTextureCache_.erase(gl_it);
+    }
+
+    // Remove from pixel cache without calling pool again (we're already being evicted)
+    pixelCache_.Remove(frame);
+
+    segmentsDirty_ = true;
 }
 
 } // namespace ump

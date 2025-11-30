@@ -26,7 +26,7 @@
 #include "../overlay/safety_overlay_system.h"
 #include "../overlay/svg_overlay_renderer.h"
 #include "dummy_video_generator.h"
-#include "direct_exr_cache.h"           // tlRender-style direct EXR cache (100% OpenEXR)
+#include "direct_exr_cache.h"           // Direct EXR cache (100% OpenEXR)
 
 namespace ump {
     struct Sequence;
@@ -37,6 +37,7 @@ namespace ump {
     class ComparisonVideoPlayer;
     class TranscodeManager;  // NEW: For difference mode transcoding
     class DifferenceCache;   // NEW: For difference mode caching
+    class TimelinePlaybackController;  // Timeline mode playback
 }
 
 #include "pipeline_mode.h"
@@ -109,6 +110,18 @@ public:
     void InjectCurrentEXRFrame();
     void RenderEXRFrameOverlay(int frame_index);
     void TriggerEXRFrameCaching(); // Cache current frame after EXR injection
+
+    // Timeline mode frame injection (matches EXR pattern for smooth playback)
+    void SetTimelineMode(bool enabled, ump::TimelinePlaybackController* controller = nullptr);
+    bool IsInTimelineMode() const { return is_timeline_mode_; }
+    void InjectCurrentTimelineFrame();
+
+    // Lightweight dummy swap for timeline mode (avoids full LoadFile reset)
+    void SwapTimelineDummy(const std::string& new_dummy_path);
+
+    // Content dimensions (for overlay modes - EXR/image sequences/timeline)
+    // Allows 1x1 dummy videos while using correct content dimensions for textures
+    void SetContentDimensions(int width, int height);
 
     void Play();
     void Pause();
@@ -300,6 +313,7 @@ public:
     void SetEXRCacheConfig(const ump::DirectEXRCacheConfig& config);
     void SetEXRCacheEnabled(bool enabled);
     void ClearEXRCache();
+    void ClearVideoTextureReference();  // Clear before cache reinitialization to prevent dangling refs
     ump::DirectEXRCache::CacheStats GetEXRCacheStats() const;
     bool HasEXRCache() const;
     std::vector<ump::CacheSegment> GetEXRCacheSegments() const;
@@ -310,6 +324,9 @@ public:
     bool HasThumbnailCache() const;
     void ClearThumbnailCache();
     ump::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }
+
+    // Dummy video generator access (for timeline playback)
+    ump::DummyVideoGenerator* GetDummyGenerator() { return &dummy_generator; }
 
     // Disk cache settings (for DummyVideoGenerator and EXRTranscoder)
     void SetCacheSettings(const std::string& custom_path, int retention_days,
@@ -381,6 +398,13 @@ private:
     // Video properties
     int video_width;
     int video_height;
+
+    // Content dimensions (independent of dummy video for overlay modes)
+    // Set from MediaItem cache (EXR/image sequences) or timeline controller
+    int content_width_ = 0;
+    int content_height_ = 0;
+    bool use_content_dimensions_ = false;  // True when in overlay mode
+
     double cached_position = 0.0;
     double cached_duration = 0.0;
     double cached_fps = 23.976;
@@ -500,6 +524,15 @@ private:
     bool is_image_sequence = false;
     int image_sequence_start_frame = 1;
     std::vector<std::string> exr_sequence_files;
+
+    // Timeline mode handling (matches EXR pattern)
+    bool is_timeline_mode_ = false;
+    ump::TimelinePlaybackController* timeline_controller_ = nullptr;
+    GLuint timeline_texture_ = 0;       // Current timeline frame texture
+    int timeline_texture_width_ = 0;
+    int timeline_texture_height_ = 0;
+    int last_timeline_frame_ = -1;      // For change detection
+    GLuint gap_placeholder_texture_ = 0; // Transparent texture for timeline gaps
 
     // Image sequences removed - will be re-added with different libraries later
 

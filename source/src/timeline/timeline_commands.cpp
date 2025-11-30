@@ -1,0 +1,606 @@
+#include "timeline_commands.h"
+#include <algorithm>
+#include <sstream>
+#include <iomanip>
+#include <chrono>
+
+namespace ump {
+
+// Helper to generate unique clip IDs
+static std::string GenerateClipId() {
+    static int counter = 0;
+    std::ostringstream oss;
+    oss << "clip_" << std::setfill('0') << std::setw(6) << ++counter
+        << "_" << std::chrono::steady_clock::now().time_since_epoch().count();
+    return oss.str();
+}
+
+// Helper to find clip in tracks
+static OTIOClip* FindClipById(std::vector<OTIOTrack>& tracks,
+                               const std::string& clip_id,
+                               int* out_track_index = nullptr,
+                               size_t* out_clip_index = nullptr) {
+    for (size_t ti = 0; ti < tracks.size(); ++ti) {
+        auto& track = tracks[ti];
+        for (size_t ci = 0; ci < track.clips.size(); ++ci) {
+            if (track.clips[ci].id == clip_id) {
+                if (out_track_index) *out_track_index = static_cast<int>(ti);
+                if (out_clip_index) *out_clip_index = ci;
+                return &track.clips[ci];
+            }
+        }
+    }
+    return nullptr;
+}
+
+//-----------------------------------------------------------------------------
+// TimelineCommandManager
+//-----------------------------------------------------------------------------
+
+void TimelineCommandManager::Execute(std::unique_ptr<ITimelineCommand> cmd) {
+    if (!cmd) return;
+
+    cmd->Execute();
+    undo_stack_.push_back(std::move(cmd));
+
+    // Clear redo stack on new action
+    redo_stack_.clear();
+
+    // Limit undo stack size
+    while (undo_stack_.size() > MAX_UNDO_STACK_SIZE) {
+        undo_stack_.erase(undo_stack_.begin());
+    }
+}
+
+void TimelineCommandManager::Undo() {
+    if (!CanUndo()) return;
+
+    auto cmd = std::move(undo_stack_.back());
+    undo_stack_.pop_back();
+
+    cmd->Undo();
+    redo_stack_.push_back(std::move(cmd));
+}
+
+void TimelineCommandManager::Redo() {
+    if (!CanRedo()) return;
+
+    auto cmd = std::move(redo_stack_.back());
+    redo_stack_.pop_back();
+
+    cmd->Execute();
+    undo_stack_.push_back(std::move(cmd));
+}
+
+bool TimelineCommandManager::CanUndo() const {
+    return !undo_stack_.empty();
+}
+
+bool TimelineCommandManager::CanRedo() const {
+    return !redo_stack_.empty();
+}
+
+std::string TimelineCommandManager::GetUndoDescription() const {
+    if (undo_stack_.empty()) return "";
+    return undo_stack_.back()->GetDescription();
+}
+
+std::string TimelineCommandManager::GetRedoDescription() const {
+    if (redo_stack_.empty()) return "";
+    return redo_stack_.back()->GetDescription();
+}
+
+void TimelineCommandManager::Clear() {
+    undo_stack_.clear();
+    redo_stack_.clear();
+}
+
+//-----------------------------------------------------------------------------
+// CutClipCommand
+//-----------------------------------------------------------------------------
+
+CutClipCommand::CutClipCommand(TimelineView* view, const std::string& clip_id,
+                               int track_index, double cut_time)
+    : view_(view), clip_id_(clip_id), track_index_(track_index), cut_time_(cut_time) {
+}
+
+void CutClipCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Find the clip
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == track.clips.end()) return;
+
+    // Store original for undo (only on first execution)
+    if (!executed_) {
+        original_clip_ = *it;
+        new_clip_id_ = GenerateClipId();
+    }
+
+    // Validate cut position is within clip
+    double clip_end = it->start_time + it->duration;
+    if (cut_time_ <= it->start_time || cut_time_ >= clip_end) return;
+
+    // Calculate durations
+    double first_duration = cut_time_ - it->start_time;
+    double second_duration = clip_end - cut_time_;
+
+    // Create second clip (after cut point)
+    OTIOClip second_clip = *it;
+    second_clip.id = new_clip_id_;
+    second_clip.start_time = cut_time_;
+    second_clip.duration = second_duration;
+    second_clip.source_in = it->source_in + first_duration;
+    // source_out stays the same
+
+    // Modify first clip (before cut point)
+    it->duration = first_duration;
+    it->source_out = it->source_in + first_duration;
+
+    // Insert second clip after first
+    auto insert_pos = it + 1;
+    track.clips.insert(insert_pos, second_clip);
+
+    // Lightweight sync - cut doesn't change frame mappings, only metadata
+    // No need to invalidate cache since the same source frames are used
+    view_->SyncFlattenerOnly();
+
+    executed_ = true;
+}
+
+void CutClipCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Remove the second clip (created by cut)
+    auto second_it = std::find_if(track.clips.begin(), track.clips.end(),
+                                   [this](const OTIOClip& c) { return c.id == new_clip_id_; });
+    if (second_it != track.clips.end()) {
+        track.clips.erase(second_it);
+    }
+
+    // Restore original clip
+    auto first_it = std::find_if(track.clips.begin(), track.clips.end(),
+                                  [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (first_it != track.clips.end()) {
+        *first_it = original_clip_;
+    }
+
+    // Lightweight sync - undo cut doesn't change frame mappings either
+    view_->SyncFlattenerOnly();
+}
+
+std::string CutClipCommand::GetDescription() const {
+    return "Cut Clip";
+}
+
+//-----------------------------------------------------------------------------
+// DeleteClipCommand
+//-----------------------------------------------------------------------------
+
+DeleteClipCommand::DeleteClipCommand(TimelineView* view, const std::string& clip_id,
+                                     int track_index)
+    : view_(view), clip_id_(clip_id), track_index_(track_index) {
+}
+
+void DeleteClipCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Find and store the clip
+    for (size_t i = 0; i < track.clips.size(); ++i) {
+        if (track.clips[i].id == clip_id_) {
+            if (!executed_) {
+                deleted_clip_ = track.clips[i];
+                original_index_ = i;
+            }
+            track.clips.erase(track.clips.begin() + i);
+            view_->SyncFlattenerAndInvalidate();
+            executed_ = true;
+            return;
+        }
+    }
+}
+
+void DeleteClipCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Restore clip at original position
+    if (original_index_ <= track.clips.size()) {
+        track.clips.insert(track.clips.begin() + original_index_, deleted_clip_);
+    } else {
+        track.clips.push_back(deleted_clip_);
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string DeleteClipCommand::GetDescription() const {
+    return "Delete Clip";
+}
+
+//-----------------------------------------------------------------------------
+// MoveClipCommand
+//-----------------------------------------------------------------------------
+
+MoveClipCommand::MoveClipCommand(TimelineView* view, const std::string& clip_id,
+                                 int track_index, double new_start_time)
+    : view_(view), clip_id_(clip_id), track_index_(track_index),
+      new_start_time_(new_start_time) {
+}
+
+void MoveClipCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == track.clips.end()) return;
+
+    if (!executed_) {
+        old_start_time_ = it->start_time;
+    }
+
+    // Clamp to non-negative
+    it->start_time = std::max(0.0, new_start_time_);
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void MoveClipCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it != track.clips.end()) {
+        it->start_time = old_start_time_;
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string MoveClipCommand::GetDescription() const {
+    return "Move Clip";
+}
+
+//-----------------------------------------------------------------------------
+// TrimClipStartCommand
+//-----------------------------------------------------------------------------
+
+TrimClipStartCommand::TrimClipStartCommand(TimelineView* view, const std::string& clip_id,
+                                           int track_index, double new_start_time)
+    : view_(view), clip_id_(clip_id), track_index_(track_index),
+      new_start_time_(new_start_time) {
+}
+
+void TrimClipStartCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == track.clips.end()) return;
+
+    if (!executed_) {
+        old_start_time_ = it->start_time;
+        old_source_in_ = it->source_in;
+        old_duration_ = it->duration;
+    }
+
+    double clip_end = it->start_time + it->duration;
+    double clamped_start = std::max(0.0, new_start_time_);
+    clamped_start = std::min(clamped_start, clip_end - 0.001); // Keep minimum duration
+
+    // Calculate the trim delta
+    double trim_delta = clamped_start - it->start_time;
+    double new_source_in = it->source_in + trim_delta;
+
+    // Clamp source_in to valid range [0, source_duration - min_clip_length]
+    // Can't trim past the beginning of the source media
+    if (new_source_in < 0.0) {
+        // Trying to extend beyond source start - clamp
+        double adjustment = -new_source_in;
+        clamped_start += adjustment;
+        trim_delta = clamped_start - it->start_time;
+        new_source_in = 0.0;
+    }
+
+    it->source_in = new_source_in;
+    it->duration = clip_end - clamped_start;
+    it->start_time = clamped_start;
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void TrimClipStartCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it != track.clips.end()) {
+        it->start_time = old_start_time_;
+        it->source_in = old_source_in_;
+        it->duration = old_duration_;
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string TrimClipStartCommand::GetDescription() const {
+    return "Trim Clip Start";
+}
+
+//-----------------------------------------------------------------------------
+// TrimClipEndCommand
+//-----------------------------------------------------------------------------
+
+TrimClipEndCommand::TrimClipEndCommand(TimelineView* view, const std::string& clip_id,
+                                       int track_index, double new_end_time)
+    : view_(view), clip_id_(clip_id), track_index_(track_index),
+      new_end_time_(new_end_time) {
+}
+
+void TrimClipEndCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == track.clips.end()) return;
+
+    if (!executed_) {
+        old_duration_ = it->duration;
+        old_source_out_ = it->source_out;
+    }
+
+    double new_duration = new_end_time_ - it->start_time;
+    new_duration = std::max(0.001, new_duration); // Keep minimum duration
+
+    // Calculate new source_out
+    double new_source_out = it->source_in + new_duration;
+
+    // Clamp source_out to not exceed source_duration (if known)
+    // Can't extend beyond the end of the source media
+    if (it->source_duration > 0.0 && new_source_out > it->source_duration) {
+        new_source_out = it->source_duration;
+        new_duration = new_source_out - it->source_in;
+    }
+
+    it->source_out = new_source_out;
+    it->duration = new_duration;
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void TrimClipEndCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it != track.clips.end()) {
+        it->duration = old_duration_;
+        it->source_out = old_source_out_;
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string TrimClipEndCommand::GetDescription() const {
+    return "Trim Clip End";
+}
+
+//-----------------------------------------------------------------------------
+// InsertClipCommand
+//-----------------------------------------------------------------------------
+
+InsertClipCommand::InsertClipCommand(TimelineView* view, int track_index,
+                                     const OTIOClip& clip)
+    : view_(view), track_index_(track_index), clip_(clip) {
+    // Ensure clip has a valid ID
+    if (clip_.id.empty()) {
+        clip_.id = GenerateClipId();
+    }
+}
+
+void InsertClipCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+    track.clips.push_back(clip_);
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void InsertClipCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Remove the inserted clip
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_.id; });
+    if (it != track.clips.end()) {
+        track.clips.erase(it);
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string InsertClipCommand::GetDescription() const {
+    return "Insert Clip";
+}
+
+//-----------------------------------------------------------------------------
+// MoveClipToTrackCommand
+//-----------------------------------------------------------------------------
+
+MoveClipToTrackCommand::MoveClipToTrackCommand(TimelineView* view,
+                                               const std::string& clip_id,
+                                               int old_track_index,
+                                               int new_track_index,
+                                               double new_start_time)
+    : view_(view), clip_id_(clip_id), old_track_index_(old_track_index),
+      new_track_index_(new_track_index), new_start_time_(new_start_time) {
+}
+
+void MoveClipToTrackCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (old_track_index_ < 0 || old_track_index_ >= static_cast<int>(tracks.size())) return;
+    if (new_track_index_ < 0 || new_track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& old_track = tracks[old_track_index_];
+    auto& new_track = tracks[new_track_index_];
+
+    // Find clip in old track
+    auto it = std::find_if(old_track.clips.begin(), old_track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == old_track.clips.end()) return;
+
+    if (!executed_) {
+        old_start_time_ = it->start_time;
+        old_clip_index_ = std::distance(old_track.clips.begin(), it);
+    }
+
+    // Copy clip and optionally update start time
+    OTIOClip clip_copy = *it;
+    if (new_start_time_ >= 0) {
+        clip_copy.start_time = new_start_time_;
+    }
+
+    // Remove from old track
+    old_track.clips.erase(it);
+
+    // Add to new track
+    new_track.clips.push_back(clip_copy);
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void MoveClipToTrackCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (old_track_index_ < 0 || old_track_index_ >= static_cast<int>(tracks.size())) return;
+    if (new_track_index_ < 0 || new_track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& old_track = tracks[old_track_index_];
+    auto& new_track = tracks[new_track_index_];
+
+    // Find clip in new track
+    auto it = std::find_if(new_track.clips.begin(), new_track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == new_track.clips.end()) return;
+
+    // Restore original start time
+    OTIOClip clip_copy = *it;
+    clip_copy.start_time = old_start_time_;
+
+    // Remove from new track
+    new_track.clips.erase(it);
+
+    // Insert back at original position in old track
+    if (old_clip_index_ <= old_track.clips.size()) {
+        old_track.clips.insert(old_track.clips.begin() + old_clip_index_, clip_copy);
+    } else {
+        old_track.clips.push_back(clip_copy);
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string MoveClipToTrackCommand::GetDescription() const {
+    return "Move Clip to Track";
+}
+
+//-----------------------------------------------------------------------------
+// CompositeCommand
+//-----------------------------------------------------------------------------
+
+CompositeCommand::CompositeCommand(const std::string& description)
+    : description_(description) {
+}
+
+void CompositeCommand::AddCommand(std::unique_ptr<ITimelineCommand> cmd) {
+    if (cmd) {
+        commands_.push_back(std::move(cmd));
+    }
+}
+
+void CompositeCommand::Execute() {
+    for (auto& cmd : commands_) {
+        cmd->Execute();
+    }
+    executed_ = true;
+}
+
+void CompositeCommand::Undo() {
+    // Undo in reverse order
+    for (auto it = commands_.rbegin(); it != commands_.rend(); ++it) {
+        (*it)->Undo();
+    }
+}
+
+std::string CompositeCommand::GetDescription() const {
+    return description_;
+}
+
+} // namespace ump

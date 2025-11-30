@@ -198,6 +198,46 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <Project>{34B72ED6-7976-31CC-B1EA-2A77E896F919}</Project>
       <Name>nfd</Name>
     </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\opentime\opentime.vcxproj">
+      <Project>{14A140C6-2E0F-32A7-BC6A-8E4B2F2AB17B}</Project>
+      <Name>opentime</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\opentimelineio\opentimelineio.vcxproj">
+      <Project>{D8B4E275-BEB7-3F2C-8D74-DF7602D93A7F}</Project>
+      <Name>opentimelineio</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_clip.vcxproj">
+      <Project>{5833D667-AED7-3BD2-9040-C1966E27786B}</Project>
+      <Name>test_clip</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_editAlgorithm.vcxproj">
+      <Project>{38C57BDE-8FEC-3C6C-BD79-EBCA3F53AAF7}</Project>
+      <Name>test_editAlgorithm</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_opentime.vcxproj">
+      <Project>{1961B796-582A-36B8-92A7-CB13813E332E}</Project>
+      <Name>test_opentime</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_serializableCollection.vcxproj">
+      <Project>{7B6A73E7-F75B-3E15-AC87-75A433A56DC9}</Project>
+      <Name>test_serializableCollection</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_serialization.vcxproj">
+      <Project>{2EDB7A61-532E-3299-8580-B46671A01581}</Project>
+      <Name>test_serialization</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_stack_algo.vcxproj">
+      <Project>{77C3554E-A817-3681-BC65-6424A29A9F03}</Project>
+      <Name>test_stack_algo</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_timeline.vcxproj">
+      <Project>{007B2ABA-88B8-3809-8DB8-87E51BA55CD9}</Project>
+      <Name>test_timeline</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\test_track.vcxproj">
+      <Project>{E18642FA-A2FD-30F1-8C80-C0A397F80B63}</Project>
+      <Name>test_track</Name>
+    </ProjectReference>
     <ProjectReference Include="D:\z_DevTemp\UnionPlayer\build\ump.vcxproj">
       <Project>{C1C409C7-D15E-3C3A-A3B2-5A5D0850DE3F}</Project>
       <Name>ump</Name>

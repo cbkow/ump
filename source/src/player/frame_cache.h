@@ -18,6 +18,7 @@ class GPUFrameCache;
 class MediaBackgroundExtractor;
 struct VideoMetadata;
 #include "pipeline_mode.h"
+#include "shared_memory_pool.h"
 
 // Forward declaration - defined in mpv_extractor.h
 struct MPVConversionStrategy;
@@ -78,6 +79,9 @@ public:
 
         // Pipeline format settings
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Current pipeline mode for texture format
+
+        // SharedMemoryPool integration (NEW)
+        bool use_shared_pool = false;           // Use global SharedMemoryPool instead of local eviction
 
         // Removed: Disk cache settings (simplified to RAM-only cache)
     };
@@ -220,4 +224,20 @@ private:
     bool ExtractFrameFromCurrentTexture(VideoPlayer* video_player, double timestamp,
                                        GLuint& texture_id, int& width, int& height);
     bool ReadTexturePixels(GLuint texture_id, int width, int height, std::vector<uint8_t>& pixels);
+
+    //=========================================================================
+    // SharedMemoryPool Integration
+    //=========================================================================
+
+    // Register a frame with SharedMemoryPool (called when adding to scrub_cache)
+    void RegisterWithPool(int frame, size_t bytes);
+
+    // Touch a frame in SharedMemoryPool (called on cache hits)
+    void TouchInPool(int frame);
+
+    // Remove a frame from SharedMemoryPool (called when removing from scrub_cache)
+    void RemoveFromPool(int frame);
+
+    // Handle eviction callback from SharedMemoryPool
+    void OnPoolEviction(int frame);
 };

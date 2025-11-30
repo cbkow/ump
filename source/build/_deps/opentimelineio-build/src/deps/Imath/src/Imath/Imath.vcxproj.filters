@@ -1,0 +1,138 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\half.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathColorAlgo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathFun.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathMatrixAlgo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathRandom.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\half.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\halfFunction.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\halfLimits.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathBox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathBoxAlgo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathColor.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathColorAlgo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathEuler.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathExport.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathForward.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathFrame.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathFrustum.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathFrustumTest.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathFun.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathGL.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathGLU.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathInt64.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathInterval.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathLine.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathLineAlgo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathMath.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathMatrix.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathMatrixAlgo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathNamespace.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathPlane.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathPlatform.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathQuat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathRandom.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathRoots.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathShear.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathSphere.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathTypeTraits.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathVec.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\ImathVecAlgo.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\toFloat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{22A91275-2E9D-375B-AF92-E238D9CAA772}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{927B490D-0085-3DBD-BD39-8D7F9BE5C716}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

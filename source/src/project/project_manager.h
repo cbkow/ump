@@ -159,9 +159,16 @@ namespace ump {
         // ========================================================================
 
         void CreateNewProject(const std::string& name, const std::string& path);
+        void CreateNewProjectFromMenu();  // Called from File menu - resets project state
         void SaveProject();
+        void SaveProjectAs();  // Always shows save dialog for new location
         void LoadProject(const std::string& file_path = "");  // Empty path triggers file dialog
         void OnVideoLoaded(const std::string& file_path);
+
+        // Menu callbacks for File menu
+        void ShowNewPlaylistDialog() { show_new_sequence_dialog = true; }
+        void ShowNewTimelineDialog() { show_new_timeline_dialog = true; }
+        void ImportTimelineFromMenu();
         std::string GetProjectPath() const { return current_project_path; }
 
         // ========================================================================
@@ -222,6 +229,51 @@ namespace ump {
         bool IsSequenceMode() const;
         Sequence* GetCurrentSequence() const;
         bool IsInSequenceMode() const { return IsSequenceMode(); }
+
+        // ========================================================================
+        // TIMELINE MANAGEMENT (OTIO/EDL multi-track timelines)
+        // ========================================================================
+
+        bool ImportTimeline(const std::string& file_path);  // Auto-detect format
+        bool ImportOTIOFile(const std::string& file_path);
+        bool ImportEDLFile(const std::string& file_path);  // Shows settings dialog
+        bool CompleteEDLImport();  // Called after user confirms EDL import settings
+        void OpenTimelineInEditor(const std::string& timeline_id);
+        MediaItem* GetTimelineItem(const std::string& timeline_id_or_path);  // Accepts timeline_id or file path
+        MediaItem* GetCurrentTimelineItem();  // Returns current active timeline's MediaItem
+        std::string GetCurrentTimelineId() const { return current_timeline_id; }
+        int GetTimelineCount() const;
+
+        // Create new empty timeline (1 hour duration for editing room)
+        std::string CreateNewTimeline(const std::string& name = "",
+                                      int width = 1920, int height = 1080,
+                                      double fps = 24.0, double duration = 3600.0);
+
+        // Clip link cache management (for persistent media linking)
+        void UpdateTimelineClipLinks(const std::string& timeline_id,
+                                     const std::vector<MediaItem::CachedClipLink>& links);
+        const std::vector<MediaItem::CachedClipLink>* GetTimelineClipLinks(const std::string& timeline_id) const;
+
+        // Track metadata cache management (for persistent track structure)
+        void UpdateTimelineTrackMetadata(const std::string& timeline_id,
+                                         const std::vector<MediaItem::CachedTrackMetadata>& tracks);
+        const std::vector<MediaItem::CachedTrackMetadata>* GetTimelineTrackMetadata(const std::string& timeline_id) const;
+
+        // Timeline editor mode callback
+        void SetTimelineEditorCallback(std::function<void(const std::string&)> callback) {
+            timeline_editor_callback = callback;
+        }
+
+        // Exit timeline mode callback (called when loading non-timeline media)
+        void SetExitTimelineModeCallback(std::function<void()> callback) {
+            exit_timeline_mode_callback = callback;
+        }
+
+        // Flush timeline edits callback (called before saving project)
+        // This ensures current timeline edits are captured in MediaItem.cached_tracks
+        void SetFlushTimelineEditsCallback(std::function<void()> callback) {
+            flush_timeline_edits_callback = callback;
+        }
 
         // ========================================================================
         // PLAYLIST OPERATIONS
@@ -359,7 +411,8 @@ namespace ump {
 
     private:
         // Constants
-        static const int SEQUENCES_BIN_INDEX = 3;
+        static const int PLAYLISTS_BIN_INDEX = 3;
+        static const int TIMELINES_BIN_INDEX = 4;
 
         // ========================================================================
         // MEMBER VARIABLES
@@ -391,6 +444,7 @@ namespace ump {
         std::vector<MediaItem> media_pool;
         std::vector<Sequence> sequences;
         std::string current_sequence_id;
+        std::string current_timeline_id;  // Track which timeline is currently active in editor
 
         // Selection state
         std::set<std::string> selected_media_items;
@@ -408,6 +462,23 @@ namespace ump {
         char new_playlist_name_buffer[256] = "";
         std::string renaming_item_id;
         std::vector<MediaItem> pending_playlist_items;
+
+        // New timeline dialog state
+        bool show_new_timeline_dialog = false;
+        char new_timeline_name_buffer[256] = "";
+        int new_timeline_width = 1920;
+        int new_timeline_height = 1080;
+        double new_timeline_fps = 24.0;
+        int new_timeline_hours = 0;
+        int new_timeline_minutes = 10;   // 10 minutes default
+        int new_timeline_seconds = 0;
+
+        // EDL import settings dialog state
+        bool show_edl_import_dialog = false;
+        std::string pending_edl_path;
+        int edl_import_width = 1920;
+        int edl_import_height = 1080;
+        double edl_import_fps = 23.976;
 
         // Image sequence dialog state
         bool show_frame_rate_dialog = false;
@@ -464,12 +535,10 @@ namespace ump {
         // UI RENDERING HELPERS
         // ========================================================================
 
-        void CreateProjectToolbar();
         void CreateProjectInfo();
         void CreateMediaPool();
         void CreateBinUI(ProjectBin& bin);
         void CreateMediaItemUI(const MediaItem& item);
-        void CreateSequencesBinToolbar();
 
         // Transcode dialogs
         void RenderTranscodeSettingsDialog();
@@ -563,6 +632,9 @@ namespace ump {
         void CopyToClipboard(const std::string& text);
         std::function<void(const std::string&)> video_change_callback;
         std::function<void(const std::string&)> color_preset_callback;  // Callback for auto 1-2-1 OCIO preset
+        std::function<void(const std::string&)> timeline_editor_callback;  // Callback to open timeline in editor
+        std::function<void()> exit_timeline_mode_callback;  // Callback to exit timeline editor mode
+        std::function<void()> flush_timeline_edits_callback;  // Callback to flush current timeline edits before save
 
         // Cloud sync helper - waits for file to become readable
         bool WaitForFileReadable(const std::string& file_path, int timeout_seconds = 30);

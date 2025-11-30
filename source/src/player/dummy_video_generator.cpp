@@ -382,26 +382,39 @@ bool DummyVideoGenerator::CreateDummyVideoWithAPI(const std::string& output_path
 bool DummyVideoGenerator::CreateDummyVideoWithAPI(const std::string& output_path, int width, int height, double fps, double duration) {
     Debug::Log("Creating duration-specific dummy with " + std::to_string(duration) + "s duration using FFmpeg executable");
 
-    // Determine pixel format based on dimensions
-    // yuv420p requires even dimensions (better compression)
-    // yuv444p supports any dimensions (fallback for odd resolutions)
-    bool has_odd_dimension = (width % 2 != 0 || height % 2 != 0);
-    const char* pix_fmt = has_odd_dimension ? "yuv444p" : "yuv420p";
+    // UNIVERSAL 1x1 OPTIMIZATION: Dummy video is just for MPV transport control
+    // Actual content dimensions come from MediaItem cache (EXR/image sequences)
+    // or TimelinePlaybackController (timeline mode)
+    // 1x1 encodes in milliseconds and produces ~1KB files
+    const int dummy_width = 1;
+    const int dummy_height = 1;
+    const char* pix_fmt = "yuv444p";  // Required for odd dimensions (1x1)
 
-    if (has_odd_dimension) {
-        Debug::Log("Using yuv444p for odd resolution: " + std::to_string(width) + "x" + std::to_string(height));
-    }
+    Debug::Log("Using 1x1 dummy (content dimensions cached separately): original request was " +
+               std::to_string(width) + "x" + std::to_string(height));
 
-    // Build FFmpeg command using the working approach with silent output
+    // Always use the requested FPS for dummy videos
+    // The dummy drives MPV's timing, so it must match the timeline/sequence FPS
+    double internal_rate = fps;
+
+    // Build FFmpeg command using 1x1 black video
     std::ostringstream cmd;
-    cmd << "ffmpeg.exe -y -v error -f lavfi -i color=black:size=" << width << "x" << height
+    cmd << "ffmpeg.exe -y -v error -f lavfi -i color=black:size=" << dummy_width << "x" << dummy_height
         << ":duration=" << std::fixed << std::setprecision(2) << duration
-        << ":rate=" << (int)fps
+        << ":rate=" << std::setprecision(3) << internal_rate
         << " -c:v libx264 -preset ultrafast -tune fastdecode -crf 51 -g 1 -keyint_min 1 -pix_fmt " << pix_fmt << " \""
         << output_path << "\"";
 
     std::string command = cmd.str();
     Debug::Log("Executing FFmpeg command: " + command);
+
+    // Calculate appropriate timeout based on frame count
+    // internal_rate fps * duration seconds = total frames
+    // Allow ~100ms per frame + 5 second base
+    int total_frames = static_cast<int>(internal_rate * duration);
+    int timeout_ms = 5000 + (total_frames * 100);  // 5s base + 100ms per frame
+    timeout_ms = std::min(timeout_ms, 120000);  // Cap at 2 minutes max
+    Debug::Log("FFmpeg timeout: " + std::to_string(timeout_ms) + "ms for " + std::to_string(total_frames) + " frames");
 
 #ifdef _WIN32
     // Windows-specific: Create process with hidden window
@@ -433,15 +446,15 @@ bool DummyVideoGenerator::CreateDummyVideoWithAPI(const std::string& output_path
         return false;
     }
 
-    // Wait for the process to complete
+    // Wait for the process to complete with calculated timeout
     Debug::Log("Waiting for FFmpeg to complete...");
-    DWORD wait_result = WaitForSingleObject(pi.hProcess, 30000); // 30 second timeout
+    DWORD wait_result = WaitForSingleObject(pi.hProcess, timeout_ms);
 
     DWORD exit_code = 1;
     if (wait_result == WAIT_OBJECT_0) {
         GetExitCodeProcess(pi.hProcess, &exit_code);
     } else if (wait_result == WAIT_TIMEOUT) {
-        Debug::Log("ERROR: FFmpeg process timed out");
+        Debug::Log("ERROR: FFmpeg process timed out after " + std::to_string(timeout_ms) + "ms");
         TerminateProcess(pi.hProcess, 1);
         exit_code = 1;
     }

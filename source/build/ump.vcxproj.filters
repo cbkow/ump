@@ -109,6 +109,12 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\streaming_video_decoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -119,6 +125,27 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager_transcode.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\edl_parser.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\media_linker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_commands.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_playback_controller.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_thumbnail_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_view.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_generator.cpp">
@@ -294,6 +321,12 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\streaming_video_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -304,6 +337,30 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\edl_parser.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\media_linker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_commands.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_playback_controller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_selection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_thumbnail_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_view.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\transcode\difference_sequence_generator.h">

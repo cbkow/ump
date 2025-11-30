@@ -11,6 +11,7 @@
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVFrame;
+struct SwsContext;
 
 // Forward declarations
 struct ConversionStrategy;
@@ -178,6 +179,7 @@ public:
     double GetFrameRate() const { return fps_; }
     double GetDuration() const { return duration_; }
     int GetFrameCount() const { return static_cast<int>(duration_ * fps_); }
+    bool IsInitialized() const { return initialized_; }
 
     // Metadata-driven conversion (NEW: Format-specific color matrix support for 4444/422/420)
     void SetConversionStrategy(const ConversionStrategy& strategy);
@@ -221,6 +223,14 @@ private:
     // Thread safety
     std::mutex ffmpeg_mutex_;
     bool initialized_ = false;
+
+    // Cached sws_context to prevent per-frame allocation leak
+    ::SwsContext* cached_sws_ctx_ = nullptr;
+    int cached_sws_src_w_ = 0;
+    int cached_sws_src_h_ = 0;
+    int cached_sws_src_fmt_ = -1;
+    int cached_sws_dst_w_ = 0;
+    int cached_sws_dst_h_ = 0;
 };
 
 } // namespace ump

@@ -36,6 +36,12 @@ extern "C" {
 #include <libavfilter/buffersink.h>
 }
 
+// Thread-local storage for hardware pixel format (needed by get_format callback)
+static thread_local AVPixelFormat g_extractor_hw_pix_fmt = AV_PIX_FMT_NONE;
+
+// Forward declaration of hardware format callback
+static AVPixelFormat ExtractorGetHWFormatCallback(AVCodecContext* ctx, const AVPixelFormat* pix_fmts);
+
 MediaBackgroundExtractor::MediaBackgroundExtractor(FrameCache* parent_cache, const ExtractorConfig& cfg)
     : config(cfg), parent_cache(parent_cache) {
     Debug::Log("MediaBackgroundExtractor: Initializing with " + std::to_string(config.max_batch_size) + " batch size");
@@ -139,88 +145,160 @@ bool MediaBackgroundExtractor::Initialize(const std::string& video_path, const V
     return true;
 }
 
+// Helper function to try hardware acceleration for a specific device type
+static bool TryHardwareAccelType(const AVCodec* codec, AVHWDeviceType hw_type,
+                                  AVBufferRef** hw_device_ctx, int* hw_pix_fmt) {
+    // Check if this codec supports this hardware acceleration
+    for (int i = 0;; i++) {
+        const AVCodecHWConfig* config = avcodec_get_hw_config(codec, i);
+        if (!config) {
+            break;  // No more hw configs
+        }
+
+        if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
+            config->device_type == hw_type) {
+
+            // Found matching config - try to create device context
+            int ret = av_hwdevice_ctx_create(hw_device_ctx, hw_type, nullptr, nullptr, 0);
+            if (ret < 0) {
+                char errbuf[256];
+                av_strerror(ret, errbuf, sizeof(errbuf));
+                Debug::Log("MediaBackgroundExtractor: Failed to create " +
+                           std::string(av_hwdevice_get_type_name(hw_type)) +
+                           " device: " + errbuf);
+                return false;
+            }
+
+            // Store the hardware pixel format
+            *hw_pix_fmt = static_cast<int>(config->pix_fmt);
+
+            Debug::Log("MediaBackgroundExtractor: Created " +
+                       std::string(av_hwdevice_get_type_name(hw_type)) +
+                       " device context, hw_pix_fmt=" + std::to_string(*hw_pix_fmt));
+            return true;
+        }
+    }
+
+    Debug::Log("MediaBackgroundExtractor: Codec doesn't support " +
+               std::string(av_hwdevice_get_type_name(hw_type)));
+    return false;
+}
+
 bool MediaBackgroundExtractor::SetupHardwareDecode() {
     AVStream* video_stream = format_context->streams[video_stream_index];
-    const AVCodec* decoder = nullptr;
 
-    // Try hardware decoders based on config
-    if (config.hw_config.mode == HardwareDecodeMode::NVDEC || config.hw_config.mode == HardwareDecodeMode::AUTO) {
-        if (InitializeNVDEC()) {
-            current_hw_mode = HardwareDecodeMode::NVDEC;
-            current_hw_decoder_name = "NVDEC";
-            Debug::Log("MediaBackgroundExtractor: Using NVDEC hardware acceleration");
-        }
-    }
-
-    if (current_hw_mode == HardwareDecodeMode::SOFTWARE_ONLY &&
-        (config.hw_config.mode == HardwareDecodeMode::D3D11VA || config.hw_config.mode == HardwareDecodeMode::AUTO)) {
-        if (InitializeD3D11VA()) {
-            current_hw_mode = HardwareDecodeMode::D3D11VA;
-            current_hw_decoder_name = "D3D11VA";
-            Debug::Log("MediaBackgroundExtractor: Using D3D11VA hardware acceleration");
-        }
-    }
-
-    // Create codec context
-    if (current_hw_mode != HardwareDecodeMode::SOFTWARE_ONLY) {
-        // Hardware decoder
-        decoder = avcodec_find_decoder_by_name((current_hw_decoder_name + "_" + avcodec_get_name(video_stream->codecpar->codec_id)).c_str());
-    }
-
+    // Find standard decoder first (hardware decode uses same decoder with hw_device_ctx)
+    const AVCodec* decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
     if (!decoder) {
-        // Fallback to software decoder
-        decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
+        Debug::Log("MediaBackgroundExtractor: No decoder found for codec");
+        return false;
+    }
+
+    Debug::Log("MediaBackgroundExtractor: Found decoder: " + std::string(decoder->name));
+
+    // Try hardware acceleration if enabled
+    bool hw_success = false;
+    if (config.hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
+        // Define hardware options to try in priority order
+        struct HWOption {
+            AVHWDeviceType av_type;
+            HardwareDecodeMode our_mode;
+            const char* name;
+        };
+
+        std::vector<HWOption> hw_options;
+
+        // Build options list based on config
+        if (config.hw_config.mode == HardwareDecodeMode::NVDEC || config.hw_config.mode == HardwareDecodeMode::AUTO) {
+            hw_options.push_back({AV_HWDEVICE_TYPE_CUDA, HardwareDecodeMode::NVDEC, "CUDA (NVDEC)"});
+        }
+        if (config.hw_config.mode == HardwareDecodeMode::D3D11VA || config.hw_config.mode == HardwareDecodeMode::AUTO) {
+            hw_options.push_back({AV_HWDEVICE_TYPE_D3D11VA, HardwareDecodeMode::D3D11VA, "D3D11VA"});
+        }
+
+        for (const auto& opt : hw_options) {
+            Debug::Log("MediaBackgroundExtractor: Trying " + std::string(opt.name) + "...");
+
+            int temp_hw_pix_fmt = -1;
+            if (TryHardwareAccelType(decoder, opt.av_type, &hw_device_ctx, &temp_hw_pix_fmt)) {
+                hw_pix_fmt_ = temp_hw_pix_fmt;
+                current_hw_mode = opt.our_mode;
+                current_hw_decoder_name = opt.name;
+                hw_success = true;
+                Debug::Log("MediaBackgroundExtractor: Hardware acceleration enabled: " + std::string(opt.name));
+                break;
+            }
+        }
+
+        if (!hw_success) {
+            Debug::Log("MediaBackgroundExtractor: No hardware acceleration available, using software decode");
+        }
+    }
+
+    // Allocate codec context
+    codec_context = avcodec_alloc_context3(decoder);
+    if (!codec_context) {
+        Debug::Log("MediaBackgroundExtractor: Failed to allocate codec context");
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        return false;
+    }
+
+    // Copy codec parameters
+    if (avcodec_parameters_to_context(codec_context, video_stream->codecpar) < 0) {
+        Debug::Log("MediaBackgroundExtractor: Failed to copy codec parameters");
+        avcodec_free_context(&codec_context);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        return false;
+    }
+
+    // Configure for hardware or software decode
+    if (hw_success && hw_device_ctx) {
+        // Hardware decode configuration
+        codec_context->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+        codec_context->get_format = ExtractorGetHWFormatCallback;
+
+        // Set thread-local hw pixel format for callback
+        g_extractor_hw_pix_fmt = static_cast<AVPixelFormat>(hw_pix_fmt_);
+
+        Debug::Log("MediaBackgroundExtractor: Configured hardware decode with " + current_hw_decoder_name);
+    } else {
+        // Software decode configuration
         current_hw_mode = HardwareDecodeMode::SOFTWARE_ONLY;
         current_hw_decoder_name = "Software";
+        hw_pix_fmt_ = -1;
+
+        // Set thread count for parallel decode
+        codec_context->thread_count = 0;  // Auto-detect
+        codec_context->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+
         Debug::Log("MediaBackgroundExtractor: Using software decoder");
     }
 
-    if (!decoder) {
-        Debug::Log("MediaBackgroundExtractor: No suitable decoder found");
-        return false;
-    }
-
-    codec_context = avcodec_alloc_context3(decoder);
-    if (avcodec_parameters_to_context(codec_context, video_stream->codecpar) < 0) {
-        Debug::Log("MediaBackgroundExtractor: Failed to copy codec parameters");
-        return false;
-    }
-
-    // Set hardware device context if using hardware decode
-    if (hw_device_ctx && current_hw_mode != HardwareDecodeMode::SOFTWARE_ONLY) {
-        codec_context->hw_device_ctx = av_buffer_ref(hw_device_ctx);
-    }
-
-    // Configure for frame extraction performance
-    codec_context->thread_count = 0;  // Auto-detect threads
-    codec_context->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
-
+    // Open codec
     if (avcodec_open2(codec_context, decoder, nullptr) < 0) {
         Debug::Log("MediaBackgroundExtractor: Failed to open codec");
+        avcodec_free_context(&codec_context);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
         return false;
     }
 
     return true;
 }
 
-bool MediaBackgroundExtractor::InitializeD3D11VA() {
-#ifdef _WIN32
-    // Create D3D11 device for hardware decode
-    int ret = av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_D3D11VA, nullptr, nullptr, 0);
-    if (ret < 0) {
-        Debug::Log("MediaBackgroundExtractor: D3D11VA initialization failed: " + std::to_string(ret));
-        return false;
+// Hardware format callback - returns the hardware pixel format we configured
+static AVPixelFormat ExtractorGetHWFormatCallback(AVCodecContext* ctx, const AVPixelFormat* pix_fmts) {
+    for (const AVPixelFormat* p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
+        if (*p == g_extractor_hw_pix_fmt) {
+            return *p;
+        }
     }
-    return true;
-#else
-    return false;
-#endif
+    // Fallback to software if hardware format not available
+    Debug::Log("MediaBackgroundExtractor: Hardware format not available, falling back to software");
+    return pix_fmts[0];
 }
 
-bool MediaBackgroundExtractor::InitializeNVDEC() {
-    // Check if NVDEC is available
-    return av_hwdevice_ctx_create(&hw_device_ctx, AV_HWDEVICE_TYPE_CUDA, nullptr, nullptr, 0) >= 0;
-}
+// Note: InitializeD3D11VA() and InitializeNVDEC() removed - hardware acceleration
+// is now handled via TryHardwareAccelType() in SetupHardwareDecode()
 
 void MediaBackgroundExtractor::StartBackgroundExtraction() {
     if (!initialized.load()) {
@@ -465,7 +543,8 @@ ExtractionResult MediaBackgroundExtractor::ExtractSingleFrame(const FrameExtract
     int width = frame->width;
     int height = frame->height;
 
-    if (!ConvertFrameToPixelBuffer(frame, pixel_data, width, height)) {
+    // Pass hw_pix_fmt for hardware frame detection and transfer
+    if (!ConvertFrameToPixelBuffer(frame, pixel_data, width, height, worker_ctx.hw_pix_fmt)) {
         result.error_message = "Failed to convert frame to pixel buffer";
         return result;
     }
@@ -543,27 +622,62 @@ bool MediaBackgroundExtractor::DecodeFrameAtTimestamp(double timestamp, AVFrame*
     return found_frame;
 }
 
-bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::vector<uint8_t>& pixel_data, int& width, int& height) {
+bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::vector<uint8_t>& pixel_data, int& width, int& height, int hw_pix_fmt) {
     if (!frame || frame->width <= 0 || frame->height <= 0) {
         return false;
     }
 
+    // Hardware frame transfer: If frame is in GPU memory, transfer to CPU first
+    AVFrame* sw_frame = nullptr;
+    AVFrame* src_frame = frame;
+
+    bool is_hw_frame = (hw_pix_fmt != -1 && frame->format == hw_pix_fmt);
+
+    if (is_hw_frame) {
+        // Allocate a software frame for the transfer
+        sw_frame = av_frame_alloc();
+        if (!sw_frame) {
+            Debug::Log("MediaBackgroundExtractor: Failed to allocate sw_frame for hw transfer");
+            return false;
+        }
+
+        // Transfer from GPU to CPU
+        int ret = av_hwframe_transfer_data(sw_frame, frame, 0);
+        if (ret < 0) {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("MediaBackgroundExtractor: Failed to transfer hw frame: " + std::string(errbuf));
+            av_frame_free(&sw_frame);
+            return false;
+        }
+
+        // Copy frame properties
+        sw_frame->pts = frame->pts;
+        sw_frame->pkt_dts = frame->pkt_dts;
+
+        src_frame = sw_frame;
+        Debug::Log("MediaBackgroundExtractor: Hardware frame transferred to CPU, format=" + std::to_string(src_frame->format));
+    }
+
+    // From this point, use src_frame (either original or transferred)
+
     // NEW: For video formats that need color matrix processing, wait for metadata before processing
     if (!has_conversion_strategy) {
         // Check if this format needs metadata for proper color matrix application
-        std::string format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
+        std::string format_name = av_get_pix_fmt_name((AVPixelFormat)src_frame->format);
         if (format_name.find("444") != std::string::npos ||
             format_name.find("422") != std::string::npos ||
             format_name.find("420") != std::string::npos ||
             format_name.find("rgba") != std::string::npos ||
             format_name.find("yuv") != std::string::npos) {
             Debug::Log("MediaBackgroundExtractor: Delaying " + format_name + " frame processing - waiting for metadata");
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;  // Skip processing until metadata arrives
         }
     }
 
-    width = frame->width;
-    height = frame->height;
+    width = src_frame->width;
+    height = src_frame->height;
 
     // Get pipeline configuration for output format
     auto it = PIPELINE_CONFIGS.find(config.pipeline_mode);
@@ -605,6 +719,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         AVFilterGraph* filter_graph = avfilter_graph_alloc();
         if (!filter_graph) {
             Debug::Log("MediaBackgroundExtractor: Failed to allocate filter graph");
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -615,12 +730,13 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         char args[512];
         snprintf(args, sizeof(args),
             "video_size=%dx%d:pix_fmt=%d:time_base=1/1:pixel_aspect=1/1",
-            frame->width, frame->height, frame->format);
+            src_frame->width, src_frame->height, src_frame->format);
 
         int ret = avfilter_graph_create_filter(&buffersrc_ctx, buffersrc, "in", args, nullptr, filter_graph);
         if (ret < 0) {
             Debug::Log("MediaBackgroundExtractor: Failed to create buffer source, ret=" + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -632,6 +748,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         if (ret < 0) {
             Debug::Log("MediaBackgroundExtractor: Failed to create buffer sink, ret=" + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -644,6 +761,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             avfilter_inout_free(&outputs);
             avfilter_inout_free(&inputs);
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -689,6 +807,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         if (ret < 0) {
             Debug::Log("MediaBackgroundExtractor: Failed to parse filter graph, ret=" + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -696,14 +815,16 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         if (ret < 0) {
             Debug::Log("MediaBackgroundExtractor: Failed to configure filter graph, ret=" + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
-        // Push frame into filter graph
-        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        // Push frame into filter graph (use src_frame for hardware-transferred frames)
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx, src_frame, AV_BUFFERSRC_FLAG_KEEP_REF);
         if (ret < 0) {
             Debug::Log("MediaBackgroundExtractor: Failed to push frame to filter, ret=" + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -714,6 +835,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
             Debug::Log("MediaBackgroundExtractor: Failed to pull frame from filter, ret=" + std::to_string(ret));
             av_frame_free(&filtered_frame);
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
@@ -736,12 +858,14 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
                       std::to_string(target_format) + ", got " + std::to_string(filtered_frame->format));
             av_frame_free(&filtered_frame);
             avfilter_graph_free(&filter_graph);
+            if (sw_frame) av_frame_free(&sw_frame);
             return false;
         }
 
         // Cleanup
         av_frame_free(&filtered_frame);
         avfilter_graph_free(&filter_graph);
+        if (sw_frame) av_frame_free(&sw_frame);
 
         return true;  // FILTER_422 path complete - skip swscale below
     }
@@ -758,6 +882,7 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
 
     if (av_frame_get_buffer(target_frame, 32) < 0) {
         av_frame_free(&target_frame);
+        if (sw_frame) av_frame_free(&sw_frame);
         return false;
     }
 
@@ -771,13 +896,14 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
     }
 
     SwsContext* sws_ctx = sws_getContext(
-        frame->width, frame->height, (AVPixelFormat)frame->format,
+        src_frame->width, src_frame->height, (AVPixelFormat)src_frame->format,
         width, height, target_format,
         sws_flags,
         nullptr, nullptr, nullptr);
 
     if (!sws_ctx) {
         av_frame_free(&target_frame);
+        if (sw_frame) av_frame_free(&sw_frame);
         return false;
     }
 
@@ -793,13 +919,13 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
         int dst_range = 0;  // Full range output (RGB is always full range 0-255)
 
         // Log source frame properties for diagnostics
-        const char* format_name = av_get_pix_fmt_name((AVPixelFormat)frame->format);
+        const char* format_name = av_get_pix_fmt_name((AVPixelFormat)src_frame->format);
        /* Debug::Log("MediaBackgroundExtractor: Source frame format: " + std::string(format_name ? format_name : "unknown") +
-                  ", colorspace=" + std::to_string(frame->colorspace) +
-                  ", color_range=" + std::to_string(frame->color_range));
+                  ", colorspace=" + std::to_string(src_frame->colorspace) +
+                  ", color_range=" + std::to_string(src_frame->color_range));
 
-        Debug::Log("MediaBackgroundExtractor: Limited->Full range expansion - frame->color_range=" +
-                  std::to_string(frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");*/
+        Debug::Log("MediaBackgroundExtractor: Limited->Full range expansion - src_frame->color_range=" +
+                  std::to_string(src_frame->color_range) + ", src_range=0 (limited) -> dst_range=1 (full)");*/
 
         if (conversion_strategy->ShouldApplyFullMatrix()) {
             // FULL_MATRIX mode: YUV->RGB colorspace conversion (4444 formats)
@@ -868,7 +994,8 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
     }
 
     // Convert to target format with format-specific color processing
-    sws_scale(sws_ctx, frame->data, frame->linesize, 0, height,
+    // Use src_frame (which may be the transferred sw_frame for hardware decode)
+    sws_scale(sws_ctx, src_frame->data, src_frame->linesize, 0, height,
               target_frame->data, target_frame->linesize);
 
     // Copy raw pixel data to byte vector (row-by-row to handle FFmpeg stride alignment)
@@ -885,6 +1012,9 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
 
     sws_freeContext(sws_ctx);
     av_frame_free(&target_frame);
+
+    // Clean up hardware transfer frame if it was allocated
+    if (sw_frame) av_frame_free(&sw_frame);
 
     return true;
 }
@@ -1521,30 +1651,115 @@ bool MediaBackgroundExtractor::WorkerContext::Initialize(const std::string& vide
 
     AVStream* video_stream = format_context->streams[video_stream_index];
 
-    // Setup decoder (always software for thread safety)
+    // Find standard decoder first
     const AVCodec* decoder = avcodec_find_decoder(video_stream->codecpar->codec_id);
     if (!decoder) {
         Debug::Log("WorkerContext: No suitable decoder found");
         return false;
     }
 
+    Debug::Log("WorkerContext: Found decoder: " + std::string(decoder->name));
+
+    // Try hardware acceleration if enabled
+    bool hw_success = false;
+    if (hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
+        // Define hardware options to try in priority order
+        struct HWOption {
+            AVHWDeviceType av_type;
+            const char* name;
+        };
+
+        std::vector<HWOption> hw_options;
+
+        // Build options list based on config
+        if (hw_config.mode == HardwareDecodeMode::NVDEC || hw_config.mode == HardwareDecodeMode::AUTO) {
+            hw_options.push_back({AV_HWDEVICE_TYPE_CUDA, "CUDA (NVDEC)"});
+        }
+        if (hw_config.mode == HardwareDecodeMode::D3D11VA || hw_config.mode == HardwareDecodeMode::AUTO) {
+            hw_options.push_back({AV_HWDEVICE_TYPE_D3D11VA, "D3D11VA"});
+        }
+
+        for (const auto& opt : hw_options) {
+            // Check if this codec supports this hardware acceleration
+            for (int i = 0;; i++) {
+                const AVCodecHWConfig* config = avcodec_get_hw_config(decoder, i);
+                if (!config) {
+                    break;  // No more hw configs
+                }
+
+                if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
+                    config->device_type == opt.av_type) {
+
+                    // Found matching config - try to create device context
+                    int ret = av_hwdevice_ctx_create(&hw_device_ctx, opt.av_type, nullptr, nullptr, 0);
+                    if (ret >= 0) {
+                        hw_pix_fmt = static_cast<int>(config->pix_fmt);
+                        using_hw_decode = true;
+                        hw_success = true;
+                        Debug::Log("WorkerContext: Hardware acceleration enabled: " + std::string(opt.name) +
+                                   ", hw_pix_fmt=" + std::to_string(hw_pix_fmt));
+                        break;
+                    }
+                }
+            }
+            if (hw_success) break;
+        }
+
+        if (!hw_success) {
+            Debug::Log("WorkerContext: No hardware acceleration available, using software decode");
+        }
+    }
+
+    // Allocate codec context
     codec_context = avcodec_alloc_context3(decoder);
-    if (avcodec_parameters_to_context(codec_context, video_stream->codecpar) < 0) {
-        Debug::Log("WorkerContext: Failed to copy codec parameters");
+    if (!codec_context) {
+        Debug::Log("WorkerContext: Failed to allocate codec context");
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        avformat_close_input(&format_context);
         return false;
     }
 
-    // Configure for frame extraction performance
-    codec_context->thread_count = 1;  // Single threaded for safety
-    codec_context->thread_type = FF_THREAD_SLICE;
+    if (avcodec_parameters_to_context(codec_context, video_stream->codecpar) < 0) {
+        Debug::Log("WorkerContext: Failed to copy codec parameters");
+        avcodec_free_context(&codec_context);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        avformat_close_input(&format_context);
+        return false;
+    }
+
+    // Configure for hardware or software decode
+    if (hw_success && hw_device_ctx) {
+        // Hardware decode configuration
+        codec_context->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+
+        // Set thread-local hw pixel format for callback (each worker thread has its own)
+        g_extractor_hw_pix_fmt = static_cast<AVPixelFormat>(hw_pix_fmt);
+        codec_context->get_format = ExtractorGetHWFormatCallback;
+
+        Debug::Log("WorkerContext: Configured hardware decode");
+    } else {
+        // Software decode configuration
+        using_hw_decode = false;
+        hw_pix_fmt = -1;
+
+        // Use single thread for worker contexts to avoid contention
+        codec_context->thread_count = 1;
+        codec_context->thread_type = FF_THREAD_SLICE;
+
+        Debug::Log("WorkerContext: Using software decoder");
+    }
 
     if (avcodec_open2(codec_context, decoder, nullptr) < 0) {
         Debug::Log("WorkerContext: Failed to open codec");
+        avcodec_free_context(&codec_context);
+        if (hw_device_ctx) av_buffer_unref(&hw_device_ctx);
+        avformat_close_input(&format_context);
         return false;
     }
 
     initialized = true;
-    Debug::Log("WorkerContext: Successfully initialized for " + video_path);
+    Debug::Log("WorkerContext: Successfully initialized for " + video_path +
+               (using_hw_decode ? " (hardware accelerated)" : " (software)"));
     return true;
 }
 

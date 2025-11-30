@@ -1383,7 +1383,8 @@ VideoImageLoader::VideoImageLoader(const std::string& video_path, double fps, do
         Debug::Log("VideoImageLoader: Failed to initialize FFmpeg for " + video_path_);
     } else {
         Debug::Log("VideoImageLoader: Successfully initialized " + std::to_string(width_) + "x" +
-                   std::to_string(height_) + ", " + std::to_string(GetFrameCount()) + " frames");
+                   std::to_string(height_) + " @ " + std::to_string(fps_) + "fps, " +
+                   std::to_string(duration_) + "s, " + std::to_string(GetFrameCount()) + " frames");
     }
 }
 
@@ -1434,6 +1435,37 @@ bool VideoImageLoader::InitializeFFmpeg() {
     width_ = video_stream->codecpar->width;
     height_ = video_stream->codecpar->height;
 
+    // CRITICAL: Detect actual video FPS from stream metadata
+    // The fps_ passed to constructor may be timeline FPS, not source video FPS
+    // We must use the actual video FPS for correct frame-to-timestamp conversion
+    double detected_fps = 0.0;
+    if (video_stream->avg_frame_rate.den > 0 && video_stream->avg_frame_rate.num > 0) {
+        detected_fps = av_q2d(video_stream->avg_frame_rate);
+    } else if (video_stream->r_frame_rate.den > 0 && video_stream->r_frame_rate.num > 0) {
+        detected_fps = av_q2d(video_stream->r_frame_rate);
+    }
+
+    if (detected_fps > 0.0 && std::abs(detected_fps - fps_) > 0.1) {
+        Debug::Log("VideoImageLoader: Overriding fps from " + std::to_string(fps_) +
+                   " to detected " + std::to_string(detected_fps));
+        fps_ = detected_fps;
+    }
+
+    // CRITICAL: Detect actual video duration from FFmpeg metadata
+    // The duration passed to constructor may be 0 (unknown), we must detect it
+    double detected_duration = 0.0;
+    if (format_context_->duration > 0) {
+        detected_duration = static_cast<double>(format_context_->duration) / AV_TIME_BASE;
+    } else if (video_stream->duration > 0) {
+        detected_duration = static_cast<double>(video_stream->duration) * av_q2d(video_stream->time_base);
+    }
+
+    if (detected_duration > 0.0 && (duration_ <= 0.0 || std::abs(detected_duration - duration_) > 0.1)) {
+        Debug::Log("VideoImageLoader: Overriding duration from " + std::to_string(duration_) +
+                   " to detected " + std::to_string(detected_duration) + "s");
+        duration_ = detected_duration;
+    }
+
     // Extract container start_time offset (critical for HEVC and other formats)
     // Store in same format as MediaBackgroundExtractor for consistency
     if (video_stream->start_time != AV_NOPTS_VALUE) {
@@ -1480,6 +1512,12 @@ bool VideoImageLoader::InitializeFFmpeg() {
 
 void VideoImageLoader::CleanupFFmpeg() {
     std::lock_guard<std::mutex> lock(ffmpeg_mutex_);
+
+    // Free cached sws_context
+    if (cached_sws_ctx_) {
+        sws_freeContext(cached_sws_ctx_);
+        cached_sws_ctx_ = nullptr;
+    }
 
     if (codec_context_) {
         avcodec_free_context(&codec_context_);
@@ -1533,6 +1571,12 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
 
     std::lock_guard<std::mutex> lock(ffmpeg_mutex_);
 
+    // Clamp frame number to valid range (handles single-frame holds and overshoots)
+    int max_frame = GetFrameCount() - 1;
+    if (max_frame < 0) max_frame = 0;
+    if (frame_number < 0) frame_number = 0;
+    if (frame_number > max_frame) frame_number = max_frame;
+
     // Calculate timestamp with start_time offset (critical for HEVC and other formats with non-zero PTS)
     // Match exactly how FrameCache::FrameNumberToTimestamp handles this (frame_cache.cpp:890-894)
     double timestamp = frame_number / fps_;
@@ -1583,6 +1627,9 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     // Convert timestamp to stream timebase
     int64_t target_pts = av_rescale_q(timestamp * AV_TIME_BASE, AV_TIME_BASE_Q, stream->time_base);
 
+    Debug::Log("VideoImageLoader::SeekAndDecodeFrame: timestamp=" + std::to_string(timestamp) +
+               "s, target_pts=" + std::to_string(target_pts));
+
     // Seek to target timestamp
     if (av_seek_frame(format_context_, video_stream_index_, target_pts, AVSEEK_FLAG_BACKWARD) < 0) {
         Debug::Log("VideoImageLoader: Seek failed for timestamp " + std::to_string(timestamp));
@@ -1600,6 +1647,7 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     AVFrame* best_frame = av_frame_alloc();
     int64_t best_diff = INT64_MAX;
     bool passed_target = false;
+    int frames_decoded = 0;
 
     // Read packets until we find our target frame
     // We seek backward to keyframe, then decode forward to find the closest frame
@@ -1607,6 +1655,7 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
         if (packet->stream_index == video_stream_index_) {
             if (avcodec_send_packet(codec_context_, packet) >= 0) {
                 while (avcodec_receive_frame(codec_context_, output_frame) >= 0) {
+                    frames_decoded++;
                     int64_t frame_pts = output_frame->pts;
                     int64_t diff = std::abs(frame_pts - target_pts);
 
@@ -1634,6 +1683,7 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
             }
             // Stop decoding if we found a frame and passed the target
             if (passed_target && found_frame) {
+                av_packet_unref(packet);  // Don't forget to unref before breaking!
                 break;
             }
         }
@@ -1643,6 +1693,12 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     // Copy best frame to output
     if (found_frame) {
         av_frame_ref(output_frame, best_frame);
+        Debug::Log("VideoImageLoader::SeekAndDecodeFrame: Found frame after " +
+                   std::to_string(frames_decoded) + " decodes, best_pts=" +
+                   std::to_string(best_frame->pts) + ", diff=" + std::to_string(best_diff));
+    } else {
+        Debug::Log("VideoImageLoader::SeekAndDecodeFrame: FAILED - decoded " +
+                   std::to_string(frames_decoded) + " frames but found none");
     }
 
     av_frame_free(&best_frame);
@@ -1694,17 +1750,41 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         return false;
     }
 
-    // Setup software scaler
-    SwsContext* sws_ctx = sws_getContext(
-        frame->width, frame->height, (AVPixelFormat)frame->format,
-        width, height, target_format,
-        SWS_POINT,  // OPTIMIZED: Nearest neighbor for thumbnails (~4x faster than bilinear, acceptable quality at small sizes)
-        nullptr, nullptr, nullptr);
+    // Setup software scaler - CACHE to prevent per-frame allocation leak
+    // Check if cached context can be reused
+    bool need_new_ctx = (cached_sws_ctx_ == nullptr ||
+                         cached_sws_src_w_ != frame->width ||
+                         cached_sws_src_h_ != frame->height ||
+                         cached_sws_src_fmt_ != frame->format ||
+                         cached_sws_dst_w_ != width ||
+                         cached_sws_dst_h_ != height);
 
-    if (!sws_ctx) {
-        av_frame_free(&target_frame);
-        return false;
+    if (need_new_ctx) {
+        // Free old context if exists
+        if (cached_sws_ctx_) {
+            sws_freeContext(cached_sws_ctx_);
+        }
+
+        cached_sws_ctx_ = sws_getContext(
+            frame->width, frame->height, (AVPixelFormat)frame->format,
+            width, height, target_format,
+            SWS_POINT,  // OPTIMIZED: Nearest neighbor for thumbnails
+            nullptr, nullptr, nullptr);
+
+        if (!cached_sws_ctx_) {
+            av_frame_free(&target_frame);
+            return false;
+        }
+
+        // Cache parameters
+        cached_sws_src_w_ = frame->width;
+        cached_sws_src_h_ = frame->height;
+        cached_sws_src_fmt_ = frame->format;
+        cached_sws_dst_w_ = width;
+        cached_sws_dst_h_ = height;
     }
+
+    SwsContext* sws_ctx = cached_sws_ctx_;  // Use cached (don't free at end!)
 
     // ============================================================================
     // NEW: FILTER_422 mode - Use libavfilter colorspace filter (ProRes 422)
@@ -1716,7 +1796,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         AVFilterGraph* filter_graph = avfilter_graph_alloc();
         if (!filter_graph) {
             Debug::Log("VideoImageLoader: Failed to allocate filter graph");
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1734,7 +1813,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         if (ret < 0) {
             Debug::Log("VideoImageLoader: Failed to create buffer source: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1747,7 +1825,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         if (ret < 0) {
             Debug::Log("VideoImageLoader: Failed to create buffer sink: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1792,7 +1869,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         if (ret < 0) {
             //Debug::Log("VideoImageLoader: Failed to parse filter graph: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1801,7 +1877,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         if (ret < 0) {
             //Debug::Log("VideoImageLoader: Failed to configure filter graph: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1811,7 +1886,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         if (ret < 0) {
             Debug::Log("VideoImageLoader: Failed to push frame to filter: " + std::to_string(ret));
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1823,7 +1897,6 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
             Debug::Log("VideoImageLoader: Failed to pull filtered frame: " + std::to_string(ret));
             av_frame_free(&filtered_frame);
             avfilter_graph_free(&filter_graph);
-            sws_freeContext(sws_ctx);
             av_frame_free(&target_frame);
             return false;
         }
@@ -1856,7 +1929,7 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         // Cleanup
         av_frame_free(&filtered_frame);
         avfilter_graph_free(&filter_graph);
-        sws_freeContext(sws_ctx);
+        // NOTE: sws_ctx is cached, freed in CleanupFFmpeg()
         av_frame_free(&target_frame);
 
         return true;  // FILTER_422 path complete - skip swscale below
@@ -1973,7 +2046,7 @@ bool VideoImageLoader::ConvertFrameToPixels(AVFrame* frame, std::vector<uint8_t>
         }
     }
 
-    sws_freeContext(sws_ctx);
+    // NOTE: sws_ctx is cached, freed in CleanupFFmpeg()
     av_frame_free(&target_frame);
 
     return true;

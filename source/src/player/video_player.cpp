@@ -4,6 +4,8 @@
 #include "../transcode/transcode_manager.h"
 #include "difference_cache.h"
 #include "../project/media_item.h"
+#include "../timeline/timeline_playback_controller.h"
+#include "../timeline/timeline_cache.h"
 #include "../utils/debug_utils.h"
 #include "../utils/gpu_scheduler.h"
 #include "dummy_video_generator.h"
@@ -372,6 +374,11 @@ void VideoPlayer::CreateVideoTextures(int width, int height) {
 void VideoPlayer::Cleanup() {
     Debug::Log("VideoPlayer::Cleanup: Starting cleanup...");
 
+    // Reset content dimensions (overlay mode state)
+    content_width_ = 0;
+    content_height_ = 0;
+    use_content_dimensions_ = false;
+
     // Free MPV render context first (may have background rendering threads)
     Debug::Log("VideoPlayer::Cleanup: Freeing MPV render context...");
     if (mpv_gl) {
@@ -544,6 +551,11 @@ void VideoPlayer::LoadFile(const std::string& path) {
     bool was_exr_mode = is_exr_mode;
     is_exr_mode = false;
 
+    // ✅ Clear content dimensions (overlay mode) - new media will set its own if needed
+    content_width_ = 0;
+    content_height_ = 0;
+    use_content_dimensions_ = false;
+
     // === CLEAR ALL CACHES BEFORE LOADING NEW MEDIA ===
     // This ensures clean transitions between any media types
 
@@ -557,6 +569,12 @@ void VideoPlayer::LoadFile(const std::string& path) {
     if (exr_cache_) {
         Debug::Log("LoadFile: Clearing EXR/image sequence cache before loading new media");
         exr_cache_->Shutdown();
+        // Process ALL queued texture deletions BEFORE destroying the cache object
+        // Otherwise texturesToDelete_ queue is lost and GL textures leak
+        // ProcessReadyTextures() only deletes 20 per call, so loop until empty
+        while (exr_cache_->HasPendingTextureDeletions()) {
+            exr_cache_->ProcessReadyTextures();
+        }
         exr_cache_.reset();
     }
 
@@ -622,8 +640,10 @@ void VideoPlayer::LoadFile(const std::string& path) {
     }
 
     // Initialize ThumbnailCache for regular video files (not audio-only files)
+    // Skip dummy videos (timeline mode uses TimelineCache instead)
     // Reuse is_audio_file from above (already detected)
-    if (has_video && !is_audio_file) {
+    bool is_dummy_video = (path.find("dummy_") != std::string::npos);
+    if (has_video && !is_audio_file && !is_dummy_video) {
         ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
         if (thumb_config.enabled) {
             // ✅ Get all video properties from cached FFmpeg metadata (instant, no MPV queries)
@@ -699,6 +719,8 @@ void VideoPlayer::LoadFile(const std::string& path) {
         }
     } else if (is_audio_file) {
         Debug::Log("VideoPlayer: Skipping ThumbnailCache for audio file (no video frames)");
+    } else if (is_dummy_video) {
+        Debug::Log("VideoPlayer: Skipping ThumbnailCache for dummy video (timeline uses TimelineCache)");
     }
 }
 
@@ -1094,6 +1116,18 @@ void VideoPlayer::SetupAudioVisualization() {
         return;
     }
 
+    // Skip audio visualization for timeline/dummy videos
+    if (is_timeline_mode_) {
+        Debug::Log("SetupAudioVisualization: Skipping for timeline mode (dummy video)");
+        return;
+    }
+
+    // Skip for dummy video files (detected by path containing "dummy_")
+    if (current_file_path.find("dummy_") != std::string::npos) {
+        Debug::Log("SetupAudioVisualization: Skipping for dummy video file");
+        return;
+    }
+
     // ✅ Only enable audio visualization for audio-only files (no video stream)
     if (metadata_callback && !current_file_path.empty()) {
         VideoMetadata meta = metadata_callback(current_file_path);
@@ -1422,6 +1456,26 @@ void VideoPlayer::RenderVideoFrame() {
         exr_cache_->ProcessReadyTextures();
     }
 
+    // 🔧 CRITICAL: Process timeline textures EVERY frame (like EXR above)
+    // This ensures cache fills around playhead even when paused
+    if (is_timeline_mode_ && timeline_controller_ && timeline_controller_->IsInitialized()) {
+        // Only update cache if it exists (scratch timelines may not have a cache until clips are added)
+        auto* cache = timeline_controller_->GetCache();
+        if (cache) {
+            // Update cache playhead from MPV position (enables pre-caching when paused)
+            double pos = GetPosition();
+            int frame = static_cast<int>(std::round(pos * timeline_controller_->GetFPS()));
+            if (frame < 0) frame = 0;
+            cache->UpdatePlayhead(frame, IsPlaying());
+        }
+
+        // Process pending GPU uploads from background I/O threads
+        timeline_controller_->ProcessPendingUploads();
+    }
+
+    // NOTE: Timeline injection now handled inside UpdateVideoTexture() AFTER MPV render
+    // This matches the EXR pattern exactly and prevents MPV from overwriting the injected frame
+
     // Always render comparison mode UI, even if no primary video is loaded
     if (comparison_mode_enabled_) {
         if (has_video && video_texture) {
@@ -1718,6 +1772,18 @@ void VideoPlayer::UpdateVideoTexture() {
         // 🔧 ProcessReadyTextures() now called unconditionally at start of UpdateVideoTexture()
     }
 
+    // 🔧 TIMELINE INJECTION POINT: Replace dummy video with current timeline frame
+    // This MUST happen AFTER the MPV render (like EXR) to prevent MPV from overwriting the frame
+    if (is_timeline_mode_ && timeline_controller_) {
+        static int timeline_inject_call_count = 0;
+        timeline_inject_call_count++;
+        if (timeline_inject_call_count <= 10 || timeline_inject_call_count % 300 == 0) {
+            Debug::Log("UpdateVideoTexture: Calling InjectCurrentTimelineFrame (call #" +
+                       std::to_string(timeline_inject_call_count) + ")");
+        }
+        InjectCurrentTimelineFrame();
+    }
+
     // Apply color pipeline if active
     if (color_pipeline && color_pipeline->IsValid()) {
         // Only apply if we have valid resources
@@ -1733,6 +1799,37 @@ void VideoPlayer::UpdateVideoTexture() {
 
 void VideoPlayer::UpdateProperties() {
     if (!mpv) return;
+
+    // OVERLAY MODES: Use cached content dimensions, ignore MPV's dummy video dimensions
+    // This enables 1x1 dummies for EXR/image sequences and timeline mode
+    if (use_content_dimensions_ && content_width_ > 0 && content_height_ > 0) {
+        if (video_width != content_width_ || video_height != content_height_) {
+            video_width = content_width_;
+            video_height = content_height_;
+            /*Debug::Log("Using cached content dimensions: " +
+                       std::to_string(video_width) + "x" + std::to_string(video_height));*/
+            CreateVideoTextures(video_width, video_height);
+
+            // If color pipeline exists, also recreate color processing resources
+            if (color_pipeline && color_pipeline->IsValid()) {
+                SetupColorProcessingResources();
+            }
+
+            // Notify UI of dimension change
+            if (dimension_change_callback) {
+                dimension_change_callback(video_width, video_height);
+            }
+        }
+
+        // Still need to update duration and FPS for timeline/sequence playback
+        double dur = 0.0;
+        if (mpv_get_property(mpv, "duration", MPV_FORMAT_DOUBLE, &dur) == 0 && dur > 0) {
+            cached_duration = dur;
+        }
+        cached_fps = GetFrameRate();
+
+        return;  // Skip MPV dimension queries entirely
+    }
 
     // ✅ Use cached FFmpeg metadata for static properties (instant, no MPV queries)
     // Skip for EXR sequences - they use DirectEXRCache, not FFmpeg metadata
@@ -1799,12 +1896,41 @@ void VideoPlayer::UpdateProperties() {
         int new_width = video_width;
         int new_height = video_height;
 
-        if (mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &width) == 0) {
+        int width_result = mpv_get_property(mpv, "video-params/w", MPV_FORMAT_INT64, &width);
+        int height_result = mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &height);
+
+        if (width_result == 0) {
             new_width = (int)width;
         }
-        if (mpv_get_property(mpv, "video-params/h", MPV_FORMAT_INT64, &height) == 0) {
+        if (height_result == 0) {
             new_height = (int)height;
         }
+
+        // TIMELINE MODE FALLBACK: If MPV isn't returning dimensions but we're in timeline mode,
+        // use default 1920x1080 to ensure video_texture gets created
+        // This MUST happen before the dimension change check
+        if (new_width == 0 && new_height == 0 && is_timeline_mode_ && video_texture == 0) {
+            new_width = 1920;
+            new_height = 1080;
+            Debug::Log("UpdateProperties: TIMELINE FALLBACK - MPV returned 0x0, using 1920x1080 for timeline mode");
+        }
+
+        // Debug: Log MPV dimension queries - always log when timeline mode is active and texture missing
+        static int mpv_dim_log_count = 0;
+        mpv_dim_log_count++;
+        bool should_log = (mpv_dim_log_count <= 10 || mpv_dim_log_count % 300 == 0);
+        // Always log when in timeline mode with missing texture
+   /*     if (is_timeline_mode_ && video_texture == 0) {
+            should_log = true;
+        }
+        if (should_log) {
+            Debug::Log("UpdateProperties: MPV dims: " + std::to_string(width) + "x" + std::to_string(height) +
+                       " (results: " + std::to_string(width_result) + "/" + std::to_string(height_result) + ")" +
+                       ", video_texture=" + std::to_string(video_texture) +
+                       ", current: " + std::to_string(video_width) + "x" + std::to_string(video_height) +
+                       ", timeline_mode=" + (is_timeline_mode_ ? "true" : "false") +
+                       ", new: " + std::to_string(new_width) + "x" + std::to_string(new_height));
+        }*/
 
         // Check if video dimensions changed
         if (new_width != video_width || new_height != video_height) {
@@ -1837,6 +1963,18 @@ void VideoPlayer::UpdateProperties() {
         }
     }
 
+    // 🔧 FINAL TIMELINE FALLBACK: Regardless of which branch above was taken,
+    // if we're in timeline mode and video_texture is still 0, force create textures
+    if (is_timeline_mode_ && video_texture == 0 && video_width == 0 && video_height == 0) {
+        Debug::Log("UpdateProperties: TIMELINE FINAL FALLBACK - No dimensions from metadata or MPV, forcing 1920x1080");
+        video_width = 1920;
+        video_height = 1080;
+        CreateVideoTextures(video_width, video_height);
+       /* Debug::Log("UpdateProperties: Created video textures for timeline mode: " +
+                   std::to_string(video_width) + "x" + std::to_string(video_height) +
+                   ", video_texture=" + std::to_string(video_texture));*/
+    }
+
     // ✅ Only query MPV for LIVE playback state (these must come from MPV)
     double pos = 0.0;
     if (mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) == 0) {
@@ -1857,9 +1995,9 @@ void VideoPlayer::UpdateProperties() {
             if (last_position_ > (cached_duration * 0.9) &&
                 cached_position < (cached_duration * 0.1)) {
                 loop_detected = true;
-                Debug::Log("Loop detected! Re-syncing comparison video (was: " +
+                /*Debug::Log("Loop detected! Re-syncing comparison video (was: " +
                           std::to_string(last_position_) + "s, now: " +
-                          std::to_string(cached_position) + "s)");
+                          std::to_string(cached_position) + "s)");*/
             }
         }
 
@@ -1875,14 +2013,14 @@ void VideoPlayer::UpdateProperties() {
             // Start timer for delayed resume (allow seek to settle)
             loop_sync_pending_ = true;
             loop_sync_time_ = glfwGetTime();
-            Debug::Log("Loop sync initiated, waiting for settle...");
+            //Debug::Log("Loop sync initiated, waiting for settle...");
         }
 
         // Check if loop sync delay has elapsed (250ms for larger videos)
         if (loop_sync_pending_) {
             double now = glfwGetTime();
             if (now - loop_sync_time_ > 0.25) {  // 250ms settle time
-                Debug::Log("Loop sync settled, resuming playback");
+                //Debug::Log("Loop sync settled, resuming playback");
                 Play();
                 loop_sync_pending_ = false;
             }
@@ -1891,7 +2029,7 @@ void VideoPlayer::UpdateProperties() {
         // Immediate seek sync (no debounce - legacy view modes are for preview only)
         // Lavfi modes provide the primary playback experience
         if (last_seek_time_ > 0.0) {
-            Debug::Log("Immediate seek: syncing comparison to position " + std::to_string(cached_position));
+            //Debug::Log("Immediate seek: syncing comparison to position " + std::to_string(cached_position));
             comparison_video_->SyncToPosition(cached_position);
             if (was_playing_before_seek_) {
                 comparison_video_->SyncPlaybackState(true);
@@ -2066,6 +2204,11 @@ void VideoPlayer::FinalizeLoad() {
     // EDL files may not report video dimensions immediately, but they're always video
     bool is_edl = (current_file_path.find("edl://") == 0);
 
+    // Special handling for dummy videos (used by timeline playback)
+    // Dummy videos may not report duration immediately due to async load
+    bool is_dummy = (current_file_path.find("dummy_") != std::string::npos &&
+                     current_file_path.find(".mp4") != std::string::npos);
+
     if (cached_duration > 0) {
         has_video = true;
         Debug::Log("FinalizeLoad: Media loaded successfully (duration=" +
@@ -2075,6 +2218,11 @@ void VideoPlayer::FinalizeLoad() {
         // EDL files are trimmed video segments - force has_video=true
         has_video = true;
         Debug::Log("FinalizeLoad: EDL file detected - forcing has_video=true (duration may not be available yet)");
+    }
+    else if (is_dummy) {
+        // Dummy videos for timeline playback - force has_video=true
+        has_video = true;
+        Debug::Log("FinalizeLoad: Dummy video detected - forcing has_video=true (timeline playback mode)");
     }
     else {
         Debug::Log("FinalizeLoad: WARNING - No duration available (has_video=false)");
@@ -3607,7 +3755,12 @@ bool VideoPlayer::LoadEXRSequenceWithShader(const std::vector<std::string>& sequ
     }
 
     // Load dummy video in MPV (handles timeline automatically)
+    // NOTE: LoadFile clears content dimensions, so we set them AFTER
     LoadFile(dummy_path);
+
+    // Store content dimensions for overlay mode (allows 1x1 dummies)
+    // Must be after LoadFile since that clears content dimensions
+    SetContentDimensions(width, height);
 
     // Override timeline to match EXR sequence length
     // Add one extra frame time to ensure last frame is fully visible before loop
@@ -3695,6 +3848,9 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
         }
         Debug::Log("Detected EXR sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
     }
+
+    // Store content dimensions for overlay mode (allows 1x1 dummies)
+    SetContentDimensions(width, height);
 
     // === EVICT VIDEO CACHE TO FREE RAM (cross-cache eviction) ===
     if (cache_clear_callback) {
@@ -3856,6 +4012,9 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         Debug::Log("Detected image sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
     }
 
+    // Store content dimensions for overlay mode (allows 1x1 dummies)
+    SetContentDimensions(width, height);
+
     // Extract start frame from sequence filenames
     int start_frame = ExtractStartFrameFromSequence(sequence_files);
     Debug::Log("Image sequence start frame: " + std::to_string(start_frame));
@@ -3873,7 +4032,16 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     if (exr_cache_) {
         Debug::Log("Clearing existing EXR/image sequence cache before loading new sequence");
         exr_cache_->Shutdown();
+        // Process ALL queued texture deletions BEFORE destroying the cache object
+        while (exr_cache_->HasPendingTextureDeletions()) {
+            exr_cache_->ProcessReadyTextures();
+        }
         exr_cache_.reset();
+
+        // Clear stale texture references after textures are deleted
+        exr_texture = 0;
+        video_texture = 0;
+        has_video = false;
     }
 
     // Clear thumbnail cache
@@ -4200,6 +4368,265 @@ void VideoPlayer::RenderEXRFrameOverlay(int frame_index) {
 }
 
 // ============================================================================
+// Timeline Mode Frame Injection (matches EXR pattern for smooth playback)
+// ============================================================================
+
+void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController* controller) {
+    is_timeline_mode_ = enabled;
+    timeline_controller_ = controller;
+
+    if (enabled) {
+        // Timeline mode ENABLED
+        // CRITICAL: Reset timeline texture tracking when switching timelines
+        // The old timeline_texture_ may point to a deleted texture from the previous timeline's cache
+        timeline_texture_ = 0;
+        timeline_texture_width_ = 0;
+        timeline_texture_height_ = 0;
+        last_timeline_frame_ = -1;
+
+        // ALWAYS recreate gap placeholder texture when entering timeline mode
+        // This ensures it's fresh and valid, avoiding issues when switching timelines
+        if (gap_placeholder_texture_ != 0) {
+            glDeleteTextures(1, &gap_placeholder_texture_);
+            gap_placeholder_texture_ = 0;
+        }
+        glGenTextures(1, &gap_placeholder_texture_);
+        glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
+        // Single transparent pixel (RGBA = 0,0,0,0)
+        unsigned char transparent_pixel[4] = {0, 0, 0, 0};
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        Debug::Log("VideoPlayer: Created transparent gap placeholder texture: " + std::to_string(gap_placeholder_texture_));
+
+        if (controller) {
+            // CRITICAL: Shutdown EXR cache to free memory - timeline uses TimelineCache instead
+            if (exr_cache_) {
+                Debug::Log("VideoPlayer: Timeline mode - shutting down EXR cache");
+                exr_cache_->Shutdown();
+                exr_cache_.reset();
+            }
+            // Also clear thumbnail cache (not needed for timeline - uses TimelineCache)
+            if (thumbnail_cache_) {
+                Debug::Log("VideoPlayer: Timeline mode - clearing thumbnail cache");
+                thumbnail_cache_->ClearCache();
+                thumbnail_cache_.reset();
+            }
+            Debug::Log("VideoPlayer: Timeline mode ENABLED with controller - cleared EXR and thumbnail caches");
+        } else {
+            Debug::Log("VideoPlayer: Timeline mode ENABLED without controller (UI only)");
+        }
+    } else {
+        Debug::Log("VideoPlayer: Timeline mode DISABLED");
+        // Reset timeline texture tracking
+        timeline_texture_ = 0;
+        timeline_texture_width_ = 0;
+        timeline_texture_height_ = 0;
+        last_timeline_frame_ = -1;
+
+        // Clean up gap placeholder texture
+        if (gap_placeholder_texture_ != 0) {
+            glDeleteTextures(1, &gap_placeholder_texture_);
+            gap_placeholder_texture_ = 0;
+            Debug::Log("VideoPlayer: Deleted gap placeholder texture");
+        }
+    }
+}
+
+void VideoPlayer::SetContentDimensions(int width, int height) {
+    content_width_ = width;
+    content_height_ = height;
+    use_content_dimensions_ = (width > 0 && height > 0);
+
+    if (use_content_dimensions_) {
+        Debug::Log("VideoPlayer: Content dimensions set to " +
+                   std::to_string(width) + "x" + std::to_string(height) +
+                   " (overlay mode enabled)");
+    } else {
+        Debug::Log("VideoPlayer: Content dimensions cleared (overlay mode disabled)");
+    }
+}
+
+void VideoPlayer::SwapTimelineDummy(const std::string& new_dummy_path) {
+    // Lightweight dummy swap for timeline mode
+    // Only swaps the MPV file - does NOT clear caches, reset state, or touch timeline controller
+    // Used when timeline duration changes and we need a longer/shorter dummy
+
+    if (!mpv || !is_timeline_mode_) {
+        Debug::Log("SwapTimelineDummy: Not in timeline mode or no MPV");
+        return;
+    }
+
+    if (new_dummy_path.empty()) {
+        Debug::Log("SwapTimelineDummy: Empty path");
+        return;
+    }
+
+    Debug::Log("SwapTimelineDummy: Swapping to " + new_dummy_path);
+
+    // Store current position and play state
+    double current_pos = GetPosition();
+    bool was_playing = IsPlaying();
+
+    // Just send loadfile command - no cache clearing, no state reset
+    const char* cmd[] = { "loadfile", new_dummy_path.c_str(), nullptr };
+    if (mpv_command(mpv, cmd) < 0) {
+        Debug::Log("SwapTimelineDummy: ERROR - Failed to send loadfile command");
+        return;
+    }
+
+    // Wait briefly for file to load
+    // Use a shorter timeout than full LoadFile since dummy videos are tiny
+    for (int i = 0; i < 50; i++) {  // 500ms max
+        mpv_event* event = mpv_wait_event(mpv, 0.01);
+        if (event->event_id == MPV_EVENT_FILE_LOADED) {
+            break;
+        }
+        if (event->event_id == MPV_EVENT_END_FILE) {
+            Debug::Log("SwapTimelineDummy: File ended unexpectedly");
+            break;
+        }
+    }
+
+    // Restore position (clamp to new duration if needed)
+    Seek(current_pos);
+
+    // Restore play state
+    if (!was_playing) {
+        Pause();
+    }
+
+    // Reapply loop settings
+    SetLoop(loop_enabled);
+
+    Debug::Log("SwapTimelineDummy: Complete, restored to " + std::to_string(current_pos) + "s");
+}
+
+void VideoPlayer::InjectCurrentTimelineFrame() {
+    static int inject_call_count = 0;
+    inject_call_count++;
+
+    if (!is_timeline_mode_ || !timeline_controller_) {
+        if (inject_call_count <= 5) {
+            Debug::Log("InjectCurrentTimelineFrame: Not in timeline mode or no controller");
+        }
+        return;
+    }
+
+    if (!timeline_controller_->IsInitialized()) {
+        if (inject_call_count <= 5) {
+            Debug::Log("InjectCurrentTimelineFrame: Controller not initialized");
+        }
+        return;
+    }
+
+    // Process pending GPU uploads from background I/O threads (like EXR mode)
+    timeline_controller_->ProcessPendingUploads();
+
+    // CHECK FOR GAPS FIRST - before Update() which returns previous frame for all misses
+    // GetCurrentSourcePath() returns empty string for gaps/unlinked clips
+    std::string source_path = timeline_controller_->GetCurrentSourcePath();
+    if (source_path.empty()) {
+        // GAP - no valid clip at this position
+        // Use transparent placeholder texture so gaps show through to background
+        if (gap_placeholder_texture_ != 0) {
+            video_texture = gap_placeholder_texture_;
+            video_width = 1;  // 1x1 texture
+            video_height = 1;
+            has_video = true;  // Need this true for rendering pipeline
+        } else {
+            // Fallback: create the gap texture now if it doesn't exist
+            glGenTextures(1, &gap_placeholder_texture_);
+            glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
+            unsigned char transparent_pixel[4] = {0, 0, 0, 0};
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            Debug::Log("InjectCurrentTimelineFrame: Created gap placeholder texture on demand");
+            video_texture = gap_placeholder_texture_;
+            video_width = 1;
+            video_height = 1;
+            has_video = true;
+        }
+        timeline_texture_ = 0;
+        timeline_texture_width_ = 0;
+        timeline_texture_height_ = 0;
+        // Still call Update to keep cache management running, but ignore result
+        int dummy_w = 0, dummy_h = 0;
+        timeline_controller_->Update(dummy_w, dummy_h);
+        return;
+    }
+
+    // Get current frame from the playback controller
+    // The controller syncs from MPV internally
+    int frame_width = 0, frame_height = 0;
+    GLuint frame_texture = timeline_controller_->Update(frame_width, frame_height);
+
+    if (inject_call_count <= 10 || inject_call_count % 300 == 0) {
+        Debug::Log("InjectCurrentTimelineFrame: Update returned texture=" +
+                   std::to_string(frame_texture) + ", " +
+                   std::to_string(frame_width) + "x" + std::to_string(frame_height));
+    }
+
+    if (frame_texture != 0) {
+        // SUCCESS: Got a valid frame from timeline cache
+        // Update our tracking variables
+        timeline_texture_ = frame_texture;
+        timeline_texture_width_ = frame_width;
+        timeline_texture_height_ = frame_height;
+
+        // CRITICAL: Replace video_texture with cached timeline frame (like EXR mode)
+        // This integrates timeline frames into the existing render pipeline
+        video_texture = frame_texture;
+        video_width = frame_width;
+        video_height = frame_height;
+        has_video = true;
+
+        // Update position tracking from MPV (for timeline sync)
+        int current_frame = timeline_controller_->GetCurrentFrame();
+        if (current_frame != last_timeline_frame_) {
+            // Frame changed - could add debug logging here if needed
+            last_timeline_frame_ = current_frame;
+        }
+    } else {
+        // Cache miss (valid clip, not loaded yet)
+        // Use gap placeholder instead of falling through to MPV dummy video
+        // This prevents the 1px black square from showing during loading
+        if (timeline_texture_ != 0) {
+            // Keep previous timeline frame while loading
+            video_texture = timeline_texture_;
+            video_width = timeline_texture_width_;
+            video_height = timeline_texture_height_;
+            has_video = true;
+        } else if (gap_placeholder_texture_ != 0) {
+            // No previous frame yet - use transparent gap texture
+            video_texture = gap_placeholder_texture_;
+            video_width = 1;
+            video_height = 1;
+            has_video = true;
+        } else {
+            // Create gap texture on demand if it doesn't exist
+            // This handles the case where timeline mode was re-enabled but
+            // SetTimelineMode didn't create the texture (e.g., during timeline switching)
+            glGenTextures(1, &gap_placeholder_texture_);
+            glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
+            unsigned char transparent_pixel[4] = {0, 0, 0, 0};
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            Debug::Log("InjectCurrentTimelineFrame: Created gap placeholder texture on demand (cache miss path)");
+            video_texture = gap_placeholder_texture_;
+            video_width = 1;
+            video_height = 1;
+            has_video = true;
+        }
+    }
+}
+
+// ============================================================================
 // Pipeline Mode System Methods
 // ============================================================================
 
@@ -4514,7 +4941,7 @@ void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_fi
     Debug::Log("VideoPlayer::InitializeEXRCache - " + std::to_string(sequence_files.size()) +
                " files, layer: " + layer_name);
 
-    // 🔧 tlRender pattern: Cache created in constructor with threads always running
+    // Cache created in constructor with threads always running
     // Just call Initialize to swap sequences (threads stay alive)
     if (!exr_cache_) {
         Debug::Log("VideoPlayer: ERROR - EXR cache should be pre-created in constructor!");
@@ -4569,6 +4996,17 @@ void VideoPlayer::ClearEXRCache() {
     if (exr_cache_) {
         exr_cache_->Shutdown();
         Debug::Log("VideoPlayer: EXR cache shut down (fully cleared and uninitialized)");
+    }
+}
+
+void VideoPlayer::ClearVideoTextureReference() {
+    // Clear the render texture reference to prevent dangling pointer during cache reinitialization
+    // This should be called BEFORE cache reinitialization queues old textures for deletion
+    // Otherwise the render loop may try to use a texture that's been deleted = GL corruption
+    if (is_exr_mode && video_texture == exr_texture && exr_texture != 0) {
+        Debug::Log("VideoPlayer: Clearing video texture reference before cache reinitialization");
+        video_texture = 0;
+        exr_texture = 0;
     }
 }
 

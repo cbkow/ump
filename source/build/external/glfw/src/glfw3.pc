@@ -1,7 +1,7 @@
-prefix=C:/Program Files (x86)/ump
+prefix=C:/Program Files/ump
 exec_prefix=${prefix}
-includedir=C:/Program Files (x86)/ump/include
-libdir=C:/Program Files (x86)/ump/lib
+includedir=C:/Program Files/ump/include
+libdir=C:/Program Files/ump/lib
 
 Name: GLFW
 Description: A multi-platform library for OpenGL, window and input

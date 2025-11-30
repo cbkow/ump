@@ -172,6 +172,13 @@ found in the respective LICENSE file in this directory.
     Website: https://github.com/sindresorhus/github-markdown-css
     File: github-markdown-css-LICENSE.txt
 
+31. OpenTimelineIO
+    Copyright Contributors to the OpenTimelineIO Project
+    License: Apache License 2.0
+    Website: https://opentimeline.io/
+    File: OpenTimelineIO-LICENSE.txt
+    Note: Multi-track timeline interchange format library (ASWF project)
+
 ================================================================================
 
 ACES and Blender OpenColorIO Configurations

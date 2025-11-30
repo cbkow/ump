@@ -18,6 +18,7 @@
 
 #include "image_loader_interface.h"
 #include "pipeline_mode.h"
+#include "shared_memory_pool.h"
 
 #ifdef _WIN32
     #include <windows.h>
@@ -55,19 +56,22 @@ private:
 };
 
 //=============================================================================
-// Clean DirectEXRCache - Pure tlRender Architecture
+// Clean DirectEXRCache
 // Zero legacy code. Minimal state. Fast.
 //=============================================================================
 
 // Configuration
 struct EXRCacheConfig {
-    // tlRender default: 16 I/O threads for sequences (SequenceOptions.threadCount = 16)
+    // 16 I/O threads for sequences (SequenceOptions.threadCount = 16)
     // This helps with slow multilayer EXRs (31 channels, DWAB compression ~900ms/frame)
-    size_t threadCount = 16;            // Parallel EXR loads (matches tlRender)
-    double cacheGB = 18.0;             // LRU cache size
+    size_t threadCount = 16;            // Parallel EXR loads
+    double cacheGB = 18.0;             // LRU cache size (ignored if use_shared_pool=true)
 
-    // tlRender pattern: Read-behind for instant backward scrubbing
-    double readBehindSeconds = 0.5;    // Keep frames BEHIND playhead (0.5s default like tlRender)
+    // Read-behind for instant backward scrubbing
+    double readBehindSeconds = 0.5;    // Keep frames BEHIND playhead (0.5s default like )
+
+    // SharedMemoryPool integration (NEW)
+    bool use_shared_pool = false;       // Use global SharedMemoryPool instead of local LRU
 
     // Compatibility fields (unused in clean version)
     double video_cache_gb = 18.0;      // Alias for cacheGB
@@ -340,7 +344,7 @@ public:
     void Shutdown();
 
     // Request a frame (returns immediately with future)
-    // tlRender pattern: Request returns future, worker thread fulfills it
+    // Request returns future, worker thread fulfills it
     void RequestFrame(int frame);
 
     // Get cached texture (returns 0 if not ready)
@@ -351,6 +355,9 @@ public:
 
     // Process completed pixel loads (MUST call from main thread with GL context)
     void ProcessReadyTextures();
+
+    // Check if there are textures queued for deletion
+    bool HasPendingTextureDeletions() const;
 
     // Clear all pending requests (call on seek - preserves cache!)
     void ClearRequests();
@@ -412,7 +419,7 @@ public:
 
 private:
     //=========================================================================
-    // tlRender-style Request Management
+    // Request Management
     //=========================================================================
 
     struct EXRRequest {
@@ -450,7 +457,7 @@ private:
     //=========================================================================
 
     std::vector<GLuint> texturesToDelete_;  // GL textures marked for deletion (deleted on main thread)
-    std::mutex textureMutex_;
+    mutable std::mutex textureMutex_;  // mutable for const HasPendingTextureDeletions()
 
     //=========================================================================
     // Universal Image Loading (replaces EXR-only loading)
@@ -484,7 +491,7 @@ private:
     // NEW: Pipeline mode for current sequence
     PipelineMode pipelineMode_ = PipelineMode::NORMAL;
 
-    // tlRender pattern: LRU cache for CPU pixel data (NOT GL textures!)
+    // LRU cache for CPU pixel data (NOT GL textures!)
     // Changed from EXRPixelData to PixelData for universal support
     SimpleLRU<int, std::shared_ptr<PixelData>> pixelCache_;
 
@@ -493,7 +500,7 @@ private:
     std::map<int, std::shared_ptr<EXRTexture>> glTextureCache_;
     const size_t MAX_GL_TEXTURE_CACHE = 16;  // Max number of resident GL textures
 
-    // tlRender pattern: Track playback state for cache direction
+    // Track playback state for cache direction
     double lastCacheUpdateTime_ = 0.0;
     int lastCacheUpdateFrame_ = -1;
     int previousFrame_ = -1;  // Track previous frame to detect direction
@@ -501,11 +508,11 @@ private:
     bool isPlaying_ = false;
     bool is_looping_ = false;  // Wrap-around caching enabled
 
-    // tlRender pattern: Pre-calculated frame size (from actual file, not estimated)
+    // Pre-calculated frame size (from actual file, not estimated)
     size_t actualFrameSize_ = 0;  // Calculated from first loaded frame
     bool hasActualFrameSize_ = false;
 
-    // tlRender pattern: Fill frame counter (reset on seek for correct fill start)
+    // Fill frame counter (reset on seek for correct fill start)
     int cacheFillFrame_ = 0;
     size_t cacheFillByteCount_ = 0;
 
@@ -517,6 +524,32 @@ private:
     mutable std::mutex segmentMutex_;
     mutable std::vector<CacheSegment> cachedSegments_;
     mutable std::atomic<bool> segmentsDirty_{true};  // Rebuild on next request
+
+    // Last good frame fallback (for visual continuity during frame misses)
+    GLuint last_good_texture_ = 0;
+    int last_good_width_ = 0;
+    int last_good_height_ = 0;
+
+    //=========================================================================
+    // SharedMemoryPool Integration
+    //=========================================================================
+
+    // Build a unique path identifier for SharedMemoryPool (uses first file in sequence)
+    std::string GetSequenceIdentifier() const {
+        return sequenceFiles_.empty() ? "" : sequenceFiles_[0];
+    }
+
+    // Register a frame with SharedMemoryPool (called when adding to pixelCache_)
+    void RegisterWithPool(int frame, size_t bytes);
+
+    // Touch a frame in SharedMemoryPool (called on cache hits)
+    void TouchInPool(int frame);
+
+    // Remove a frame from SharedMemoryPool (called when removing from pixelCache_)
+    void RemoveFromPool(int frame);
+
+    // Handle eviction callback from SharedMemoryPool
+    void OnPoolEviction(int frame);
 };
 
 } // namespace ump

@@ -275,6 +275,7 @@ private:
     // Hardware decode state
     HardwareDecodeMode current_hw_mode = HardwareDecodeMode::SOFTWARE_ONLY;
     std::string current_hw_decoder_name;
+    int hw_pix_fmt_ = -1;  // AV_PIX_FMT_NONE - hardware pixel format for current decode mode
 
     // Thread-safe FFmpeg context per worker
     struct WorkerContext {
@@ -283,7 +284,9 @@ private:
         AVBufferRef* hw_device_ctx = nullptr;
         SwsContext* sws_context = nullptr;
         int video_stream_index = -1;
+        int hw_pix_fmt = -1;  // AV_PIX_FMT_NONE - hardware pixel format if using HW decode
         bool initialized = false;
+        bool using_hw_decode = false;
 
         ~WorkerContext() { Cleanup(); }
         void Cleanup();
@@ -301,14 +304,12 @@ private:
 
     // Hardware decode setup
     bool SetupHardwareDecode();
-    bool InitializeD3D11VA();
-    bool InitializeNVDEC();
     void CleanupHardwareContext();
 
     // Frame extraction
     ExtractionResult ExtractSingleFrame(const FrameExtractionRequest& request, AVFrame* frame, WorkerContext& worker_ctx);
     bool DecodeFrameAtTimestamp(double timestamp, AVFrame* output_frame, WorkerContext& worker_ctx);
-    bool ConvertFrameToPixelBuffer(AVFrame* frame, std::vector<uint8_t>& pixel_data, int& width, int& height);
+    bool ConvertFrameToPixelBuffer(AVFrame* frame, std::vector<uint8_t>& pixel_data, int& width, int& height, int hw_pix_fmt = -1);
     GLuint CreateTextureFromPixels(const std::vector<uint8_t>& pixel_data, int width, int height);
 
     // Texture management
