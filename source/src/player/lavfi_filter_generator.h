@@ -26,6 +26,7 @@ public:
         double trim_duration = -1.0; // Duration in seconds (-1 = no trim)
         int source_width = 0;       // Original video width
         int source_height = 0;      // Original video height
+        bool has_audio = true;      // Whether this video has an audio track
     };
 
     /**

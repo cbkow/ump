@@ -576,6 +576,7 @@ private:
     int primary_video_height_ = 0;
     int secondary_video_width_ = 0;
     int secondary_video_height_ = 0;
+    bool primary_has_audio_ = true;           // Whether primary video has audio track
     std::string current_lavfi_filter_;        // Current lavfi filter string
 
     // Difference compositor (old FBO-based - kept for fallback)

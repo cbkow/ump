@@ -40,17 +40,19 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Stack horizontally
-            filter << "[v1][v2]hstack[vo];";
+            filter << "[v1][v2]hstack[vo]";
 
-            // Audio from primary (trimmed to match video)
-            filter << "[aid1]";
-            std::string audio_trim = GenerateAudioTrimFilter(primary);
-            if (!audio_trim.empty()) {
-                filter << audio_trim;
-            } else {
-                filter << "anull";  // Pass-through if no trim
+            // Audio from primary (trimmed to match video) - only if primary has audio
+            if (primary.has_audio) {
+                filter << ";[aid1]";
+                std::string audio_trim = GenerateAudioTrimFilter(primary);
+                if (!audio_trim.empty()) {
+                    filter << audio_trim;
+                } else {
+                    filter << "anull";  // Pass-through if no trim
+                }
+                filter << "[ao]";
             }
-            filter << "[ao]";
             break;
         }
 
@@ -81,17 +83,19 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Stack vertically
-            filter << "[v1][v2]vstack[vo];";
+            filter << "[v1][v2]vstack[vo]";
 
-            // Audio from primary (trimmed to match video)
-            filter << "[aid1]";
-            std::string audio_trim = GenerateAudioTrimFilter(primary);
-            if (!audio_trim.empty()) {
-                filter << audio_trim;
-            } else {
-                filter << "anull";  // Pass-through if no trim
+            // Audio from primary (trimmed to match video) - only if primary has audio
+            if (primary.has_audio) {
+                filter << ";[aid1]";
+                std::string audio_trim = GenerateAudioTrimFilter(primary);
+                if (!audio_trim.empty()) {
+                    filter << audio_trim;
+                } else {
+                    filter << "anull";  // Pass-through if no trim
+                }
+                filter << "[ao]";
             }
-            filter << "[ao]";
             break;
         }
 
@@ -130,17 +134,19 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             filter << "[v2];";
 
             // Blend with difference mode
-            filter << "[v1][v2]blend=all_mode=difference[vo];";
+            filter << "[v1][v2]blend=all_mode=difference[vo]";
 
-            // Audio from primary (trimmed to match video)
-            filter << "[aid1]";
-            std::string audio_trim = GenerateAudioTrimFilter(primary);
-            if (!audio_trim.empty()) {
-                filter << audio_trim;
-            } else {
-                filter << "anull";  // Pass-through if no trim
+            // Audio from primary (trimmed to match video) - only if primary has audio
+            if (primary.has_audio) {
+                filter << ";[aid1]";
+                std::string audio_trim = GenerateAudioTrimFilter(primary);
+                if (!audio_trim.empty()) {
+                    filter << audio_trim;
+                } else {
+                    filter << "anull";  // Pass-through if no trim
+                }
+                filter << "[ao]";
             }
-            filter << "[ao]";
             break;
         }
 
@@ -315,17 +321,19 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
     filter << "[v2];";
 
     // Stack horizontally
-    filter << "[v1][v2]hstack[vo];";
+    filter << "[v1][v2]hstack[vo]";
 
-    // Audio from primary (trimmed to match video)
-    filter << "[aid1]";
-    std::string audio_trim = GenerateAudioTrimFilter(primary);
-    if (!audio_trim.empty()) {
-        filter << audio_trim;
-    } else {
-        filter << "anull";  // Pass-through if no trim
+    // Audio from primary (trimmed to match video) - only if primary has audio
+    if (primary.has_audio) {
+        filter << ";[aid1]";
+        std::string audio_trim = GenerateAudioTrimFilter(primary);
+        if (!audio_trim.empty()) {
+            filter << audio_trim;
+        } else {
+            filter << "anull";  // Pass-through if no trim
+        }
+        filter << "[ao]";
     }
-    filter << "[ao]";
 
     return filter.str();
 }
