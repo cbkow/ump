@@ -142,7 +142,7 @@ void AnnotationPanel::RenderNotesList() {
 
     if (notes.empty()) {
         ImGui::TextDisabled("No annotations yet");
-        ImGui::Text("Click 'Add Note' to create your first annotation");
+        ImGui::TextDisabled("Click 'Add Note' to create your first annotation");
         return;
     }
 

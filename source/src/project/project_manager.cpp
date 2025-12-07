@@ -1128,7 +1128,7 @@ namespace ump {
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.3f, 0.4f, 0.5f, 0.4f));
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.4f, 0.5f, 0.6f, 0.6f));
         ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.5f, 0.6f, 0.7f, 0.8f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));  // Bin names as disabled text
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));  
 
         bool node_open = ImGui::TreeNodeEx(tree_id.c_str(), node_flags);
         ImGui::PopStyleColor(4);
@@ -1973,12 +1973,10 @@ namespace ump {
                     }
                 }
             } else {
-                // For non-EXR image sequences (PNG/TIFF/JPEG), keep simplified display
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Image sequence loaded");
 
                 if (video_player && video_player->HasVideo()) {
                     ImGui::Spacing();
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Sequence Properties");
+                    ImGui::Text("Sequence Properties");
                     ImGui::Separator();
 
                     if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit)) {
@@ -2002,7 +2000,7 @@ namespace ump {
 
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("Image Type:");
+                        ImGui::TextDisabled("Image Type:");
                         ImGui::TableSetColumnIndex(1);
                         if (font_mono) ImGui::PushFont(font_mono);
                         ImGui::Text("%s", image_type.c_str());
@@ -2010,7 +2008,7 @@ namespace ump {
 
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("Resolution:");
+                        ImGui::TextDisabled("Resolution:");
                         ImGui::TableSetColumnIndex(1);
                         if (font_mono) ImGui::PushFont(font_mono);
                         ImGui::Text("%d x %d", video_player->GetVideoWidth(), video_player->GetVideoHeight());
@@ -2018,7 +2016,7 @@ namespace ump {
 
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("Frame Rate:");
+                        ImGui::TextDisabled("Frame Rate:");
                         ImGui::TableSetColumnIndex(1);
                         double fps = video_player->GetFrameRate();
                         if (font_mono) ImGui::PushFont(font_mono);
@@ -2031,7 +2029,7 @@ namespace ump {
 
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("Frame Range:");
+                        ImGui::TextDisabled("Frame Range:");
                         ImGui::TableSetColumnIndex(1);
                         int total_frames = video_player->GetTotalFrames();
 
@@ -4393,7 +4391,7 @@ namespace ump {
 
         // Always show file information
         ImGui::Spacing();
-        ImGui::TextColored(Bright(GetWindowsAccentColor()), "File Information");
+        ImGui::Text("File Information");
         ImGui::Separator();
         DisplayFileInfoTable(video_meta);
 
@@ -4401,27 +4399,27 @@ namespace ump {
         if (is_audio_only) {
             if (HasAudioInfo(video_meta)) {
                 ImGui::Spacing();
-                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio Properties");
+                ImGui::Text("Audio Properties");
                 ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
         } else {
             // For video files, show video properties first
             ImGui::Spacing();
-            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video Properties");
+            ImGui::Text("Video Properties");
             ImGui::Separator();
             DisplayVideoPropertiesTable(video_meta);
 
             if (HasColorInfo(video_meta)) {
                 ImGui::Spacing();
-                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Color Properties");
+                ImGui::Text("Color Properties");
                 ImGui::Separator();
                 DisplayColorPropertiesTable(video_meta);
             }
 
             if (HasAudioInfo(video_meta)) {
                 ImGui::Spacing();
-                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio Properties");
+                ImGui::Text("Audio Properties");
                 ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
@@ -4440,7 +4438,7 @@ namespace ump {
         }
 
         ImGui::Spacing();
-        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Adobe Projects");
+        ImGui::Text("Adobe Projects");
         ImGui::Separator();
         DisplayAdobeProjectsTable(adobe_meta);
     }
@@ -4457,7 +4455,7 @@ namespace ump {
         }
 
         ImGui::Spacing();
-        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timecode");
+        ImGui::Text("Timecode");
         ImGui::Separator();
 
         if (ImGui::BeginTable("TimecodeTable", 2, ImGuiTableFlags_SizingFixedFit)) {
@@ -4468,7 +4466,7 @@ namespace ump {
             if (!adobe_meta->qt_start_timecode.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("QT Start:");
+                ImGui::TextDisabled("QT Start:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_start_timecode.c_str());
@@ -4486,7 +4484,7 @@ namespace ump {
             if (!adobe_meta->qt_timecode.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("QT TimeCode:");
+                ImGui::TextDisabled("QT TimeCode:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_timecode.c_str());
@@ -4504,7 +4502,7 @@ namespace ump {
             if (!adobe_meta->qt_creation_date.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Created:");
+                ImGui::TextDisabled("Created:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", adobe_meta->qt_creation_date.c_str());
@@ -4514,7 +4512,7 @@ namespace ump {
             if (!adobe_meta->qt_media_create_date.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Media Created:");
+                ImGui::TextDisabled("Media Created:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", adobe_meta->qt_media_create_date.c_str());
@@ -4560,12 +4558,12 @@ namespace ump {
         if (ImGui::BeginTable("EXRFileInfoTable", 3, ImGuiTableFlags_SizingFixedFit)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+            ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 120.0f);
 
             // File Name
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Name:");
+            ImGui::TextDisabled("Name:");
             ImGui::TableSetColumnIndex(1);
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", exr_meta->file_name.c_str());
@@ -4575,7 +4573,7 @@ namespace ump {
             if (!exr_meta->sequence_pattern.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Sequence:");
+                ImGui::TextDisabled("Sequence:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->sequence_pattern.c_str());
@@ -4586,7 +4584,7 @@ namespace ump {
             if (exr_meta->total_frames > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Frame Range:");
+                ImGui::TextDisabled("Frame Range:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d-%d (%d frames)", exr_meta->start_frame, exr_meta->end_frame, exr_meta->total_frames);
@@ -4597,7 +4595,7 @@ namespace ump {
             if (exr_meta->frame_rate > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Frame Rate:");
+                ImGui::TextDisabled("Frame Rate:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3f fps", exr_meta->frame_rate);
@@ -4608,7 +4606,7 @@ namespace ump {
             if (exr_meta->total_frames > 0 && exr_meta->frame_rate > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Duration:");
+                ImGui::TextDisabled("Duration:");
                 ImGui::TableSetColumnIndex(1);
                 double duration = exr_meta->total_frames / exr_meta->frame_rate;
                 if (font_mono) ImGui::PushFont(font_mono);
@@ -4620,7 +4618,7 @@ namespace ump {
             if (exr_meta->file_size > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("File Size:");
+                ImGui::TextDisabled("File Size:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 double size_mb = exr_meta->file_size / (1024.0 * 1024.0);
@@ -4641,7 +4639,7 @@ namespace ump {
             if (exr_meta->width > 0 && exr_meta->height > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Resolution:");
+                ImGui::TextDisabled("Resolution:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->width, exr_meta->height);
@@ -4658,7 +4656,7 @@ namespace ump {
                 (exr_meta->display_width != exr_meta->width || exr_meta->display_height != exr_meta->height)) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Display Window:");
+                ImGui::TextDisabled("Display Window:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->display_width, exr_meta->display_height);
@@ -4669,7 +4667,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && exr_meta->data_width > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Data Window:");
+                ImGui::TextDisabled("Data Window:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->data_width, exr_meta->data_height);
@@ -4680,7 +4678,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && !exr_meta->pixel_format.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Pixel Format:");
+                ImGui::TextDisabled("Pixel Format:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->pixel_format.c_str());
@@ -4691,7 +4689,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && exr_meta->bit_depth > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Bit Depth:");
+                ImGui::TextDisabled("Bit Depth:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d-bit", exr_meta->bit_depth);
@@ -4702,7 +4700,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && !exr_meta->compression.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Compression:");
+                ImGui::TextDisabled("Compression:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->compression.c_str());
@@ -4713,7 +4711,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && exr_meta->is_tiled) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Format:");
+                ImGui::TextDisabled("Format:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("Tiled");
@@ -4724,7 +4722,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && exr_meta->is_multi_part) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Multi-Part:");
+                ImGui::TextDisabled("Multi-Part:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("Yes (%d parts)", exr_meta->part_count);
@@ -4735,7 +4733,7 @@ namespace ump {
             if (!exr_meta->layer_name.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Layer:");
+                ImGui::TextDisabled("Layer:");
                 ImGui::TableSetColumnIndex(1);
 
                 // Try to get the media item for this EXR sequence
@@ -4966,13 +4964,13 @@ namespace ump {
 
     void ProjectManager::DisplayFileInfoTable(const VideoMetadata* video_meta) {
         if (ImGui::BeginTable("FileInfoTable", 2, ImGuiTableFlags_SizingFixedFit)) {
-            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
             // File Name
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Name:");
+            ImGui::TextDisabled("Name:");
             ImGui::TableSetColumnIndex(1);
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", video_meta->file_name.c_str());
@@ -4981,7 +4979,7 @@ namespace ump {
             // File Path
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Path:");
+            ImGui::TextDisabled("Path:");
             ImGui::TableSetColumnIndex(1);
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", video_meta->file_path.c_str());
@@ -5008,7 +5006,7 @@ namespace ump {
             // File Size
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Size:");
+            ImGui::TextDisabled("Size:");
             ImGui::TableSetColumnIndex(1);
             if (font_mono) ImGui::PushFont(font_mono);
             if (video_meta->file_size > 0) {
@@ -5037,7 +5035,7 @@ namespace ump {
             if (video_meta->width > 0 && video_meta->height > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Resolution:");
+                ImGui::TextDisabled("Resolution:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%dx%d", video_meta->width, video_meta->height);
@@ -5047,7 +5045,7 @@ namespace ump {
             if (video_meta->frame_rate > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Frame Rate:");
+                ImGui::TextDisabled("Frame Rate:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3f fps", video_meta->frame_rate);
@@ -5057,7 +5055,7 @@ namespace ump {
             if (video_meta->total_frames > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Total Frames:");
+                ImGui::TextDisabled("Total Frames:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d", video_meta->total_frames);
@@ -5080,7 +5078,7 @@ namespace ump {
 
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Duration:");
+                ImGui::TextDisabled("Duration:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3fs | %lldms | %02d:%02d:%02d:%02d",
@@ -5091,7 +5089,7 @@ namespace ump {
             if (!video_meta->video_codec.empty() && video_meta->video_codec != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Video Codec:");
+                ImGui::TextDisabled("Video Codec:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->video_codec.c_str());
@@ -5101,7 +5099,7 @@ namespace ump {
             if (!video_meta->pixel_format.empty() && video_meta->pixel_format != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Pixel Format:");
+                ImGui::TextDisabled("Pixel Format:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
 
@@ -5138,7 +5136,7 @@ namespace ump {
             if (!video_meta->colorspace.empty() && video_meta->colorspace != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Colorspace:");
+                ImGui::TextDisabled("Colorspace:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->colorspace.c_str());
@@ -5148,7 +5146,7 @@ namespace ump {
             if (!video_meta->color_primaries.empty() && video_meta->color_primaries != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Primaries:");
+                ImGui::TextDisabled("Primaries:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->color_primaries.c_str());
@@ -5158,7 +5156,7 @@ namespace ump {
             if (!video_meta->color_transfer.empty() && video_meta->color_transfer != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Transfer:");
+                ImGui::TextDisabled("Transfer:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->color_transfer.c_str());
@@ -5169,7 +5167,7 @@ namespace ump {
             if (!video_meta->range_type.empty() && video_meta->range_type != "unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Range:");
+                ImGui::TextDisabled("Range:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->range_type.c_str());
@@ -5180,7 +5178,7 @@ namespace ump {
             if (!video_meta->nclc_tag.empty() && video_meta->nclc_tag != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("NCLC Tag:");
+                ImGui::TextDisabled("NCLC Tag:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
 
@@ -5203,7 +5201,7 @@ namespace ump {
             // NEW: Display color matrix status for 4444 formats
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::Text("Processing:");
+            ImGui::TextDisabled("Processing:");
             ImGui::TableSetColumnIndex(1);
 
             // Debug: Log when this is called
@@ -5229,7 +5227,7 @@ namespace ump {
             if (!video_meta->audio_codec.empty() && video_meta->audio_codec != "Unknown") {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Audio Codec:");
+                ImGui::TextDisabled("Audio Codec:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->audio_codec.c_str());
@@ -5239,7 +5237,7 @@ namespace ump {
             if (video_meta->audio_sample_rate > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Sample Rate:");
+                ImGui::TextDisabled("Sample Rate:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d Hz", video_meta->audio_sample_rate);
@@ -5249,7 +5247,7 @@ namespace ump {
             if (video_meta->audio_channels > 0) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Channels:");
+                ImGui::TextDisabled("Channels:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d", video_meta->audio_channels);
@@ -5262,7 +5260,7 @@ namespace ump {
 
     void ProjectManager::DisplayAdobeProjectsTable(const AdobeMetadata* adobe_meta) {
         if (ImGui::BeginTable("AdobeProjectsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
-            ImGui::TableSetupColumn("Application", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+            ImGui::TableSetupColumn("Application", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Project File", ImGuiTableColumnFlags_WidthStretch);
 
             if (!adobe_meta->ae_project_path.empty()) {
@@ -5285,7 +5283,7 @@ namespace ump {
         // Project name row
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
-        ImGui::Text("%s", app_name.c_str());
+        ImGui::TextDisabled("%s", app_name.c_str());
 
         ImGui::TableSetColumnIndex(1);
         std::string filename = std::filesystem::path(project_path).filename().string();

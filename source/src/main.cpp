@@ -2118,8 +2118,8 @@ private:
         ImGuiIO& io = ImGui::GetIO();
 
         io.Fonts->AddFontDefault();
-        font_regular = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 18.0f);
-        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/JetBrainsMono-Regular.ttf", 16.0f);
+        font_regular = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 17.0f);
+        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/JetBrainsMono-Regular.ttf", 17.0f);
 
         ImFontConfig icons_config;
         icons_config.MergeMode = false;
@@ -9377,7 +9377,7 @@ private:
                 ImVec4 button_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, button_color);
 
-                if (ImGui::Button(volume_icon, ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(volume_icon, ImVec2(25.0f, 25.0f))) {
                     ToggleMute();
                 }
 
@@ -9461,7 +9461,7 @@ private:
                 ImGui::PushFont(font_icons);
                 ImGui::PushStyleColor(ImGuiCol_Text, button_color);
 
-                if (ImGui::Button(loop_icon, ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(loop_icon, ImVec2(25.0f, 25.0f))) {
                     ToggleLoop();
                 }
 
@@ -9501,7 +9501,7 @@ private:
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
                 }
 
-                if (ImGui::Button("\ue892", ImVec2(25.0f, 22.0f))) {  // Label icon
+                if (ImGui::Button("\ue892", ImVec2(25.0f, 25.0f))) {  // Label icon
                     if (video_player && project_manager) {
                         double current_time = video_player->GetPosition();
                         project_manager->SetInPoint(current_time);
@@ -9529,7 +9529,7 @@ private:
                     ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
                 }
 
-                if (ImGui::Button("\ue937", ImVec2(25.0f, 22.0f))) {  // Label_Important icon
+                if (ImGui::Button("\ue937", ImVec2(25.0f, 25.0f))) {  // Label_Important icon
                     if (video_player && project_manager) {
                         double current_time = video_player->GetPosition();
                         project_manager->SetOutPoint(current_time);
@@ -9664,7 +9664,7 @@ private:
                     ImGui::PushFont(font_icons);
                 }
 
-                if (ImGui::Button("\uf50b", ImVec2(25.0f, 22.0f))) {  // "play_for_work" icon
+                if (ImGui::Button("\uf50b", ImVec2(25.0f, 25.0f))) {  // "play_for_work" icon
                     OpenGotoTimecodeModal();
                 }
 
@@ -9771,7 +9771,7 @@ private:
             ImU32 clip_color, border_color;
             if (is_current) {
                 // System accent color for current clip
-                ImVec4 accent = GetWindowsAccentColor();
+                ImVec4 accent = MutedDark(GetWindowsAccentColor());
                 clip_color = ImGui::GetColorU32(accent);
                 border_color = ImGui::GetColorU32(ImVec4(accent.x * 1.3f, accent.y * 1.3f, accent.z * 1.3f, 1.0f));
             } else {
@@ -12183,9 +12183,9 @@ private:
             // Use separate button IDs since we can't concat const char* with string literal
             bool mute_clicked = false;
             if (is_muted) {
-                mute_clicked = ImGui::Button(ICON_VOLUME_MUTE "##otio_mute", ImVec2(25.0f, 22.0f));
+                mute_clicked = ImGui::Button(ICON_VOLUME_MUTE "##otio_mute", ImVec2(25.0f, 25.0f));
             } else {
-                mute_clicked = ImGui::Button(ICON_VOLUME_UP "##otio_mute", ImVec2(25.0f, 22.0f));
+                mute_clicked = ImGui::Button(ICON_VOLUME_UP "##otio_mute", ImVec2(25.0f, 25.0f));
             }
             if (mute_clicked) {
                 ToggleMute();
@@ -12255,9 +12255,9 @@ private:
             // Use separate button calls since we can't concat const char* with string literal
             bool loop_clicked = false;
             if (loop_enabled) {
-                loop_clicked = ImGui::Button(ICON_LOOP "##otio_loop_btn", ImVec2(25.0f, 22.0f));
+                loop_clicked = ImGui::Button(ICON_LOOP "##otio_loop_btn", ImVec2(25.0f, 25.0f));
             } else {
-                loop_clicked = ImGui::Button(ICON_LOOP_OFF "##otio_loop_btn", ImVec2(25.0f, 22.0f));
+                loop_clicked = ImGui::Button(ICON_LOOP_OFF "##otio_loop_btn", ImVec2(25.0f, 25.0f));
             }
             if (loop_clicked) {
                 ToggleLoop();
@@ -12287,7 +12287,7 @@ private:
         ImVec4 follow_button_color = follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
         ImGui::PushStyleColor(ImGuiCol_Text, follow_button_color);
         if (font_mono) ImGui::PushFont(font_mono);
-        bool follow_clicked = ImGui::Button(follow_playhead ? "F*" : "F", ImVec2(25.0f, 22.0f));
+        bool follow_clicked = ImGui::Button(follow_playhead ? "F*" : "F", ImVec2(25.0f, 25.0f));
         if (font_mono) ImGui::PopFont();
         ImGui::PopStyleColor();
 
@@ -12314,7 +12314,7 @@ private:
                 bool has_tl_in = timeline_view->HasTimelineInPoint();
                 ImVec4 in_btn_color = has_tl_in ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, in_btn_color);
-                if (ImGui::Button(ICON_LABEL "##tl_in_btn", ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(ICON_LABEL "##tl_in_btn", ImVec2(25.0f, 25.0f))) {
                     timeline_view->SetTimelineInPoint(tl_current_time);
                 }
                 ImGui::PopStyleColor();
@@ -12332,7 +12332,7 @@ private:
                 bool has_tl_out = timeline_view->HasTimelineOutPoint();
                 ImVec4 out_btn_color = has_tl_out ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_Text, out_btn_color);
-                if (ImGui::Button(ICON_LABEL_IMPORTANT "##tl_out_btn", ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(ICON_LABEL_IMPORTANT "##tl_out_btn", ImVec2(25.0f, 25.0f))) {
                     timeline_view->SetTimelineOutPoint(tl_current_time);
                 }
                 ImGui::PopStyleColor();
@@ -12359,7 +12359,7 @@ private:
             // Cut button
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-                if (ImGui::Button(ICON_CONTENT_CUT "##tl_cut_btn", ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(ICON_CONTENT_CUT "##tl_cut_btn", ImVec2(25.0f, 25.0f))) {
                     // Cut clips at playhead - same as X key
                     auto& selection = timeline_view->GetSelection();
                     if (!selection.selected_clip_ids.empty()) {
@@ -12402,7 +12402,7 @@ private:
             // Refresh Cache button
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-                if (ImGui::Button(ICON_REFRESH "##tl_refresh_btn", ImVec2(25.0f, 22.0f))) {
+                if (ImGui::Button(ICON_REFRESH "##tl_refresh_btn", ImVec2(25.0f, 25.0f))) {
                     timeline_view->ForceRefreshCache();
                 }
                 ImGui::PopFont();
@@ -13059,7 +13059,7 @@ private:
 
                         // Clip properties table
                         if (ImGui::BeginTable("SelectedClipProps", 2, ImGuiTableFlags_SizingFixedFit)) {
-                            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
                             double frame_rate = timeline_view->GetFrameRate();
@@ -13185,7 +13185,7 @@ private:
 
                 // Properties table
                 if (ImGui::BeginTable("TimelineProps", 2, ImGuiTableFlags_SizingFixedFit)) {
-                    ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+                    ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
                     // Resolution
@@ -13327,7 +13327,7 @@ private:
                         int total_clips = project_manager->GetPlaylistLength();
 
                         if (current_pos >= 0 && total_clips > 0) {
-                            ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.7f, 0.7f, 0.7f, 1.0f));
                             if (font_icons) {
                                 ImGui::PushFont(font_icons);
                                 ImGui::Text(ICON_PLAY_ARROW);
@@ -13338,9 +13338,12 @@ private:
                             ImGui::PopStyleColor();
 
                             std::string current_clip = project_manager->GetCurrentClipName();
+                            ImGui::PushFont(font_mono);
                             if (!current_clip.empty()) {
-                                ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "Current: %s", current_clip.c_str());
+                                ImGui::TextColored(MutedDark(GetWindowsAccentColor()), "Current: %s", current_clip.c_str());
                             }
+                            ImGui::PopFont();
+                            ImGui::Separator();
                         }
 
                         ImGui::Spacing();
@@ -13352,10 +13355,13 @@ private:
                             ImGui::PopFont();
                             ImGui::SameLine();
                         }
+      
                         ImGui::Text("Playlist Contents:");
                         ImGui::PopStyleColor();
 
-                        ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Drag videos here to add � Drag within to reorder");
+                        ImGui::PushFont(font_mono);
+                        ImGui::TextColored(MutedDark(GetWindowsAccentColor()), "Drag videos here to add. Drag within to reorder");
+                        ImGui::PopFont();
 
                         auto sorted_clips = seq->GetAllClipsSorted();
 
@@ -13691,7 +13697,7 @@ private:
                     ImGui::PopFont();
                     ImGui::SameLine();
                 }
-                ImGui::Text("Video Properties");
+                ImGui::Text("Media Properties");
                 ImGui::PopStyleColor();
                 ImGui::Separator();
 
