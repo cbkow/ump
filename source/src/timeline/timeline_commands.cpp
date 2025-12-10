@@ -603,4 +603,57 @@ std::string CompositeCommand::GetDescription() const {
     return description_;
 }
 
+//-----------------------------------------------------------------------------
+// MoveMultipleClipsCommand
+//-----------------------------------------------------------------------------
+
+MoveMultipleClipsCommand::MoveMultipleClipsCommand(TimelineView* view, std::vector<ClipMoveInfo> moves)
+    : view_(view), moves_(std::move(moves)) {
+}
+
+void MoveMultipleClipsCommand::Execute() {
+    if (!view_) return;
+    auto& tracks = view_->GetTracks();
+
+    for (auto& move : moves_) {
+        if (move.track_index < 0 || move.track_index >= static_cast<int>(tracks.size())) continue;
+
+        auto& track = tracks[move.track_index];
+        auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                               [&](const OTIOClip& c) { return c.id == move.clip_id; });
+        if (it == track.clips.end()) continue;
+
+        if (!executed_) {
+            move.old_start_time = it->start_time;  // Capture for undo
+        }
+
+        it->start_time = std::max(0.0, move.new_start_time);
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void MoveMultipleClipsCommand::Undo() {
+    if (!view_) return;
+    auto& tracks = view_->GetTracks();
+
+    for (const auto& move : moves_) {
+        if (move.track_index < 0 || move.track_index >= static_cast<int>(tracks.size())) continue;
+
+        auto& track = tracks[move.track_index];
+        auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                               [&](const OTIOClip& c) { return c.id == move.clip_id; });
+        if (it == track.clips.end()) continue;
+
+        it->start_time = move.old_start_time;
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string MoveMultipleClipsCommand::GetDescription() const {
+    return "Move " + std::to_string(moves_.size()) + " clips";
+}
+
 } // namespace ump

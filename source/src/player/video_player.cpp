@@ -840,20 +840,6 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
         thumbnail_cache_.reset();
     }
 
-    // Handle audio visualization filter
-    bool was_audio_enabled = audio_visualization_enabled;
-
-    if (was_audio_enabled && !is_audio_file) {
-        // Switching from audio to video - clear audio filter
-        Debug::Log("OnPlaylistItemChanged: Switching from audio to video - clearing audio filter");
-        mpv_set_property_string(mpv, "af", "");
-        audio_visualization_enabled = false;
-    } else if (!was_audio_enabled && is_audio_file) {
-        // Switching from video to audio - setup audio filter
-        Debug::Log("OnPlaylistItemChanged: Switching from video to audio - setting up audio filter");
-        SetupAudioVisualization();
-    }
-
     // Defer thumbnail cache creation to background to avoid blocking viewport
     // This allows MPV to render the first frame immediately during playlist switches
     if (!is_audio_file) {
@@ -1106,120 +1092,6 @@ float VideoPlayer::GetVolume() const {
     return 1.0f;
 }
 
-void VideoPlayer::SetupAudioVisualization() {
-    Debug::Log("SetupAudioVisualization: Called (mpv=" +
-               std::string(mpv ? "valid" : "null") +
-               ", enabled=" + std::string(audio_visualization_enabled ? "true" : "false") + ")");
-
-    if (!mpv || audio_visualization_enabled) {
-        Debug::Log("SetupAudioVisualization: Skipping (early return)");
-        return;
-    }
-
-    // Skip audio visualization for timeline/dummy videos
-    if (is_timeline_mode_) {
-        Debug::Log("SetupAudioVisualization: Skipping for timeline mode (dummy video)");
-        return;
-    }
-
-    // Skip for dummy video files (detected by path containing "dummy_")
-    if (current_file_path.find("dummy_") != std::string::npos) {
-        Debug::Log("SetupAudioVisualization: Skipping for dummy video file");
-        return;
-    }
-
-    // ✅ Only enable audio visualization for audio-only files (no video stream)
-    if (metadata_callback && !current_file_path.empty()) {
-        VideoMetadata meta = metadata_callback(current_file_path);
-        if (meta.is_loaded && meta.width > 0 && meta.height > 0) {
-            // This is a video file, skip audio visualization
-            Debug::Log("SetupAudioVisualization: Skipping for video file (not audio-only)");
-            return;
-        }
-        Debug::Log("SetupAudioVisualization: Audio-only file detected, enabling visualization");
-    }
-
-    Debug::Log("SetupAudioVisualization: Attempting to enable audio filter...");
-
-    // Set up lavfi showvolume filter for real-time audio level detection
-    // This creates a 1x1 pixel output that represents the current audio level
-    const char* af_filter = "lavfi=[showvolume=rate=30:f=1:b=4:w=1:h=1:t=0]";
-
-    if (mpv_set_property_string(mpv, "af", af_filter) == 0) {
-        audio_visualization_enabled = true;
-        Debug::Log("SetupAudioVisualization: SUCCESS - Audio filter enabled");
-
-        // Enable property change notifications for audio data
-        mpv_observe_property(mpv, 0, "af-metadata", MPV_FORMAT_NODE);
-    } else {
-        Debug::Log("SetupAudioVisualization: FAILED - Could not enable audio filter");
-    }
-}
-
-void VideoPlayer::UpdateAudioData() {
-    if (!mpv || !audio_visualization_enabled) return;
-
-    // Update audio level from MPV events
-    // This will be called from the main update loop
-    auto now = std::chrono::steady_clock::now();
-
-    // Limit update frequency to avoid overhead
-    if (std::chrono::duration_cast<std::chrono::milliseconds>(now - last_audio_update).count() < 33) {
-        return; // Update at most 30 FPS
-    }
-    last_audio_update = now;
-
-    // Try multiple approaches to get real audio data
-
-    // Method 1: Try to get volume level from show volume filter metadata
-    mpv_node* af_metadata = nullptr;
-    if (mpv_get_property(mpv, "af-metadata", MPV_FORMAT_NODE, &af_metadata) == 0 && af_metadata) {
-        // Parse the metadata for volume information
-        // This is complex as it requires parsing MPV's filter metadata structure
-        // For now, we'll implement a simplified approach
-        mpv_free_node_contents(af_metadata);
-    }
-
-    // Method 2: Try to get RMS audio level (if available)
-    double rms_level = 0.0;
-    if (mpv_get_property(mpv, "audio-out-detected-device", MPV_FORMAT_DOUBLE, &rms_level) == 0) {
-        // This might not be the right property, but we're exploring available options
-        current_audio_level = static_cast<float>(rms_level / 100.0f);
-        return;
-    }
-
-    // Method 3: Fallback to volume-based estimation with real audio activity detection
-    double volume = 0.0;
-    int muted = 0;
-    bool has_audio = false;
-
-    if (mpv_get_property(mpv, "volume", MPV_FORMAT_DOUBLE, &volume) == 0) {
-        has_audio = true;
-    }
-    mpv_get_property(mpv, "mute", MPV_FORMAT_FLAG, &muted);
-
-    if (muted || !is_playing || !has_audio) {
-        current_audio_level = 0.0f;
-        return;
-    }
-
-    // For now, use a hybrid approach: volume setting + time-based variation
-    // This will be replaced with real filter data once we parse the metadata properly
-    float volume_base = static_cast<float>(volume / 100.0f);
-    double pos = GetPosition();
-
-    // Create more realistic audio patterns
-    float audio_activity = 0.3f + 0.5f * abs(sin(pos * 8.0)) * abs(cos(pos * 3.0));
-    current_audio_level = volume_base * audio_activity;
-
-    // Clamp to valid range
-    current_audio_level = (std::max)(0.0f, (std::min)(1.0f, current_audio_level));
-}
-
-float VideoPlayer::GetAudioLevel() const {
-    // Return the cached audio level that's updated by UpdateAudioData()
-    return current_audio_level;
-}
 
 // ============================================================================
 // Loop control methods
@@ -1285,9 +1157,6 @@ void VideoPlayer::UpdateFromMPVEvents() {
 
         HandleMPVEvent(event);
     }
-
-    // Update real-time audio data
-    UpdateAudioData();
 }
 
 void VideoPlayer::HandleMPVEvent(mpv_event* event) {
@@ -2067,8 +1936,7 @@ void VideoPlayer::UpdatePlaybackState() {
 
 void VideoPlayer::ResetState() {
     Debug::Log("ResetState: Starting (has_video=" +
-               std::string(has_video ? "true" : "false") +
-               ", audio_viz=" + std::string(audio_visualization_enabled ? "true" : "false") + ")");
+               std::string(has_video ? "true" : "false") + ")");
 
     has_video = false;
     cached_duration = 0.0;
@@ -2087,15 +1955,6 @@ void VideoPlayer::ResetState() {
     if (mpv) {
         const char* cmd[] = { "stop", nullptr };
         mpv_command(mpv, cmd);
-    }
-
-    // Clear audio filter if it was previously enabled
-    if (audio_visualization_enabled && mpv) {
-        Debug::Log("ResetState: Clearing audio visualization filter");
-        mpv_set_property_string(mpv, "af", "");  // Clear audio filter
-        audio_visualization_enabled = false;
-    } else {
-        audio_visualization_enabled = false;  // Reset audio filter state for reload
     }
 
     // Clean up EXR/image sequence state if active
@@ -2229,9 +2088,6 @@ void VideoPlayer::FinalizeLoad() {
         has_video = false;
     }
 
-    // Set up audio visualization for the loaded content
-    Debug::Log("FinalizeLoad: Setting up audio visualization...");
-    SetupAudioVisualization();
     Debug::Log("FinalizeLoad: Complete");
 }
 

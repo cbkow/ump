@@ -2,6 +2,7 @@
 
 #include <string>
 #include <set>
+#include <vector>
 
 namespace ump {
 
@@ -66,13 +67,23 @@ struct TimelineSelection {
     }
 };
 
-// Drag state for clip operations
+// Drag state for clip operations (supports multi-clip dragging)
 struct TimelineClipDragState {
     bool active = false;
-    std::string clip_id;
+    std::string clip_id;                    // Primary clip being dragged
     int original_track_index = -1;
     double original_start_time = 0.0;
-    double drag_offset = 0.0;  // Offset from clip start to mouse position
+    double drag_offset = 0.0;               // Offset from clip start to mouse position
+
+    // Multi-clip support: all clips being moved together
+    struct DraggedClipInfo {
+        std::string clip_id;
+        int track_index;
+        double original_start_time;
+        double duration;
+        double offset_from_primary;         // Time offset relative to primary clip
+    };
+    std::vector<DraggedClipInfo> dragged_clips;  // All clips being moved (includes primary)
 };
 
 // Trim state for edge dragging

@@ -18,15 +18,7 @@ namespace fs = std::filesystem;
 // Video Probing Helper
 // ============================================================================
 
-struct VideoProbeResult {
-    bool valid = false;
-    double fps = 0.0;
-    double duration = 0.0;
-    int width = 0;
-    int height = 0;
-};
-
-static VideoProbeResult ProbeVideoFile(const std::string& path) {
+ump::VideoProbeResult ump::MediaLinker::ProbeVideoFile(const std::string& path) {
     VideoProbeResult result;
 
     AVFormatContext* fmt_ctx = nullptr;
@@ -72,7 +64,7 @@ static VideoProbeResult ProbeVideoFile(const std::string& path) {
 }
 
 // Check if file is a video format (not image sequence)
-static bool IsVideoFile(const std::string& path) {
+bool ump::MediaLinker::IsVideoFile(const std::string& path) {
     std::string ext = fs::path(path).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 

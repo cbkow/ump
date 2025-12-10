@@ -410,10 +410,11 @@ bool DummyVideoGenerator::CreateDummyVideoWithAPI(const std::string& output_path
 
     // Calculate appropriate timeout based on frame count
     // internal_rate fps * duration seconds = total frames
-    // Allow ~100ms per frame + 5 second base
+    // For 1x1 pixel dummy videos with ultrafast preset, encoding is very fast
+    // Allow ~50ms per frame + 10 second base, with generous cap for long timelines
     int total_frames = static_cast<int>(internal_rate * duration);
-    int timeout_ms = 5000 + (total_frames * 100);  // 5s base + 100ms per frame
-    timeout_ms = std::min(timeout_ms, 120000);  // Cap at 2 minutes max
+    int timeout_ms = 10000 + (total_frames * 50);  // 10s base + 50ms per frame
+    timeout_ms = std::min(timeout_ms, 600000);  // Cap at 10 minutes max (supports ~2 hour timelines)
     Debug::Log("FFmpeg timeout: " + std::to_string(timeout_ms) + "ms for " + std::to_string(total_frames) + " frames");
 
 #ifdef _WIN32

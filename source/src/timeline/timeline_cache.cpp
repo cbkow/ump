@@ -327,26 +327,13 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
                 pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
             }
 
-            // During post-edit, if buffer is empty, wait briefly for decoder to catch up
-            // This prevents returning nullptr when decoder just started after seek
+            // During post-edit, don't block - just note the miss
+            // The decoder will catch up and subsequent frames will be available
+            // Blocking here causes frame drops (200ms blocks on 16ms frame budget)
             if (!pixels && is_post_edit) {
-                // Wait up to 200ms for first frame (decoder should be fast after seek)
-                for (int retry = 0; retry < 20 && !pixels; retry++) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    pixels = loader_info->video_decoder->GetFrame(key.source_frame);
-                    if (!pixels) {
-                        pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
-                    }
-                    if (pixels) {
-                        is_exact_frame = (loader_info->video_decoder->GetFrame(key.source_frame) != nullptr);
-                        Debug::Log("TimelineCache::GetFrame: Post-edit retry " + std::to_string(retry) +
-                                   " got frame (exact=" + std::to_string(is_exact_frame) + ")");
-                    }
-                }
-                if (!pixels) {
-                    Debug::Log("TimelineCache::GetFrame: Post-edit wait TIMEOUT for source frame " +
-                               std::to_string(key.source_frame));
-                }
+                // Log miss but don't block - use last_good_texture as fallback below
+                Debug::Log("TimelineCache::GetFrame: Post-edit frame miss for " +
+                           std::to_string(key.source_frame) + " - using fallback");
             }
 
             if (pixels) {
@@ -636,6 +623,7 @@ void TimelineCache::ProcessPendingUploads() {
             if (pending_uploads_.empty()) break;
             upload = std::move(pending_uploads_.front());
             pending_uploads_.pop_front();
+            pending_uploads_set_.erase(upload.key);  // Keep set in sync
         }
 
         // Safety eviction: only if WAY over limit (window eviction handles normal case)
@@ -744,6 +732,7 @@ void TimelineCache::ClearCache() {
     {
         std::lock_guard<std::mutex> lock(upload_mutex_);
         pending_uploads_.clear();
+        pending_uploads_set_.clear();  // Keep set in sync
     }
 
     cache_hits_ = 0;
@@ -755,6 +744,7 @@ void TimelineCache::ClearCache() {
 void TimelineCache::ClearRequests() {
     std::lock_guard<std::mutex> lock(request_mutex_);
     video_requests_.clear();
+    video_requests_set_.clear();  // Keep set in sync
     requests_in_progress_.clear();
     Debug::Log("TimelineCache: Requests cleared (" +
                std::to_string(video_requests_.size()) + " pending, " +
@@ -791,6 +781,7 @@ void TimelineCache::NotifyTracksEdited() {
         std::lock_guard<std::mutex> lock(upload_mutex_);
         int uploads_cleared = static_cast<int>(pending_uploads_.size());
         pending_uploads_.clear();
+        pending_uploads_set_.clear();  // Keep set in sync
         if (uploads_cleared > 0) {
             Debug::Log("TimelineCache: Cleared " + std::to_string(uploads_cleared) + " pending uploads on edit");
         }
@@ -1190,15 +1181,25 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
     double fps_for_frame_calc = (clip->source_fps > 0) ? clip->source_fps : config_.fps;
 
     // Handle Avid MXF subclips: EDL source_in contains absolute tape timecode,
-    // but the MXF file itself starts at frame 0. Detect this by checking if
-    // source_in would exceed a reasonable duration (e.g., > 1 hour = 3600s).
-    // In this case, ignore source_in and just use clip_offset.
+    // but the MXF file itself starts at frame 0. Detect this by comparing
+    // source_in to the actual probed source_duration. If source_in exceeds
+    // the file's duration, it's a tape timecode and should be ignored.
     double source_time;
-    if (clip->source_in > 3600.0) {
-        // Subclip with tape timecode - use clip offset directly
+    bool source_in_is_tape_timecode = false;
+    if (clip->source_duration > 0) {
+        // We have probed duration - use it to detect tape timecodes
+        source_in_is_tape_timecode = (clip->source_in > clip->source_duration);
+    } else {
+        // Fallback: no probed duration, use heuristic (source_in > 1 hour)
+        // This preserves backward compatibility for unprobed clips
+        source_in_is_tape_timecode = (clip->source_in > 3600.0);
+    }
+
+    if (source_in_is_tape_timecode) {
+        // Tape timecode - MXF subclip starts at frame 0
         source_time = clip_offset;
     } else {
-        // Normal clip with valid source_in - use source_in + offset
+        // Valid source_in - use it
         source_time = clip->source_in + clip_offset;
     }
 
@@ -1417,17 +1418,11 @@ void TimelineCache::IOWorkerThread() {
                     }
 
                     if (pixels) {
-                        // Queue for GPU upload
+                        // Queue for GPU upload (O(1) duplicate check)
                         std::lock_guard<std::mutex> upload_lock(upload_mutex_);
-                        bool already_pending = false;
-                        for (const auto& pending : pending_uploads_) {
-                            if (pending.key == key) {
-                                already_pending = true;
-                                break;
-                            }
-                        }
-                        if (!already_pending) {
+                        if (pending_uploads_set_.count(key) == 0) {
                             pending_uploads_.push_back({key, pixels});
+                            pending_uploads_set_.insert(key);
                         }
                     }
                 }
@@ -1447,6 +1442,7 @@ void TimelineCache::IOWorkerThread() {
             // Get first request (FIFO - CacheThread adds in priority order)
             timeline_frame = video_requests_.front();
             video_requests_.pop_front();
+            video_requests_set_.erase(timeline_frame);  // Keep set in sync
 
             // Mark as in progress
             requests_in_progress_.insert(timeline_frame);
@@ -1474,17 +1470,10 @@ void TimelineCache::IOWorkerThread() {
             }
         }
 
-        // Check if already pending upload (prevents duplicate I/O work)
+        // Check if already pending upload (O(1) lookup)
         {
             std::lock_guard<std::mutex> lock(upload_mutex_);
-            bool already_pending = false;
-            for (const auto& pending : pending_uploads_) {
-                if (pending.key == key) {
-                    already_pending = true;
-                    break;
-                }
-            }
-            if (already_pending) {
+            if (pending_uploads_set_.count(key) > 0) {
                 std::lock_guard<std::mutex> req_lock(request_mutex_);
                 requests_in_progress_.erase(timeline_frame);
                 continue;  // Already being uploaded
@@ -1588,19 +1577,10 @@ void TimelineCache::IOWorkerThread() {
         {
             std::lock_guard<std::mutex> lock(upload_mutex_);
 
-            // Check if this key is already pending upload (prevents duplicate work)
-            bool already_pending = false;
-            for (const auto& pending : pending_uploads_) {
-                if (pending.key == key) {
-                    already_pending = true;
-                  /*  Debug::Log("TimelineCache: [SKIP-DUP] Frame " + std::to_string(key.source_frame) +
-                               " already pending upload, skipping");*/
-                    break;
-                }
-            }
-
-            if (!already_pending) {
+            // Check if this key is already pending upload (O(1) lookup)
+            if (pending_uploads_set_.count(key) == 0) {
                 pending_uploads_.push_back({key, pixels});
+                pending_uploads_set_.insert(key);
             }
         }
 
@@ -2266,16 +2246,13 @@ void TimelineCache::CacheManagementThread() {
                     if (frame_cache_.find(key) != frame_cache_.end()) continue;
                 }
 
-                // Check if already pending/in-progress
+                // Check if already pending/in-progress (O(1) lookups)
                 if (requests_in_progress_.count(frame) > 0) continue;
-                bool already_pending = false;
-                for (int pending : video_requests_) {
-                    if (pending == frame) { already_pending = true; break; }
-                }
-                if (already_pending) continue;
+                if (video_requests_set_.count(frame) > 0) continue;  // O(1) instead of O(N)
 
-                // Add to request queue
+                // Add to request queue (keep deque and set in sync)
                 video_requests_.push_back(frame);
+                video_requests_set_.insert(frame);
                 requested_count++;
             }
 
@@ -2308,16 +2285,13 @@ void TimelineCache::CacheManagementThread() {
                     if (frame_cache_.find(key) != frame_cache_.end()) continue;
                 }
 
-                // Check if already pending/in-progress
+                // Check if already pending/in-progress (O(1) lookups)
                 if (requests_in_progress_.count(frame) > 0) continue;
-                bool already_pending = false;
-                for (int pending : video_requests_) {
-                    if (pending == frame) { already_pending = true; break; }
-                }
-                if (already_pending) continue;
+                if (video_requests_set_.count(frame) > 0) continue;  // O(1) instead of O(N)
 
-                // Add to request queue
+                // Add to request queue (keep deque and set in sync)
                 video_requests_.push_back(frame);
+                video_requests_set_.insert(frame);
                 requested_count++;
             }
 

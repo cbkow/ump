@@ -239,6 +239,11 @@ ump::TimelineClipDragState timeline_clip_drag;      // State for clip dragging
 ump::TimelineTrimState timeline_trim_state;         // State for clip edge trimming
 ump::TimelineMediaDropState timeline_media_drop;    // State for media drop from project panel
 
+// Snapping state for clip dragging
+static bool snap_active = false;                    // Whether snap is currently engaged
+static double snap_time = 0.0;                      // Time position of snap line
+static const double SNAP_THRESHOLD_PX = 10.0;       // Snap distance in pixels
+
 // In-memory cache for media links (persists across timeline reloads until app quit or project save)
 struct CachedClipLink {
     std::string clip_id;
@@ -292,6 +297,7 @@ static void SaveLinksToCache(const std::string& timeline_id = "") {
                 pl.source_fps = link.source_fps;
                 pl.source_width = link.source_width;
                 pl.source_height = link.source_height;
+                pl.source_duration = link.source_duration;
                 project_links.push_back(pl);
             }
             g_project_manager->UpdateTimelineClipLinks(timeline_id, project_links);
@@ -1063,6 +1069,33 @@ public:
                     Debug::Log("Restored timeline from cached edits (" +
                                std::to_string(timeline_item->cached_tracks.size()) + " tracks, " +
                                std::to_string(timeline_item->frame_rate) + " fps)");
+
+                    // Re-probe clips that are missing source_duration (from old projects)
+                    // This is needed for the tape timecode detection in TimelineToSource
+                    auto& tracks = timeline_view->GetTracks();
+                    bool needs_sync = false;
+                    for (auto& track : tracks) {
+                        for (auto& clip : track.clips) {
+                            if (clip.is_linked && !clip.linked_path.empty() && clip.source_duration <= 0) {
+                                // Re-probe the file
+                                if (ump::MediaLinker::IsVideoFile(clip.linked_path)) {
+                                    ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.linked_path);
+                                    if (probe.valid) {
+                                        clip.source_duration = probe.duration;
+                                        clip.source_fps = probe.fps;
+                                        clip.source_width = probe.width;
+                                        clip.source_height = probe.height;
+                                        needs_sync = true;
+                                        Debug::Log("Re-probed clip '" + clip.name + "': duration=" +
+                                                   std::to_string(probe.duration) + "s");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (needs_sync) {
+                        timeline_view->SyncFlattenerAndInvalidate();
+                    }
                 } else {
                     // No cached edits - load from file
                     std::filesystem::path path(file_path);
@@ -2081,6 +2114,13 @@ private:
     // ------------------------------------------------------------------------
     bool rewind_a_held = false;
     bool fastforward_d_held = false;
+
+    // ------------------------------------------------------------------------
+    // MEMBER VARIABLES - Standard Timeline Zoom/Pan State
+    // ------------------------------------------------------------------------
+    float std_timeline_zoom = 1.0f;         // Zoom factor (1.0 = fit to width)
+    float std_timeline_pan = 0.0f;          // Pan offset in pixels
+    float std_timeline_visible_width = 0.0f; // Cached visible width for calculations
 
     // ------------------------------------------------------------------------
     // MEMBER VARIABLES - Media State
@@ -3986,7 +4026,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.1");
+                ImGui::TextDisabled("About u.m.p. v0.4.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6290,47 +6330,6 @@ private:
                     }
                 }
 
-            // Audio waveform visualization for audio-only files
-            // Skip for EDL files (they may not have video detected immediately)
-            // Skip for timeline mode (dummy videos used as playback clock)
-            bool is_edl = current_file_path.find("edl://") == 0;
-            bool is_timeline_dummy = current_file_path.find("dummy_") != std::string::npos &&
-                                      current_file_path.find(".mp4") != std::string::npos;
-
-            // Skip audio visualization entirely in timeline mode
-            if (!is_timeline_dummy) {
-                // Debug logging for audio visualization decision (only log when there's a file loaded)
-                static std::string last_logged_path;
-                static bool last_logged_is_audio = false;
-                if (video_player && !current_file_path.empty() && current_file_path != last_logged_path) {
-                    bool is_audio = video_player->IsAudioOnly();
-                    Debug::Log("=== AUDIO VISUALIZATION CHECK ===");
-                    Debug::Log("  current_file_path: " + current_file_path);
-                    Debug::Log("  is_edl: " + std::string(is_edl ? "true" : "false"));
-                    Debug::Log("  IsAudioOnly(): " + std::string(is_audio ? "true" : "false"));
-                    Debug::Log("  HasVideo(): " + std::string(video_player->HasVideo() ? "true" : "false"));
-                    Debug::Log("  HasAudio(): " + std::string(video_player->HasAudio() ? "true" : "false"));
-                    Debug::Log("  Will draw waveform: " + std::string((is_audio && !is_edl) ? "YES" : "NO"));
-                    last_logged_path = current_file_path;
-                    last_logged_is_audio = is_audio;
-                }
-
-                if (video_player && video_player->IsAudioOnly() && !is_edl) {
-                    DrawAudioWaveform(canvas_pos, canvas_size);
-                }
-
-                // TEMPORARY: Always show waveform for testing
-                // TODO: Remove this test code once audio detection works
-                if (video_player && !current_file_path.empty() && !is_edl) {
-                    // Check if current file looks like audio based on extension
-                    std::string ext = current_file_path.substr(current_file_path.find_last_of("."));
-                    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                    if (ext == ".mp3" || ext == ".wav" || ext == ".aac" || ext == ".flac" || ext == ".ogg" || ext == ".m4a") {
-                        DrawAudioWaveform(canvas_pos, canvas_size);
-                    }
-                }
-            }
-
             // ImGui requires a Dummy() item after using GetCursorScreenPos() to properly size the window
             ImGui::SetCursorScreenPos(ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y));
             ImGui::Dummy(ImVec2(0, 0));
@@ -7636,101 +7635,131 @@ private:
         }
     }
 
-    void DrawAudioWaveform(ImVec2 canvas_pos, ImVec2 canvas_size) {
-        // Get current playback info
-        double position = 0.0;
-        double duration = 1.0;
-        float current_audio_level = 0.0f;
-        bool is_playing = false;
+    // =========================================================================
+    // Standard Timeline Zoom/Pan Helper Functions
+    // =========================================================================
 
-        if (video_player) {
-            position = video_player->GetPosition();
-            duration = video_player->GetDuration();
-            current_audio_level = video_player->GetAudioLevel();
-            is_playing = video_player->IsPlaying();
-        }
-
-        // Set up ImPlot plotting area with proper positioning
-        ImGui::SetCursorScreenPos(canvas_pos);
-        ImGui::BeginChild("AudioVisualization", canvas_size, false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-        // Simple minimal audio visualization - vertical white lines on pure black background
-        if (ImPlot::BeginPlot("##AudioLines", ImVec2(-1, -1), ImPlotFlags_NoFrame | ImPlotFlags_NoMenus | ImPlotFlags_NoBoxSelect | ImPlotFlags_NoMouseText)) {
-            // Configure minimal plot appearance - no decorations, transparent background
-            ImPlot::SetupAxes(nullptr, nullptr, ImPlotAxisFlags_NoDecorations, ImPlotAxisFlags_NoDecorations);
-            ImPlot::SetupAxisLimits(ImAxis_X1, 0, duration > 0 ? duration : 60, ImGuiCond_Always);
-            ImPlot::SetupAxisLimits(ImAxis_Y1, -1.0f, 1.0f, ImGuiCond_Always);
-
-            // Transparent background - let the regular window show through
-            ImPlot::PushStyleColor(ImPlotCol_PlotBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-
-            // Rolling audio data - store positions where we have audio hits
-            static std::vector<float> audio_positions;
-            static std::vector<float> audio_levels;
-            static bool is_looping = false;
-
-            // Check if we're looping to clear old data
-            bool current_loop_state = video_player ? video_player->IsLooping() : false;
-            if (current_loop_state != is_looping) {
-                is_looping = current_loop_state;
-                if (is_looping) {
-                    // Clear all existing lines when loop starts
-                    audio_positions.clear();
-                    audio_levels.clear();
-                }
-            }
-
-            // Clear data if we've looped back (position jumped backwards significantly)
-            static double last_position = 0.0;
-            if (position < last_position - 1.0) { // Detected loop or seek backwards
-                audio_positions.clear();
-                audio_levels.clear();
-            }
-            last_position = position;
-
-            // Add new vertical line if playing and audio level is significant
-            if (is_playing && current_audio_level > 0.1f) {
-                // Check if we already have a line at this position (avoid duplicates)
-                bool position_exists = false;
-                for (size_t i = 0; i < audio_positions.size(); i++) {
-                    if (abs(audio_positions[i] - position) < 0.1) { // Within 0.1 second
-                        position_exists = true;
-                        break;
-                    }
-                }
-
-                if (!position_exists) {
-                    audio_positions.push_back(position);
-                    audio_levels.push_back(current_audio_level);
-
-                    // Limit to 500 lines for performance
-                    if (audio_positions.size() > 500) {
-                        audio_positions.erase(audio_positions.begin());
-                        audio_levels.erase(audio_levels.begin());
-                    }
-                }
-            }
-
-            // Draw vertical white lines
-            for (size_t i = 0; i < audio_positions.size(); i++) {
-                float pos = audio_positions[i];
-                float level = audio_levels[i];
-
-                // Create vertical line data
-                float line_x[2] = { pos, pos };
-                float line_y[2] = { -level, level }; // Vertical line centered at 0
-
-                ImPlot::SetNextLineStyle(ImVec4(1.0f, 1.0f, 1.0f, 0.9f), 1.0f);
-                ImPlot::PlotLine("##line", line_x, line_y, 2);
-            }
-
-            ImPlot::PopStyleColor();
-            ImPlot::EndPlot();
-        }
-
-        ImGui::EndChild();
+    // Convert frame number to screen X position (accounting for zoom and pan)
+    inline float StdTimelineFrameToScreenX(int frame, int last_frame, float canvas_x,
+                                            float canvas_width, float zoom, float pan) {
+        if (last_frame <= 0) return canvas_x;
+        float total_width = canvas_width * zoom;
+        return canvas_x + (total_width * frame / static_cast<float>(last_frame)) - pan;
     }
 
+    // Convert screen X position to frame number (for scrubbing)
+    inline int StdTimelineScreenXToFrame(float screen_x, int last_frame, float canvas_x,
+                                          float canvas_width, float zoom, float pan) {
+        if (last_frame <= 0) return 0;
+        float total_width = canvas_width * zoom;
+        float relative_x = (screen_x - canvas_x + pan) / total_width;
+        relative_x = std::clamp(relative_x, 0.0f, 1.0f);
+        return static_cast<int>(std::round(relative_x * last_frame));
+    }
+
+    // Get maximum pan offset (prevents panning past timeline end)
+    inline float StdTimelineGetMaxPan(float canvas_width, float zoom) {
+        float total_width = canvas_width * zoom;
+        return std::max(0.0f, total_width - canvas_width);
+    }
+
+    // =========================================================================
+    // Timeline Clip Snapping Helper Functions
+    // =========================================================================
+
+    // Collect all snap points from timeline (clip edges, playhead, boundaries)
+    // exclude_clip_ids: clips being dragged (don't snap to self)
+    std::vector<double> CollectSnapPoints(
+        const std::vector<ump::OTIOTrack>& tracks,
+        const std::set<std::string>& exclude_clip_ids,
+        double playhead_time,
+        double timeline_duration
+    ) {
+        std::vector<double> points;
+        points.push_back(0.0);  // Timeline start
+        points.push_back(timeline_duration);  // Timeline end
+        points.push_back(playhead_time);  // Playhead
+
+        for (const auto& track : tracks) {
+            for (const auto& clip : track.clips) {
+                if (exclude_clip_ids.count(clip.id)) continue;
+                points.push_back(clip.start_time);  // Clip start
+                points.push_back(clip.start_time + clip.duration);  // Clip end
+            }
+        }
+        return points;
+    }
+
+    // Find nearest snap point and return snapped position
+    // Returns the adjusted start_time for the clip
+    double CalculateSnappedPosition(
+        double proposed_start,
+        double clip_duration,
+        const std::vector<double>& snap_points,
+        double pixels_per_second,
+        bool& snapped,          // OUT: whether snap occurred
+        double& snap_line_time  // OUT: where to draw snap line
+    ) {
+        double threshold_time = SNAP_THRESHOLD_PX / pixels_per_second;
+        double clip_end = proposed_start + clip_duration;
+        snapped = false;
+
+        double best_delta = threshold_time;
+        double best_start = proposed_start;
+
+        for (double point : snap_points) {
+            // Try snapping clip START to this point
+            double delta = std::abs(proposed_start - point);
+            if (delta < best_delta) {
+                best_delta = delta;
+                best_start = point;
+                snap_line_time = point;
+                snapped = true;
+            }
+
+            // Try snapping clip END to this point
+            delta = std::abs(clip_end - point);
+            if (delta < best_delta) {
+                best_delta = delta;
+                best_start = point - clip_duration;  // Adjust start so end aligns
+                snap_line_time = point;
+                snapped = true;
+            }
+        }
+
+        return std::max(0.0, best_start);  // Clamp to timeline start
+    }
+
+    // Check if proposed multi-clip move would cause overlap with non-moving clips
+    bool WouldCauseOverlap(
+        const std::vector<ump::OTIOTrack>& tracks,
+        const std::vector<ump::TimelineClipDragState::DraggedClipInfo>& moving_clips,
+        double primary_new_start
+    ) {
+        // Build set of moving clip IDs
+        std::set<std::string> moving_ids;
+        for (const auto& mc : moving_clips) {
+            moving_ids.insert(mc.clip_id);
+        }
+
+        // Check each moving clip against stationary clips on same track
+        for (const auto& mc : moving_clips) {
+            double new_start = primary_new_start + mc.offset_from_primary;
+            double new_end = new_start + mc.duration;
+
+            if (mc.track_index < 0 || mc.track_index >= static_cast<int>(tracks.size())) continue;
+
+            for (const auto& clip : tracks[mc.track_index].clips) {
+                if (moving_ids.count(clip.id)) continue;  // Skip other moving clips
+                double clip_end = clip.start_time + clip.duration;
+                // Check overlap (with small epsilon for floating point)
+                if (new_start < clip_end - 0.001 && new_end > clip.start_time + 0.001) {
+                    return true;  // Overlap detected
+                }
+            }
+        }
+        return false;
+    }
 
     void RenderTimelineContent() {
         // =====================================================================
@@ -8547,6 +8576,38 @@ private:
                 // Timeline represents frames 0 to (total_frames - 1), so last frame index is total_frames - 1
                 int last_frame = total_frames - 1;
 
+                // === PLAYHEAD AUTO-FOLLOW DURING PLAYBACK ===
+                // When zoomed in and playing, keep the playhead visible by auto-scrolling
+                if (video_player && video_player->IsPlaying() && std_timeline_zoom > 1.0f) {
+                    // Calculate current playhead frame
+                    int playhead_frame = 0;
+                    if (video_player->GetFrameRate() > 0) {
+                        playhead_frame = static_cast<int>(std::round(position * video_player->GetFrameRate()));
+                        if (playhead_frame > last_frame) playhead_frame = last_frame;
+                    } else {
+                        playhead_frame = static_cast<int>((position / duration) * last_frame);
+                    }
+
+                    // Calculate where playhead would appear on screen
+                    float total_width = canvas_size.x * std_timeline_zoom;
+                    float playhead_screen_x = (total_width * playhead_frame / static_cast<float>(last_frame)) - std_timeline_pan;
+
+                    // Define margins: keep playhead within 20%-80% of visible area
+                    float left_margin = canvas_size.x * 0.2f;
+                    float right_margin = canvas_size.x * 0.8f;
+
+                    // If playhead goes past right margin, scroll to put it at left margin
+                    if (playhead_screen_x > right_margin) {
+                        std_timeline_pan = (total_width * playhead_frame / static_cast<float>(last_frame)) - left_margin;
+                        std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                    }
+                    // If playhead goes before left margin (e.g., after loop), scroll to show it
+                    else if (playhead_screen_x < left_margin && std_timeline_pan > 0) {
+                        std_timeline_pan = (total_width * playhead_frame / static_cast<float>(last_frame)) - left_margin;
+                        std_timeline_pan = std::max(0.0f, std_timeline_pan);
+                    }
+                }
+
                 // === CLIP TRACK (at top) ===
                 float clip_track_y = canvas_pos.y;
                 float clip_y_top = clip_track_y + 2.0f;
@@ -8684,25 +8745,142 @@ private:
                     ImGui::PopFont();
                 }
 
+                // === VIEWPORT INDICATOR (shows visible region when zoomed in) ===
+                if (std_timeline_zoom > 1.01f) {  // Only show when zoomed in
+                    // Calculate visible portion of timeline
+                    float total_width = canvas_size.x * std_timeline_zoom;
+                    float visible_start_fraction = std_timeline_pan / total_width;
+                    float visible_end_fraction = (std_timeline_pan + canvas_size.x) / total_width;
+
+                    // Clamp to valid range
+                    visible_start_fraction = std::clamp(visible_start_fraction, 0.0f, 1.0f);
+                    visible_end_fraction = std::clamp(visible_end_fraction, 0.0f, 1.0f);
+
+                    // Map to clip coordinates
+                    float clip_width = clip_x_end - clip_x_start;
+                    float viewport_x_start = clip_x_start + visible_start_fraction * clip_width;
+                    float viewport_x_end = clip_x_start + visible_end_fraction * clip_width;
+
+                    // Ensure minimum width for visibility
+                    float min_viewport_width = 8.0f;
+                    if (viewport_x_end - viewport_x_start < min_viewport_width) {
+                        float center = (viewport_x_start + viewport_x_end) * 0.5f;
+                        viewport_x_start = center - min_viewport_width * 0.5f;
+                        viewport_x_end = center + min_viewport_width * 0.5f;
+                    }
+
+                    // Draw viewport indicator fill (semi-transparent highlight)
+                    draw_list->AddRectFilled(
+                        ImVec2(viewport_x_start, clip_y_top),
+                        ImVec2(viewport_x_end, clip_y_bottom),
+                        IM_COL32(255, 255, 255, 40)
+                    );
+
+                    // Draw viewport border with accent color
+                    ImU32 viewport_border_color = IM_COL32(
+                        (int)(accent.x * 255),
+                        (int)(accent.y * 255),
+                        (int)(accent.z * 255), 255);
+
+                    draw_list->AddRect(
+                        ImVec2(viewport_x_start, clip_y_top),
+                        ImVec2(viewport_x_end, clip_y_bottom),
+                        viewport_border_color,
+                        clip_rounding, 0, 2.0f
+                    );
+
+                    // === VIEWPORT DRAG INTERACTION ===
+                    // Check if mouse is over viewport indicator
+                    ImVec2 mouse_pos = ImGui::GetMousePos();
+                    bool mouse_in_viewport = (mouse_pos.x >= viewport_x_start &&
+                                              mouse_pos.x <= viewport_x_end &&
+                                              mouse_pos.y >= clip_y_top &&
+                                              mouse_pos.y <= clip_y_bottom);
+                    bool mouse_in_clip = (mouse_pos.x >= clip_x_start &&
+                                          mouse_pos.x <= clip_x_end &&
+                                          mouse_pos.y >= clip_y_top &&
+                                          mouse_pos.y <= clip_y_bottom);
+
+                    // Static variables for drag state
+                    static bool is_dragging_std_viewport = false;
+                    static float viewport_drag_start_pan = 0.0f;
+                    static float viewport_drag_start_mouse_x = 0.0f;
+
+                    // Change cursor when hovering viewport
+                    if (mouse_in_viewport && !is_dragging_std_viewport) {
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                    }
+
+                    // Start drag when clicking on viewport
+                    if (mouse_in_viewport && ImGui::IsMouseClicked(0)) {
+                        is_dragging_std_viewport = true;
+                        viewport_drag_start_pan = std_timeline_pan;
+                        viewport_drag_start_mouse_x = mouse_pos.x;
+                    }
+
+                    // Handle dragging
+                    if (is_dragging_std_viewport) {
+                        if (ImGui::IsMouseDown(0)) {
+                            float mouse_delta = mouse_pos.x - viewport_drag_start_mouse_x;
+                            // Convert clip pixel delta to timeline pan delta
+                            float pan_delta = (mouse_delta / clip_width) * total_width;
+                            std_timeline_pan = viewport_drag_start_pan + pan_delta;
+                            std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+                        } else {
+                            is_dragging_std_viewport = false;
+                        }
+                    }
+
+                    // Click outside viewport but inside clip to jump there
+                    if (mouse_in_clip && !mouse_in_viewport && !is_dragging_std_viewport && ImGui::IsMouseClicked(0)) {
+                        // Center viewport on clicked position
+                        float clicked_fraction = (mouse_pos.x - clip_x_start) / clip_width;
+                        float viewport_half_width = (visible_end_fraction - visible_start_fraction) * 0.5f;
+                        float target_start_fraction = clicked_fraction - viewport_half_width;
+                        std_timeline_pan = target_start_fraction * total_width;
+                        std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                    }
+
+                    // Tooltip for viewport
+                    if (mouse_in_clip && !is_dragging_std_viewport) {
+                        ImGui::BeginTooltip();
+                        if (mouse_in_viewport) {
+                            ImGui::Text("Drag to pan viewport");
+                        } else {
+                            ImGui::Text("Click to jump viewport");
+                        }
+                        ImGui::Text("Zoom: %.1fx", std_timeline_zoom);
+                        ImGui::EndTooltip();
+                    }
+                }
+
                 // === RULER FRAME MARKERS (below cache bar) ===
                 // Use tick intervals that work well with 24fps (divisible by 6, 12, 24)
                 float ruler_bottom = ruler_y + RULER_HEIGHT;
 
-                // Calculate tick interval based on total frames
+                // Cache visible width for keyboard shortcut calculations
+                std_timeline_visible_width = canvas_size.x;
+
+                // Calculate tick interval based on visible frames (accounting for zoom)
                 // Aim for roughly 15-25 major ticks, using 24fps-friendly intervals
                 int tick_interval;
                 int major_every;  // Major tick every N minor ticks
 
-                if (last_frame <= 48) {
+                // Effective frames visible at current zoom level
+                int effective_visible_frames = static_cast<int>(last_frame / std_timeline_zoom);
+                if (effective_visible_frames < 1) effective_visible_frames = 1;
+
+                if (effective_visible_frames <= 48) {
                     tick_interval = 1;   // Every frame
                     major_every = 6;     // Major every 6 frames (quarter second at 24fps)
-                } else if (last_frame <= 120) {
+                } else if (effective_visible_frames <= 120) {
                     tick_interval = 6;   // Every 6 frames
                     major_every = 4;     // Major every 24 frames (1 second at 24fps)
-                } else if (last_frame <= 480) {
+                } else if (effective_visible_frames <= 480) {
                     tick_interval = 12;  // Every 12 frames (half second)
                     major_every = 2;     // Major every 24 frames (1 second)
-                } else if (last_frame <= 1200) {
+                } else if (effective_visible_frames <= 1200) {
                     tick_interval = 24;  // Every 24 frames (1 second)
                     major_every = 5;     // Major every 5 seconds
                 } else {
@@ -8713,7 +8891,14 @@ private:
                 // Draw frame markers in ruler area
                 int tick_count = 0;
                 for (int frame_num = 0; frame_num <= last_frame; frame_num += tick_interval) {
-                    float x = canvas_pos.x + (canvas_size.x * frame_num / (float)last_frame);
+                    float x = StdTimelineFrameToScreenX(frame_num, last_frame, canvas_pos.x,
+                                                         canvas_size.x, std_timeline_zoom, std_timeline_pan);
+
+                    // Skip if outside visible area (with small margin for partial visibility)
+                    if (x < canvas_pos.x - 20.0f || x > canvas_pos.x + canvas_size.x + 20.0f) {
+                        tick_count++;
+                        continue;
+                    }
 
                     bool is_major = (tick_count % major_every == 0);
                     float tick_height = is_major ? 10.0f : 6.0f;
@@ -8747,24 +8932,28 @@ private:
                     tick_count++;
                 }
 
-                // Always draw last frame tick
+                // Always draw last frame tick (if visible)
                 if (last_frame % tick_interval != 0) {
-                    float x = canvas_pos.x + canvas_size.x;
-                    draw_list->AddLine(ImVec2(x, ruler_bottom),
-                        ImVec2(x, ruler_bottom - 10.0f),
-                        IM_COL32(160, 160, 160, 255), 1.5f);
+                    float x = StdTimelineFrameToScreenX(last_frame, last_frame, canvas_pos.x,
+                                                         canvas_size.x, std_timeline_zoom, std_timeline_pan);
+                    if (x >= canvas_pos.x - 20.0f && x <= canvas_pos.x + canvas_size.x + 20.0f) {
+                        draw_list->AddLine(ImVec2(x, ruler_bottom),
+                            ImVec2(x, ruler_bottom - 10.0f),
+                            IM_COL32(160, 160, 160, 255), 1.5f);
+                    }
                 }
 
-                // === PROGRESS WIDTH (for playhead positioning) ===
-                float progress_width;
+                // === PLAYHEAD POSITION (accounting for zoom/pan) ===
+                int current_frame = 0;
                 if (video_player && video_player->GetFrameRate() > 0) {
-                    int current_frame = static_cast<int>(std::round(position * video_player->GetFrameRate()));
+                    current_frame = static_cast<int>(std::round(position * video_player->GetFrameRate()));
                     if (current_frame > last_frame) current_frame = last_frame;
-                    progress_width = canvas_size.x * current_frame / (float)last_frame;
                 } else {
-                    float progress = (float)(position / duration);
-                    progress_width = canvas_size.x * progress;
+                    float progress = static_cast<float>(position / duration);
+                    current_frame = static_cast<int>(progress * last_frame);
                 }
+                float playhead_x_pos = StdTimelineFrameToScreenX(current_frame, last_frame, canvas_pos.x,
+                                                                  canvas_size.x, std_timeline_zoom, std_timeline_pan);
 
                 // Draw loop/trim region background FIRST (behind cache bars) when both In/Out points are set
                 // Show for: loop mode OR trim mode
@@ -8775,7 +8964,7 @@ private:
                     double in_pt = project_manager->GetInPoint();
                     double out_pt = project_manager->GetOutPoint();
 
-                    // Use frame-based positioning to match ticker positioning
+                    // Use frame-based positioning with zoom/pan to match ticker positioning
                     float loop_start_x, loop_end_x;
                     double fps = video_player->GetFrameRate();
                     if (fps > 0) {
@@ -8784,16 +8973,21 @@ private:
                         if (in_frame > last_frame) in_frame = last_frame;
                         if (out_frame > last_frame) out_frame = last_frame;
 
-                        loop_start_x = canvas_pos.x + (canvas_size.x * in_frame / (float)last_frame);
-                        loop_end_x = canvas_pos.x + (canvas_size.x * out_frame / (float)last_frame);
+                        loop_start_x = StdTimelineFrameToScreenX(in_frame, last_frame, canvas_pos.x,
+                                                                  canvas_size.x, std_timeline_zoom, std_timeline_pan);
+                        loop_end_x = StdTimelineFrameToScreenX(out_frame, last_frame, canvas_pos.x,
+                                                                canvas_size.x, std_timeline_zoom, std_timeline_pan);
                     } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        // Fallback to time-based if fps not available
-                        loop_start_x = canvas_pos.x + (float)(in_pt / duration) * canvas_size.x;
-                        loop_end_x = canvas_pos.x + (float)(out_pt / duration) * canvas_size.x;
+                        // Fallback to time-based if fps not available (with zoom/pan)
+                        int in_frame = static_cast<int>((in_pt / duration) * last_frame);
+                        int out_frame = static_cast<int>((out_pt / duration) * last_frame);
+                        loop_start_x = StdTimelineFrameToScreenX(in_frame, last_frame, canvas_pos.x,
+                                                                  canvas_size.x, std_timeline_zoom, std_timeline_pan);
+                        loop_end_x = StdTimelineFrameToScreenX(out_frame, last_frame, canvas_pos.x,
+                                                                canvas_size.x, std_timeline_zoom, std_timeline_pan);
                     }
 
-                    // Clamp to timeline bounds
+                    // Clamp to visible timeline bounds
                     loop_start_x = std::max(loop_start_x, canvas_pos.x);
                     loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
 
@@ -8852,37 +9046,39 @@ private:
                     // Use cache_bar_y defined earlier when drawing cache bar background
 
                     for (const auto& segment : cached_segments) {
-                        // Convert timestamps to pixel positions
-                        float start_x, end_x;
+                        // Convert timestamps to frame numbers and then to pixel positions (with zoom/pan)
+                        int start_frame, end_frame;
 
                         // For image sequences, use frame-based positioning to match timeline ticks
                         bool is_sequence = video_player->IsImageSequence() || video_player->IsInEXRMode();
                         if (is_sequence && fps > 0 && total_frames > 0) {
-                            // Convert timestamps to frame numbers
-                            int start_frame = static_cast<int>(std::round(segment.start_time * fps));
-                            int end_frame = static_cast<int>(std::round(segment.end_time * fps));
-
-                            // Clamp to valid range
-                            if (start_frame > last_frame) start_frame = last_frame;
-                            if (end_frame > last_frame) end_frame = last_frame;
-
-                            // Use same frame-based positioning as timeline ticks
-                            start_x = canvas_pos.x + (canvas_size.x * start_frame / (float)last_frame);
-                            end_x = canvas_pos.x + (canvas_size.x * end_frame / (float)last_frame);
+                            start_frame = static_cast<int>(std::round(segment.start_time * fps));
+                            end_frame = static_cast<int>(std::round(segment.end_time * fps));
                         } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                            // Regular videos: use timestamp-based positioning
-                            start_x = canvas_pos.x + (float)(segment.start_time / duration) * canvas_size.x;
-                            end_x = canvas_pos.x + (float)(segment.end_time / duration) * canvas_size.x;
+                            // Regular videos: convert timestamp to frame
+                            start_frame = static_cast<int>((segment.start_time / duration) * last_frame);
+                            end_frame = static_cast<int>((segment.end_time / duration) * last_frame);
                         }
+
+                        // Clamp to valid range
+                        if (start_frame > last_frame) start_frame = last_frame;
+                        if (end_frame > last_frame) end_frame = last_frame;
+
+                        // Convert to screen positions using zoom/pan
+                        float start_x = StdTimelineFrameToScreenX(start_frame, last_frame, canvas_pos.x,
+                                                                   canvas_size.x, std_timeline_zoom, std_timeline_pan);
+                        float end_x = StdTimelineFrameToScreenX(end_frame, last_frame, canvas_pos.x,
+                                                                 canvas_size.x, std_timeline_zoom, std_timeline_pan);
 
                         // Ensure minimum visibility
                         if (end_x - start_x < 2.0f) {
                             end_x = start_x + 2.0f;
                         }
 
-                        // Clamp to timeline bounds
+                        // Skip if completely outside visible bounds
                         if (start_x > canvas_pos.x + canvas_size.x || end_x < canvas_pos.x) continue;
+
+                        // Clamp to visible timeline bounds
                         start_x = std::max(start_x, canvas_pos.x);
                         end_x = std::min(end_x, canvas_pos.x + canvas_size.x);
 
@@ -8904,9 +9100,14 @@ private:
                     ImU32 marker_color = ToImU32(GetWindowsAccentColor());
 
                     for (const auto& note : notes) {
-                        // Calculate marker position using frame-based positioning (matches playhead)
-                        // This ensures annotations align perfectly with the playhead and frame tickers
-                        float marker_x = canvas_pos.x + (canvas_size.x * note.frame / (float)last_frame);
+                        // Calculate marker position using frame-based positioning with zoom/pan
+                        float marker_x = StdTimelineFrameToScreenX(note.frame, last_frame, canvas_pos.x,
+                                                                    canvas_size.x, std_timeline_zoom, std_timeline_pan);
+
+                        // Skip if outside visible area
+                        if (marker_x < canvas_pos.x - 10.0f || marker_x > canvas_pos.x + canvas_size.x + 10.0f) {
+                            continue;
+                        }
 
                         // Diamond dimensions
                         float diamond_size = 8.0f;
@@ -8932,55 +9133,158 @@ private:
                     200
                 );
 
-                // In/Out markers - full ruler height
+                // In/Out markers - full ruler height (with zoom/pan)
                 if (project_manager && project_manager->HasInPoint() && duration > 0 && fps > 0) {
                     double in_pt = project_manager->GetInPoint();
                     int in_frame = static_cast<int>(std::round(in_pt * fps));
                     if (in_frame > last_frame) in_frame = last_frame;
-                    float in_x = canvas_pos.x + (canvas_size.x * in_frame / (float)last_frame);
+                    float in_x = StdTimelineFrameToScreenX(in_frame, last_frame, canvas_pos.x,
+                                                           canvas_size.x, std_timeline_zoom, std_timeline_pan);
 
-                    draw_list->AddLine(
-                        ImVec2(in_x, ruler_y),
-                        ImVec2(in_x, ruler_y + RULER_HEIGHT),
-                        io_marker_color, 2.0f
-                    );
+                    // Only draw if visible
+                    if (in_x >= canvas_pos.x - 5.0f && in_x <= canvas_pos.x + canvas_size.x + 5.0f) {
+                        draw_list->AddLine(
+                            ImVec2(in_x, ruler_y),
+                            ImVec2(in_x, ruler_y + RULER_HEIGHT),
+                            io_marker_color, 2.0f
+                        );
+                    }
                 }
 
                 if (project_manager && project_manager->HasOutPoint() && duration > 0 && fps > 0) {
                     double out_pt = project_manager->GetOutPoint();
                     int out_frame = static_cast<int>(std::round(out_pt * fps));
                     if (out_frame > last_frame) out_frame = last_frame;
-                    float out_x = canvas_pos.x + (canvas_size.x * out_frame / (float)last_frame);
+                    float out_x = StdTimelineFrameToScreenX(out_frame, last_frame, canvas_pos.x,
+                                                            canvas_size.x, std_timeline_zoom, std_timeline_pan);
 
-                    draw_list->AddLine(
-                        ImVec2(out_x, ruler_y),
-                        ImVec2(out_x, ruler_y + RULER_HEIGHT),
-                        io_marker_color, 2.0f
-                    );
+                    // Only draw if visible
+                    if (out_x >= canvas_pos.x - 5.0f && out_x <= canvas_pos.x + canvas_size.x + 5.0f) {
+                        draw_list->AddLine(
+                            ImVec2(out_x, ruler_y),
+                            ImVec2(out_x, ruler_y + RULER_HEIGHT),
+                            io_marker_color, 2.0f
+                        );
+                    }
                 }
 
                 // Draw playhead (matching timeline view style - red with triangle head)
-                float playhead_x = canvas_pos.x + progress_width;
+                // Use playhead_x_pos calculated earlier with zoom/pan
+                float playhead_x = playhead_x_pos;
 
-                // Playhead line - extends through entire timeline (clip + ruler)
-                draw_list->AddLine(
-                    ImVec2(playhead_x, clip_track_y),
-                    ImVec2(playhead_x, ruler_y + RULER_HEIGHT),
-                    IM_COL32(255, 100, 100, 200), 2.0f);
+                // Only draw playhead if visible (with small margin for the triangle head)
+                if (playhead_x >= canvas_pos.x - 10.0f && playhead_x <= canvas_pos.x + canvas_size.x + 10.0f) {
+                    // Playhead line - extends through entire timeline (clip + ruler)
+                    draw_list->AddLine(
+                        ImVec2(playhead_x, clip_track_y),
+                        ImVec2(playhead_x, ruler_y + RULER_HEIGHT),
+                        IM_COL32(255, 100, 100, 200), 2.0f);
 
-                // Triangle head over cache bar area (pointing down, smaller)
-                ImVec2 triangle[3] = {
-                    ImVec2(playhead_x - 6, cache_bar_y),
-                    ImVec2(playhead_x + 6, cache_bar_y),
-                    ImVec2(playhead_x, cache_bar_y + CACHE_BAR_HEIGHT)
-                };
-                draw_list->AddTriangleFilled(triangle[0], triangle[1], triangle[2], IM_COL32(255, 100, 100, 255));
+                    // Triangle head over cache bar area (pointing down, smaller)
+                    ImVec2 triangle[3] = {
+                        ImVec2(playhead_x - 6, cache_bar_y),
+                        ImVec2(playhead_x + 6, cache_bar_y),
+                        ImVec2(playhead_x, cache_bar_y + CACHE_BAR_HEIGHT)
+                    };
+                    draw_list->AddTriangleFilled(triangle[0], triangle[1], triangle[2], IM_COL32(255, 100, 100, 255));
+                }
 
                 // Handle timeline interaction - ONLY ruler area is scrubbable
                 ImVec2 ruler_interaction_pos(canvas_pos.x, ruler_y);
                 ImVec2 ruler_interaction_size(canvas_size.x, RULER_HEIGHT);
                 ImGui::SetCursorScreenPos(ruler_interaction_pos);
                 ImGui::InvisibleButton("smooth_timeline", ruler_interaction_size);
+
+                // === MOUSE WHEEL ZOOM/PAN HANDLER ===
+                // Handle when hovering over the entire timeline area (not just ruler)
+                bool timeline_hovered = ImGui::IsItemHovered() ||
+                    (ImGui::IsMouseHoveringRect(canvas_pos, ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y)));
+
+                if (timeline_hovered) {
+                    // Middle mouse drag for panning (like OTIO timeline)
+                    if (ImGui::IsMouseDragging(ImGuiMouseButton_Middle)) {
+                        ImVec2 delta = ImGui::GetMouseDragDelta(ImGuiMouseButton_Middle);
+                        std_timeline_pan -= delta.x;
+                        std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                        ImGui::ResetMouseDragDelta(ImGuiMouseButton_Middle);
+                    }
+                }
+
+                if (timeline_hovered && !ImGui::IsAnyItemActive()) {
+                    float wheel = ImGui::GetIO().MouseWheel;
+                    if (wheel != 0) {
+                        if (ImGui::GetIO().KeyCtrl) {
+                            // Ctrl+Wheel = Zoom centered on mouse position
+                            ImVec2 mouse_pos = ImGui::GetMousePos();
+
+                            // Calculate mouse position as a fraction of the total timeline (accounting for current pan)
+                            float mouse_relative = (mouse_pos.x - canvas_pos.x + std_timeline_pan) /
+                                                   (canvas_size.x * std_timeline_zoom);
+                            mouse_relative = std::clamp(mouse_relative, 0.0f, 1.0f);
+
+                            // Apply zoom factor
+                            float zoom_factor = (wheel > 0) ? 1.15f : (1.0f / 1.15f);
+                            float old_zoom = std_timeline_zoom;
+                            std_timeline_zoom *= zoom_factor;
+                            std_timeline_zoom = std::clamp(std_timeline_zoom, 1.0f, 20.0f);  // 1x to 20x zoom
+
+                            // Adjust pan to keep mouse position stable
+                            if (old_zoom != std_timeline_zoom) {
+                                float new_total_width = canvas_size.x * std_timeline_zoom;
+                                float new_mouse_x = mouse_relative * new_total_width;
+                                std_timeline_pan = new_mouse_x - (mouse_pos.x - canvas_pos.x);
+                                std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                            }
+                        } else {
+                            // Regular wheel = Pan (only when zoomed in)
+                            if (std_timeline_zoom > 1.0f) {
+                                std_timeline_pan -= wheel * 50.0f;  // 50px per wheel tick
+                                std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                            }
+                        }
+                    }
+
+                    // === KEYBOARD SHORTCUTS FOR ZOOM ===
+                    // Match OTIO timeline shortcuts: = for zoom in, - for zoom out (no modifiers)
+                    ImGuiIO& kb_io = ImGui::GetIO();
+
+                    // = or + = Zoom In (no modifiers)
+                    if ((ImGui::IsKeyPressed(ImGuiKey_Equal) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd)) &&
+                        !kb_io.KeyCtrl && !kb_io.KeyShift && !kb_io.KeyAlt) {
+                        float old_zoom = std_timeline_zoom;
+                        std_timeline_zoom *= 1.25f;
+                        std_timeline_zoom = std::clamp(std_timeline_zoom, 1.0f, 20.0f);
+                        // Keep playhead centered when zooming
+                        if (old_zoom != std_timeline_zoom && video_player) {
+                            float zoom_ratio = std_timeline_zoom / old_zoom;
+                            float playhead_offset = playhead_x_pos - canvas_pos.x;
+                            std_timeline_pan = (playhead_offset + std_timeline_pan) * zoom_ratio - playhead_offset;
+                            std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                        }
+                    }
+
+                    // - = Zoom Out (no modifiers)
+                    if ((ImGui::IsKeyPressed(ImGuiKey_Minus) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract)) &&
+                        !kb_io.KeyCtrl && !kb_io.KeyShift && !kb_io.KeyAlt) {
+                        float old_zoom = std_timeline_zoom;
+                        std_timeline_zoom /= 1.25f;
+                        std_timeline_zoom = std::clamp(std_timeline_zoom, 1.0f, 20.0f);
+                        // Keep playhead centered when zooming
+                        if (old_zoom != std_timeline_zoom && video_player) {
+                            float zoom_ratio = std_timeline_zoom / old_zoom;
+                            float playhead_offset = playhead_x_pos - canvas_pos.x;
+                            std_timeline_pan = (playhead_offset + std_timeline_pan) * zoom_ratio - playhead_offset;
+                            std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, StdTimelineGetMaxPan(canvas_size.x, std_timeline_zoom));
+                        }
+                    }
+
+                    // Backslash (\) = Fit to View (reset zoom)
+                    if (ImGui::IsKeyPressed(ImGuiKey_Backslash) &&
+                        !kb_io.KeyCtrl && !kb_io.KeyShift && !kb_io.KeyAlt) {
+                        std_timeline_zoom = 1.0f;
+                        std_timeline_pan = 0.0f;
+                    }
+                }
 
                 bool is_mouse_down = ImGui::IsItemActive();
                 bool currently_scrubbing = timeline_manager->IsScrubbing();
@@ -9216,8 +9520,9 @@ private:
                     float click_threshold = diamond_size + 4.0f; // Extra padding for easier clicking
 
                     for (const auto& note : notes) {
-                        // Use frame-based positioning (matches diamond rendering)
-                        float marker_x = canvas_pos.x + (canvas_size.x * note.frame / (float)last_frame);
+                        // Use frame-based positioning with zoom/pan (matches diamond rendering)
+                        float marker_x = StdTimelineFrameToScreenX(note.frame, last_frame, canvas_pos.x,
+                                                                    canvas_size.x, std_timeline_zoom, std_timeline_pan);
                         float diamond_y = canvas_pos.y + canvas_size.y - 18.0f;
 
                         // Check if click is near this marker
@@ -9245,28 +9550,29 @@ private:
 
                 // Update scrubbing position (UI updates immediately, MPV seeks are throttled)
                 // Skip scrubbing if we clicked on a marker
+                // Uses zoom/pan-aware conversion from screen position to frame
                 if (is_mouse_down && duration > 0 && !marker_was_clicked) {
                     ImVec2 mouse_pos = ImGui::GetMousePos();
-                    float relative_x = (mouse_pos.x - canvas_pos.x) / canvas_size.x;
-                    if (relative_x < 0.0f) relative_x = 0.0f;
-                    if (relative_x > 1.0f) relative_x = 1.0f;
 
-                    double seek_time = relative_x * duration;
+                    // Convert screen position to frame using zoom/pan-aware helper
+                    int target_frame = StdTimelineScreenXToFrame(mouse_pos.x, last_frame, canvas_pos.x,
+                                                                  canvas_size.x, std_timeline_zoom, std_timeline_pan);
 
-                    // Snap to nearest frame boundary for precise cache alignment
-                    if (video_player && video_player->GetFrameRate() > 0) {
-                        double fps = video_player->GetFrameRate();
-                        int target_frame = static_cast<int>(std::round(seek_time * fps));
+                    // Clamp to valid frame range (0 to total_frames - 1)
+                    if (target_frame >= total_frames) {
+                        target_frame = total_frames - 1;
+                    }
+                    if (target_frame < 0) {
+                        target_frame = 0;
+                    }
 
-                        // Clamp to valid frame range (0 to total_frames - 1)
-                        if (target_frame >= total_frames) {
-                            target_frame = total_frames - 1;
-                        }
-                        if (target_frame < 0) {
-                            target_frame = 0;
-                        }
-
-                        seek_time = target_frame / fps; // Snap to exact frame timestamp
+                    // Convert frame to seek time
+                    double seek_time;
+                    double local_fps = video_player ? video_player->GetFrameRate() : 0.0;
+                    if (local_fps > 0) {
+                        seek_time = target_frame / local_fps;  // Snap to exact frame timestamp
+                    } else {
+                        seek_time = (static_cast<double>(target_frame) / last_frame) * duration;
                     }
 
                     timeline_manager->UpdateScrubbing(seek_time);
@@ -10695,6 +11001,30 @@ private:
                                         timeline_clip_drag.original_track_index = i;
                                         timeline_clip_drag.original_start_time = clip.start_time;
                                         timeline_clip_drag.drag_offset = click_time - clip.start_time;
+
+                                        // Capture all selected clips for multi-clip drag
+                                        timeline_clip_drag.dragged_clips.clear();
+                                        const auto& selection = timeline_view->GetSelection();
+                                        if (selection.selected_clip_ids.size() > 0) {
+                                            const auto& all_tracks = timeline_view->GetTracks();
+                                            for (const auto& sel_id : selection.selected_clip_ids) {
+                                                // Find this clip in tracks
+                                                for (int ti = 0; ti < static_cast<int>(all_tracks.size()); ++ti) {
+                                                    for (const auto& c : all_tracks[ti].clips) {
+                                                        if (c.id == sel_id) {
+                                                            ump::TimelineClipDragState::DraggedClipInfo info;
+                                                            info.clip_id = c.id;
+                                                            info.track_index = ti;
+                                                            info.original_start_time = c.start_time;
+                                                            info.duration = c.duration;
+                                                            info.offset_from_primary = c.start_time - clip.start_time;
+                                                            timeline_clip_drag.dragged_clips.push_back(info);
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
 
@@ -11007,9 +11337,35 @@ private:
             // Find the clip being dragged to get its duration
             ump::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
             if (drag_clip) {
-                // Calculate ghost position
-                double ghost_start = preview_mouse_time - timeline_clip_drag.drag_offset;
-                ghost_start = std::max(0.0, ghost_start);
+                // Calculate ghost position with snapping
+                double proposed_start = preview_mouse_time - timeline_clip_drag.drag_offset;
+
+                // Collect snap points (exclude dragged clip)
+                std::set<std::string> exclude_ids;
+                exclude_ids.insert(timeline_clip_drag.clip_id);
+                // Also exclude any other clips in multi-selection
+                for (const auto& dc : timeline_clip_drag.dragged_clips) {
+                    exclude_ids.insert(dc.clip_id);
+                }
+
+                double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
+                auto snap_points = CollectSnapPoints(
+                    *tracks_ptr,
+                    exclude_ids,
+                    playhead_time,
+                    timeline_view->GetDuration()
+                );
+
+                // Apply snapping
+                double ghost_start = CalculateSnappedPosition(
+                    proposed_start,
+                    drag_clip->duration,
+                    snap_points,
+                    pixels_per_second,
+                    snap_active,
+                    snap_time
+                );
+
                 float ghost_duration = static_cast<float>(drag_clip->duration);
 
                 // Determine which track to show ghost on
@@ -11084,6 +11440,68 @@ private:
                         ImVec2(tooltip_x + text_size.x + 4, tooltip_y + text_size.y + 2),
                         IM_COL32(0, 0, 0, 200), 3.0f);
                     draw_list->AddText(ImVec2(tooltip_x, tooltip_y), IM_COL32(255, 255, 255, 255), time_buf);
+
+                    // =============================================================
+                    // MULTI-CLIP GHOSTS - Draw ghost for each additional selected clip
+                    // =============================================================
+                    if (timeline_clip_drag.dragged_clips.size() > 1) {
+                        // Check for overlap with stationary clips
+                        bool would_overlap = WouldCauseOverlap(*tracks_ptr, timeline_clip_drag.dragged_clips, ghost_start);
+
+                        // Choose ghost color based on overlap status
+                        ImU32 multi_ghost_fill = would_overlap ?
+                            IM_COL32(255, 80, 80, 60) :  // Red if overlap
+                            ghost_fill;
+                        ImU32 multi_ghost_border = would_overlap ?
+                            IM_COL32(255, 80, 80, 180) :
+                            ghost_border;
+
+                        for (const auto& dc : timeline_clip_drag.dragged_clips) {
+                            // Skip the primary clip (already drawn above)
+                            if (dc.clip_id == timeline_clip_drag.clip_id) continue;
+
+                            // Calculate this clip's ghost position
+                            double clip_ghost_start = ghost_start + dc.offset_from_primary;
+                            if (clip_ghost_start < 0) clip_ghost_start = 0;
+
+                            // Calculate track Y for this clip
+                            float clip_ghost_y = tracks_start_pos.y;
+                            if (tracks_ptr && dc.track_index >= 0 && dc.track_index < num_tracks) {
+                                float y_accum = 0.0f;
+                                for (int ti = 0; ti < dc.track_index; ++ti) {
+                                    if (ti > 0 && !(*tracks_ptr)[ti].is_video && (*tracks_ptr)[ti-1].is_video) {
+                                        y_accum += OTIOTimeline::TRACK_SEPARATOR_HEIGHT;
+                                    }
+                                    y_accum += OTIOTimeline::TRACK_LANE_HEIGHT;
+                                }
+                                if (dc.track_index > 0 && !(*tracks_ptr)[dc.track_index].is_video && (*tracks_ptr)[dc.track_index-1].is_video) {
+                                    y_accum += OTIOTimeline::TRACK_SEPARATOR_HEIGHT;
+                                }
+                                clip_ghost_y = tracks_start_pos.y + y_accum;
+                            }
+
+                            // Calculate screen coordinates
+                            float cg_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
+                                        static_cast<float>(clip_ghost_start) * pixels_per_second - scroll_offset_x;
+                            float cg_w = static_cast<float>(dc.duration) * pixels_per_second;
+                            float cg_top = clip_ghost_y + 2;
+                            float cg_bottom = clip_ghost_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+
+                            float cg_left = std::max(cg_x, visible_left);
+                            float cg_right = std::min(cg_x + cg_w, visible_right);
+
+                            if (cg_right > cg_left) {
+                                draw_list->AddRectFilled(
+                                    ImVec2(cg_left, cg_top),
+                                    ImVec2(cg_right, cg_bottom),
+                                    multi_ghost_fill, 2.0f);
+                                draw_list->AddRect(
+                                    ImVec2(cg_left, cg_top),
+                                    ImVec2(cg_right, cg_bottom),
+                                    multi_ghost_border, 2.0f, 0, 2.0f);
+                            }
+                        }
+                    }
 
                     // =============================================================
                     // DRAG PREVIEW THUMBNAIL
@@ -11220,6 +11638,26 @@ private:
                     }
                 }
             }
+
+            // Draw snap indicator line when snapping is active
+            if (snap_active) {
+                float snap_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
+                               static_cast<float>(snap_time * pixels_per_second - scroll_offset_x);
+                float visible_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
+                float visible_right = tracks_start_pos.x + content_region.x;
+
+                if (snap_x >= visible_left && snap_x <= visible_right) {
+                    ImU32 snap_color = IM_COL32(255, 200, 0, 220);  // Yellow/gold
+                    draw_list->AddLine(
+                        ImVec2(snap_x, tracks_start_pos.y),
+                        ImVec2(snap_x, tracks_start_pos.y + tracks_height),
+                        snap_color, 2.0f
+                    );
+                }
+            }
+        } else {
+            // Reset snap state when not dragging
+            snap_active = false;
         }
 
         // Ghost preview for media drop from project panel
@@ -11825,12 +12263,69 @@ private:
             if (!ImGui::IsMouseDown(0)) {
                 // Mouse released - commit the move
                 if (timeline_view && timeline_command_manager) {
-                    double final_start = mouse_time - timeline_clip_drag.drag_offset;
-                    final_start = std::max(0.0, final_start);
+                    // Find the clip to get its duration for snapping
+                    ump::OTIOClip* drop_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
+                    double clip_duration = drop_clip ? drop_clip->duration : 1.0;
 
-                    // Check if moving to different track
-                    if (hover_track_index >= 0 && hover_track_index != timeline_clip_drag.original_track_index) {
-                        // Move to different track
+                    // Collect snap points (exclude dragged clip)
+                    std::set<std::string> exclude_ids;
+                    exclude_ids.insert(timeline_clip_drag.clip_id);
+                    for (const auto& dc : timeline_clip_drag.dragged_clips) {
+                        exclude_ids.insert(dc.clip_id);
+                    }
+
+                    double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
+                    auto snap_points = CollectSnapPoints(
+                        timeline_view->GetTracks(),
+                        exclude_ids,
+                        playhead_time,
+                        timeline_view->GetDuration()
+                    );
+
+                    // Calculate final position with snapping
+                    double proposed_start = mouse_time - timeline_clip_drag.drag_offset;
+                    bool snapped_on_drop = false;
+                    double snap_line_unused = 0.0;
+                    double final_start = CalculateSnappedPosition(
+                        proposed_start,
+                        clip_duration,
+                        snap_points,
+                        pixels_per_second,
+                        snapped_on_drop,
+                        snap_line_unused
+                    );
+
+                    // Check for multi-clip drag
+                    if (timeline_clip_drag.dragged_clips.size() > 1) {
+                        // Multi-clip move: check for overlap first
+                        bool would_overlap = WouldCauseOverlap(
+                            timeline_view->GetTracks(),
+                            timeline_clip_drag.dragged_clips,
+                            final_start
+                        );
+
+                        if (!would_overlap) {
+                            // Build move list for all clips
+                            std::vector<ump::MoveMultipleClipsCommand::ClipMoveInfo> moves;
+                            for (const auto& dc : timeline_clip_drag.dragged_clips) {
+                                ump::MoveMultipleClipsCommand::ClipMoveInfo info;
+                                info.clip_id = dc.clip_id;
+                                info.track_index = dc.track_index;
+                                info.old_start_time = dc.original_start_time;
+                                info.new_start_time = final_start + dc.offset_from_primary;
+                                moves.push_back(info);
+                            }
+
+                            auto cmd = std::make_unique<ump::MoveMultipleClipsCommand>(
+                                timeline_view.get(), std::move(moves));
+                            timeline_command_manager->Execute(std::move(cmd));
+                            Debug::Log("Moved " + std::to_string(timeline_clip_drag.dragged_clips.size()) +
+                                       " clips to time " + std::to_string(final_start));
+                        } else {
+                            Debug::Log("Multi-clip move blocked: would cause overlap");
+                        }
+                    } else if (hover_track_index >= 0 && hover_track_index != timeline_clip_drag.original_track_index) {
+                        // Single clip: move to different track
                         auto cmd = std::make_unique<ump::MoveClipToTrackCommand>(
                             timeline_view.get(),
                             timeline_clip_drag.clip_id,
@@ -11840,7 +12335,7 @@ private:
                         timeline_command_manager->Execute(std::move(cmd));
                         Debug::Log("Moved clip to track " + std::to_string(hover_track_index));
                     } else if (std::abs(final_start - timeline_clip_drag.original_start_time) > 0.001) {
-                        // Move within same track (horizontal)
+                        // Single clip: move within same track (horizontal)
                         auto cmd = std::make_unique<ump::MoveClipCommand>(
                             timeline_view.get(),
                             timeline_clip_drag.clip_id,
@@ -12455,6 +12950,62 @@ private:
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Timeline Pan (Scroll)");
+            }
+
+            // === FRAME/TIMECODE COUNTER (RIGHT ALIGNED) ===
+            ImGui::SameLine();
+
+            // Calculate current frame from timeline position
+            double fps = timeline_view->GetFrameRate();
+            if (fps <= 0) fps = 24.0;
+            int current_frame = static_cast<int>(std::round(position * fps));
+            int total_frames = static_cast<int>(std::round(duration * fps));
+            if (current_frame > total_frames) current_frame = total_frames;
+
+            // Format timecode and frame string
+            std::string time_display = FormatCurrentTimecodeWithOffset(position);
+            int display_frame = current_frame + 1;  // 1-based frame numbering for display
+            std::string frame_str = time_display + " Frame " + std::to_string(display_frame);
+
+            // Calculate position for right-aligned text (with button)
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
+            float button_width = 25.0f;
+            float total_width = text_size.x + button_width + 5.0f;
+
+            // Right-align the frame counter
+            float window_width = ImGui::GetWindowSize().x;
+            float current_x = ImGui::GetCursorPosX();
+            float target_x = window_width - total_width - 15.0f;
+            if (target_x > current_x) {
+                ImGui::SetCursorPosX(target_x);
+            }
+
+            // Show in accent color when in timecode mode
+            if (timecode_mode_enabled && timecode_state == AVAILABLE) {
+                ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", frame_str.c_str());
+            } else {
+                ImGui::Text("%s", frame_str.c_str());
+            }
+            if (font_mono) ImGui::PopFont();
+
+            // Go To button next to timecode
+            ImGui::SameLine();
+
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+            }
+
+            if (ImGui::Button("\uf50b##otio_goto", ImVec2(25.0f, 25.0f))) {  // "play_for_work" icon
+                OpenGotoTimecodeModal();
+            }
+
+            if (font_icons) {
+                ImGui::PopFont();
+            }
+
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Go to timecode/frame");
             }
         }
 

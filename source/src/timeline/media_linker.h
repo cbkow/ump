@@ -8,6 +8,15 @@
 
 namespace ump {
 
+// Result of probing a video file for metadata
+struct VideoProbeResult {
+    bool valid = false;
+    double fps = 0.0;
+    double duration = 0.0;
+    int width = 0;
+    int height = 0;
+};
+
 // Result of a link attempt for a single clip
 struct LinkResult {
     std::string clip_id;
@@ -40,6 +49,10 @@ struct LinkOptions {
 class MediaLinker {
 public:
     MediaLinker() = default;
+
+    // Static utility methods for video file handling
+    static bool IsVideoFile(const std::string& path);
+    static VideoProbeResult ProbeVideoFile(const std::string& path);
 
     // Main linking function - searches directory and links clips
     LinkSummary LinkMediaInDirectory(

@@ -364,11 +364,16 @@ void TimelineView::Render(bool* show_timeline_panel) {
                       ImGuiWindowFlags_HorizontalScrollbar);
     
     RenderTrackList();
-    
+
     ImGui::EndChild();
-    
+
     ImGui::Separator();
-    
+
+    // Viewport minimap (shows pan/zoom position when zoomed in)
+    RenderViewportMinimap();
+
+    ImGui::Separator();
+
     RenderTimelineRuler();
     
     ImGui::End();
@@ -871,6 +876,186 @@ void TimelineView::RenderClipTooltip(const OTIOClip& clip) {
 
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
+}
+
+void TimelineView::RenderViewportMinimap() {
+    // Skip if timeline is empty or no duration
+    if (timeline_duration_ <= 0 || tracks_.empty()) return;
+
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 minimap_pos = ImGui::GetCursorScreenPos();
+
+    // Minimap dimensions
+    const float minimap_height = 24.0f;
+    float minimap_width = ImGui::GetContentRegionAvail().x;
+
+    // Background
+    draw_list->AddRectFilled(
+        minimap_pos,
+        ImVec2(minimap_pos.x + minimap_width, minimap_pos.y + minimap_height),
+        IM_COL32(25, 25, 25, 255)
+    );
+
+    // Border
+    draw_list->AddRect(
+        minimap_pos,
+        ImVec2(minimap_pos.x + minimap_width, minimap_pos.y + minimap_height),
+        IM_COL32(60, 60, 60, 255),
+        0.0f, 0, 1.0f
+    );
+
+    // Calculate scale: entire timeline fits in minimap width
+    float scale = minimap_width / (float)timeline_duration_;
+
+    // Draw compressed clip representations (just colored bars)
+    float track_bar_height = (minimap_height - 4.0f) / std::max((int)tracks_.size(), 1);
+    track_bar_height = std::min(track_bar_height, 6.0f);  // Cap individual track height
+
+    float y_offset = minimap_pos.y + 2.0f + (minimap_height - 4.0f - track_bar_height * tracks_.size()) * 0.5f;
+
+    for (const auto& track : tracks_) {
+        if (!track.is_video) continue;  // Only show video tracks in minimap
+
+        for (const auto& clip : track.clips) {
+            if (clip.is_gap) continue;  // Skip gaps
+
+            float clip_x_start = minimap_pos.x + (float)(clip.start_time * scale);
+            float clip_x_end = minimap_pos.x + (float)((clip.start_time + clip.duration) * scale);
+
+            // Clip color - lighter version for visibility
+            ImU32 clip_color;
+            if (clip.is_linked) {
+                ImVec4 accent = GetWindowsAccentColor();
+                clip_color = IM_COL32(
+                    (int)(accent.x * 150 + 80),
+                    (int)(accent.y * 150 + 80),
+                    (int)(accent.z * 150 + 80), 200);
+            } else {
+                clip_color = IM_COL32(100, 100, 100, 200);
+            }
+
+            draw_list->AddRectFilled(
+                ImVec2(clip_x_start, y_offset),
+                ImVec2(clip_x_end, y_offset + track_bar_height),
+                clip_color
+            );
+        }
+        y_offset += track_bar_height;
+    }
+
+    // Calculate viewport rectangle (visible region)
+    float visible_start_time = scroll_offset_x_ / zoom_level_;
+    float visible_end_time = (scroll_offset_x_ + ruler_width_) / zoom_level_;
+
+    // Clamp to timeline bounds
+    visible_start_time = std::max(0.0f, visible_start_time);
+    visible_end_time = std::min((float)timeline_duration_, visible_end_time);
+
+    float viewport_x_start = minimap_pos.x + visible_start_time * scale;
+    float viewport_x_end = minimap_pos.x + visible_end_time * scale;
+
+    // Ensure minimum viewport width for visibility
+    float min_viewport_width = 8.0f;
+    if (viewport_x_end - viewport_x_start < min_viewport_width) {
+        float center = (viewport_x_start + viewport_x_end) * 0.5f;
+        viewport_x_start = center - min_viewport_width * 0.5f;
+        viewport_x_end = center + min_viewport_width * 0.5f;
+    }
+
+    // Viewport indicator fill (semi-transparent highlight)
+    draw_list->AddRectFilled(
+        ImVec2(viewport_x_start, minimap_pos.y + 1),
+        ImVec2(viewport_x_end, minimap_pos.y + minimap_height - 1),
+        IM_COL32(255, 255, 255, 30)
+    );
+
+    // Viewport border (bright, visible)
+    ImVec4 accent = GetWindowsAccentColor();
+    ImU32 viewport_border_color = IM_COL32(
+        (int)(accent.x * 255),
+        (int)(accent.y * 255),
+        (int)(accent.z * 255), 255);
+
+    draw_list->AddRect(
+        ImVec2(viewport_x_start, minimap_pos.y + 1),
+        ImVec2(viewport_x_end, minimap_pos.y + minimap_height - 1),
+        viewport_border_color,
+        2.0f, 0, 2.0f
+    );
+
+    // Draw playhead on minimap
+    float playhead_x = minimap_pos.x + (float)(current_time_ * scale);
+    draw_list->AddLine(
+        ImVec2(playhead_x, minimap_pos.y),
+        ImVec2(playhead_x, minimap_pos.y + minimap_height),
+        IM_COL32(255, 100, 100, 255), 1.5f
+    );
+
+    // Interaction: drag viewport to pan
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    bool mouse_in_minimap = (mouse_pos.x >= minimap_pos.x &&
+                             mouse_pos.x <= minimap_pos.x + minimap_width &&
+                             mouse_pos.y >= minimap_pos.y &&
+                             mouse_pos.y <= minimap_pos.y + minimap_height);
+
+    // Check if mouse is over the viewport indicator specifically
+    bool mouse_in_viewport = (mouse_pos.x >= viewport_x_start &&
+                              mouse_pos.x <= viewport_x_end &&
+                              mouse_pos.y >= minimap_pos.y &&
+                              mouse_pos.y <= minimap_pos.y + minimap_height);
+
+    // Change cursor when hovering viewport
+    if (mouse_in_viewport && !is_dragging_viewport_) {
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    }
+
+    // Start drag when clicking on viewport
+    if (mouse_in_viewport && ImGui::IsMouseClicked(0)) {
+        is_dragging_viewport_ = true;
+        viewport_drag_start_offset_ = scroll_offset_x_;
+        viewport_drag_start_mouse_x_ = mouse_pos.x;
+    }
+
+    // Handle dragging
+    if (is_dragging_viewport_) {
+        if (ImGui::IsMouseDown(0)) {
+            // Calculate new scroll offset based on mouse delta
+            float mouse_delta = mouse_pos.x - viewport_drag_start_mouse_x_;
+            float time_delta = mouse_delta / scale;  // Convert pixels to time
+            float new_offset = viewport_drag_start_offset_ + time_delta * zoom_level_;
+            SetScrollOffset(new_offset);
+            ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+        } else {
+            is_dragging_viewport_ = false;
+        }
+    }
+
+    // Click anywhere else in minimap to jump viewport there
+    if (mouse_in_minimap && !mouse_in_viewport && !is_dragging_viewport_ && ImGui::IsMouseClicked(0)) {
+        // Center viewport on click position
+        float clicked_time = (mouse_pos.x - minimap_pos.x) / scale;
+        float viewport_half_width = (visible_end_time - visible_start_time) * 0.5f;
+        float target_start_time = clicked_time - viewport_half_width;
+        SetScrollOffset(target_start_time * zoom_level_);
+    }
+
+    // Tooltip
+    if (mouse_in_minimap) {
+        ImGui::BeginTooltip();
+        if (mouse_in_viewport || is_dragging_viewport_) {
+            ImGui::Text("Drag to pan viewport");
+        } else {
+            ImGui::Text("Click to jump viewport");
+        }
+        float hover_time = (mouse_pos.x - minimap_pos.x) / scale;
+        int minutes = (int)(hover_time / 60.0);
+        int seconds = (int)hover_time % 60;
+        ImGui::Text("Time: %02d:%02d", minutes, seconds);
+        ImGui::EndTooltip();
+    }
+
+    // Reserve space for minimap
+    ImGui::Dummy(ImVec2(minimap_width, minimap_height));
 }
 
 void TimelineView::HandleTrackVisibilityToggle(const std::string& track_id) {

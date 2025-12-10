@@ -171,6 +171,7 @@ private:
     void RenderPlayhead();
     void RenderCacheBar();
     void RenderClipTooltip(const OTIOClip& clip);
+    void RenderViewportMinimap();  // Shows pan/zoom viewport indicator
 
     // Track interaction
     void HandleTrackVisibilityToggle(const std::string& track_id);
@@ -241,6 +242,11 @@ private:
     bool is_scrubbing_ = false;
     bool is_dragging_clip_ = false;
     std::string hovered_clip_id_;
+
+    // Viewport minimap interaction
+    bool is_dragging_viewport_ = false;
+    float viewport_drag_start_offset_ = 0.0f;  // Scroll offset when drag started
+    float viewport_drag_start_mouse_x_ = 0.0f; // Mouse X when drag started
 
     // Colors (use existing theme)
     ImVec4 color_video_clip_ = ImVec4(0.3f, 0.5f, 0.8f, 1.0f);

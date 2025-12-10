@@ -147,11 +147,6 @@ public:
     void SetVolume(int vol);        // Legacy int version
     void SetVolume(float volume);   // New float version
     float GetVolume() const;
-    float GetAudioLevel() const;    // Get current audio level for visualization
-
-    // Real-time audio data extraction
-    void SetupAudioVisualization();
-    void UpdateAudioData();
 
     // Loop control
     void SetLoop(bool enabled);
@@ -500,11 +495,6 @@ private:
     bool svg_overlays_enabled = false;
 
     // Removed: opportunistic_caching_enabled (using only spiral background caching)
-
-    // Real-time audio data
-    bool audio_visualization_enabled = false;
-    float current_audio_level = 0.0f;
-    std::chrono::steady_clock::time_point last_audio_update;
 
     // EXR sequence handling
     bool is_exr_mode = false;

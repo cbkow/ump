@@ -4,6 +4,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <unordered_set>
 #include <memory>
 #include <thread>
 #include <mutex>
@@ -43,6 +44,16 @@ struct TimelineCacheKey {
 
     bool operator==(const TimelineCacheKey& other) const {
         return source_path == other.source_path && source_frame == other.source_frame;
+    }
+};
+
+// Hash function for TimelineCacheKey (for unordered containers)
+struct TimelineCacheKeyHash {
+    std::size_t operator()(const TimelineCacheKey& key) const {
+        // Combine path hash and frame number
+        std::size_t h1 = std::hash<std::string>{}(key.source_path);
+        std::size_t h2 = std::hash<int>{}(key.source_frame);
+        return h1 ^ (h2 << 1);  // Simple hash combination
     }
 };
 
@@ -354,10 +365,12 @@ private:
 
     // Pending GPU uploads (filled by I/O threads, consumed by GL thread)
     std::deque<PendingUpload> pending_uploads_;
+    std::unordered_set<TimelineCacheKey, TimelineCacheKeyHash> pending_uploads_set_;  // O(1) duplicate check
     mutable std::mutex upload_mutex_;
 
     // Request queue (frames to load) - managed by CacheThread like EXR
-    std::deque<int> video_requests_;              // Timeline frames to load
+    std::deque<int> video_requests_;              // Timeline frames to load (FIFO order)
+    std::unordered_set<int> video_requests_set_;  // O(1) duplicate check for video_requests_
     std::set<int> requests_in_progress_;          // Currently loading
     mutable std::mutex request_mutex_;
     std::condition_variable request_cv_;

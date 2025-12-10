@@ -210,4 +210,26 @@ private:
     bool executed_ = false;
 };
 
+// Move multiple clips together (multi-selection drag)
+class MoveMultipleClipsCommand : public ITimelineCommand {
+public:
+    struct ClipMoveInfo {
+        std::string clip_id;
+        int track_index;
+        double old_start_time;
+        double new_start_time;
+    };
+
+    MoveMultipleClipsCommand(TimelineView* view, std::vector<ClipMoveInfo> moves);
+
+    void Execute() override;
+    void Undo() override;
+    std::string GetDescription() const override;
+
+private:
+    TimelineView* view_;
+    std::vector<ClipMoveInfo> moves_;
+    bool executed_ = false;
+};
+
 } // namespace ump

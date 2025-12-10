@@ -467,7 +467,16 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::GetClosestFrame(int frame_numb
         return nullptr;
     }
 
-    // Find the closest frame in buffer
+    // Fast path: check for exact match first (most common case during playback)
+    // Also check adjacent frames for near-exact matches (common during light load)
+    for (const auto& bf : ring_buffer_) {
+        if (bf.frame_number == frame_number) {
+            if (actual_frame) *actual_frame = frame_number;
+            return bf.pixels;  // Exact match - return immediately
+        }
+    }
+
+    // Full scan: find the closest frame in buffer
     int closest_frame = -1;
     int closest_distance = INT_MAX;
     std::shared_ptr<PixelData> closest_pixels = nullptr;
