@@ -47,37 +47,44 @@ extern bool g_clear_cache_on_exit;
 
 extern ImFont* font_mono;
 
-ImVec4 GetFallbackYellowColor() {
-    return ImVec4(0.65f, 0.55f, 0.15f, 1.0f); // Even darker softer yellow color
+// External variables from main.cpp
+extern bool use_windows_accent_color;
+extern int custom_accent_color_index;
+extern const ImVec4 accent_color_palette[];
+extern const int accent_color_palette_count;
+
+ImVec4 GetDefaultAccentColor() {
+    return accent_color_palette[0];  // 69797e - Default gray-blue
 }
 
-// External variable from main.cpp
-extern bool use_windows_accent_color;
+ImVec4 GetCustomAccentColor() {
+    if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
+        return accent_color_palette[custom_accent_color_index];
+    }
+    return GetDefaultAccentColor();
+}
 
 #ifdef _WIN32
 ImVec4 GetWindowsAccentColor() {
-    // Check if Windows accent color is enabled
-    if (!use_windows_accent_color) {
-        return GetFallbackYellowColor();
+    if (use_windows_accent_color) {
+        DWORD colorization_color;
+        BOOL opaque_blend;
+        if (SUCCEEDED(DwmGetColorizationColor(&colorization_color, &opaque_blend))) {
+            float r = ((colorization_color >> 16) & 0xff) / 255.0f;
+            float g = ((colorization_color >> 8) & 0xff) / 255.0f;
+            float b = (colorization_color & 0xff) / 255.0f;
+            return ImVec4(r, g, b, 1.0f);
+        }
+        return ImVec4(0.26f, 0.59f, 0.98f, 1.0f); // Fallback blue if API fails
     }
-
-    DWORD colorization_color;
-    BOOL opaque_blend;
-    if (SUCCEEDED(DwmGetColorizationColor(&colorization_color, &opaque_blend))) {
-        float r = ((colorization_color >> 16) & 0xff) / 255.0f;
-        float g = ((colorization_color >> 8) & 0xff) / 255.0f;
-        float b = (colorization_color & 0xff) / 255.0f;
-        return ImVec4(r, g, b, 1.0f);
-    }
-    return ImVec4(0.26f, 0.59f, 0.98f, 1.0f); // Fallback blue
+    return GetCustomAccentColor();
 }
 #else
 ImVec4 GetWindowsAccentColor() {
-    // Check if Windows accent color is enabled
-    if (!use_windows_accent_color) {
-        return GetFallbackYellowColor();
+    if (use_windows_accent_color) {
+        return GetDefaultAccentColor();
     }
-    return ImVec4(0.26f, 0.59f, 0.98f, 1.0f); // Fallback for non-Windows
+    return GetCustomAccentColor();
 }
 #endif
 

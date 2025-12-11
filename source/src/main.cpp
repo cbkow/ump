@@ -114,6 +114,31 @@ ImFont* font_icons = nullptr;
 
 // Windows accent color toggle state
 bool use_windows_accent_color = false;
+int custom_accent_color_index = -1;  // -1 = use default/system, 0+ = index into accent_color_palette
+
+// Accent color palette (hex colors converted to ImVec4)
+// Note: extern const to give external linkage for other translation units
+extern const ImVec4 accent_color_palette[] = {
+    ImVec4(0x69/255.0f, 0x79/255.0f, 0x7e/255.0f, 1.0f),  // 0: 69797e - Default gray-blue
+    ImVec4(0x65/255.0f, 0x55/255.0f, 0x15/255.0f, 1.0f),  // 1: 655515 - Old yellow (was 0.65, 0.55, 0.15)
+    ImVec4(0xda/255.0f, 0x3b/255.0f, 0x01/255.0f, 1.0f),  // 2: da3b01 - Orange
+    ImVec4(0xef/255.0f, 0x69/255.0f, 0x50/255.0f, 1.0f),  // 3: ef6950 - Coral
+    ImVec4(0xd1/255.0f, 0x34/255.0f, 0x38/255.0f, 1.0f),  // 4: d13438 - Red
+    ImVec4(0xff/255.0f, 0x43/255.0f, 0x43/255.0f, 1.0f),  // 5: ff4343 - Bright red
+    ImVec4(0xc2/255.0f, 0x39/255.0f, 0xb3/255.0f, 1.0f),  // 6: c239b3 - Magenta
+    ImVec4(0x00/255.0f, 0x78/255.0f, 0xd4/255.0f, 1.0f),  // 7: 0078d4 - Blue
+    ImVec4(0x8e/255.0f, 0x8c/255.0f, 0xd8/255.0f, 1.0f),  // 8: 8e8cd8 - Light purple
+    ImVec4(0x87/255.0f, 0x64/255.0f, 0xb8/255.0f, 1.0f),  // 9: 8764b8 - Purple
+    ImVec4(0xb1/255.0f, 0x46/255.0f, 0xc2/255.0f, 1.0f),  // 10: b146c2 - Violet
+    ImVec4(0x2d/255.0f, 0x7d/255.0f, 0x9a/255.0f, 1.0f),  // 11: 2d7d9a - Teal
+    ImVec4(0x7a/255.0f, 0x75/255.0f, 0x74/255.0f, 1.0f),  // 12: 7a7574 - Warm gray
+    ImVec4(0x68/255.0f, 0x76/255.0f, 0x8a/255.0f, 1.0f),  // 13: 68768a - Cool gray
+    ImVec4(0x56/255.0f, 0x7c/255.0f, 0x73/255.0f, 1.0f),  // 14: 567c73 - Sage
+    ImVec4(0x64/255.0f, 0x7c/255.0f, 0x64/255.0f, 1.0f),  // 15: 647c64 - Green
+    ImVec4(0x84/255.0f, 0x75/255.0f, 0x45/255.0f, 1.0f),  // 16: 847545 - Olive
+    ImVec4(0x7e/255.0f, 0x73/255.0f, 0x5f/255.0f, 1.0f),  // 17: 7e735f - Tan
+};
+extern const int accent_color_palette_count = sizeof(accent_color_palette) / sizeof(accent_color_palette[0]);
 
 // ============================================================================
 // TIMECODE MODE VARIABLES
@@ -2179,35 +2204,46 @@ private:
     // ========================================================================
     // WINDOWS ACCENT COLOR UTILITIES
     // ========================================================================
-    ImVec4 GetFallbackYellowColor() {
-        return ImVec4(0.65f, 0.55f, 0.15f, 1.0f); // Even darker softer yellow color
+    ImVec4 GetDefaultAccentColor() {
+        return accent_color_palette[0];  // 69797e - Default gray-blue
+    }
+
+    ImVec4 GetCustomAccentColor() {
+        // If a custom color is selected from the palette, return it
+        if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
+            return accent_color_palette[custom_accent_color_index];
+        }
+        return GetDefaultAccentColor();
     }
 
 #ifdef _WIN32
     ImVec4 GetWindowsAccentColor() {
         // Check if Windows accent color is enabled
-        if (!use_windows_accent_color) {
-            return GetFallbackYellowColor();
+        if (use_windows_accent_color) {
+            DWORD colorization_color;
+            BOOL opaque_blend;
+            if (SUCCEEDED(DwmGetColorizationColor(&colorization_color, &opaque_blend))) {
+                // Convert ARGB to ImVec4 RGBA
+                float r = ((colorization_color >> 16) & 0xff) / 255.0f;
+                float g = ((colorization_color >> 8) & 0xff) / 255.0f;
+                float b = (colorization_color & 0xff) / 255.0f;
+                return ImVec4(r, g, b, 1.0f);
+            }
+            return ImVec4(0.26f, 0.59f, 0.98f, 1.0f); // Fallback blue if API fails
         }
 
-        DWORD colorization_color;
-        BOOL opaque_blend;
-        if (SUCCEEDED(DwmGetColorizationColor(&colorization_color, &opaque_blend))) {
-            // Convert ARGB to ImVec4 RGBA
-            float r = ((colorization_color >> 16) & 0xff) / 255.0f;
-            float g = ((colorization_color >> 8) & 0xff) / 255.0f;
-            float b = (colorization_color & 0xff) / 255.0f;
-            return ImVec4(r, g, b, 1.0f);
-        }
-        return ImVec4(0.26f, 0.59f, 0.98f, 1.0f); // Fallback blue
+        // Use custom palette color or default
+        return GetCustomAccentColor();
     }
 #else
     ImVec4 GetWindowsAccentColor() {
-        // Check if Windows accent color is enabled
-        if (!use_windows_accent_color) {
-            return GetFallbackYellowColor();
+        // Check if Windows accent color is enabled (non-Windows fallback)
+        if (use_windows_accent_color) {
+            return GetDefaultAccentColor();  // Can't get system color on non-Windows
         }
-        return ImVec4(0.65f, 0.55f, 0.15f, 1.0f); // Even darker softer yellow color
+
+        // Use custom palette color or default
+        return GetCustomAccentColor();
     }
 #endif
 
@@ -3551,9 +3587,75 @@ private:
                 ImGui::Separator();
                 ImGui::TextDisabled("Settings:");
 
-                if (ImGui::MenuItem("Windows Accent Color", nullptr, use_windows_accent_color)) {
+                if (ImGui::MenuItem("System Accent Color", nullptr, use_windows_accent_color)) {
                     use_windows_accent_color = !use_windows_accent_color;
+                    if (use_windows_accent_color) {
+                        custom_accent_color_index = -1;  // Clear custom color when using system
+                    }
                     SaveSettings();
+                }
+
+                // Color swatch submenu
+                if (ImGui::BeginMenu("Accent Color")) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4.0f, 4.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(2.0f, 2.0f));
+
+                    const float swatch_size = 20.0f;
+                    const int swatches_per_row = 6;
+
+                    for (int i = 0; i < accent_color_palette_count; i++) {
+                        ImGui::PushID(i);
+
+                        // Check if this swatch is selected
+                        bool is_selected = !use_windows_accent_color && (custom_accent_color_index == i || (custom_accent_color_index == -1 && i == 0));
+
+                        // Draw swatch as a colored button
+                        ImVec4 color = accent_color_palette[i];
+                        ImGui::PushStyleColor(ImGuiCol_Button, color);
+                        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(color.x * 1.2f, color.y * 1.2f, color.z * 1.2f, 1.0f));
+                        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(color.x * 0.8f, color.y * 0.8f, color.z * 0.8f, 1.0f));
+
+                        // Draw button, then overlay checkmark if selected
+                        ImVec2 button_pos = ImGui::GetCursorScreenPos();
+                        if (ImGui::Button("##swatch", ImVec2(swatch_size, swatch_size))) {
+                            custom_accent_color_index = i;
+                            use_windows_accent_color = false;  // Disable system color when selecting custom
+                            SaveSettings();
+                        }
+
+                        // Draw checkmark centered on button for selected swatch
+                        if (is_selected && font_icons) {
+                            ImGui::PushFont(font_icons);
+                            const char* checkmark = u8"\uE5CA";
+                            ImVec2 text_size = ImGui::CalcTextSize(checkmark);
+                            ImVec2 text_pos = ImVec2(
+                                button_pos.x + (swatch_size - text_size.x) * 0.5f,
+                                button_pos.y + (swatch_size - text_size.y) * 0.5f - 2.0f  // Adjust Y offset to center
+                            );
+                            ImGui::GetWindowDrawList()->AddText(text_pos, IM_COL32(255, 255, 255, 255), checkmark);
+                            ImGui::PopFont();
+                        }
+
+                        ImGui::PopStyleColor(3);
+
+                        // Tooltip showing hex color
+                        if (ImGui::IsItemHovered()) {
+                            int r = (int)(color.x * 255.0f);
+                            int g = (int)(color.y * 255.0f);
+                            int b = (int)(color.z * 255.0f);
+                            ImGui::SetTooltip("#%02x%02x%02x", r, g, b);
+                        }
+
+                        ImGui::PopID();
+
+                        // Continue on same line unless end of row
+                        if ((i + 1) % swatches_per_row != 0 && i < accent_color_palette_count - 1) {
+                            ImGui::SameLine();
+                        }
+                    }
+
+                    ImGui::PopStyleVar(2);
+                    ImGui::EndMenu();
                 }
 
                 ImGui::EndMenu();
@@ -4026,7 +4128,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.2");
+                ImGui::TextDisabled("About u.m.p. v0.4.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -16499,6 +16601,13 @@ private:
                 if (j["appearance"].contains("use_windows_accent_color")) {
                     use_windows_accent_color = j["appearance"]["use_windows_accent_color"].get<bool>();
                 }
+                if (j["appearance"].contains("custom_accent_color_index")) {
+                    custom_accent_color_index = j["appearance"]["custom_accent_color_index"].get<int>();
+                    // Validate the index is within bounds
+                    if (custom_accent_color_index >= accent_color_palette_count) {
+                        custom_accent_color_index = -1;
+                    }
+                }
                 if (j["appearance"].contains("video_background")) {
                     std::string bg_str = j["appearance"]["video_background"].get<std::string>();
                     if (bg_str == "BLACK") video_background_type = VideoBackgroundType::BLACK;
@@ -16765,6 +16874,7 @@ private:
 
             // Appearance settings
             j["appearance"]["use_windows_accent_color"] = use_windows_accent_color;
+            j["appearance"]["custom_accent_color_index"] = custom_accent_color_index;
 
             std::string bg_str = "BLACK";
             switch (video_background_type) {
