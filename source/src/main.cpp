@@ -119,24 +119,24 @@ int custom_accent_color_index = -1;  // -1 = use default/system, 0+ = index into
 // Accent color palette (hex colors converted to ImVec4)
 // Note: extern const to give external linkage for other translation units
 extern const ImVec4 accent_color_palette[] = {
-    ImVec4(0x69/255.0f, 0x79/255.0f, 0x7e/255.0f, 1.0f),  // 0: 69797e - Default gray-blue
-    ImVec4(0x65/255.0f, 0x55/255.0f, 0x15/255.0f, 1.0f),  // 1: 655515 - Old yellow (was 0.65, 0.55, 0.15)
-    ImVec4(0xda/255.0f, 0x3b/255.0f, 0x01/255.0f, 1.0f),  // 2: da3b01 - Orange
-    ImVec4(0xef/255.0f, 0x69/255.0f, 0x50/255.0f, 1.0f),  // 3: ef6950 - Coral
-    ImVec4(0xd1/255.0f, 0x34/255.0f, 0x38/255.0f, 1.0f),  // 4: d13438 - Red
-    ImVec4(0xff/255.0f, 0x43/255.0f, 0x43/255.0f, 1.0f),  // 5: ff4343 - Bright red
-    ImVec4(0xc2/255.0f, 0x39/255.0f, 0xb3/255.0f, 1.0f),  // 6: c239b3 - Magenta
-    ImVec4(0x00/255.0f, 0x78/255.0f, 0xd4/255.0f, 1.0f),  // 7: 0078d4 - Blue
-    ImVec4(0x8e/255.0f, 0x8c/255.0f, 0xd8/255.0f, 1.0f),  // 8: 8e8cd8 - Light purple
-    ImVec4(0x87/255.0f, 0x64/255.0f, 0xb8/255.0f, 1.0f),  // 9: 8764b8 - Purple
-    ImVec4(0xb1/255.0f, 0x46/255.0f, 0xc2/255.0f, 1.0f),  // 10: b146c2 - Violet
-    ImVec4(0x2d/255.0f, 0x7d/255.0f, 0x9a/255.0f, 1.0f),  // 11: 2d7d9a - Teal
-    ImVec4(0x7a/255.0f, 0x75/255.0f, 0x74/255.0f, 1.0f),  // 12: 7a7574 - Warm gray
-    ImVec4(0x68/255.0f, 0x76/255.0f, 0x8a/255.0f, 1.0f),  // 13: 68768a - Cool gray
-    ImVec4(0x56/255.0f, 0x7c/255.0f, 0x73/255.0f, 1.0f),  // 14: 567c73 - Sage
-    ImVec4(0x64/255.0f, 0x7c/255.0f, 0x64/255.0f, 1.0f),  // 15: 647c64 - Green
-    ImVec4(0x84/255.0f, 0x75/255.0f, 0x45/255.0f, 1.0f),  // 16: 847545 - Olive
-    ImVec4(0x7e/255.0f, 0x73/255.0f, 0x5f/255.0f, 1.0f),  // 17: 7e735f - Tan
+    ImVec4(0x7e/255.0f, 0x73/255.0f, 0x5f/255.0f, 1.0f),  // 0: 7e735f - Default tan
+    ImVec4(0x69/255.0f, 0x79/255.0f, 0x7e/255.0f, 1.0f),  // 1: 69797e - Gray-blue (old default)
+    ImVec4(0x65/255.0f, 0x55/255.0f, 0x15/255.0f, 1.0f),  // 2: 655515 - Old yellow
+    ImVec4(0xda/255.0f, 0x3b/255.0f, 0x01/255.0f, 1.0f),  // 3: da3b01 - Orange
+    ImVec4(0xef/255.0f, 0x69/255.0f, 0x50/255.0f, 1.0f),  // 4: ef6950 - Coral
+    ImVec4(0xd1/255.0f, 0x34/255.0f, 0x38/255.0f, 1.0f),  // 5: d13438 - Red
+    ImVec4(0xff/255.0f, 0x43/255.0f, 0x43/255.0f, 1.0f),  // 6: ff4343 - Bright red
+    ImVec4(0xc2/255.0f, 0x39/255.0f, 0xb3/255.0f, 1.0f),  // 7: c239b3 - Magenta
+    ImVec4(0x00/255.0f, 0x78/255.0f, 0xd4/255.0f, 1.0f),  // 8: 0078d4 - Blue
+    ImVec4(0x8e/255.0f, 0x8c/255.0f, 0xd8/255.0f, 1.0f),  // 9: 8e8cd8 - Light purple
+    ImVec4(0x87/255.0f, 0x64/255.0f, 0xb8/255.0f, 1.0f),  // 10: 8764b8 - Purple
+    ImVec4(0xb1/255.0f, 0x46/255.0f, 0xc2/255.0f, 1.0f),  // 11: b146c2 - Violet
+    ImVec4(0x2d/255.0f, 0x7d/255.0f, 0x9a/255.0f, 1.0f),  // 12: 2d7d9a - Teal
+    ImVec4(0x7a/255.0f, 0x75/255.0f, 0x74/255.0f, 1.0f),  // 13: 7a7574 - Warm gray
+    ImVec4(0x68/255.0f, 0x76/255.0f, 0x8a/255.0f, 1.0f),  // 14: 68768a - Cool gray
+    ImVec4(0x56/255.0f, 0x7c/255.0f, 0x73/255.0f, 1.0f),  // 15: 567c73 - Sage
+    ImVec4(0x64/255.0f, 0x7c/255.0f, 0x64/255.0f, 1.0f),  // 16: 647c64 - Green
+    ImVec4(0x84/255.0f, 0x75/255.0f, 0x45/255.0f, 1.0f),  // 17: 847545 - Olive
 };
 extern const int accent_color_palette_count = sizeof(accent_color_palette) / sizeof(accent_color_palette[0]);
 
@@ -2205,7 +2205,7 @@ private:
     // WINDOWS ACCENT COLOR UTILITIES
     // ========================================================================
     ImVec4 GetDefaultAccentColor() {
-        return accent_color_palette[0];  // 69797e - Default gray-blue
+        return accent_color_palette[0];  // 7e735f - Default tan
     }
 
     ImVec4 GetCustomAccentColor() {
@@ -2282,6 +2282,9 @@ private:
         );
     }
 
+    // Transparent border for use inside docked panels (dock borders remain visible)
+    const ImVec4 kTransparentBorder = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+
     void SetupImGuiStyle() {
         ImGuiStyle& style = ImGui::GetStyle();
         ImVec4* colors = style.Colors;
@@ -2290,10 +2293,10 @@ private:
 
         colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
         colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
-        colors[ImGuiCol_WindowBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
-        colors[ImGuiCol_ChildBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
-        colors[ImGuiCol_PopupBg] = ImVec4(0.128f, 0.128f, 0.128f, 1.00f);
-        colors[ImGuiCol_Border] = ImVec4(0.19f, 0.19f, 0.19f, 0.50f);
+        colors[ImGuiCol_WindowBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
+        colors[ImGuiCol_ChildBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
+        colors[ImGuiCol_PopupBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
+        colors[ImGuiCol_Border] = ImVec4(0.25f, 0.25f, 0.25f, 0.27f);  // Visible dock borders
         colors[ImGuiCol_BorderShadow] = ImVec4(0.00f, 0.00f, 0.00f, 0.00f);
         colors[ImGuiCol_FrameBg] = ImVec4(0.060f, 0.060f, 0.060f, 1.00f);
         colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
@@ -2302,7 +2305,7 @@ private:
         colors[ImGuiCol_TitleBgActive] = ImVec4(0.10f, 0.10f, 0.10f, 1.00f);
         colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.00f, 0.00f, 0.00f, 0.51f);
         colors[ImGuiCol_MenuBarBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.0f);
-        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.02f, 0.02f, 0.02f, 0.53f);
+        colors[ImGuiCol_ScrollbarBg] = ImVec4(0.2f, 0.2f, 0.2f, 0.53f);
         colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.31f, 0.31f, 0.31f, 1.00f);
         colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
         colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.51f, 0.51f, 0.51f, 1.00f);
@@ -2333,7 +2336,7 @@ private:
         colors[ImGuiCol_PlotHistogram] = ImVec4(0.90f, 0.70f, 0.00f, 1.00f);
         colors[ImGuiCol_PlotHistogramHovered] = ImVec4(1.00f, 0.60f, 0.00f, 1.00f);
         colors[ImGuiCol_TextSelectedBg] = ImVec4(0.26f, 0.26f, 0.26f, 0.35f);
-        colors[ImGuiCol_DragDropTarget] = ImVec4(1.00f, 1.00f, 0.00f, 0.90f);
+        colors[ImGuiCol_DragDropTarget] = GetWindowsAccentColor();
         colors[ImGuiCol_NavHighlight] = ImVec4(0.60f, 0.60f, 0.60f, 1.00f);
         colors[ImGuiCol_NavWindowingHighlight] = ImVec4(1.00f, 1.00f, 1.00f, 0.70f);
         colors[ImGuiCol_NavWindowingDimBg] = ImVec4(0.80f, 0.80f, 0.80f, 0.20f);
@@ -2362,8 +2365,8 @@ private:
         style.ChildRounding = 4;
         style.FrameRounding = 4;
         style.PopupRounding = 4;
-        style.ScrollbarRounding = 9;
-        style.GrabRounding = 3;
+        style.ScrollbarRounding = 1;
+        style.GrabRounding = 1;
         style.LogSliderDeadzone = 4;
         style.TabRounding = 0;
     }
@@ -4128,7 +4131,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.3");
+                ImGui::TextDisabled("About u.m.p. v0.4.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4684,6 +4687,7 @@ private:
             ImGui::SetNextWindowDockID(saved_stats_dock_id, ImGuiCond_Appearing);
         }
 
+        ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("System Stats", &show_system_stats_bar, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoCollapse)) {
             // Check if notification should auto-dismiss
             if (!stats_bar_notification_message.empty() && !show_notification_permanent) {
@@ -4850,6 +4854,7 @@ private:
             ImGui::PopStyleVar(2);
         }
         ImGui::End();
+        ImGui::PopStyleColor();  // kTransparentBorder
     }
 
     void CreateCacheSettingsWindow() {
@@ -5924,6 +5929,7 @@ private:
 
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
 
             // Calculate space for toolbar (only in annotation mode) and timeline at bottom
@@ -6458,6 +6464,7 @@ private:
             }
         }
         ImGui::End();
+        ImGui::PopStyleColor();  // kTransparentBorder
         ImGui::PopStyleVar();
     }
 
@@ -7128,74 +7135,59 @@ private:
         ImVec2 center = viewport->GetCenter();
         ImVec2 display_size = viewport->Size;
 
+        // Use FOREGROUND draw list for EVERYTHING - this ensures it appears on top of all windows
+        // The foreground draw list is rendered AFTER all ImGui windows
+        ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
+
         // Draw fullscreen dimmed overlay
-        ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
         draw_list->AddRectFilled(
-            ImVec2(0, 0),
-            display_size,
-            IM_COL32(0, 0, 0, 185)  // Semi-transparent black (65% opacity)
+            viewport->Pos,
+            ImVec2(viewport->Pos.x + display_size.x, viewport->Pos.y + display_size.y),
+            IM_COL32(0, 0, 0, 185)  // Semi-transparent black (~72% opacity)
         );
 
-        // Now draw the modal window on top
-        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(450, 220), ImGuiCond_Always);
+        // Modal box dimensions and position
+        const float modal_width = 350.0f;
+        const float modal_height = 160.0f;
+        ImVec2 modal_pos = ImVec2(center.x - modal_width * 0.5f, center.y - modal_height * 0.5f);
+        ImVec2 modal_end = ImVec2(modal_pos.x + modal_width, modal_pos.y + modal_height);
 
-        ImGuiWindowFlags modal_flags =
-            ImGuiWindowFlags_NoMove |
-            ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_NoScrollbar |
-            ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoTitleBar;
+        // Draw modal background with rounded corners
+        draw_list->AddRectFilled(
+            modal_pos, modal_end,
+            IM_COL32(33, 33, 33, 217),  // Dark gray, ~85% opacity
+            4.0f  // Corner rounding
+        );
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.128f, 0.128f, 0.128f, 0.85f));
-        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.3f, 0.3f, 0.35f, 2.0f));
+        // Draw modal border
+        draw_list->AddRect(
+            modal_pos, modal_end,
+            IM_COL32(77, 77, 89, 255),  // Subtle border
+            4.0f,  // Corner rounding
+            0,     // Flags
+            1.0f   // Thickness
+        );
 
-        if (ImGui::Begin("##ShutdownModal", nullptr, modal_flags)) {
-            ImGui::Dummy(ImVec2(0, 20));
+        // Draw title text (centered)
+        const char* title = "Shutting Down ump...";
+        ImVec2 title_size = ImGui::CalcTextSize(title);
+        float title_x = modal_pos.x + (modal_width - title_size.x) * 0.5f;
+        float title_y = modal_pos.y + 35.0f;
+        draw_list->AddText(ImVec2(title_x, title_y), IM_COL32(255, 255, 255, 255), title);
 
-            // Hourglass icon (centered, larger)
-            ImGui::PushFont(font_icons);
-            const char* icon = ICON_HOURGLASS_EMPTY;
-            float icon_size = ImGui::CalcTextSize(icon).x * 2.0f; // Make it bigger
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - icon_size) * 0.5f);
-            ImGui::SetWindowFontScale(2.0f);
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", icon);
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::PopFont();
+        // Draw status text (centered)
+        const char* status = "Cleaning up GPU resources";
+        ImVec2 status_size = ImGui::CalcTextSize(status);
+        float status_x = modal_pos.x + (modal_width - status_size.x) * 0.5f;
+        float status_y = modal_pos.y + 70.0f;
+        draw_list->AddText(ImVec2(status_x, status_y), IM_COL32(179, 179, 179, 255), status);
 
-            ImGui::Dummy(ImVec2(0, 10));
-
-            // Title (centered)
-            const char* title = "Shutting Down ump...";
-            float title_width = ImGui::CalcTextSize(title).x;
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - title_width) * 0.5f);
-            ImGui::Text("%s", title);
-
-            ImGui::Dummy(ImVec2(0, 4));
-
-            // Status text (centered)
-            const char* status = "Cleaning up GPU resources";
-            float status_width = ImGui::CalcTextSize(status).x;
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - status_width) * 0.5f);
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", status);
-
-            ImGui::Dummy(ImVec2(0, 4));
-
-            // Please wait text (centered)
-            const char* wait_text = "Please wait...";
-            float wait_width = ImGui::CalcTextSize(wait_text).x;
-            ImGui::SetCursorPosX((ImGui::GetWindowWidth() - wait_width) * 0.5f);
-            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", wait_text);
-
-            ImGui::Dummy(ImVec2(0, 20));
-        }
-        ImGui::End();
-
-        ImGui::PopStyleColor(2);
-        ImGui::PopStyleVar(2);
+        // Draw "Please wait..." text (centered)
+        const char* wait_text = "Please wait...";
+        ImVec2 wait_size = ImGui::CalcTextSize(wait_text);
+        float wait_x = modal_pos.x + (modal_width - wait_size.x) * 0.5f;
+        float wait_y = modal_pos.y + 105.0f;
+        draw_list->AddText(ImVec2(wait_x, wait_y), IM_COL32(153, 153, 153, 255), wait_text);
     }
 
     void RenderSafetyOverlayPanel(bool& show_panel) {
@@ -7680,7 +7672,11 @@ private:
 
         switch (video_background_type) {
         case VideoBackgroundType::DEFAULT:
-            // Don't draw anything - transparent/default
+            draw_list->AddRectFilled(
+                canvas_pos,
+                ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
+                IM_COL32(27, 27, 27, 255)
+            );
             break;
 
         case VideoBackgroundType::BLACK:
@@ -13678,6 +13674,7 @@ private:
     void CreateInspectorPanel() {
         if (!show_inspector_panel) return;
 
+        ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Inspector", &show_inspector_panel)) {
             // Timeline Mode - show timeline properties
             if (otio_timeline_mode && timeline_view) {
@@ -14026,7 +14023,7 @@ private:
                         float clamped_min = (base_height > min_height) ? base_height : min_height;
                         float calculated_height = (clamped_min < max_height) ? clamped_min : max_height;
 
-                        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(28, 28, 28, 255));
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(25, 25, 25, 255));
                         ImGui::BeginChild("PlaylistContents", ImVec2(0, calculated_height), true,
                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
@@ -14259,7 +14256,7 @@ private:
                         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Drag videos from Project panel to add clips");
 
                         // Empty playlist drop zone 
-                        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(28, 28, 28, 255));
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(25, 25, 25, 255));
                         ImGui::BeginChild("EmptyPlaylistDropZone", ImVec2(0, 60), true);
                         ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                         if (font_icons) {
@@ -14358,6 +14355,7 @@ private:
             }
         }
         ImGui::End();
+        ImGui::PopStyleColor();  // kTransparentBorder
     }
 
     void CreateComponentPaletteContent() {
@@ -16210,8 +16208,10 @@ private:
             custom_trees_loaded = true;
         }
 
+        ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (!ImGui::Begin("Color", &show_color_panels)) {
             ImGui::End();
+            ImGui::PopStyleColor();  // kTransparentBorder
             return;
         }
 
@@ -16264,6 +16264,7 @@ private:
         ImGui::EndChild();
 
         ImGui::End();
+        ImGui::PopStyleColor();  // kTransparentBorder
     }
 
     // ------------------------------------------------------------------------
@@ -18059,7 +18060,7 @@ private:
     }
 
     void TriggerAutoPlay(ump::MediaType media_type = ump::MediaType::VIDEO) {
-        // ✅ NEW: Check if media type is regular video (not image sequence)
+        // NEW: Check if media type is regular video (not image sequence)
         // Image sequences never autoplay - they need DirectEXRCache warmup time
         bool is_regular_video = (media_type == ump::MediaType::VIDEO ||
                                  media_type == ump::MediaType::AUDIO);
@@ -18188,7 +18189,7 @@ private:
             Debug::Log("Loaded annotations for: " + annotation_path);
         }
 
-        // ✅ NEW: Detect media type from file path for deliberate autoplay control
+        // NEW: Detect media type from file path for deliberate autoplay control
         ump::MediaType media_type = ump::MediaType::VIDEO;  // Default
         if (new_file_path.substr(0, 5) == "mf://") {
             media_type = ump::MediaType::IMAGE_SEQUENCE;

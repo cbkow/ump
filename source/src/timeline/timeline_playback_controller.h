@@ -100,6 +100,8 @@ public:
     double GetDuration() const { return timeline_duration_; }
     double GetDummyDuration() const { return dummy_duration_; }
     double GetFPS() const { return fps_; }
+    int GetWidth() const { return width_; }
+    int GetHeight() const { return height_; }
 
     // Access to cache for statistics
     TimelineCache* GetCache() const { return cache_.get(); }

@@ -184,6 +184,56 @@ bool VideoPlayer::Initialize() {
         return false;
     }
 
+    // Create transition placeholder texture (prevents font cache flicker during media switches)
+    CreateTransitionPlaceholder();
+
+    // Create default passthrough color pipeline (provides stable buffering during transitions)
+    // The color pipeline copies video_texture -> color_texture, which provides frame stability
+    // during media transitions. Without this, video_texture is displayed directly and can
+    // become invalid momentarily, causing font cache flickering.
+    auto passthrough = std::make_unique<OCIOPipeline>();
+    if (passthrough->CreatePassthroughPipeline()) {
+        color_pipeline = std::move(passthrough);
+        Debug::Log("VideoPlayer: Default passthrough color pipeline created");
+
+        // Create quad VAO/VBO for color pipeline rendering (only once)
+        // This prevents issues if ApplyColorPipeline is called before SetupColorProcessingResources
+        if (quad_vao == 0) {
+            float quad_vertices[] = {
+                // positions   // texCoords
+                -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
+                -1.0f, -1.0f,  0.0f, 0.0f,  // bottom-left
+                 1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
+                -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
+                 1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
+                 1.0f,  1.0f,  1.0f, 1.0f   // top-right
+            };
+
+            glGenVertexArrays(1, &quad_vao);
+            glGenBuffers(1, &quad_vbo);
+
+            glBindVertexArray(quad_vao);
+            glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
+
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(1);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+            glBindVertexArray(0);
+            Debug::Log("VideoPlayer: Created quad VAO/VBO for color pipeline");
+        }
+
+        // Create initial color processing resources at placeholder dimensions
+        // This ensures color_fbo and color_texture exist before first video loads
+        CreateColorProcessingResourcesForMode(transition_placeholder_width_, transition_placeholder_height_, current_pipeline_mode);
+        Debug::Log("VideoPlayer: Created initial color resources at " +
+                   std::to_string(transition_placeholder_width_) + "x" + std::to_string(transition_placeholder_height_));
+    } else {
+        Debug::Log("VideoPlayer: WARNING - Failed to create default passthrough pipeline");
+    }
+
     ApplyRenderOptimizations();
     mpv_request_event(mpv, MPV_EVENT_FILE_LOADED, 1);
     return true;
@@ -401,10 +451,17 @@ void VideoPlayer::Cleanup() {
 
     // Delete OpenGL textures
     Debug::Log("VideoPlayer::Cleanup: Deleting OpenGL textures...");
-    if (video_texture) {
+    if (video_texture && video_texture != transition_placeholder_texture_) {
         glDeleteTextures(1, &video_texture);
         video_texture = 0;
         Debug::Log("VideoPlayer::Cleanup: Video texture deleted");
+    }
+
+    // Clean up transition placeholder texture
+    if (transition_placeholder_texture_) {
+        glDeleteTextures(1, &transition_placeholder_texture_);
+        transition_placeholder_texture_ = 0;
+        Debug::Log("VideoPlayer::Cleanup: Transition placeholder texture deleted");
     }
 
     // Clean up DirectEXRCache (background spiral caching threads)
@@ -542,22 +599,33 @@ void VideoPlayer::LoadFile(const std::string& path) {
         Debug::Log("Switching from video to video: " + path);
     }
 
-    // ✅ Clear current_file_path FIRST to prevent UpdateProperties from accessing stale metadata
+    // Clear current_file_path FIRST to prevent UpdateProperties from accessing stale metadata
     // during cache shutdown (which can trigger callbacks)
     current_file_path.clear();
 
-    // ✅ Clear EXR mode flag BEFORE cache shutdown to prevent InjectCurrentEXRFrame() from running
+    // Clear EXR mode flag BEFORE cache shutdown to prevent InjectCurrentEXRFrame() from running
     // during cache teardown (prevents division by zero in EXR frame calculations)
     bool was_exr_mode = is_exr_mode;
     is_exr_mode = false;
 
-    // ✅ Clear content dimensions (overlay mode) - new media will set its own if needed
+    // Clear content dimensions (overlay mode) - new media will set its own if needed
     content_width_ = 0;
     content_height_ = 0;
     use_content_dimensions_ = false;
 
     // === CLEAR ALL CACHES BEFORE LOADING NEW MEDIA ===
     // This ensures clean transitions between any media types
+
+    // FIRST: Switch video_texture to placeholder BEFORE destroying any cache textures
+    // This prevents displaying deleted textures during the transition window
+    video_texture = transition_placeholder_texture_;
+    video_width = transition_placeholder_width_;
+    video_height = transition_placeholder_height_;
+    has_video = true;
+    exr_texture = 0;
+
+    // Clear color texture to background to prevent showing stale frames
+    ClearColorTextureToBackground();
 
     // Clear video cache (FrameCache)
     if (cache_clear_callback) {
@@ -593,7 +661,7 @@ void VideoPlayer::LoadFile(const std::string& path) {
 
     ResetState();
 
-    // ✅ Store current file path AFTER state reset (prevents race conditions in UpdateProperties)
+    // Store current file path AFTER state reset (prevents race conditions in UpdateProperties)
     current_file_path = path;
 
     // Reset image sequence flags when loading a new file
@@ -627,7 +695,7 @@ void VideoPlayer::LoadFile(const std::string& path) {
     WaitForFileLoad(is_audio_file);  // Pass audio flag for shorter timeout
     FinalizeLoad();
 
-    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // NEW: Always load in paused state (deliberate autoplay control)
     // Autoplay decision happens later in OnVideoLoaded() based on media type
     Pause();
     Debug::Log("LoadFile: Media loaded in paused state (deliberate autoplay control)");
@@ -646,7 +714,7 @@ void VideoPlayer::LoadFile(const std::string& path) {
     if (has_video && !is_audio_file && !is_dummy_video) {
         ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
         if (thumb_config.enabled) {
-            // ✅ Get all video properties from cached FFmpeg metadata (instant, no MPV queries)
+            // Get all video properties from cached FFmpeg metadata (instant, no MPV queries)
             VideoMetadata metadata;
             if (metadata_callback) {
                 metadata = metadata_callback(path);
@@ -1432,10 +1500,33 @@ void VideoPlayer::RenderVideoTexture() {
     */
 
     // Safety check - make sure we have a valid texture to display
+    // If display_texture is invalid, try video_texture (should be FBO-attached and cleared to background)
+    // Last resort: use transition placeholder texture
     if (display_texture == 0 || !glIsTexture(display_texture)) {
-        //Debug::Log("ERROR: Invalid texture to display: " + std::to_string(display_texture));
-        // Show black frame instead of error text
-        return;
+        // Try video_texture first (FBO-attached, cleared to background color)
+        if (video_texture != 0 && video_texture != display_texture && glIsTexture(video_texture)) {
+            display_texture = video_texture;
+        } else if (transition_placeholder_texture_ != 0 && glIsTexture(transition_placeholder_texture_)) {
+            // Fallback to placeholder (not FBO-attached, but better than nothing)
+            display_texture = transition_placeholder_texture_;
+            // Recalculate image size for placeholder aspect ratio (1:1)
+            if (content_region.x > content_region.y) {
+                image_size.y = content_region.y;
+                image_size.x = content_region.y;
+            } else {
+                image_size.x = content_region.x;
+                image_size.y = content_region.x;
+            }
+            // Re-center with new size
+            offset = ImVec2(
+                (content_region.x - image_size.x) * 0.5f,
+                (content_region.y - image_size.y) * 0.5f
+            );
+            ImGui::SetCursorPos(ImVec2(cursor_pos.x + offset.x, cursor_pos.y + offset.y));
+        } else {
+            // Last resort - no valid texture at all, just return
+            return;
+        }
     }
 
     // Save cursor position before rendering image for drop target
@@ -1700,7 +1791,7 @@ void VideoPlayer::UpdateProperties() {
         return;  // Skip MPV dimension queries entirely
     }
 
-    // ✅ Use cached FFmpeg metadata for static properties (instant, no MPV queries)
+    // Use cached FFmpeg metadata for static properties (instant, no MPV queries)
     // Skip for EXR sequences - they use DirectEXRCache, not FFmpeg metadata
     // Skip for lavfi mode - dimensions come from MPV's composited output, not source files
     bool should_use_metadata = metadata_callback && !current_file_path.empty() &&
@@ -1844,7 +1935,7 @@ void VideoPlayer::UpdateProperties() {
                    ", video_texture=" + std::to_string(video_texture));*/
     }
 
-    // ✅ Only query MPV for LIVE playback state (these must come from MPV)
+    // Only query MPV for LIVE playback state (these must come from MPV)
     double pos = 0.0;
     if (mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &pos) == 0) {
         cached_position = pos;
@@ -1917,7 +2008,7 @@ void VideoPlayer::UpdateProperties() {
 void VideoPlayer::UpdatePlaybackState() {
     if (!mpv) return;
 
-    // ✅ Only update DYNAMIC playback state (called every frame from RenderVideoFrame)
+    // Only update DYNAMIC playback state (called every frame from RenderVideoFrame)
     // Static properties (duration, fps, dimensions) are updated once in UpdateProperties()
 
     double pos = 0.0;
@@ -1938,7 +2029,9 @@ void VideoPlayer::ResetState() {
     Debug::Log("ResetState: Starting (has_video=" +
                std::string(has_video ? "true" : "false") + ")");
 
-    has_video = false;
+    // Note: We keep has_video = true during transition so the render path
+    // continues to use the transition placeholder texture instead of RenderPlaceholder()
+    // which does nothing and causes font cache flicker
     cached_duration = 0.0;
     cached_position = 0.0;
 
@@ -1951,7 +2044,17 @@ void VideoPlayer::ResetState() {
 
     Debug::Log("ResetState: Cleaning up media state");
 
-    // First, ensure MPV is properly stopped
+    // FIRST: Switch video_texture to placeholder BEFORE stopping MPV or deleting any textures
+    // This prevents displaying deleted/invalid textures during the transition window
+    video_texture = transition_placeholder_texture_;
+    video_width = transition_placeholder_width_;
+    video_height = transition_placeholder_height_;
+    has_video = true;
+
+    // Clear color texture to background to prevent showing stale frames
+    ClearColorTextureToBackground();
+
+    // Now safe to stop MPV
     if (mpv) {
         const char* cmd[] = { "stop", nullptr };
         mpv_command(mpv, cmd);
@@ -1973,34 +2076,16 @@ void VideoPlayer::ResetState() {
         // Clear EXR caching callback
         exr_caching_callback = nullptr;
 
-        // Clear any cached EXR texture if it exists
+        // Safe to delete exr_texture now since video_texture no longer points to it
         if (exr_texture != 0) {
-            // If video_texture was pointing to the EXR texture, reset it
-            if (video_texture == exr_texture) {
-                video_texture = 0;
-                Debug::Log("ResetState: Reset video_texture reference to EXR texture");
-            }
-
             glDeleteTextures(1, &exr_texture);
-            exr_texture = 0;
-            exr_texture_width = 0;
-            exr_texture_height = 0;
         }
+        exr_texture = 0;
+        exr_texture_width = 0;
+        exr_texture_height = 0;
     }
 
-    // Reset video dimensions to force recreation of textures with new video
-    video_width = 0;
-    video_height = 0;
-
-    // Clean up video textures to ensure fresh start
-    if (video_texture != 0) {
-        glDeleteTextures(1, &video_texture);
-        video_texture = 0;
-    }
-    if (fbo != 0) {
-        glDeleteFramebuffers(1, &fbo);
-        fbo = 0;
-    }
+    // NOTE: We intentionally do NOT delete fbo here - it persists across transitions
 
     Debug::Log("ResetState: State reset complete");
 }
@@ -2558,44 +2643,47 @@ double VideoPlayer::GetAudioBitrate() const {
 // ============================================================================
 
 void VideoPlayer::SetupColorProcessingResources() {
-    if (video_width <= 0 || video_height <= 0) {
-        Debug::Log("SetupColorProcessingResources: Invalid video dimensions " + std::to_string(video_width) + "x" + std::to_string(video_height));
+    // Use content dimensions if available (overlay modes: EXR, image sequences, timelines)
+    // Otherwise use video dimensions (regular video playback)
+    int target_width = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : video_width;
+    int target_height = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : video_height;
+
+    if (target_width <= 0 || target_height <= 0) {
+        Debug::Log("SetupColorProcessingResources: Invalid dimensions " + std::to_string(target_width) + "x" + std::to_string(target_height));
         return;
     }
 
     // Use pipeline-aware color processing resource creation
-    CreateColorProcessingResourcesForMode(video_width, video_height, current_pipeline_mode);
+    CreateColorProcessingResourcesForMode(target_width, target_height, current_pipeline_mode);
 
-    // Create fullscreen quad for processing
-    float quad_vertices[] = {
-        // positions   // texCoords (CORRECTED)
-        -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
-        -1.0f, -1.0f,  0.0f, 0.0f,  // bottom-left  
-         1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
+    // Create fullscreen quad for processing (only if not already created)
+    // Quad is reusable and doesn't depend on dimensions
+    if (quad_vao == 0) {
+        float quad_vertices[] = {
+            // positions   // texCoords
+            -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
+            -1.0f, -1.0f,  0.0f, 0.0f,  // bottom-left
+             1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
+            -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
+             1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
+             1.0f,  1.0f,  1.0f, 1.0f   // top-right
+        };
 
-        -1.0f,  1.0f,  0.0f, 1.0f,  // top-left
-         1.0f, -1.0f,  1.0f, 0.0f,  // bottom-right
-         1.0f,  1.0f,  1.0f, 1.0f   // top-right
-    };
+        glGenVertexArrays(1, &quad_vao);
+        glGenBuffers(1, &quad_vbo);
 
-    glGenVertexArrays(1, &quad_vao);
-    glGenBuffers(1, &quad_vbo);
+        glBindVertexArray(quad_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
 
-    glBindVertexArray(quad_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, quad_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
 
-    // Position attribute
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-
-    // TexCoord attribute  
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-
-    glBindVertexArray(0);
-
-    //Debug::Log("Color processing resources initialized");
+        glBindVertexArray(0);
+        Debug::Log("SetupColorProcessingResources: Created quad VAO/VBO");
+    }
 }
 
 void VideoPlayer::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipeline) {
@@ -2632,20 +2720,31 @@ void VideoPlayer::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipeline) {
 }
 
 void VideoPlayer::ClearColorPipeline() {
-    if (color_pipeline) {
-        //Debug::Log("Clearing color pipeline and cleaning up OpenGL state");
-        color_pipeline.reset();
-        
-        // Clean up OpenGL state to prevent corruption
-        glUseProgram(0);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_3D, 0);  // Clear any LUT bindings
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        
-        //Debug::Log("Color pipeline cleared and OpenGL state cleaned");
+    // Instead of completely clearing the pipeline, replace it with a passthrough pipeline
+    // This maintains the buffering behavior (video_texture -> color_texture) that prevents
+    // font cache flickering during media transitions
+    Debug::Log("ClearColorPipeline: Replacing with passthrough pipeline for transition stability");
+
+    // Clean up OpenGL state first
+    glUseProgram(0);
+    glActiveTexture(GL_TEXTURE1);
+    glBindTexture(GL_TEXTURE_3D, 0);  // Clear any LUT bindings
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    // Create passthrough pipeline
+    auto passthrough = std::make_unique<OCIOPipeline>();
+    if (passthrough->CreatePassthroughPipeline()) {
+        color_pipeline = std::move(passthrough);
+        Debug::Log("ClearColorPipeline: Passthrough pipeline created successfully");
+
+        // Initialize color processing resources if we have valid video dimensions
+        if (has_video && video_width > 0 && video_height > 0) {
+            SetupColorProcessingResources();
+        }
     } else {
-        //Debug::Log("No color pipeline to clear");
+        Debug::Log("ClearColorPipeline: WARNING - Failed to create passthrough pipeline");
+        color_pipeline.reset();
     }
 }
 
@@ -3028,12 +3127,31 @@ void VideoPlayer::ApplyColorPipeline() {
     //Debug::Log("  Output FBO: " + std::to_string(color_fbo));
     //Debug::Log("  Output texture: " + std::to_string(color_texture));
 
+    // Determine target render dimensions
+    int target_width = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : video_width;
+    int target_height = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : video_height;
+
+    if (target_width <= 0 || target_height <= 0) {
+        Debug::Log("ApplyColorPipeline: Cannot render - no valid dimensions");
+        return;
+    }
+
+    // Check if color resources need to be recreated due to dimension change
+    // This handles transitions from timeline mode where dimensions were reset
+    if (color_texture_width_ != target_width || color_texture_height_ != target_height) {
+        Debug::Log("ApplyColorPipeline: Dimension mismatch detected (" +
+                   std::to_string(color_texture_width_) + "x" + std::to_string(color_texture_height_) +
+                   " vs " + std::to_string(target_width) + "x" + std::to_string(target_height) +
+                   "), recreating color resources");
+        CreateColorProcessingResourcesForMode(target_width, target_height, current_pipeline_mode);
+    }
+
     // Bind color FBO
     glBindFramebuffer(GL_FRAMEBUFFER, color_fbo);
-    glViewport(0, 0, video_width, video_height);
+    glViewport(0, 0, color_texture_width_, color_texture_height_);
 
-    // Clear with a test color to verify FBO works
-    glClearColor(0.0f, 0.5f, 0.0f, 1.0f);  // Dark green
+    // Clear to background color
+    glClearColor(27.0f/255.0f, 27.0f/255.0f, 27.0f/255.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Use OCIO shader
@@ -3674,8 +3792,8 @@ static int ExtractStartFrameFromSequence(const std::vector<std::string>& files) 
 bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files,
                                            const std::string& layer_name,
                                            double fps,
-                                           int cached_width,      // ✅ NEW
-                                           int cached_height) {   // ✅ NEW
+                                           int cached_width,      // NEW
+                                           int cached_height) {   // NEW
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -3688,7 +3806,7 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     int start_frame = ExtractStartFrameFromSequence(sequence_files);
     Debug::Log("EXR sequence start frame: " + std::to_string(start_frame));
 
-    // ✅ MODIFIED: Use cached dimensions if available (instant - no I/O!)
+    // MODIFIED: Use cached dimensions if available (instant - no I/O!)
     int width, height;
 
     if (cached_width > 0 && cached_height > 0) {
@@ -3707,6 +3825,27 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
 
     // Store content dimensions for overlay mode (allows 1x1 dummies)
     SetContentDimensions(width, height);
+
+    // === ENSURE VIDEO FBO RESOURCES EXIST ===
+    // EXR sequences render via overlay mode, but UpdateVideoTexture requires fbo/mpv_fbo
+    // to be valid. Create them at content dimensions if they don't exist.
+    if (fbo == 0 || mpv_fbo == 0 || mpv_texture == 0) {
+        Debug::Log("Creating video FBO resources for EXR sequence (first load case)");
+        CreateVideoTextures(width, height);
+    }
+
+    // FIRST: Switch video_texture to placeholder BEFORE destroying any cache textures
+    // This prevents displaying deleted textures during the transition window
+    video_texture = transition_placeholder_texture_;
+    // IMPORTANT: Use content dimensions for video_width/height, not placeholder dimensions
+    // This ensures aspect ratio is correct during the transition (color_fbo is at content size)
+    video_width = width;
+    video_height = height;
+    has_video = true;
+    exr_texture = 0;
+
+    // Clear color texture to background to prevent showing stale frames
+    ClearColorTextureToBackground();
 
     // === EVICT VIDEO CACHE TO FREE RAM (cross-cache eviction) ===
     if (cache_clear_callback) {
@@ -3746,7 +3885,7 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     SetLoop(loop_enabled);
     Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
 
-    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // NEW: Always load in paused state (deliberate autoplay control)
     // Image sequences never autoplay - need cache warmup time
     Pause();
     Debug::Log("LoadEXRSequenceWithDummy: Dummy video loaded in paused state (no autoplay for image sequences)");
@@ -3794,10 +3933,46 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     // Metadata extraction deferred - will be extracted lazily when inspector is opened
     // This avoids blocking UI on EXR file I/O during load
 
-    // Process initial frame to setup texture
-    Debug::Log("Processing initial EXR frame...");
-    if (!ProcessAndFeedEXRFrame(0)) {
-        Debug::Log("WARNING: Failed to process initial EXR frame");
+    // Synchronously wait for first frame to be loaded and uploaded
+    // This ensures the EXR sequence displays immediately instead of showing placeholder
+    Debug::Log("Waiting for initial EXR frame to load...");
+
+    if (exr_cache_) {
+        const int MAX_WAIT_ITERATIONS = 100;  // ~2 seconds max (20ms * 100)
+        bool first_frame_ready = false;
+
+        for (int i = 0; i < MAX_WAIT_ITERATIONS && !first_frame_ready; i++) {
+            // Request frame 0 if not already requested
+            exr_cache_->RequestFrame(0);
+
+            // Give background thread time to load
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+            // Process any ready textures (uploads to GPU)
+            exr_cache_->ProcessReadyTextures();
+
+            // Check if frame 0 is now available
+            GLuint texture = 0;
+            int tex_width = 0, tex_height = 0;
+            texture = exr_cache_->GetTexture(0, tex_width, tex_height);
+
+            if (texture != 0) {
+                // First frame is ready - update video_texture
+                video_texture = texture;
+                video_width = tex_width;
+                video_height = tex_height;
+                exr_texture = texture;
+                exr_texture_width = tex_width;
+                exr_texture_height = tex_height;
+                first_frame_ready = true;
+                Debug::Log("Initial EXR frame ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
+                           std::to_string(texture) + ", " + std::to_string(tex_width) + "x" + std::to_string(tex_height) + ")");
+            }
+        }
+
+        if (!first_frame_ready) {
+            Debug::Log("WARNING: First EXR frame not ready after timeout - will show placeholder until cached");
+        }
     }
 
     Debug::Log("EXR sequence loaded successfully with hybrid approach");
@@ -3808,8 +3983,8 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
 bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files,
                                              double fps,
                                              PipelineMode pipeline_mode,
-                                             int cached_width,      // ✅ NEW
-                                             int cached_height) {   // ✅ NEW
+                                             int cached_width,      // NEW
+                                             int cached_height) {   // NEW
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -3851,7 +4026,7 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
 
     Debug::Log("Created " + format_name + " loader for sequence");
 
-    // ✅ MODIFIED: Use cached dimensions if available (instant - no I/O!)
+    // MODIFIED: Use cached dimensions if available (instant - no I/O!)
     int width, height;
 
     if (cached_width > 0 && cached_height > 0) {
@@ -3875,8 +4050,29 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     int start_frame = ExtractStartFrameFromSequence(sequence_files);
     Debug::Log("Image sequence start frame: " + std::to_string(start_frame));
 
+    // === ENSURE VIDEO FBO RESOURCES EXIST ===
+    // Image sequences render via overlay mode, but UpdateVideoTexture requires fbo/mpv_fbo
+    // to be valid. Create them at content dimensions if they don't exist.
+    if (fbo == 0 || mpv_fbo == 0 || mpv_texture == 0) {
+        Debug::Log("Creating video FBO resources for image sequence (first load case)");
+        CreateVideoTextures(width, height);
+    }
+
     // === CLEAR ALL CACHES BEFORE LOADING NEW IMAGE SEQUENCE ===
     // This ensures clean transitions when switching between image sequences
+
+    // FIRST: Switch video_texture to placeholder BEFORE destroying any cache textures
+    // This prevents displaying deleted textures during the transition window
+    video_texture = transition_placeholder_texture_;
+    // IMPORTANT: Use content dimensions for video_width/height, not placeholder dimensions
+    // This ensures aspect ratio is correct during the transition (color_fbo is at content size)
+    video_width = width;
+    video_height = height;
+    has_video = true;
+    exr_texture = 0;
+
+    // Clear color texture to background to prevent showing stale frames
+    ClearColorTextureToBackground();
 
     // Clear video cache (FrameCache) to free RAM
     if (cache_clear_callback) {
@@ -3893,11 +4089,6 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
             exr_cache_->ProcessReadyTextures();
         }
         exr_cache_.reset();
-
-        // Clear stale texture references after textures are deleted
-        exr_texture = 0;
-        video_texture = 0;
-        has_video = false;
     }
 
     // Clear thumbnail cache
@@ -3931,7 +4122,7 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     SetLoop(loop_enabled);
     Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
 
-    // ✅ NEW: Always load in paused state (deliberate autoplay control)
+    // NEW: Always load in paused state (deliberate autoplay control)
     // Image sequences never autoplay - need cache warmup time
     Pause();
     Debug::Log("LoadImageSequenceWithCache: Dummy video loaded in paused state (no autoplay for image sequences)");
@@ -4016,10 +4207,44 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         thumbnail_cache_.reset();
     }
 
-    // Process initial frame to setup texture
-    Debug::Log("Processing initial frame...");
-    if (!ProcessAndFeedEXRFrame(0)) {
-        Debug::Log("WARNING: Failed to process initial frame");
+    // Synchronously wait for first frame to be loaded and uploaded
+    // This ensures the image sequence displays immediately instead of showing placeholder
+    Debug::Log("Waiting for initial frame to load...");
+
+    const int MAX_WAIT_ITERATIONS = 100;  // ~2 seconds max (20ms * 100)
+    bool first_frame_ready = false;
+
+    for (int i = 0; i < MAX_WAIT_ITERATIONS && !first_frame_ready; i++) {
+        // Request frame 0 if not already requested
+        exr_cache_->RequestFrame(0);
+
+        // Give background thread time to load
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+        // Process any ready textures (uploads to GPU)
+        exr_cache_->ProcessReadyTextures();
+
+        // Check if frame 0 is now available
+        GLuint texture = 0;
+        int tex_width = 0, tex_height = 0;
+        texture = exr_cache_->GetTexture(0, tex_width, tex_height);
+
+        if (texture != 0) {
+            // First frame is ready - update video_texture
+            video_texture = texture;
+            video_width = tex_width;
+            video_height = tex_height;
+            exr_texture = texture;
+            exr_texture_width = tex_width;
+            exr_texture_height = tex_height;
+            first_frame_ready = true;
+            Debug::Log("Initial frame ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
+                       std::to_string(texture) + ", " + std::to_string(tex_width) + "x" + std::to_string(tex_height) + ")");
+        }
+    }
+
+    if (!first_frame_ready) {
+        Debug::Log("WARNING: First frame not ready after timeout - will show placeholder until cached");
     }
 
     Debug::Log("Image sequence loaded successfully with DirectEXRCache");
@@ -4231,6 +4456,31 @@ void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController*
     is_timeline_mode_ = enabled;
     timeline_controller_ = controller;
 
+    // Get timeline dimensions from controller if available
+    int target_width = transition_placeholder_width_;
+    int target_height = transition_placeholder_height_;
+    if (enabled && controller && controller->IsInitialized()) {
+        int timeline_width = controller->GetWidth();
+        int timeline_height = controller->GetHeight();
+        if (timeline_width > 0 && timeline_height > 0) {
+            target_width = timeline_width;
+            target_height = timeline_height;
+            SetContentDimensions(timeline_width, timeline_height);
+        }
+    }
+
+    // FIRST: Switch video_texture to placeholder BEFORE any cache textures are invalidated
+    // This prevents displaying deleted textures during the transition window
+    video_texture = transition_placeholder_texture_;
+    // IMPORTANT: Use target dimensions for video_width/height, not placeholder dimensions
+    // This ensures aspect ratio is correct during the transition (color_fbo is at target size)
+    video_width = target_width;
+    video_height = target_height;
+    has_video = true;
+
+    // Clear color texture to background to prevent showing stale frames
+    ClearColorTextureToBackground();
+
     if (enabled) {
         // Timeline mode ENABLED
         // CRITICAL: Reset timeline texture tracking when switching timelines
@@ -4239,6 +4489,14 @@ void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController*
         timeline_texture_width_ = 0;
         timeline_texture_height_ = 0;
         last_timeline_frame_ = -1;
+
+        // === ENSURE VIDEO FBO RESOURCES EXIST ===
+        // Timeline rendering via UpdateVideoTexture() requires fbo/mpv_fbo/mpv_texture to be valid.
+        // Create them at target dimensions if they don't exist (first timeline load case).
+        if (fbo == 0 || mpv_fbo == 0 || mpv_texture == 0) {
+            Debug::Log("Creating video FBO resources for timeline mode (first load case)");
+            CreateVideoTextures(target_width, target_height);
+        }
 
         // ALWAYS recreate gap placeholder texture when entering timeline mode
         // This ensures it's fresh and valid, avoiding issues when switching timelines
@@ -4287,6 +4545,45 @@ void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController*
             gap_placeholder_texture_ = 0;
             Debug::Log("VideoPlayer: Deleted gap placeholder texture");
         }
+
+        // Clear content dimensions (overlay mode was used for timeline)
+        // The next media load will set appropriate dimensions
+        content_width_ = 0;
+        content_height_ = 0;
+        use_content_dimensions_ = false;
+        Debug::Log("VideoPlayer: Cleared content dimensions (exiting timeline mode)");
+
+        // CRITICAL: Reset color texture dimension tracking
+        // This forces SetupColorProcessingResources to recreate at correct dimensions
+        // Otherwise stale timeline dimensions cause render mismatches
+        color_texture_width_ = 0;
+        color_texture_height_ = 0;
+        Debug::Log("VideoPlayer: Reset color texture dimension tracking");
+
+        // CRITICAL: Force FBO recreation on next video load
+        // Timeline mode may have created FBOs at timeline dimensions (e.g., 1920x1080)
+        // The next video may have different dimensions and needs fresh FBOs
+        // Delete existing FBOs so LoadFile/UpdateProperties will recreate them
+        if (fbo != 0) {
+            glDeleteFramebuffers(1, &fbo);
+            fbo = 0;
+        }
+        if (mpv_fbo != 0) {
+            glDeleteFramebuffers(1, &mpv_fbo);
+            mpv_fbo = 0;
+        }
+        if (mpv_texture != 0) {
+            glDeleteTextures(1, &mpv_texture);
+            mpv_texture = 0;
+        }
+        // Don't delete video_texture if it's the transition placeholder
+        if (video_texture != 0 && video_texture != transition_placeholder_texture_) {
+            glDeleteTextures(1, &video_texture);
+        }
+        video_texture = transition_placeholder_texture_;
+        video_width = transition_placeholder_width_;
+        video_height = transition_placeholder_height_;
+        Debug::Log("VideoPlayer: Cleared FBO resources (exiting timeline mode) - will be recreated on next load");
     }
 }
 
@@ -4299,9 +4596,100 @@ void VideoPlayer::SetContentDimensions(int width, int height) {
         Debug::Log("VideoPlayer: Content dimensions set to " +
                    std::to_string(width) + "x" + std::to_string(height) +
                    " (overlay mode enabled)");
+
+        // CRITICAL: Immediately recreate color processing resources at new dimensions
+        // This prevents dimension mismatch artifacts during transitions (e.g., 1080p → UHD)
+        // Without this, the old-size color_texture is used until UpdateProperties() runs
+        if (color_pipeline && color_pipeline->IsValid()) {
+            Debug::Log("VideoPlayer: Recreating color resources for new dimensions");
+            CreateColorProcessingResourcesForMode(width, height, current_pipeline_mode);
+            // NOTE: Don't clear the texture - let it show undefined content briefly
+            // rather than flashing to background. The new frame will overwrite it.
+        }
     } else {
         Debug::Log("VideoPlayer: Content dimensions cleared (overlay mode disabled)");
     }
+}
+
+void VideoPlayer::CreateTransitionPlaceholder() {
+    // Delete existing if any
+    if (transition_placeholder_texture_ != 0) {
+        glDeleteTextures(1, &transition_placeholder_texture_);
+        transition_placeholder_texture_ = 0;
+    }
+
+    // Create a small dark gray texture (64x64) matching background color
+    const int size = 64;
+    glGenTextures(1, &transition_placeholder_texture_);
+    glBindTexture(GL_TEXTURE_2D, transition_placeholder_texture_);
+
+    // Dark gray pixels matching background (#1b1b1b = RGB 27,27,27)
+    std::vector<unsigned char> pixels(size * size * 4);
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        pixels[i] = 27;      // R
+        pixels[i + 1] = 27;  // G
+        pixels[i + 2] = 27;  // B
+        pixels[i + 3] = 255; // A (opaque)
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    transition_placeholder_width_ = size;
+    transition_placeholder_height_ = size;
+
+    Debug::Log("VideoPlayer: Created transition placeholder texture: " + std::to_string(transition_placeholder_texture_));
+}
+
+void VideoPlayer::ClearVideoTextureToBackground() {
+    // Clear the video texture through the FBO pipeline to prevent font cache flicker
+    // This keeps OpenGL state consistent by rendering through the same path as real frames
+
+    if (fbo == 0 || video_texture == 0) {
+        // No FBO yet - can't clear through pipeline
+        return;
+    }
+
+    // Save current framebuffer binding
+    GLint current_fbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current_fbo);
+
+    // Bind our video FBO and clear to background color (#1b1b1b)
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glClearColor(27.0f/255.0f, 27.0f/255.0f, 27.0f/255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Restore previous framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+
+    // Ensure has_video stays true so render path uses video_texture
+    has_video = true;
+}
+
+void VideoPlayer::ClearColorTextureToBackground() {
+    // Clear the color texture to background color during media transitions
+    // This prevents showing stale frames at wrong dimensions when switching media
+
+    if (color_fbo == 0 || color_texture == 0) {
+        // No color FBO yet - nothing to clear
+        return;
+    }
+
+    // Save current framebuffer binding
+    GLint current_fbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &current_fbo);
+
+    // Bind color FBO and clear to background color (#1b1b1b)
+    glBindFramebuffer(GL_FRAMEBUFFER, color_fbo);
+    glClearColor(27.0f/255.0f, 27.0f/255.0f, 27.0f/255.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Restore previous framebuffer
+    glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+
+    Debug::Log("VideoPlayer: Cleared color texture to background");
 }
 
 void VideoPlayer::SwapTimelineDummy(const std::string& new_dummy_path) {
@@ -4567,39 +4955,31 @@ void VideoPlayer::CreateVideoTexturesForMode(int width, int height, PipelineMode
 
     const PipelineConfig& config = it->second;
 
-    // Clean up existing textures
-    if (video_texture) {
-        glDeleteTextures(1, &video_texture);
-        video_texture = 0;
-    }
-    if (fbo) {
-        glDeleteFramebuffers(1, &fbo);
-        fbo = 0;
-    }
+    // Store old texture to delete AFTER new one is created
+    GLuint old_video_texture = video_texture;
+    GLuint old_fbo = fbo;
+    GLuint old_mpv_texture = mpv_texture;
+    GLuint old_mpv_fbo = mpv_fbo;
 
-    // NEW: Clean up MPV-specific resources
-    if (mpv_texture) {
-        glDeleteTextures(1, &mpv_texture);
-        mpv_texture = 0;
-    }
-    if (mpv_fbo) {
-        glDeleteFramebuffers(1, &mpv_fbo);
-        mpv_fbo = 0;
-    }
+    // Clear existing texture through FBO during recreation to prevent flicker
+    // This keeps OpenGL state consistent rather than swapping to a different texture
+    ClearVideoTextureToBackground();
 
-    // Create OpenGL texture with pipeline-specific format
-    glGenTextures(1, &video_texture);
-    glBindTexture(GL_TEXTURE_2D, video_texture);
+    // Create new OpenGL texture with pipeline-specific format
+    GLuint new_texture = 0;
+    glGenTextures(1, &new_texture);
+    glBindTexture(GL_TEXTURE_2D, new_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, config.internal_format, width, height,
         0, GL_RGBA, config.data_type, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-    // Create FBO for final output (after color correction)
-    glGenFramebuffers(1, &fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    // Create new FBO for final output (after color correction)
+    GLuint new_fbo = 0;
+    glGenFramebuffers(1, &new_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, new_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        GL_TEXTURE_2D, video_texture, 0);
+        GL_TEXTURE_2D, new_texture, 0);
 
     // Check FBO completeness
     GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -4608,19 +4988,21 @@ void VideoPlayer::CreateVideoTexturesForMode(int width, int height, PipelineMode
                    "! Status: " + std::to_string(status));
     }
 
-    // NEW: Create separate MPV rendering texture and FBO to break pipeline stalls
-    glGenTextures(1, &mpv_texture);
-    glBindTexture(GL_TEXTURE_2D, mpv_texture);
+    // Create separate MPV rendering texture and FBO to break pipeline stalls
+    GLuint new_mpv_texture = 0;
+    glGenTextures(1, &new_mpv_texture);
+    glBindTexture(GL_TEXTURE_2D, new_mpv_texture);
     glTexImage2D(GL_TEXTURE_2D, 0, config.internal_format, width, height,
         0, GL_RGBA, config.data_type, nullptr);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     // Create MPV FBO
-    glGenFramebuffers(1, &mpv_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, mpv_fbo);
+    GLuint new_mpv_fbo = 0;
+    glGenFramebuffers(1, &new_mpv_fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, new_mpv_fbo);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-        GL_TEXTURE_2D, mpv_texture, 0);
+        GL_TEXTURE_2D, new_mpv_texture, 0);
 
     // Check MPV FBO completeness
     GLenum mpv_status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
@@ -4633,6 +5015,27 @@ void VideoPlayer::CreateVideoTexturesForMode(int width, int height, PipelineMode
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // NOW assign new resources and clean up old ones
+    // This order ensures video_texture is never 0 during the transition
+    video_texture = new_texture;
+    fbo = new_fbo;
+    mpv_texture = new_mpv_texture;
+    mpv_fbo = new_mpv_fbo;
+
+    // Clean up old resources AFTER new ones are assigned
+    if (old_video_texture && old_video_texture != transition_placeholder_texture_) {
+        glDeleteTextures(1, &old_video_texture);
+    }
+    if (old_fbo) {
+        glDeleteFramebuffers(1, &old_fbo);
+    }
+    if (old_mpv_texture) {
+        glDeleteTextures(1, &old_mpv_texture);
+    }
+    if (old_mpv_fbo) {
+        glDeleteFramebuffers(1, &old_mpv_fbo);
+    }
 }
 
 void VideoPlayer::CreateColorProcessingResourcesForMode(int width, int height, PipelineMode mode) {
@@ -4651,6 +5054,8 @@ void VideoPlayer::CreateColorProcessingResourcesForMode(int width, int height, P
     if (color_texture) {
         glDeleteTextures(1, &color_texture);
         color_texture = 0;
+        color_texture_width_ = 0;
+        color_texture_height_ = 0;
     }
     if (color_fbo) {
         glDeleteFramebuffers(1, &color_fbo);
@@ -4671,6 +5076,10 @@ void VideoPlayer::CreateColorProcessingResourcesForMode(int width, int height, P
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
+    // Track color texture dimensions for viewport calculations
+    color_texture_width_ = width;
+    color_texture_height_ = height;
+
     // Attach to FBO
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
         GL_TEXTURE_2D, color_texture, 0);
@@ -4680,9 +5089,13 @@ void VideoPlayer::CreateColorProcessingResourcesForMode(int width, int height, P
     if (status != GL_FRAMEBUFFER_COMPLETE) {
         Debug::Log("ERROR: Color FBO incomplete for " + std::string(PipelineModeToString(mode)) +
                    "! Status: " + std::to_string(status));
+        color_texture_width_ = 0;
+        color_texture_height_ = 0;
     } else {
         Debug::Log("Created color processing resources for " + std::string(PipelineModeToString(mode)) + ": " +
                    std::to_string(width) + "x" + std::to_string(height));
+        // NOTE: Don't clear the texture here - the passthrough pipeline will render the
+        // placeholder/previous frame into it, providing a stable buffer during transitions.
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
@@ -4859,10 +5272,19 @@ void VideoPlayer::ClearVideoTextureReference() {
     // Clear the render texture reference to prevent dangling pointer during cache reinitialization
     // This should be called BEFORE cache reinitialization queues old textures for deletion
     // Otherwise the render loop may try to use a texture that's been deleted = GL corruption
+    //
+    // NOTE: In EXR mode, video_texture points to EXR cache textures (not FBO-attached)
+    // so we can't use ClearVideoTextureToBackground() - must use placeholder fallback
     if (is_exr_mode && video_texture == exr_texture && exr_texture != 0) {
         Debug::Log("VideoPlayer: Clearing video texture reference before cache reinitialization");
-        video_texture = 0;
+        // Use placeholder as fallback since EXR textures aren't FBO-attached
+        video_texture = transition_placeholder_texture_;
+        video_width = transition_placeholder_width_;
+        video_height = transition_placeholder_height_;
         exr_texture = 0;
+
+        // Clear color texture to background to prevent showing stale frames
+        ClearColorTextureToBackground();
     }
 }
 

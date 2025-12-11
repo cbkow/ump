@@ -40,6 +40,10 @@ public:
     // Update uniforms for rendering
     void UpdateUniforms(int video_texture_unit = 0, int lut_texture_unit = 1);
 
+    // Create a passthrough pipeline (identity transform, no color correction)
+    // Used for frame buffering during media transitions when no OCIO config is active
+    bool CreatePassthroughPipeline();
+
 private:
     OCIO::ConstConfigRcPtr config;
     OCIO::ConstProcessorRcPtr processor;
@@ -55,8 +59,6 @@ private:
 
     bool is_valid;
     bool needs_lut;
-
-    bool CreatePassthroughPipeline();
 
     // Shader compilation helpers
     bool CompileShader(unsigned int& shader, const char* source, unsigned int type);

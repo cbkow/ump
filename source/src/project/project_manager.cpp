@@ -350,7 +350,7 @@ namespace ump {
                 item_obj["frame_rate"] = item.frame_rate;
                 item_obj["pipeline_mode"] = PipelineModeToString(item.pipeline_mode);
 
-                // ✅ NEW: Save cached sequence dimensions (for instant loading)
+                // NEW: Save cached sequence dimensions (for instant loading)
                 if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
                     item.sequence_width > 0 && item.sequence_height > 0) {
                     item_obj["sequence_width"] = item.sequence_width;
@@ -455,7 +455,7 @@ namespace ump {
                     }
                 }
 
-                // ✅ Save cached metadata if available (ONLY for regular videos, NOT image sequences)
+                // Save cached metadata if available (ONLY for regular videos, NOT image sequences)
                 const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
 
                 // Save VideoMetadata (for regular videos only - image sequences use late-binding)
@@ -651,7 +651,7 @@ namespace ump {
                     item.frame_rate = item_json.value("frame_rate", 24.0);
                     item.pipeline_mode = StringToPipelineMode(item_json.value("pipeline_mode", "Normal"));
 
-                    // ✅ NEW: Restore cached sequence dimensions (for instant loading)
+                    // NEW: Restore cached sequence dimensions (for instant loading)
                     if (item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) {
                         item.sequence_width = item_json.value("sequence_width", 0);
                         item.sequence_height = item_json.value("sequence_height", 0);
@@ -758,7 +758,7 @@ namespace ump {
                                   std::to_string(item.timeline_width) + "x" + std::to_string(item.timeline_height));
                     }
 
-                    // ✅ Load cached video metadata if available
+                    // Load cached video metadata if available
                     if (item_json.contains("video_metadata")) {
                         VideoMetadata metadata;
                         auto meta_obj = item_json["video_metadata"];
@@ -1030,6 +1030,7 @@ namespace ump {
     void ProjectManager::CreateProjectPanel(bool* show_project_panel) {
         if (!show_project_panel || !*show_project_panel) return;
 
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // Transparent border
         if (ImGui::Begin("Project", show_project_panel)) {
             // Header with icon
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
@@ -1047,6 +1048,7 @@ namespace ump {
             CreateMediaPool();
         }
         ImGui::End();
+        ImGui::PopStyleColor();  // Transparent border
     }
 
     void ProjectManager::CreateNewProjectFromMenu() {
@@ -1112,7 +1114,7 @@ namespace ump {
     }
 
     void ProjectManager::CreateMediaPool() {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(28, 28, 28, 255));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(25, 25, 25, 255));
 
         if (ImGui::BeginChild("MediaPool", ImVec2(0, 0), true)) {
             for (auto& bin : bins) {
@@ -2241,7 +2243,7 @@ namespace ump {
         item.path = file_path;
         item.type = GetMediaType(file_path);
 
-        // ✅ EXTRACT AND CACHE FULL METADATA (not just duration)
+        // EXTRACT AND CACHE FULL METADATA (not just duration)
         if (item.type == MediaType::VIDEO || item.type == MediaType::AUDIO) {
             auto metadata = ump::FFmpegMetadataExtractor::Extract(file_path);
 
@@ -2420,13 +2422,13 @@ namespace ump {
 
                 // Load through DirectEXRCache with universal loader
                 Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
-                // ✅ NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                // NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
                 bool success = video_player->LoadImageSequenceWithCache(
                     sequence_files,
                     item.frame_rate,
                     pipeline_mode,
-                    item.sequence_width,   // ✅ NEW: Cached dimensions
-                    item.sequence_height   // ✅ NEW: Cached dimensions
+                    item.sequence_width,   // NEW: Cached dimensions
+                    item.sequence_height   // NEW: Cached dimensions
                 );
                 Debug::Log("LoadSingleMediaItem: LoadImageSequenceWithCache() returned: " + std::string(success ? "TRUE (success)" : "FALSE (failed)"));
 
@@ -2473,13 +2475,13 @@ namespace ump {
                     // Rebuild the file list from the sequence path
                     std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
                     if (!sequence_files.empty()) {
-                        // ✅ NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                        // NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
                         if (video_player->LoadEXRSequenceWithDummy(
                             sequence_files,
                             layer_name,
                             item.frame_rate,
-                            item.sequence_width,   // ✅ NEW: Cached dimensions
-                            item.sequence_height   // ✅ NEW: Cached dimensions
+                            item.sequence_width,   // NEW: Cached dimensions
+                            item.sequence_height   // NEW: Cached dimensions
                         )) {
                             *current_file_path = item.path;
                             Debug::Log("LoadSingleMediaItem: Successfully loaded EXR sequence");
@@ -2511,7 +2513,7 @@ namespace ump {
         std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
         bool is_gif = (extension == ".gif");
 
-        // ✅ Check cache first (metadata should already be cached from AddMediaFileToProject)
+        // Check cache first (metadata should already be cached from AddMediaFileToProject)
         const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
         bool metadata_cached = (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded);
 
@@ -3981,7 +3983,7 @@ namespace ump {
         std::transform(extension.begin(), extension.end(), extension.begin(), ::tolower);
         bool is_gif = (extension == ".gif");
 
-        // ✅ Use cached metadata (already extracted by AddMediaFileToProject)
+        // Use cached metadata (already extracted by AddMediaFileToProject)
         const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
         if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
             Debug::Log("LoadSingleFileFromDrop: Using cached metadata from AddMediaFileToProject");
@@ -5717,14 +5719,14 @@ namespace ump {
             }
         }
 
-        // ✅ Skip seek cache (FrameCache) entirely for image sequences - they use DirectEXRCache
+        // Skip seek cache (FrameCache) entirely for image sequences - they use DirectEXRCache
         bool is_image_sequence = (video_path.substr(0, 5) == "mf://") ||
                                  (video_path.substr(0, 6) == "exr://");
 
         if (is_image_sequence) {
             Debug::Log("ProjectManager: Skipping FFMPEG cache for image sequence (uses DirectEXRCache)");
         } else if (cache_enabled && video_cache_manager) {
-            // ✅ NEW FLOW: Get metadata BEFORE initializing cache (metadata extracted by FFmpeg before MPV load)
+            // NEW FLOW: Get metadata BEFORE initializing cache (metadata extracted by FFmpeg before MPV load)
             const CombinedMetadata* cached_meta = GetCachedMetadata(video_path);
 
             if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
@@ -5751,11 +5753,11 @@ namespace ump {
 
                     Debug::Log("Cache disabled and ALL caches cleared for: " + video_path);
                 } else {
-                    // ✅ Safe codec - initialize cache with metadata IMMEDIATELY
+                    // Safe codec - initialize cache with metadata IMMEDIATELY
                     Debug::Log("ProjectManager: Safe codec, initializing cache with metadata");
                     video_cache_manager->NotifyVideoChanged(video_path, video_player);
 
-                    // ✅ Apply metadata IMMEDIATELY after cache init (not conditionally later)
+                    // Apply metadata IMMEDIATELY after cache init (not conditionally later)
                     video_cache_manager->UpdateVideoMetadata(video_path, *cached_meta->video_meta);
                     Debug::Log("ProjectManager: Metadata applied to cache for: " + video_path);
                 }
@@ -6623,7 +6625,7 @@ namespace ump {
         bool is_exr = (ext == ".exr");
         bool is_transcoded_exr = is_exr && exr_layer.empty();  // Transcoded single-layer EXRs have empty layer
 
-        // ✅ NEW: Extract dimensions from first frame for EXR sequences (for instant loading later)
+        // NEW: Extract dimensions from first frame for EXR sequences (for instant loading later)
         int exr_width = 0, exr_height = 0;
         if (is_exr && !sequence_files.empty()) {
             if (ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], exr_width, exr_height)) {
@@ -6681,7 +6683,7 @@ namespace ump {
         item.duration = static_cast<double>(sequence_files.size()) / frame_rate;
         item.sequence_pattern = mf_pattern;
 
-        // ✅ NEW: Assign cached EXR dimensions (if extracted above)
+        // NEW: Assign cached EXR dimensions (if extracted above)
         if (item.type == MediaType::EXR_SEQUENCE && exr_width > 0 && exr_height > 0) {
             item.sequence_width = exr_width;
             item.sequence_height = exr_height;
@@ -6697,7 +6699,7 @@ namespace ump {
             if (ump::GetImageInfo(sequence_files[0], img_info)) {
                 pipeline_mode = img_info.recommended_pipeline;
 
-                // ✅ NEW: Cache dimensions from first frame (for instant loading later)
+                // NEW: Cache dimensions from first frame (for instant loading later)
                 item.sequence_width = img_info.width;
                 item.sequence_height = img_info.height;
 

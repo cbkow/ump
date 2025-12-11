@@ -348,8 +348,12 @@ void TimelineView::ForceRefreshCache() {
 }
 
 void TimelineView::Render(bool* show_timeline_panel) {
+    // Transparent border for docked panel (dock borders remain visible)
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+
     if (!ImGui::Begin("Timeline View", show_timeline_panel, ImGuiWindowFlags_MenuBar)) {
         ImGui::End();
+        ImGui::PopStyleColor();
         return;
     }
     
@@ -375,8 +379,9 @@ void TimelineView::Render(bool* show_timeline_panel) {
     ImGui::Separator();
 
     RenderTimelineRuler();
-    
+
     ImGui::End();
+    ImGui::PopStyleColor();  // Transparent border
 }
 
 void TimelineView::RenderToolbar() {

@@ -96,12 +96,12 @@ public:
 
     // Hybrid dummy video + OpenGL overlay approach
     bool LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps,
-                                 int cached_width = 0, int cached_height = 0);  // ✅ NEW: Optional cached dimensions from MediaItem
+                                 int cached_width = 0, int cached_height = 0);  // NEW: Optional cached dimensions from MediaItem
     bool LoadEXRSequenceWithShader(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps);
 
     // NEW: Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
     bool LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode,
-                                   int cached_width = 0, int cached_height = 0);  // ✅ NEW: Optional cached dimensions from MediaItem
+                                   int cached_width = 0, int cached_height = 0);  // NEW: Optional cached dimensions from MediaItem
 
     bool TestDummyVideoGeneration(int width = 1920, int height = 1080, double fps = 24.0);
 
@@ -387,6 +387,8 @@ private:
     // Color processing
     GLuint color_fbo = 0;
     GLuint color_texture = 0;
+    int color_texture_width_ = 0;
+    int color_texture_height_ = 0;
     GLuint quad_vao = 0;
     GLuint quad_vbo = 0;
 
@@ -450,6 +452,9 @@ private:
     void ConfigureHardwareDecoding(bool lavfi_mode = false);
     bool SetupOpenGL();
     void CreateVideoTextures(int width, int height);
+    void CreateTransitionPlaceholder();
+    void ClearVideoTextureToBackground();  // Clear video FBO to background color (for transitions)
+    void ClearColorTextureToBackground();  // Clear color FBO to background color (for transitions)
 
     // Playback mode configuration
     void ConfigureForSingleFile();
@@ -523,6 +528,11 @@ private:
     int timeline_texture_height_ = 0;
     int last_timeline_frame_ = -1;      // For change detection
     GLuint gap_placeholder_texture_ = 0; // Transparent texture for timeline gaps
+
+    // Transition placeholder texture (shown during media switches to prevent font cache flicker)
+    GLuint transition_placeholder_texture_ = 0;
+    int transition_placeholder_width_ = 64;
+    int transition_placeholder_height_ = 64;
 
     // Image sequences removed - will be re-added with different libraries later
 

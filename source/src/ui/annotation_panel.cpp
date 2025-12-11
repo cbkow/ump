@@ -23,10 +23,14 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         return;
     }
 
+    // Transparent border for docked panel (dock borders remain visible)
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+
     if (!annotation_manager_) {
         ImGui::Begin("Annotations", p_open);
         ImGui::Text("No annotation manager set");
         ImGui::End();
+        ImGui::PopStyleColor();
         return;
     }
 
@@ -67,6 +71,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
     ImGui::EndChild();
 
     ImGui::End();
+    ImGui::PopStyleColor();  // Transparent border
 }
 
 void AnnotationPanel::RenderHeader() {

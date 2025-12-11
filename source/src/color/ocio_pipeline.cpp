@@ -367,36 +367,31 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
 
 
 bool OCIOPipeline::CreatePassthroughPipeline() {
-    Debug::Log("Creating passthrough pipeline for testing");
+    Debug::Log("Creating passthrough pipeline (identity color transform)");
 
     const char* vertex_src = R"(
         #version 330 core
         layout(location = 0) in vec2 aPos;
         layout(location = 1) in vec2 aTexCoord;
         out vec2 TexCoord;
-        
+
         void main() {
             gl_Position = vec4(aPos, 0.0, 1.0);
             TexCoord = aTexCoord;
         }
     )";
 
-    // Test shader - output red to verify rendering
+    // Passthrough shader - just sample the texture without any color transformation
+    // This provides the buffering behavior (video_texture -> color_texture) without color changes
     const char* fragment_src = R"(
         #version 330 core
         in vec2 TexCoord;
         out vec4 FragColor;
         uniform sampler2D videoTexture;
-        
+
         void main() {
-            // Test: Output texture coordinates as colors
-            FragColor = vec4(TexCoord.x, TexCoord.y, 0.5, 1.0);
-            
-            // Or test: Just output red
-            // FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-            
-            // Or normal: Sample texture
-            // FragColor = texture(videoTexture, TexCoord);
+            // Identity passthrough - sample texture directly
+            FragColor = texture(videoTexture, TexCoord);
         }
     )";
 
