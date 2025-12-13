@@ -3,3 +3,9 @@ description: Docs and manual
 remote_theme: just-the-docs/just-the-docs
 
 logo: "/images/ump512.png"
+
+# Enable color scheme switching
+color_scheme: light
+
+# Enable the theme toggle (light ↔ dark)
+enable_dark_mode: true
