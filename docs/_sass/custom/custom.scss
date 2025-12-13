@@ -8,3 +8,13 @@
   color: #171717;             /* selected text */
   font-weight: 500;           /* optional emphasis */
 }
+
+/* Nested child links */
+.nav-list-child-link {
+  color: #846e51;
+}
+
+.nav-list-child-link:hover,
+.nav-list-child-link.active {
+  color: #d4aa72;
+}
