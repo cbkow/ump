@@ -9,3 +9,8 @@ color_scheme: dark
 
 # Enable the theme toggle (light ↔ dark)
 enable_dark_mode: true
+
+just_the_docs:
+  custom_css:
+    - custom/custom.scss
+
