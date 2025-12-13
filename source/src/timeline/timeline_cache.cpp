@@ -221,6 +221,9 @@ void TimelineCache::Shutdown() {
     // Clear caches
     ClearCache();
 
+    // Delete gap texture
+    DeleteGapTexture();
+
     // Clear loaders
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
@@ -242,7 +245,13 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
 
     SourceCoords coords = TimelineToSource(timeline_frame);
     if (!coords.valid) {
-        // Gap or unlinked clip - return 0 (caller should show black/placeholder)
+        // Gap or unlinked clip - return gap texture at consistent dimensions
+        // This prevents OpenGL corruption from constant FBO resize on clip/gap transitions
+        if (gap_texture_ != 0) {
+            width = gap_texture_width_;
+            height = gap_texture_height_;
+            return gap_texture_;
+        }
         return 0;
     }
 
@@ -306,8 +315,27 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
         // too early, before the buffer had a chance to fill forward.
     };
 
+    // ALWAYS check cache first - even during scrubbing
+    // This prevents creating duplicate textures for frames we already have
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        auto it = frame_cache_.find(key);
+        if (it != frame_cache_.end()) {
+            width = it->second.width;
+            height = it->second.height;
+            cache_hits_++;
+            markSuccess();
+
+            // Track as last good frame for fallback
+            last_good_texture_ = it->second.texture_id;
+            last_good_width_ = width;
+            last_good_height_ = height;
+            return it->second.texture_id;
+        }
+    }
+
     if (is_scrubbing) {
-        // Fast path for scrubbing: check decoder buffer first
+        // Fast path for scrubbing: check decoder buffer
         // Minimize lock hold time - get shared_ptr, then access decoder outside lock
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
@@ -338,56 +366,73 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
 
             if (pixels) {
                 // Frame is in decoder buffer - upload immediately
-                GLuint texture = CreateGLTexture(pixels);
-                if (texture != 0) {
-                    // Only cache if we got the EXACT frame requested
-                    // Don't cache "closest frame" under wrong key - it would be stale
-                    if (is_exact_frame) {
+                // But first, re-check cache (may have been added while we were decoding)
+                if (is_exact_frame) {
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    auto it = frame_cache_.find(key);
+                    if (it != frame_cache_.end()) {
+                        // Already cached - return existing texture
+                        width = it->second.width;
+                        height = it->second.height;
+                        cache_hits_++;
+                        markSuccess();
+                        last_good_texture_ = it->second.texture_id;
+                        last_good_width_ = width;
+                        last_good_height_ = height;
+                        return it->second.texture_id;
+                    }
+                }
+
+                // Only create texture if we got the EXACT frame requested
+                // For "closest frame" fallbacks, just use last_good_texture_ to avoid leaks
+                // (non-cached textures have no tracking and would leak)
+                if (!is_exact_frame) {
+                    // Got a different frame than requested - use last_good_texture as fallback
+                    // Don't create a new texture (it would leak since we can't cache it)
+                    if (last_good_texture_ != 0) {
+                        width = last_good_width_;
+                        height = last_good_height_;
+                        return last_good_texture_;
+                    }
+                    // No fallback available - fall through to queue request
+                } else {
+                    GLuint texture = CreateGLTexture(pixels);
+                    if (texture != 0) {
                         std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                        // CRITICAL: Re-check and delete old texture if exists (race condition)
+                        auto existing = frame_cache_.find(key);
+                        if (existing != frame_cache_.end()) {
+                            // Another thread beat us - delete our new texture and return existing
+                            glDeleteTextures(1, &texture);
+                            width = existing->second.width;
+                            height = existing->second.height;
+                            cache_hits_++;
+                            markSuccess();
+                            last_good_texture_ = existing->second.texture_id;
+                            last_good_width_ = width;
+                            last_good_height_ = height;
+                            return existing->second.texture_id;
+                        }
                         CachedFrame cf;
                         cf.texture_id = texture;
                         cf.width = pixels->width;
                         cf.height = pixels->height;
                         cf.byte_size = pixels->pixels.size();
                         frame_cache_[key] = cf;
+
+                        width = pixels->width;
+                        height = pixels->height;
+                        cache_hits_++;
+                        markSuccess();
+
+                        // Track as last good frame for fallback
+                        last_good_texture_ = texture;
+                        last_good_width_ = width;
+                        last_good_height_ = height;
+                        return texture;
                     }
-
-                    width = pixels->width;
-                    height = pixels->height;
-                    cache_hits_++;
-                    markSuccess();
-
-                    // Track as last good frame for fallback
-                    last_good_texture_ = texture;
-                    last_good_width_ = width;
-                    last_good_height_ = height;
-                    return texture;
                 }
             }
-        }
-    }
-
-    // Check cache
-    {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        auto it = frame_cache_.find(key);
-        if (it != frame_cache_.end()) {
-            width = it->second.width;
-            height = it->second.height;
-            cache_hits_++;
-            markSuccess();
-
-            // Touch in shared pool to update LRU
-            if (config_.use_shared_pool) {
-                auto pool_key = MakeTimelineKey(key.source_path, key.source_frame);
-                SharedMemoryPool::Instance().TouchEntry(pool_key);
-            }
-
-            // Track as last good frame for fallback
-            last_good_texture_ = it->second.texture_id;
-            last_good_width_ = width;
-            last_good_height_ = height;
-            return it->second.texture_id;
         }
     }
 
@@ -432,29 +477,69 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
             }
 
             if (pixels) {
-                GLuint texture = CreateGLTexture(pixels);
-                if (texture != 0) {
-                    // Only cache exact frames
-                    if (is_exact_frame) {
+                // Only create texture if we got the EXACT frame requested
+                // For "closest frame" fallbacks, just use last_good_texture_ to avoid leaks
+                if (!is_exact_frame) {
+                    // Got a different frame than requested - use last_good_texture as fallback
+                    if (last_good_texture_ != 0) {
+                        width = last_good_width_;
+                        height = last_good_height_;
+                        return last_good_texture_;
+                    }
+                    // No fallback available - fall through to queue request
+                } else {
+                    // Re-check cache before creating texture (may have been added while decoding)
+                    {
                         std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                        auto it = frame_cache_.find(key);
+                        if (it != frame_cache_.end()) {
+                            // Already cached - return existing texture
+                            width = it->second.width;
+                            height = it->second.height;
+                            cache_hits_++;
+                            markSuccess();
+                            last_good_texture_ = it->second.texture_id;
+                            last_good_width_ = width;
+                            last_good_height_ = height;
+                            return it->second.texture_id;
+                        }
+                    }
+
+                    GLuint texture = CreateGLTexture(pixels);
+                    if (texture != 0) {
+                        std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                        // CRITICAL: Re-check - another thread may have added while we created texture
+                        auto existing = frame_cache_.find(key);
+                        if (existing != frame_cache_.end()) {
+                            // Another thread beat us - delete our new texture and return existing
+                            glDeleteTextures(1, &texture);
+                            width = existing->second.width;
+                            height = existing->second.height;
+                            cache_hits_++;
+                            markSuccess();
+                            last_good_texture_ = existing->second.texture_id;
+                            last_good_width_ = width;
+                            last_good_height_ = height;
+                            return existing->second.texture_id;
+                        }
                         CachedFrame cf;
                         cf.texture_id = texture;
                         cf.width = pixels->width;
                         cf.height = pixels->height;
                         cf.byte_size = pixels->pixels.size();
                         frame_cache_[key] = cf;
+
+                        width = pixels->width;
+                        height = pixels->height;
+                        cache_hits_++;
+                        markSuccess();
+
+                        // Track as last good frame for fallback
+                        last_good_texture_ = texture;
+                        last_good_width_ = width;
+                        last_good_height_ = height;
+                        return texture;
                     }
-
-                    width = pixels->width;
-                    height = pixels->height;
-                    cache_hits_++;
-                    markSuccess();
-
-                    // Track as last good frame for fallback
-                    last_good_texture_ = texture;
-                    last_good_width_ = width;
-                    last_good_height_ = height;
-                    return texture;
                 }
             }
         }
@@ -1209,6 +1294,29 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
     // This handles single-frame holds and prevents seeking beyond end of clip
     if (source_frame < 0) source_frame = 0;
 
+    // CRITICAL: Also clamp to max source frame to handle frame holds
+    // When a short clip (e.g., still image) is stretched longer than its source,
+    // source_frame would otherwise increment beyond available frames, causing
+    // endless cache misses and memory leaks as the decoder tries to find non-existent frames
+    int original_source_frame = source_frame;
+    if (clip->source_duration > 0 && clip->source_fps > 0) {
+        int max_source_frame = static_cast<int>(clip->source_duration * clip->source_fps) - 1;
+        // For single-frame sources, max_source_frame might be -1 due to truncation
+        // In that case, treat it as frame 0 (there's at least one frame if file exists)
+        if (max_source_frame < 0) max_source_frame = 0;
+        if (source_frame > max_source_frame) {
+            source_frame = max_source_frame;  // Hold on last frame
+        }
+    } else if (clip->source_duration > 0) {
+        // Fallback: use timeline fps if source_fps not available
+        int max_source_frame = static_cast<int>(clip->source_duration * config_.fps) - 1;
+        // For single-frame sources, ensure at least frame 0
+        if (max_source_frame < 0) max_source_frame = 0;
+        if (source_frame > max_source_frame) {
+            source_frame = max_source_frame;
+        }
+    }
+
     // Debug: Log mapping (only first time per clip ID, reset after edit)
     // Use clip->id instead of clip->name so we see mappings for ALL clips after a cut
     if (s_logged_clips.find(clip->id) == s_logged_clips.end()) {
@@ -1217,7 +1325,13 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
                    " -> source frame " + std::to_string(source_frame) +
                    " (clip_start=" + std::to_string(clip->start_time) +
                    ", source_in=" + std::to_string(clip->source_in) +
-                   ", source_fps=" + std::to_string(clip->source_fps) + ")");
+                   ", source_fps=" + std::to_string(clip->source_fps) +
+                   ", source_duration=" + std::to_string(clip->source_duration) + ")");
+        if (original_source_frame != source_frame) {
+            Debug::Log("TimelineToSource: CLAMPED from " + std::to_string(original_source_frame) +
+                       " to " + std::to_string(source_frame) + " (max=" +
+                       std::to_string(static_cast<int>(clip->source_duration * clip->source_fps) - 1) + ")");
+        }
         s_logged_clips.insert(clip->id);
     }
 
@@ -1418,8 +1532,17 @@ void TimelineCache::IOWorkerThread() {
                     }
 
                     if (pixels) {
-                        // Queue for GPU upload (O(1) duplicate check)
+                        // Queue for GPU upload (O(1) duplicate check + size limit)
                         std::lock_guard<std::mutex> upload_lock(upload_mutex_);
+
+                        // CRITICAL: Limit pending uploads to prevent memory explosion
+                        static constexpr size_t MAX_PENDING_UPLOADS = 16;
+                        while (pending_uploads_.size() >= MAX_PENDING_UPLOADS) {
+                            auto& oldest = pending_uploads_.front();
+                            pending_uploads_set_.erase(oldest.key);
+                            pending_uploads_.pop_front();
+                        }
+
                         if (pending_uploads_set_.count(key) == 0) {
                             pending_uploads_.push_back({key, pixels});
                             pending_uploads_set_.insert(key);
@@ -1520,6 +1643,18 @@ void TimelineCache::IOWorkerThread() {
             continue;  // Skip unreachable frame
         }
 
+        // CRITICAL: Check if already cached BEFORE loading pixels
+        // This prevents redundant decoding when frame was cached by another path
+        {
+            std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+            if (frame_cache_.find(key) != frame_cache_.end()) {
+                // Already cached - skip loading
+                std::lock_guard<std::mutex> lock(request_mutex_);
+                requests_in_progress_.erase(timeline_frame);
+                continue;
+            }
+        }
+
         // Load pixels
         auto pixels = LoadPixels(key);
 
@@ -1573,9 +1708,22 @@ void TimelineCache::IOWorkerThread() {
                        std::to_string(actualFrameSize_ / (1024*1024)) + " MB");
         }
 
-        // Queue for GPU upload (with duplicate check to prevent flood)
+        // Queue for GPU upload (with duplicate check and size limit to prevent memory explosion)
         {
             std::lock_guard<std::mutex> lock(upload_mutex_);
+
+            // CRITICAL: Limit pending uploads queue to prevent memory explosion during seek
+            // 4K frames are ~33MB each. 16 pending uploads = ~500MB worst case.
+            // During rapid seeking, I/O workers can queue faster than ProcessPendingUploads consumes.
+            static constexpr size_t MAX_PENDING_UPLOADS = 16;
+
+            // If queue is full, drop oldest entry to make room (FIFO eviction)
+            while (pending_uploads_.size() >= MAX_PENDING_UPLOADS) {
+                auto& oldest = pending_uploads_.front();
+                pending_uploads_set_.erase(oldest.key);
+                pending_uploads_.pop_front();
+                // PixelData shared_ptr is released here, freeing memory
+            }
 
             // Check if this key is already pending upload (O(1) lookup)
             if (pending_uploads_set_.count(key) == 0) {
@@ -1926,15 +2074,18 @@ void TimelineCache::CacheManagementThread() {
             {
                 std::lock_guard<std::mutex> lock(upload_mutex_);
                 std::deque<PendingUpload> filtered;
+                std::unordered_set<TimelineCacheKey, TimelineCacheKeyHash> filtered_set;
                 for (auto& upload : pending_uploads_) {
                     if (keys_to_keep.find(upload.key) != keys_to_keep.end()) {
                         filtered.push_back(std::move(upload));
+                        filtered_set.insert(upload.key);
                     } else {
                         uploads_dropped++;
                         // PixelData will be freed when upload goes out of scope
                     }
                 }
                 pending_uploads_ = std::move(filtered);
+                pending_uploads_set_ = std::move(filtered_set);  // FIX: Keep set in sync
             }
 
             /*if ((cache_evicted > 0 || uploads_dropped > 0) && (iteration <= 5 || iteration % 100 == 0)) {
@@ -2045,6 +2196,26 @@ void TimelineCache::CacheManagementThread() {
                 Debug::Log("TimelineCache: [CLEANUP] Freed " + std::to_string(loaders_cleaned) +
                            " unused loaders");
             }*/
+
+            // CRITICAL: Clear buffers of decoders not in active_sources
+            // This prevents memory accumulation from obscured clips (e.g., V1 under V2)
+            // The decoder stays alive (grace period) but its buffer is cleared to free RAM
+            {
+                std::lock_guard<std::mutex> lock(loaders_mutex_);
+                for (const auto& [path, info] : loaders_) {
+                    if (active_sources.find(path) == active_sources.end()) {
+                        // This loader is NOT needed for visible clips - clear its buffer
+                        if (info->video_decoder) {
+                            int buffer_size = info->video_decoder->GetBufferSize();
+                            if (buffer_size > 0) {
+                                info->video_decoder->ClearBuffer();
+                                Debug::Log("TimelineCache: Cleared buffer (" + std::to_string(buffer_size) +
+                                           " frames) for inactive source: " + path);
+                            }
+                        }
+                    }
+                }
+            }
 
             // Periodic status log (every ~5 seconds)
             if (iteration % 500 == 0) {
@@ -2488,6 +2659,70 @@ void TimelineCache::OnEvicted(const TimelineCacheKey& key) {
 
         // Mark segments dirty for cache visualization
         segments_dirty_ = true;
+    }
+}
+
+//=============================================================================
+// Gap Texture - Persistent black texture for timeline gaps
+//=============================================================================
+
+void TimelineCache::SetGapTextureDimensions(int width, int height) {
+    // Public method to set/update gap texture dimensions
+    // Delegates to CreateGapTexture which handles existing texture
+    CreateGapTexture(width, height);
+}
+
+void TimelineCache::CreateGapTexture(int width, int height) {
+    // Delete existing gap texture if different size
+    if (gap_texture_ != 0) {
+        if (gap_texture_width_ == width && gap_texture_height_ == height) {
+            Debug::Log("TimelineCache::CreateGapTexture: Already have gap texture at " +
+                       std::to_string(width) + "x" + std::to_string(height));
+            return;  // Already have correct size
+        }
+        DeleteGapTexture();
+    }
+
+    if (width <= 0 || height <= 0) {
+        Debug::Log("TimelineCache::CreateGapTexture: Invalid dimensions " +
+                   std::to_string(width) + "x" + std::to_string(height));
+        return;
+    }
+
+    // Create black pixel data (RGBA8)
+    std::vector<unsigned char> black_pixels(width * height * 4, 0);
+    // Set alpha to 255 for each pixel
+    for (size_t i = 3; i < black_pixels.size(); i += 4) {
+        black_pixels[i] = 255;
+    }
+
+    // Create OpenGL texture
+    glGenTextures(1, &gap_texture_);
+    glBindTexture(GL_TEXTURE_2D, gap_texture_);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, black_pixels.data());
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    gap_texture_width_ = width;
+    gap_texture_height_ = height;
+
+    Debug::Log("TimelineCache::CreateGapTexture: Created gap texture " +
+               std::to_string(gap_texture_) + " at " +
+               std::to_string(width) + "x" + std::to_string(height));
+}
+
+void TimelineCache::DeleteGapTexture() {
+    if (gap_texture_ != 0) {
+        Debug::Log("TimelineCache::DeleteGapTexture: Deleting gap texture " +
+                   std::to_string(gap_texture_));
+        glDeleteTextures(1, &gap_texture_);
+        gap_texture_ = 0;
+        gap_texture_width_ = 0;
+        gap_texture_height_ = 0;
     }
 }
 

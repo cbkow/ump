@@ -79,6 +79,14 @@ GLuint TimelineThumbnailCache::GetThumbnail(const std::string& source_path, int 
         return 0;
     }
 
+    // If Clear() was just called, don't return any textures until next ProcessPendingUploads
+    // This prevents returning stale texture IDs that may have been reassigned
+    if (clear_pending_.load()) {
+        width = 0;
+        height = 0;
+        return 0;
+    }
+
     TimelineThumbnailKey key{source_path, source_frame};
 
     std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -207,6 +215,10 @@ void TimelineThumbnailCache::CancelPendingRequests() {
 void TimelineThumbnailCache::ProcessPendingUploads() {
     if (!initialized_) return;
 
+    // Clear the protection flag - safe to return textures now
+    // This is called at the start of each frame before any GetThumbnail calls
+    clear_pending_ = false;
+
     std::deque<PendingUpload> uploads;
 
     {
@@ -242,6 +254,10 @@ void TimelineThumbnailCache::ProcessPendingUploads() {
 
 void TimelineThumbnailCache::Clear() {
     Debug::Log("TimelineThumbnailCache: Clearing cache");
+
+    // Set clear pending flag - prevents GetThumbnail from returning stale IDs
+    // until ProcessPendingUploads is called (next frame)
+    clear_pending_ = true;
 
     // Clear pending requests
     {

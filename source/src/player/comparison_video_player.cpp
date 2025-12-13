@@ -126,8 +126,14 @@ bool ComparisonVideoPlayer::LoadFile(const std::string& path) {
     if (has_video_) {
         // Create textures for the video
         CreateVideoTextures(width_, height_);
+
+        // Cache metadata (FPS, duration, has_audio) for later use
+        CacheMetadata();
+
         Debug::Log("ComparisonVideoPlayer: File loaded successfully (" +
-                   std::to_string(width_) + "x" + std::to_string(height_) + ")");
+                   std::to_string(width_) + "x" + std::to_string(height_) +
+                   ", " + std::to_string(cached_duration_) + "s, " +
+                   std::to_string(cached_fps_) + "fps)");
     } else {
         Debug::Log("ERROR: ComparisonVideoPlayer: No valid video dimensions");
         return false;
@@ -210,14 +216,10 @@ void ComparisonVideoPlayer::Unload() {
 void ComparisonVideoPlayer::SyncToPosition(double position) {
     if (!mpv_ || !has_video_) return;
 
-    // Debug: Log position sync (only every 60 calls)
-    static int sync_counter = 0;
-    if (sync_counter++ % 60 == 0) {
-        Debug::Log("ComparisonVideoPlayer: Syncing to position " + std::to_string(position));
-    }
-
-    // Seek to position
-    mpv_set_property_async(mpv_, 0, "time-pos", MPV_FORMAT_DOUBLE, &position);
+    // Use seek command for more reliable frame updates (especially for inter-frame codecs)
+    std::string pos_str = std::to_string(position);
+    const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
+    mpv_command_async(mpv_, 0, cmd);
 }
 
 void ComparisonVideoPlayer::SyncPlaybackState(bool is_playing) {
@@ -228,13 +230,6 @@ void ComparisonVideoPlayer::SyncPlaybackState(bool is_playing) {
         // Use synchronous property set for immediate response
         mpv_set_property(mpv_, "pause", MPV_FORMAT_FLAG, &pause);
         is_playing_ = is_playing;
-        Debug::Log("ComparisonVideoPlayer: Playback state changed to " + std::string(is_playing ? "PLAYING" : "PAUSED"));
-    } else {
-        // Debug: Log when state hasn't changed
-        static int no_change_counter = 0;
-        if (no_change_counter++ % 120 == 0) {
-            Debug::Log("ComparisonVideoPlayer: Playback state already " + std::string(is_playing ? "PLAYING" : "PAUSED"));
-        }
     }
 }
 
@@ -317,6 +312,11 @@ void ComparisonVideoPlayer::ConfigureBasicOptions() {
 
     // Keep window open (for MPV internal use)
     mpv_set_option_string(mpv_, "keep-open", "yes");
+
+    // Disable OSD (seek bar, messages, etc.)
+    mpv_set_option_string(mpv_, "osd-level", "0");
+    mpv_set_option_string(mpv_, "osd-bar", "no");
+    mpv_set_option_string(mpv_, "osc", "no");
 
     // Transparency support (match main VideoPlayer)
     mpv_set_option_string(mpv_, "background", "none");
@@ -431,6 +431,45 @@ void ComparisonVideoPlayer::UpdateProperties() {
     if (mpv_get_property(mpv_, "height", MPV_FORMAT_INT64, &height_val) >= 0) {
         height_ = static_cast<int>(height_val);
     }
+}
+
+void ComparisonVideoPlayer::CacheMetadata() {
+    if (!mpv_) return;
+
+    // Duration
+    cached_duration_ = 0.0;
+    mpv_get_property(mpv_, "duration", MPV_FORMAT_DOUBLE, &cached_duration_);
+
+    // FPS - try estimated first (more accurate for VFR), fall back to container
+    cached_fps_ = 0.0;
+    mpv_get_property(mpv_, "estimated-vf-fps", MPV_FORMAT_DOUBLE, &cached_fps_);
+    if (cached_fps_ <= 0) {
+        mpv_get_property(mpv_, "container-fps", MPV_FORMAT_DOUBLE, &cached_fps_);
+    }
+
+    // Audio track presence - check if there's an audio track
+    // Note: Even though we disable audio playback, we track if the source has audio
+    // for metadata purposes (useful for timeline display)
+    cached_has_audio_ = false;
+    int64_t track_count = 0;
+    if (mpv_get_property(mpv_, "track-list/count", MPV_FORMAT_INT64, &track_count) >= 0) {
+        for (int64_t i = 0; i < track_count; i++) {
+            std::string prop = "track-list/" + std::to_string(i) + "/type";
+            char* type = nullptr;
+            if (mpv_get_property(mpv_, prop.c_str(), MPV_FORMAT_STRING, &type) >= 0 && type) {
+                if (std::string(type) == "audio") {
+                    cached_has_audio_ = true;
+                    mpv_free(type);
+                    break;
+                }
+                mpv_free(type);
+            }
+        }
+    }
+
+    Debug::Log("ComparisonVideoPlayer::CacheMetadata: duration=" + std::to_string(cached_duration_) +
+               "s, fps=" + std::to_string(cached_fps_) +
+               ", has_audio=" + std::string(cached_has_audio_ ? "yes" : "no"));
 }
 
 // ============================================================================

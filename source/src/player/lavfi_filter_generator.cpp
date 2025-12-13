@@ -16,12 +16,20 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
         case ComparisonMode::SPLIT_HORIZONTAL: {
             // Horizontal stack (side-by-side)
             // Strategy: Scale Video 2 to match Video 1's height (only one scale operation)
+            // Both clips are padded to match the total timeline_duration for proper hstack
+
+            double timeline_dur = config.timeline_duration;
+            Debug::Log("SPLIT_HORIZONTAL: timeline_duration=" + std::to_string(timeline_dur));
 
             // Primary video - pass through at native resolution
             filter << "[" << primary.stream_id << "]";
             std::string primary_trim = GenerateTrimFilter(primary);
             if (!primary_trim.empty()) {
                 filter << primary_trim << ",";
+            }
+            std::string primary_tpad = GenerateTpadFilter(primary, timeline_dur);
+            if (!primary_tpad.empty()) {
+                filter << primary_tpad << ",";
             }
             filter << "null[v1];";  // Pass-through, no scaling
 
@@ -30,6 +38,10 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             std::string secondary_trim = GenerateTrimFilter(secondary);
             if (!secondary_trim.empty()) {
                 filter << secondary_trim << ",";
+            }
+            std::string secondary_tpad = GenerateTpadFilter(secondary, timeline_dur);
+            if (!secondary_tpad.empty()) {
+                filter << secondary_tpad << ",";
             }
 
             // Choose scaler based on scale direction (area for downscale, fast_bilinear for upscale)
@@ -42,14 +54,22 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             // Stack horizontally
             filter << "[v1][v2]hstack[vo]";
 
-            // Audio from primary (trimmed to match video) - only if primary has audio
+            // Audio from primary (trim first, then pad for timeline alignment) - only if primary has audio
+            // aid1 = primary audio (main file)
             if (primary.has_audio) {
                 filter << ";[aid1]";
                 std::string audio_trim = GenerateAudioTrimFilter(primary);
-                if (!audio_trim.empty()) {
+                std::string audio_pad = GenerateAudioPadFilter(primary, timeline_dur);
+
+                // Order: trim (cut source) -> pad (add silence for offset and end)
+                if (!audio_trim.empty() && !audio_pad.empty()) {
+                    filter << audio_trim << "," << audio_pad;
+                } else if (!audio_trim.empty()) {
                     filter << audio_trim;
+                } else if (!audio_pad.empty()) {
+                    filter << audio_pad;
                 } else {
-                    filter << "anull";  // Pass-through if no trim
+                    filter << "anull";  // Pass-through if no padding or trim
                 }
                 filter << "[ao]";
             }
@@ -59,12 +79,20 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
         case ComparisonMode::SPLIT_VERTICAL: {
             // Vertical stack (top/bottom)
             // Strategy: Scale Video 2 to match Video 1's width (only one scale operation)
+            // Both clips are padded to match the total timeline_duration for proper vstack
+
+            double timeline_dur = config.timeline_duration;
+            Debug::Log("SPLIT_VERTICAL: timeline_duration=" + std::to_string(timeline_dur));
 
             // Primary video - pass through at native resolution
             filter << "[" << primary.stream_id << "]";
             std::string primary_trim = GenerateTrimFilter(primary);
             if (!primary_trim.empty()) {
                 filter << primary_trim << ",";
+            }
+            std::string primary_tpad = GenerateTpadFilter(primary, timeline_dur);
+            if (!primary_tpad.empty()) {
+                filter << primary_tpad << ",";
             }
             filter << "null[v1];";  // Pass-through, no scaling
 
@@ -73,6 +101,10 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             std::string secondary_trim = GenerateTrimFilter(secondary);
             if (!secondary_trim.empty()) {
                 filter << secondary_trim << ",";
+            }
+            std::string secondary_tpad = GenerateTpadFilter(secondary, timeline_dur);
+            if (!secondary_tpad.empty()) {
+                filter << secondary_tpad << ",";
             }
 
             // Choose scaler based on scale direction
@@ -85,14 +117,22 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             // Stack vertically
             filter << "[v1][v2]vstack[vo]";
 
-            // Audio from primary (trimmed to match video) - only if primary has audio
+            // Audio from primary (trim first, then pad for timeline alignment) - only if primary has audio
+            // aid1 = primary audio (main file)
             if (primary.has_audio) {
                 filter << ";[aid1]";
                 std::string audio_trim = GenerateAudioTrimFilter(primary);
-                if (!audio_trim.empty()) {
+                std::string audio_pad = GenerateAudioPadFilter(primary, timeline_dur);
+
+                // Order: trim (cut source) -> pad (add silence for offset and end)
+                if (!audio_trim.empty() && !audio_pad.empty()) {
+                    filter << audio_trim << "," << audio_pad;
+                } else if (!audio_trim.empty()) {
                     filter << audio_trim;
+                } else if (!audio_pad.empty()) {
+                    filter << audio_pad;
                 } else {
-                    filter << "anull";  // Pass-through if no trim
+                    filter << "anull";  // Pass-through if no padding or trim
                 }
                 filter << "[ao]";
             }
@@ -109,12 +149,20 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
         case ComparisonMode::DIFFERENCE_BLEND: {
             // Difference blend overlay
             // Strategy: Scale Video 2 to match Video 1's exact dimensions
+            // Both clips are padded to match the total timeline_duration for proper blend
+
+            double timeline_dur = config.timeline_duration;
+            Debug::Log("DIFFERENCE_BLEND: timeline_duration=" + std::to_string(timeline_dur));
 
             // Primary video - pass through at native resolution
             filter << "[" << primary.stream_id << "]";
             std::string primary_trim = GenerateTrimFilter(primary);
             if (!primary_trim.empty()) {
                 filter << primary_trim << ",";
+            }
+            std::string primary_tpad = GenerateTpadFilter(primary, timeline_dur);
+            if (!primary_tpad.empty()) {
+                filter << primary_tpad << ",";
             }
             filter << "null[v1];";  // Pass-through, no scaling
 
@@ -123,6 +171,10 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             std::string secondary_trim = GenerateTrimFilter(secondary);
             if (!secondary_trim.empty()) {
                 filter << secondary_trim << ",";
+            }
+            std::string secondary_tpad = GenerateTpadFilter(secondary, timeline_dur);
+            if (!secondary_tpad.empty()) {
+                filter << secondary_tpad << ",";
             }
 
             // Choose scaler based on total pixel count (downscale vs upscale)
@@ -136,14 +188,22 @@ std::string LavfiFilterGenerator::GenerateLavfiFilter(
             // Blend with difference mode
             filter << "[v1][v2]blend=all_mode=difference[vo]";
 
-            // Audio from primary (trimmed to match video) - only if primary has audio
+            // Audio from primary (trim first, then pad for timeline alignment) - only if primary has audio
+            // aid1 = primary audio (main file)
             if (primary.has_audio) {
                 filter << ";[aid1]";
                 std::string audio_trim = GenerateAudioTrimFilter(primary);
-                if (!audio_trim.empty()) {
+                std::string audio_pad = GenerateAudioPadFilter(primary, timeline_dur);
+
+                // Order: trim (cut source) -> pad (add silence for offset and end)
+                if (!audio_trim.empty() && !audio_pad.empty()) {
+                    filter << audio_trim << "," << audio_pad;
+                } else if (!audio_trim.empty()) {
                     filter << audio_trim;
+                } else if (!audio_pad.empty()) {
+                    filter << audio_pad;
                 } else {
-                    filter << "anull";  // Pass-through if no trim
+                    filter << "anull";  // Pass-through if no padding or trim
                 }
                 filter << "[ao]";
             }
@@ -237,6 +297,77 @@ std::string LavfiFilterGenerator::GenerateAudioTrimFilter(const VideoInput& inpu
     return trim.str();
 }
 
+std::string LavfiFilterGenerator::GenerateTpadFilter(const VideoInput& input, double timeline_duration) {
+    // Calculate padding needed at start and end to align clip with virtual timeline
+    double start_pad = input.position_offset;
+    double clip_end = input.position_offset + input.trim_duration;
+    double end_pad = timeline_duration - clip_end;
+
+    // Clamp to non-negative values
+    if (start_pad < 0.001) start_pad = 0.0;
+    if (end_pad < 0.001) end_pad = 0.0;
+
+    if (start_pad <= 0.0 && end_pad <= 0.0) {
+        return "";  // No padding needed
+    }
+
+    std::ostringstream tpad;
+    tpad << "tpad=";
+
+    bool has_start = (start_pad > 0.0);
+    bool has_end = (end_pad > 0.0);
+
+    if (has_start) {
+        tpad << "start_duration=" << start_pad << ":start_mode=add:color=black";
+    }
+    if (has_end) {
+        if (has_start) tpad << ":";
+        tpad << "stop_duration=" << end_pad << ":stop_mode=add";
+    }
+
+    Debug::Log("GenerateTpadFilter: start_pad=" + std::to_string(start_pad) +
+               ", end_pad=" + std::to_string(end_pad) +
+               ", timeline_duration=" + std::to_string(timeline_duration));
+
+    return tpad.str();
+}
+
+std::string LavfiFilterGenerator::GenerateAudioPadFilter(const VideoInput& input, double timeline_duration) {
+    // Calculate padding needed at start and end to align audio with virtual timeline
+    double start_pad = input.position_offset;
+    double clip_end = input.position_offset + input.trim_duration;
+    double end_pad = timeline_duration - clip_end;
+
+    // Clamp to non-negative values
+    if (start_pad < 0.001) start_pad = 0.0;
+    if (end_pad < 0.001) end_pad = 0.0;
+
+    if (start_pad <= 0.0 && end_pad <= 0.0) {
+        return "";  // No padding needed
+    }
+
+    std::ostringstream pad;
+
+    // adelay for start padding (in milliseconds)
+    if (start_pad > 0.0) {
+        int delay_ms = static_cast<int>(start_pad * 1000.0);
+        pad << "adelay=" << delay_ms << ":all=1";
+    }
+
+    // apad for end padding (pad to total duration)
+    if (end_pad > 0.0) {
+        if (start_pad > 0.0) pad << ",";
+        // apad with whole_dur pads to specified total duration
+        pad << "apad=whole_dur=" << timeline_duration;
+    }
+
+    Debug::Log("GenerateAudioPadFilter: start_pad=" + std::to_string(start_pad) +
+               ", end_pad=" + std::to_string(end_pad) +
+               ", timeline_duration=" + std::to_string(timeline_duration));
+
+    return pad.str();
+}
+
 std::string LavfiFilterGenerator::GenerateScaleFilter(
     const VideoInput& input,
     int target_width,
@@ -292,6 +423,9 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
 ) {
     std::ostringstream filter;
 
+    double timeline_dur = config.timeline_duration;
+    Debug::Log("SPLIT_5050_HORIZONTAL: timeline_duration=" + std::to_string(timeline_dur));
+
     int scale_w = config.viewport_width;
     int scale_h = config.viewport_height;
 
@@ -306,6 +440,10 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
     if (!primary_trim.empty()) {
         filter << primary_trim << ",";
     }
+    std::string primary_tpad = GenerateTpadFilter(primary, timeline_dur);
+    if (!primary_tpad.empty()) {
+        filter << primary_tpad << ",";
+    }
     filter << GenerateScaleFilter(primary, scale_w, scale_h, false) << ",";
     filter << GenerateCropFilter(left_crop_width, scale_h, 0, 0);
     filter << "[v1];";
@@ -316,6 +454,10 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
     if (!secondary_trim.empty()) {
         filter << secondary_trim << ",";
     }
+    std::string secondary_tpad = GenerateTpadFilter(secondary, timeline_dur);
+    if (!secondary_tpad.empty()) {
+        filter << secondary_tpad << ",";
+    }
     filter << GenerateScaleFilter(secondary, scale_w, scale_h, false) << ",";
     filter << GenerateCropFilter(right_crop_width, scale_h, right_crop_x, 0);
     filter << "[v2];";
@@ -323,14 +465,21 @@ std::string LavfiFilterGenerator::Generate5050SplitFilter(
     // Stack horizontally
     filter << "[v1][v2]hstack[vo]";
 
-    // Audio from primary (trimmed to match video) - only if primary has audio
+    // Audio from primary (trim first, then pad for timeline alignment) - only if primary has audio
     if (primary.has_audio) {
         filter << ";[aid1]";
         std::string audio_trim = GenerateAudioTrimFilter(primary);
-        if (!audio_trim.empty()) {
+        std::string audio_pad = GenerateAudioPadFilter(primary, timeline_dur);
+
+        // Order: trim (cut source) -> pad (add silence for offset and end)
+        if (!audio_trim.empty() && !audio_pad.empty()) {
+            filter << audio_trim << "," << audio_pad;
+        } else if (!audio_trim.empty()) {
             filter << audio_trim;
+        } else if (!audio_pad.empty()) {
+            filter << audio_pad;
         } else {
-            filter << "anull";  // Pass-through if no trim
+            filter << "anull";  // Pass-through if no padding or trim
         }
         filter << "[ao]";
     }

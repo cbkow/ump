@@ -27,6 +27,8 @@
 #include "../overlay/svg_overlay_renderer.h"
 #include "dummy_video_generator.h"
 #include "direct_exr_cache.h"           // Direct EXR cache (100% OpenEXR)
+#include "dual_view_types.h"            // DualViewTimeline for dual view editing
+#include "playback_timer.h"             // Manual playback timer for virtual timelines
 
 namespace ump {
     struct Sequence;
@@ -52,6 +54,13 @@ enum class ComparisonMode {
     SPLIT_VERTICAL,             // Lavfi: vertical stack (top/bottom)
     SPLIT_5050_HORIZONTAL,      // Lavfi: 50/50 split with adjustable divider
     DIFFERENCE_BLEND            // Lavfi: real-time difference blend
+};
+
+// Gap state for virtual timeline playback
+enum class ClipGapState {
+    PLAYING,        // Within clip range, normal playback
+    GAP_BEFORE,     // Timeline position is before clip starts
+    GAP_AFTER       // Timeline position is after clip ends
 };
 
 // Global pipeline configurations
@@ -364,6 +373,54 @@ public:
     std::string GetCurrentLavfiFilter() const { return current_lavfi_filter_; }  // For debugging
     void ExitLavfiMode();  // Clean exit from lavfi mode (recreates MPV)
 
+    // Dual view mode memory (for auto-revert from lavfi)
+    ComparisonMode GetLastEditMode() const { return last_edit_mode_; }
+    void RevertToEditMode();  // Revert from lavfi to last edit mode (side-by-side or split)
+
+    // Dual view timeline data
+    ump::DualViewTimeline& GetDualViewTimeline() { return dual_view_timeline_; }
+    const ump::DualViewTimeline& GetDualViewTimeline() const { return dual_view_timeline_; }
+    void UpdateDualViewClipFromPrimary();    // Sync left clip from primary video
+    void UpdateDualViewClipFromSecondary();  // Sync right clip from secondary video
+
+    // Calculate secondary video position accounting for position offset (slip)
+    // Returns the source position for secondary video given primary timeline position
+    double CalculateSecondaryPosition(double timeline_position) const;
+
+    // Calculate primary video position accounting for position offset
+    // Returns the source position for primary video given virtual timeline position
+    double CalculatePrimaryPosition(double timeline_position) const;
+
+    // Get gap state for primary (left) clip at given timeline position
+    ClipGapState GetPrimaryGapState(double timeline_position) const;
+
+    // Get gap state for secondary (right) clip at given timeline position
+    ClipGapState GetSecondaryGapState(double timeline_position) const;
+
+    // Get the virtual timeline duration (max of both clips' ends)
+    double GetVirtualTimelineDuration() const;
+
+    // Seek both videos based on virtual timeline position (handles offsets)
+    void SeekDualView(double timeline_position);
+
+    // Get current virtual timeline position (from timer if active, else calculated)
+    double GetVirtualTimelinePosition() const;
+
+    // Initialize dual view mode with manual timer for playback control
+    bool InitializeDualViewPlayback();
+
+    // Check if dual view timer is active
+    bool IsDualViewTimerActive() const { return dual_view_timer_ != nullptr; }
+
+    // Called when virtual timeline duration changes (clip trim/slide)
+    void OnVirtualTimelineDurationChanged();
+
+    // Update dual view timer (call every frame when in dual view mode)
+    void UpdateDualViewTimer();
+
+    // Get the dual view timer (for external control if needed)
+    ump::PlaybackTimer* GetDualViewTimer() const { return dual_view_timer_.get(); }
+
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
     bool CaptureScreenshotToDesktop(const std::string& filename = "");
@@ -527,7 +584,9 @@ private:
     int timeline_texture_width_ = 0;
     int timeline_texture_height_ = 0;
     int last_timeline_frame_ = -1;      // For change detection
-    GLuint gap_placeholder_texture_ = 0; // Transparent texture for timeline gaps
+    GLuint gap_placeholder_texture_ = 0; // Black texture for timeline gaps/cache misses
+    int gap_placeholder_width_ = 0;      // Track dimensions to avoid constant resize
+    int gap_placeholder_height_ = 0;
 
     // Transition placeholder texture (shown during media switches to prevent font cache flicker)
     GLuint transition_placeholder_texture_ = 0;
@@ -553,7 +612,10 @@ private:
     // Dual Video Review / Comparison Mode
     std::unique_ptr<ump::ComparisonVideoPlayer> comparison_video_;
     ComparisonMode comparison_mode_ = ComparisonMode::DISABLED;
+    ComparisonMode last_edit_mode_ = ComparisonMode::SIDE_BY_SIDE;  // Last non-lavfi mode for auto-revert
     bool comparison_mode_enabled_ = false;
+    ump::DualViewTimeline dual_view_timeline_;  // Timeline data for dual view editing
+    std::unique_ptr<ump::PlaybackTimer> dual_view_timer_;  // Manual timer for virtual timeline playback
     std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop (comparison video)
     std::string viewport_drop_pending_id_;  // Pending media ID from drag-drop (main viewport)
     std::string original_video_path_before_difference_;  // Stores original video to restore when exiting difference mode
@@ -576,6 +638,8 @@ private:
     int primary_video_height_ = 0;
     int secondary_video_width_ = 0;
     int secondary_video_height_ = 0;
+    double lavfi_secondary_fps_ = 0.0;        // Cached secondary FPS for lavfi mode
+    double lavfi_secondary_duration_ = 0.0;   // Cached secondary duration for lavfi mode
     bool primary_has_audio_ = true;           // Whether primary video has audio track
     std::string current_lavfi_filter_;        // Current lavfi filter string
 

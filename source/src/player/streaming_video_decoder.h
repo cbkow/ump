@@ -8,6 +8,7 @@
 #include <condition_variable>
 #include <atomic>
 #include <deque>
+#include <unordered_set>
 
 #include "image_loader_interface.h"
 
@@ -149,6 +150,10 @@ public:
     // Get range of buffered frames [start, end]
     void GetBufferedRange(int& start_frame, int& end_frame) const;
 
+    // Clear the frame buffer (free memory for inactive decoders)
+    // Thread-safe: can be called from any thread
+    void ClearBuffer();
+
     //=========================================================================
     // Metadata
     //=========================================================================
@@ -204,9 +209,6 @@ private:
     // Find frame in buffer
     // Returns nullptr if not found
     std::shared_ptr<PixelData> FindInBuffer(int frame_number) const;
-
-    // Clear buffer (called on seek)
-    void ClearBuffer();
 
     // Check if buffer needs more frames ahead
     bool NeedsMoreFrames() const;
@@ -266,6 +268,7 @@ private:
     //=========================================================================
 
     std::deque<BufferedFrame> ring_buffer_;
+    std::unordered_set<int> buffer_frame_set_;  // O(1) duplicate check
     mutable std::mutex buffer_mutex_;
 
     // Fast O(1) buffer tracking (avoid iterating buffer for NeedsMoreFrames)
@@ -298,6 +301,9 @@ private:
 
     // Decode pacing
     std::condition_variable decode_cv_;
+
+    // EOF state - prevents spin loop after reaching end of video
+    std::atomic<bool> eof_reached_{false};
 };
 
 } // namespace ump

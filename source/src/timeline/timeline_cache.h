@@ -292,6 +292,11 @@ public:
     // Request a specific source frame to be loaded (for slip/trim preview)
     void RequestSourceFrame(const std::string& source_path, int source_frame);
 
+    // Set gap texture dimensions (creates black texture at this size)
+    // Must be called from GL thread after Initialize()
+    // This prevents OpenGL corruption when transitioning between clips and gaps
+    void SetGapTextureDimensions(int width, int height);
+
 private:
     //=========================================================================
     // Loop-around Helpers
@@ -447,6 +452,18 @@ private:
     // Textures marked for deletion (delete on GL thread)
     std::vector<GLuint> textures_to_delete_;
     std::mutex delete_mutex_;
+
+    //=========================================================================
+    // Gap Texture - Persistent black texture for timeline gaps
+    //=========================================================================
+
+    GLuint gap_texture_ = 0;
+    int gap_texture_width_ = 0;
+    int gap_texture_height_ = 0;
+
+    // Create/delete gap texture (must be called from GL thread)
+    void CreateGapTexture(int width, int height);
+    void DeleteGapTexture();
 
     //=========================================================================
     // Statistics

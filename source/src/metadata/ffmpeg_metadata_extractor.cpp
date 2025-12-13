@@ -48,6 +48,8 @@ VideoMetadata FFmpegMetadataExtractor::Extract(const std::string& file_path) {
     Debug::Log("  Colorspace: " + metadata.colorspace);
     Debug::Log("  Range: " + metadata.range_type);
     Debug::Log("  Codec: " + metadata.video_codec);
+    Debug::Log("  Audio Codec: " + metadata.audio_codec);
+    Debug::Log("  Audio Channels: " + std::to_string(metadata.audio_channels));
 
     return metadata;
 }

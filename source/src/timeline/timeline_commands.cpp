@@ -3,6 +3,7 @@
 #include <sstream>
 #include <iomanip>
 #include <chrono>
+#include "../utils/debug_utils.h"
 
 namespace ump {
 
@@ -194,6 +195,8 @@ DeleteClipCommand::DeleteClipCommand(TimelineView* view, const std::string& clip
 }
 
 void DeleteClipCommand::Execute() {
+    Debug::Log("DeleteClipCommand::Execute - clip_id=" + clip_id_ + ", track=" + std::to_string(track_index_));
+
     if (!view_) return;
 
     auto& tracks = view_->GetTracks();
@@ -208,6 +211,7 @@ void DeleteClipCommand::Execute() {
                 deleted_clip_ = track.clips[i];
                 original_index_ = i;
             }
+            Debug::Log("DeleteClipCommand::Execute - DELETING clip: " + track.clips[i].name);
             track.clips.erase(track.clips.begin() + i);
             view_->SyncFlattenerAndInvalidate();
             executed_ = true;
@@ -380,40 +384,78 @@ TrimClipEndCommand::TrimClipEndCommand(TimelineView* view, const std::string& cl
 }
 
 void TrimClipEndCommand::Execute() {
-    if (!view_) return;
+    Debug::Log("TrimClipEndCommand::Execute - clip_id=" + clip_id_ +
+               ", track=" + std::to_string(track_index_) +
+               ", new_end_time=" + std::to_string(new_end_time_));
+
+    if (!view_) {
+        Debug::Log("TrimClipEndCommand::Execute - view_ is null!");
+        return;
+    }
 
     auto& tracks = view_->GetTracks();
-    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) {
+        Debug::Log("TrimClipEndCommand::Execute - invalid track_index!");
+        return;
+    }
 
     auto& track = tracks[track_index_];
 
     auto it = std::find_if(track.clips.begin(), track.clips.end(),
                            [this](const OTIOClip& c) { return c.id == clip_id_; });
-    if (it == track.clips.end()) return;
+    if (it == track.clips.end()) {
+        Debug::Log("TrimClipEndCommand::Execute - clip not found in track!");
+        return;
+    }
+
+    Debug::Log("TrimClipEndCommand::Execute - found clip: start_time=" + std::to_string(it->start_time) +
+               ", old_duration=" + std::to_string(it->duration) +
+               ", source_in=" + std::to_string(it->source_in) +
+               ", source_out=" + std::to_string(it->source_out) +
+               ", source_duration=" + std::to_string(it->source_duration));
 
     if (!executed_) {
         old_duration_ = it->duration;
         old_source_out_ = it->source_out;
     }
 
-    double new_duration = new_end_time_ - it->start_time;
-    new_duration = std::max(0.001, new_duration); // Keep minimum duration
+    // Clamp new_end_time to maintain minimum clip duration (~1 frame at 24fps)
+    // This prevents the clip from being shrunk to invisibility when dragging
+    // the right edge past the left edge
+    static constexpr double MIN_CLIP_DURATION = 0.042; // ~1 frame at 24fps
+    double clamped_end_time = std::max(new_end_time_, it->start_time + MIN_CLIP_DURATION);
+    double new_duration = clamped_end_time - it->start_time;
 
     // Calculate new source_out
     double new_source_out = it->source_in + new_duration;
 
     // Clamp source_out to not exceed source_duration (if known)
     // Can't extend beyond the end of the source media
-    if (it->source_duration > 0.0 && new_source_out > it->source_duration) {
-        new_source_out = it->source_duration;
-        new_duration = new_source_out - it->source_in;
+    // Note: source_in may be an absolute timecode (e.g., 01:00:02:04 = 3602.166s)
+    // so we need to check if the clip duration would exceed what's available
+    if (it->source_duration > 0.0) {
+        // Calculate max possible duration from source_in to end of source
+        double max_available_duration = it->source_duration - it->source_in;
+        if (max_available_duration > 0.0 && new_duration > max_available_duration) {
+            new_duration = max_available_duration;
+            new_source_out = it->source_duration;
+        }
     }
+
+    // Final safety clamp - duration must always be positive
+    new_duration = std::max(MIN_CLIP_DURATION, new_duration);
+    new_source_out = it->source_in + new_duration;
+
+    Debug::Log("TrimClipEndCommand::Execute - setting new_duration=" + std::to_string(new_duration) +
+               ", new_source_out=" + std::to_string(new_source_out));
 
     it->source_out = new_source_out;
     it->duration = new_duration;
 
     view_->SyncFlattenerAndInvalidate();
     executed_ = true;
+
+    Debug::Log("TrimClipEndCommand::Execute - complete");
 }
 
 void TrimClipEndCommand::Undo() {

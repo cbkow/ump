@@ -111,6 +111,9 @@ void StreamingVideoDecoder::HardReset(int target_frame) {
     // Clear buffer
     ClearBuffer();
 
+    // Reset EOF flag
+    eof_reached_ = false;
+
     // Close and reopen video (this resets all FFmpeg state)
     CloseVideo();
 
@@ -192,6 +195,14 @@ bool StreamingVideoDecoder::OpenVideo() {
     }
 
     frame_count_ = static_cast<int>(duration_ * fps_);
+
+    // Ensure at least 1 frame for single-frame videos (MXF subclips, etc.)
+    // FFmpeg may return duration that calculates to 0 frames, but if we
+    // successfully opened the file, there's at least one frame to decode
+    if (frame_count_ <= 0 && duration_ > 0) {
+        frame_count_ = 1;
+        Debug::Log("StreamingVideoDecoder: Adjusted frame_count from 0 to 1 (single-frame video)");
+    }
 
     // Get start time offset (for HEVC and other formats with non-zero start)
     if (video_stream->start_time != AV_NOPTS_VALUE) {
@@ -532,6 +543,50 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
         }
     }
 
+    // PROACTIVE EVICTION: Always evict frames outside window on every playhead update
+    // This prevents memory accumulation during rapid scrubbing
+    // Previous threshold (movement > readBehindFrames) was too conservative
+    {
+        int window_start = frame_number - config_.readBehindFrames;
+        int window_end = frame_number + config_.readAheadFrames;
+        int evicted = 0;
+
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+        // Evict frames too far BEHIND (from front)
+        while (!ring_buffer_.empty()) {
+            int front_frame = ring_buffer_.front().frame_number;
+            if (front_frame < window_start) {
+                buffer_frame_set_.erase(front_frame);
+                ring_buffer_.pop_front();
+                evicted++;
+            } else {
+                break;
+            }
+        }
+
+        // Evict frames too far AHEAD (from back) - handles backward seeks
+        while (!ring_buffer_.empty()) {
+            int back_frame = ring_buffer_.back().frame_number;
+            if (back_frame > window_end) {
+                buffer_frame_set_.erase(back_frame);
+                ring_buffer_.pop_back();
+                evicted++;
+            } else {
+                break;
+            }
+        }
+
+        buffer_size_ = static_cast<int>(ring_buffer_.size());
+
+        // Recalculate ahead count after eviction
+        int ahead = 0;
+        for (const auto& bf : ring_buffer_) {
+            if (bf.frame_number >= frame_number) ahead++;
+        }
+        buffer_ahead_count_ = ahead;
+    }
+
     // FORCE SEEK: Skip all tolerance checks and seek immediately
     // Used when entering REFINING state to ensure exact frame decode
     if (force_seek) {
@@ -730,6 +785,18 @@ void StreamingVideoDecoder::DecodeThread() {
         // Decode next frame
         bool decoded = DecodeNextFrame(frame);
         if (decoded) {
+            // Check for duplicate BEFORE expensive ConvertToPixelData
+            // This prevents allocating ~33MB only to discard it
+            {
+                std::lock_guard<std::mutex> lock(buffer_mutex_);
+                if (buffer_frame_set_.count(decode_frame_) > 0) {
+                    // Frame already in buffer - skip conversion
+                    decode_frame_++;
+                    av_frame_unref(frame);
+                    continue;
+                }
+            }
+
             // Convert to PixelData
             auto pixels = ConvertToPixelData(frame);
             if (pixels) {
@@ -749,12 +816,23 @@ void StreamingVideoDecoder::DecodeThread() {
 
             // Check for end of video
             if (decode_frame_ >= frame_count_) {
-                // Reached end, wait for seek
-                Debug::Log("StreamingVideoDecoder: Reached end of video at frame " +
-                           std::to_string(decode_frame_));
+                // Reached end - set EOF flag to prevent spin loop
+                if (!eof_reached_.load()) {
+                    Debug::Log("StreamingVideoDecoder: Reached end of video at frame " +
+                               std::to_string(decode_frame_));
+                    eof_reached_ = true;
+                }
+            }
+        } else {
+            // DecodeNextFrame returned false - EOF or error
+            // Set EOF flag to prevent spin loop trying to decode more frames
+            if (!eof_reached_.load()) {
+                Debug::Log("StreamingVideoDecoder: EOF/error at decode_frame " +
+                           std::to_string(decode_frame_) + " (frame_count=" +
+                           std::to_string(frame_count_) + ")");
+                eof_reached_ = true;
             }
         }
-        // Note: decode failures are expected at EOF, don't log excessively
 
         av_frame_unref(frame);
     }
@@ -921,6 +999,9 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
     // Clear buffer
     ClearBuffer();
 
+    // Reset EOF flag - we're seeking to a new position so we can decode again
+    eof_reached_ = false;
+
     // Flush codec
     avcodec_flush_buffers(codec_ctx_);
 
@@ -1011,26 +1092,56 @@ void StreamingVideoDecoder::AddToBuffer(int frame_number, std::shared_ptr<PixelD
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
 
-        // Add to buffer
+        // CRITICAL: O(1) duplicate check using set
+        // This prevents memory leak when same frame is decoded multiple times after seek
+        if (buffer_frame_set_.count(frame_number) > 0) {
+            // Frame already in buffer - skip adding duplicate
+            return;
+        }
+
+        // Add to buffer and set
         BufferedFrame bf;
         bf.frame_number = frame_number;
         bf.pixels = std::move(pixels);
         ring_buffer_.push_back(std::move(bf));
+        buffer_frame_set_.insert(frame_number);
 
-        // Evict old frames if buffer too large
+        // Evict frames outside the valid window around playhead
+        // Window is [playhead - readBehindFrames, playhead + readAheadFrames]
         int max_size = config_.readAheadFrames + config_.readBehindFrames;
+        int window_start = playhead - config_.readBehindFrames;
+        int window_end = playhead + config_.readAheadFrames;
 
-        while (ring_buffer_.size() > static_cast<size_t>(max_size)) {
-            // Remove frames that are too far behind
-            if (!ring_buffer_.empty()) {
-                int front_frame = ring_buffer_.front().frame_number;
-                if (front_frame < playhead - config_.readBehindFrames) {
-                    ring_buffer_.pop_front();
-                    evicted++;
-                } else {
-                    break;  // All remaining frames are in valid range
-                }
+        // First pass: evict frames too far BEHIND (from front)
+        while (!ring_buffer_.empty()) {
+            int front_frame = ring_buffer_.front().frame_number;
+            if (front_frame < window_start) {
+                buffer_frame_set_.erase(front_frame);
+                ring_buffer_.pop_front();
+                evicted++;
+            } else {
+                break;  // Front frame is in valid range
             }
+        }
+
+        // Second pass: evict frames too far AHEAD (from back)
+        // This handles backward seeks where old frames are now past the window
+        while (!ring_buffer_.empty()) {
+            int back_frame = ring_buffer_.back().frame_number;
+            if (back_frame > window_end) {
+                buffer_frame_set_.erase(back_frame);
+                ring_buffer_.pop_back();
+                evicted++;
+            } else {
+                break;  // Back frame is in valid range
+            }
+        }
+
+        // Safety: if still over max size, evict from front
+        while (ring_buffer_.size() > static_cast<size_t>(max_size) && !ring_buffer_.empty()) {
+            buffer_frame_set_.erase(ring_buffer_.front().frame_number);
+            ring_buffer_.pop_front();
+            evicted++;
         }
 
         // Update buffer size
@@ -1059,11 +1170,16 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::FindInBuffer(int frame_number)
 void StreamingVideoDecoder::ClearBuffer() {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
     ring_buffer_.clear();
+    buffer_frame_set_.clear();
     buffer_size_ = 0;
     buffer_ahead_count_ = 0;
 }
 
 bool StreamingVideoDecoder::NeedsMoreFrames() const {
+    // Don't try to decode more frames if we've reached EOF
+    if (eof_reached_.load()) {
+        return false;
+    }
     // O(1) check using atomic counter
     return buffer_ahead_count_.load() < config_.readAheadFrames;
 }

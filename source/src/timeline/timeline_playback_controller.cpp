@@ -112,6 +112,11 @@ bool TimelinePlaybackController::InitializeForTimeline(TimelineView* timeline_vi
     cache_->SetConfig(cache_config);
     cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_);
 
+    // Set gap texture dimensions to match timeline content (prevents OpenGL corruption on gap transitions)
+    if (width_ > 0 && height_ > 0) {
+        cache_->SetGapTextureDimensions(width_, height_);
+    }
+
     initialized_ = true;
     Debug::Log("TimelinePlaybackController: Initialized successfully");
     return true;
@@ -205,6 +210,11 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
 
     const auto& tracks = timeline_view->GetTracks();
     cache_->Initialize(tracks, &timeline_view->GetFlattener(), fps_);
+
+    // Set gap texture dimensions to match timeline content (prevents OpenGL corruption on gap transitions)
+    if (width_ > 0 && height_ > 0) {
+        cache_->SetGapTextureDimensions(width_, height_);
+    }
 
     Debug::Log("TimelinePlaybackController::InitializeCacheForScratchTimeline: Cache initialized with " +
                std::to_string(tracks.size()) + " tracks");
@@ -318,6 +328,12 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
 }
 
 void TimelinePlaybackController::NotifyTracksEdited() {
+    // CRITICAL: Clear VideoPlayer's timeline texture reference BEFORE cache clears textures
+    // Otherwise VideoPlayer may hold a dangling pointer to a deleted texture = crash
+    if (video_player_) {
+        video_player_->ClearVideoTextureReference();
+    }
+
     // SMOOTH TRANSITION: Instead of immediately clearing current_texture_ (which causes black flash),
     // move it to pending_evict and set a flag. Update() will use pending_evict as fallback
     // until a new frame is loaded, then evict it.
@@ -334,7 +350,7 @@ void TimelinePlaybackController::NotifyTracksEdited() {
     current_texture_width_ = 0;
     current_texture_height_ = 0;
 
-    // Notify the cache to clear and refresh
+    // Notify the cache to clear and refresh (this queues old textures for deletion)
     if (cache_) {
         cache_->NotifyTracksEdited();
     }

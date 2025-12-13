@@ -24,6 +24,7 @@ public:
         std::string stream_id;      // "vid1" or "vid2"
         double trim_start = -1.0;   // Start time in seconds (-1 = no trim)
         double trim_duration = -1.0; // Duration in seconds (-1 = no trim)
+        double position_offset = 0.0; // Timeline offset in seconds (for tpad/adelay padding)
         int source_width = 0;       // Original video width
         int source_height = 0;      // Original video height
         bool has_audio = true;      // Whether this video has an audio track
@@ -38,6 +39,7 @@ public:
         int viewport_height = 1080;
         float split_position = 0.5f;  // For adjustable splits (0.0-1.0)
         bool maintain_aspect = true;
+        double timeline_duration = 0.0;  // Total virtual timeline duration (for padding both clips to same length)
     };
 
     /**
@@ -84,6 +86,22 @@ private:
      * @return Filter string like "atrim=start=2:end=5,asetpts=PTS-STARTPTS"
      */
     static std::string GenerateAudioTrimFilter(const VideoInput& input);
+
+    /**
+     * @brief Generate tpad filter for timeline padding (pads video start and/or end)
+     * @param input Video input with position_offset and trim_duration
+     * @param timeline_duration Total virtual timeline duration (for calculating end padding)
+     * @return Filter string like "tpad=start_duration=0.5:stop_duration=1.0:start_mode=clone:stop_mode=clone"
+     */
+    static std::string GenerateTpadFilter(const VideoInput& input, double timeline_duration);
+
+    /**
+     * @brief Generate audio padding filter for timeline alignment (pads audio start and/or end)
+     * @param input Video input with position_offset and trim_duration
+     * @param timeline_duration Total virtual timeline duration (for calculating end padding)
+     * @return Filter string like "adelay=500:all=1,apad=whole_dur=19.5" or empty if no padding
+     */
+    static std::string GenerateAudioPadFilter(const VideoInput& input, double timeline_duration);
 
     /**
      * @brief Generate scale filter for a video stream

@@ -242,9 +242,9 @@ bool VideoPlayer::Initialize() {
 void VideoPlayer::ConfigureBasicOptions() {
 
     mpv_set_option_string(mpv, "load-scripts", "no");
-    mpv_set_option_string(mpv, "osc", "no");                   
-    mpv_set_option_string(mpv, "ytdl", "no");                   
-    mpv_set_option_string(mpv, "load-auto-profiles", "no");    
+    mpv_set_option_string(mpv, "osc", "no");
+    mpv_set_option_string(mpv, "ytdl", "no");
+    mpv_set_option_string(mpv, "load-auto-profiles", "no");
 
     mpv_set_option_string(mpv, "terminal", "no");
     mpv_set_option_string(mpv, "msg-level", "no");
@@ -256,6 +256,10 @@ void VideoPlayer::ConfigureBasicOptions() {
     mpv_set_option_string(mpv, "input-default-bindings", "no");
     mpv_set_option_string(mpv, "cursor-autohide", "no");
     mpv_set_option_string(mpv, "force-window", "no");
+
+    // Disable OSD (seek bar, messages, etc.)
+    mpv_set_option_string(mpv, "osd-level", "0");
+    mpv_set_option_string(mpv, "osd-bar", "no");
 
     // Visual settings
     mpv_set_option_string(mpv, "alpha", "blend");
@@ -983,6 +987,20 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
 // ============================================================================
 
 void VideoPlayer::Play() {
+    // When dual view timer is active, control timer instead of MPV
+    if (dual_view_timer_) {
+        dual_view_timer_->Play();
+        is_playing = true;
+
+        // Keep both MPV instances paused - timer drives position via seeks
+        // This ensures proper sync and respects trim boundaries
+        // Audio will not play in this mode (seek-based)
+        if (comparison_video_ && comparison_video_->HasVideo()) {
+            comparison_video_->SyncPlaybackState(false);
+        }
+        return;
+    }
+
     mpv_set_property_string(mpv, "pause", "no");
     is_playing = true;
 
@@ -998,6 +1016,19 @@ void VideoPlayer::Play() {
 }
 
 void VideoPlayer::Pause() {
+    // When dual view timer is active, control timer instead of MPV
+    if (dual_view_timer_) {
+        dual_view_timer_->Pause();
+        is_playing = false;
+
+        // Pause both videos
+        mpv_set_property_string(mpv, "pause", "yes");
+        if (comparison_video_ && comparison_video_->HasVideo()) {
+            comparison_video_->SyncPlaybackState(false);
+        }
+        return;
+    }
+
     mpv_set_property_string(mpv, "pause", "yes");
     is_playing = false;
 
@@ -1028,8 +1059,24 @@ void VideoPlayer::Stop() {
 void VideoPlayer::Seek(double pos) {
     if (!mpv) return;
 
+    // When dual view timer is active, use SeekDualView instead
+    if (dual_view_timer_) {
+        SeekDualView(pos);
+        return;
+    }
+
+    // Determine max duration: use virtual timeline duration in lavfi mode,
+    // otherwise use cached_duration
+    double max_duration = cached_duration;
+    if (!current_lavfi_filter_.empty()) {
+        double virtual_duration = GetVirtualTimelineDuration();
+        if (virtual_duration > 0) {
+            max_duration = virtual_duration;
+        }
+    }
+
     if (pos < 0) pos = 0.0;
-    if (pos > cached_duration) pos = cached_duration;
+    if (pos > max_duration) pos = max_duration;
 
     std::string pos_str = std::to_string(pos);
     const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
@@ -1045,6 +1092,16 @@ void VideoPlayer::Seek(double pos) {
 }
 
 void VideoPlayer::StepFrame(int direction) {
+    // When dual view timer is active, use timer stepping
+    if (dual_view_timer_) {
+        if (direction > 0) {
+            dual_view_timer_->StepForward(1);
+        } else {
+            dual_view_timer_->StepBackward(1);
+        }
+        return;
+    }
+
     const char* cmd = direction > 0 ? "frame-step" : "frame-back-step";
     const char* cmd_array[] = { cmd, nullptr };
     mpv_command(mpv, cmd_array);
@@ -1057,26 +1114,49 @@ void VideoPlayer::StepFrame(int direction) {
 }
 
 void VideoPlayer::GoToStart() {
+    // When dual view timer is active, seek to virtual timeline start
+    if (dual_view_timer_) {
+        SeekDualView(0.0);
+        return;
+    }
     Seek(0.0);
 }
 
 void VideoPlayer::GoToEnd() {
-    if (cached_duration > 0) {
+    // When dual view timer is active, seek to virtual timeline end
+    if (dual_view_timer_) {
+        double virtual_duration = GetVirtualTimelineDuration();
+        if (virtual_duration > 0) {
+            SeekDualView(virtual_duration);
+        }
+        return;
+    }
+
+    // In lavfi mode, use virtual timeline duration
+    double effective_duration = cached_duration;
+    if (!current_lavfi_filter_.empty()) {
+        double virtual_duration = GetVirtualTimelineDuration();
+        if (virtual_duration > 0) {
+            effective_duration = virtual_duration;
+        }
+    }
+
+    if (effective_duration > 0) {
         // Seek to the last valid frame (total_frames - 1)
         int total_frames = GetTotalFrames();
-        if (total_frames > 0) {
-            int last_frame = total_frames - 1;
-            double fps = GetFrameRate();
-            if (fps > 0) {
+        double fps = GetFrameRate();
+        if (total_frames > 0 && fps > 0) {
+            // Calculate last frame based on effective duration
+            int last_frame = static_cast<int>(effective_duration * fps) - 1;
+            if (last_frame > 0) {
                 double last_frame_time = last_frame / fps;
                 Seek(last_frame_time);
             } else {
-                // Fallback if fps not available
-                Seek(cached_duration - 0.1);
+                Seek(effective_duration - 0.1);
             }
         } else {
-            // Fallback if frames not available
-            Seek(cached_duration - 0.1);
+            // Fallback if frames/fps not available
+            Seek(effective_duration - 0.1);
         }
     }
 }
@@ -1107,19 +1187,40 @@ void VideoPlayer::StopFastSeek() {
 void VideoPlayer::UpdateFastSeek() {
     if (!is_fast_seeking) return;
 
-    double seek_amount = 0.1 * fast_seek_speed;
+    // When dual view timer is active or in lavfi mode, use virtual timeline position and duration
+    bool use_virtual_timeline = dual_view_timer_ || !current_lavfi_filter_.empty();
+    double current_pos = dual_view_timer_ ? GetVirtualTimelinePosition() : cached_position;
+    double max_duration = cached_duration;
+    if (use_virtual_timeline) {
+        double virtual_duration = GetVirtualTimelineDuration();
+        if (virtual_duration > 0) {
+            max_duration = virtual_duration;
+        }
+    }
+
+    // Use slower base seek for dual view mode (0.033s = ~1 frame at 30fps)
+    // Normal mode uses faster seeking (0.1s base)
+    double base_seek = dual_view_timer_ ? 0.033 : 0.1;
+    double seek_amount = base_seek * fast_seek_speed;
     if (!fast_forward) seek_amount = -seek_amount;
 
-    double new_pos = cached_position + seek_amount;
+    double new_pos = current_pos + seek_amount;
     if (new_pos < 0) new_pos = 0;
-    if (new_pos > cached_duration) new_pos = cached_duration;
+    if (new_pos > max_duration) new_pos = max_duration;
 
-    Seek(new_pos);
+    // In dual view mode, use SeekDualView directly for proper sync
+    if (dual_view_timer_) {
+        SeekDualView(new_pos);
+    } else {
+        Seek(new_pos);
+    }
 
-    // Gradually increase speed
+    // Gradually increase speed (slower ramp-up for dual view)
     static int frame_counter = 0;
     frame_counter++;
-    if (frame_counter > 60 && fast_seek_speed < 8) {
+    int ramp_frames = dual_view_timer_ ? 90 : 60;  // Slower ramp for dual view
+    int max_speed = dual_view_timer_ ? 6 : 8;      // Lower max speed for dual view
+    if (frame_counter > ramp_frames && fast_seek_speed < max_speed) {
         fast_seek_speed++;
         frame_counter = 0;
     }
@@ -1274,7 +1375,10 @@ void VideoPlayer::HandlePropertyChange(const std::string& prop_name, mpv_event_p
         }
     }
     else if (prop_name == "pause" && prop->format == MPV_FORMAT_FLAG && prop->data) {
-        is_playing = !(*((int*)prop->data));
+        // When dual view timer is active, timer controls is_playing, not MPV events
+        if (!dual_view_timer_) {
+            is_playing = !(*((int*)prop->data));
+        }
     }
 }
 
@@ -1283,10 +1387,21 @@ void VideoPlayer::HandlePropertyChange(const std::string& prop_name, mpv_event_p
 // ============================================================================
 
 double VideoPlayer::GetPosition() const {
+    // When dual view timer is active, return virtual timeline position
+    if (dual_view_timer_) {
+        return GetVirtualTimelinePosition();
+    }
     return cached_position;
 }
 
 double VideoPlayer::GetDuration() const {
+    // When dual view timer is active or in lavfi mode, return virtual timeline duration
+    if (dual_view_timer_ || !current_lavfi_filter_.empty()) {
+        double virtual_duration = GetVirtualTimelineDuration();
+        if (virtual_duration > 0) {
+            return virtual_duration;
+        }
+    }
     return cached_duration;
 }
 
@@ -1737,10 +1852,10 @@ void VideoPlayer::UpdateVideoTexture() {
     if (is_timeline_mode_ && timeline_controller_) {
         static int timeline_inject_call_count = 0;
         timeline_inject_call_count++;
-        if (timeline_inject_call_count <= 10 || timeline_inject_call_count % 300 == 0) {
+        /*if (timeline_inject_call_count <= 10 || timeline_inject_call_count % 300 == 0) {
             Debug::Log("UpdateVideoTexture: Calling InjectCurrentTimelineFrame (call #" +
                        std::to_string(timeline_inject_call_count) + ")");
-        }
+        }*/
         InjectCurrentTimelineFrame();
     }
 
@@ -1941,60 +2056,78 @@ void VideoPlayer::UpdateProperties() {
         cached_position = pos;
     }
 
-    int pause_state = 0;
-    if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
-        is_playing = !pause_state;
+    // When dual view timer is active, timer controls is_playing state, not MPV
+    if (!dual_view_timer_) {
+        int pause_state = 0;
+        if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
+            is_playing = !pause_state;
+        }
     }
 
     // Event-driven sync for comparison video (debounced seek only)
     if (comparison_video_ && comparison_video_->HasVideo()) {
-        // Detect loop point (position jumped from near-end to near-start)
-        bool loop_detected = false;
-        if (loop_enabled && cached_duration > 0) {
-            // Loop detected: was at >90% duration, now at <10% duration
-            if (last_position_ > (cached_duration * 0.9) &&
-                cached_position < (cached_duration * 0.1)) {
-                loop_detected = true;
-                /*Debug::Log("Loop detected! Re-syncing comparison video (was: " +
-                          std::to_string(last_position_) + "s, now: " +
-                          std::to_string(cached_position) + "s)");*/
+        // When using PlaybackTimer, the timer controls all timing and sync
+        // Skip legacy position tracking/loop detection - timer handles it via callbacks
+        if (dual_view_timer_) {
+            // Timer mode: UpdateDualViewTimer() handles all syncing
+            // Just process pending loop sync if needed
+            if (loop_sync_pending_) {
+                double now = glfwGetTime();
+                if (now - loop_sync_time_ > 0.25) {  // 250ms settle time
+                    dual_view_timer_->Play();
+                    loop_sync_pending_ = false;
+                }
             }
-        }
-
-        if (loop_detected) {
-            // Pause both videos at loop point
-            if (is_playing) {
-                Pause();
+        } else {
+            // Legacy mode (no timer): Use MPV-driven position tracking
+            double effective_duration = GetVirtualTimelineDuration();
+            if (effective_duration <= 0) {
+                effective_duration = cached_duration;  // Fallback to primary duration
             }
 
-            // Sync comparison video to start position
-            comparison_video_->SyncToPosition(0.0);
-
-            // Start timer for delayed resume (allow seek to settle)
-            loop_sync_pending_ = true;
-            loop_sync_time_ = glfwGetTime();
-            //Debug::Log("Loop sync initiated, waiting for settle...");
-        }
-
-        // Check if loop sync delay has elapsed (250ms for larger videos)
-        if (loop_sync_pending_) {
-            double now = glfwGetTime();
-            if (now - loop_sync_time_ > 0.25) {  // 250ms settle time
-                //Debug::Log("Loop sync settled, resuming playback");
-                Play();
-                loop_sync_pending_ = false;
+            // Detect loop point (position jumped from near-end to near-start)
+            bool loop_detected = false;
+            if (loop_enabled && effective_duration > 0) {
+                // Loop detected: was at >90% duration, now at <10% duration
+                if (last_position_ > (effective_duration * 0.9) &&
+                    cached_position < (effective_duration * 0.1)) {
+                    loop_detected = true;
+                }
             }
-        }
 
-        // Immediate seek sync (no debounce - legacy view modes are for preview only)
-        // Lavfi modes provide the primary playback experience
-        if (last_seek_time_ > 0.0) {
-            //Debug::Log("Immediate seek: syncing comparison to position " + std::to_string(cached_position));
-            comparison_video_->SyncToPosition(cached_position);
-            if (was_playing_before_seek_) {
-                comparison_video_->SyncPlaybackState(true);
+            if (loop_detected) {
+                // Pause both videos at loop point
+                if (is_playing) {
+                    Pause();
+                }
+
+                // Sync comparison video to start position (accounting for offset)
+                double secondary_pos = CalculateSecondaryPosition(0.0);
+                comparison_video_->SyncToPosition(secondary_pos);
+
+                // Start timer for delayed resume (allow seek to settle)
+                loop_sync_pending_ = true;
+                loop_sync_time_ = glfwGetTime();
             }
-            last_seek_time_ = 0.0;  // Reset
+
+            // Check if loop sync delay has elapsed (250ms for larger videos)
+            if (loop_sync_pending_) {
+                double now = glfwGetTime();
+                if (now - loop_sync_time_ > 0.25) {  // 250ms settle time
+                    Play();
+                    loop_sync_pending_ = false;
+                }
+            }
+
+            // Immediate seek sync (no debounce - legacy view modes are for preview only)
+            if (last_seek_time_ > 0.0) {
+                double secondary_pos = CalculateSecondaryPosition(cached_position);
+                comparison_video_->SyncToPosition(secondary_pos);
+                if (was_playing_before_seek_) {
+                    comparison_video_->SyncPlaybackState(true);
+                }
+                last_seek_time_ = 0.0;  // Reset
+            }
         }
 
         // NOTE: UpdateVideoTexture() is called in RenderSideBySide(), not here
@@ -2016,10 +2149,15 @@ void VideoPlayer::UpdatePlaybackState() {
         cached_position = pos;
     }
 
-    int pause_state = 0;
-    if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
-        is_playing = !pause_state;
+    // When dual view timer is active, timer controls is_playing state, not MPV
+    // MPV is always paused in timer mode - timer drives position via seeks
+    if (!dual_view_timer_) {
+        int pause_state = 0;
+        if (mpv_get_property(mpv, "pause", MPV_FORMAT_FLAG, &pause_state) == 0) {
+            is_playing = !pause_state;
+        }
     }
+    // Note: When dual_view_timer_ is active, is_playing is controlled by Play()/Pause() methods
 
     // Note: Comparison video sync is handled in UpdateProperties() via event-driven approach
     // (sync only on play/pause/seek events, not continuous polling)
@@ -4500,19 +4638,34 @@ void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController*
 
         // ALWAYS recreate gap placeholder texture when entering timeline mode
         // This ensures it's fresh and valid, avoiding issues when switching timelines
+        // Use content dimensions to prevent FBO resize when showing placeholder
         if (gap_placeholder_texture_ != 0) {
             glDeleteTextures(1, &gap_placeholder_texture_);
             gap_placeholder_texture_ = 0;
         }
+
+        // Create placeholder at content dimensions (prevents FBO resize on gaps)
+        int placeholder_w = target_width > 0 ? target_width : 1920;
+        int placeholder_h = target_height > 0 ? target_height : 1080;
+
+        std::vector<unsigned char> black_pixels(placeholder_w * placeholder_h * 4, 0);
+        for (size_t i = 3; i < black_pixels.size(); i += 4) {
+            black_pixels[i] = 255;  // Alpha = opaque
+        }
+
         glGenTextures(1, &gap_placeholder_texture_);
         glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
-        // Single transparent pixel (RGBA = 0,0,0,0)
-        unsigned char transparent_pixel[4] = {0, 0, 0, 0};
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, placeholder_w, placeholder_h, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, black_pixels.data());
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glBindTexture(GL_TEXTURE_2D, 0);
-        Debug::Log("VideoPlayer: Created transparent gap placeholder texture: " + std::to_string(gap_placeholder_texture_));
+
+        gap_placeholder_width_ = placeholder_w;
+        gap_placeholder_height_ = placeholder_h;
+        Debug::Log("VideoPlayer: Created gap placeholder texture at " +
+                   std::to_string(placeholder_w) + "x" + std::to_string(placeholder_h) +
+                   " (ID: " + std::to_string(gap_placeholder_texture_) + ")");
 
         if (controller) {
             // CRITICAL: Shutdown EXR cache to free memory - timeline uses TimelineCache instead
@@ -4543,6 +4696,8 @@ void VideoPlayer::SetTimelineMode(bool enabled, ump::TimelinePlaybackController*
         if (gap_placeholder_texture_ != 0) {
             glDeleteTextures(1, &gap_placeholder_texture_);
             gap_placeholder_texture_ = 0;
+            gap_placeholder_width_ = 0;
+            gap_placeholder_height_ = 0;
             Debug::Log("VideoPlayer: Deleted gap placeholder texture");
         }
 
@@ -4752,67 +4907,37 @@ void VideoPlayer::InjectCurrentTimelineFrame() {
     inject_call_count++;
 
     if (!is_timeline_mode_ || !timeline_controller_) {
-        if (inject_call_count <= 5) {
+       /* if (inject_call_count <= 5) {
             Debug::Log("InjectCurrentTimelineFrame: Not in timeline mode or no controller");
-        }
+        }*/
         return;
     }
 
     if (!timeline_controller_->IsInitialized()) {
-        if (inject_call_count <= 5) {
+        /*if (inject_call_count <= 5) {
             Debug::Log("InjectCurrentTimelineFrame: Controller not initialized");
-        }
+        }*/
         return;
     }
 
     // Process pending GPU uploads from background I/O threads (like EXR mode)
     timeline_controller_->ProcessPendingUploads();
 
-    // CHECK FOR GAPS FIRST - before Update() which returns previous frame for all misses
-    // GetCurrentSourcePath() returns empty string for gaps/unlinked clips
-    std::string source_path = timeline_controller_->GetCurrentSourcePath();
-    if (source_path.empty()) {
-        // GAP - no valid clip at this position
-        // Use transparent placeholder texture so gaps show through to background
-        if (gap_placeholder_texture_ != 0) {
-            video_texture = gap_placeholder_texture_;
-            video_width = 1;  // 1x1 texture
-            video_height = 1;
-            has_video = true;  // Need this true for rendering pipeline
-        } else {
-            // Fallback: create the gap texture now if it doesn't exist
-            glGenTextures(1, &gap_placeholder_texture_);
-            glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
-            unsigned char transparent_pixel[4] = {0, 0, 0, 0};
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            Debug::Log("InjectCurrentTimelineFrame: Created gap placeholder texture on demand");
-            video_texture = gap_placeholder_texture_;
-            video_width = 1;
-            video_height = 1;
-            has_video = true;
-        }
-        timeline_texture_ = 0;
-        timeline_texture_width_ = 0;
-        timeline_texture_height_ = 0;
-        // Still call Update to keep cache management running, but ignore result
-        int dummy_w = 0, dummy_h = 0;
-        timeline_controller_->Update(dummy_w, dummy_h);
-        return;
-    }
+    // NOTE: Gap detection removed - the timeline cache now returns a properly-sized
+    // gap texture for gaps/unlinked clips. This prevents OpenGL corruption from
+    // constant FBO resize when transitioning between clips and 1x1 gap textures.
+    // The cache's gap texture is created at timeline content dimensions.
 
     // Get current frame from the playback controller
     // The controller syncs from MPV internally
     int frame_width = 0, frame_height = 0;
     GLuint frame_texture = timeline_controller_->Update(frame_width, frame_height);
 
-    if (inject_call_count <= 10 || inject_call_count % 300 == 0) {
+    /*if (inject_call_count <= 10 || inject_call_count % 300 == 0) {
         Debug::Log("InjectCurrentTimelineFrame: Update returned texture=" +
                    std::to_string(frame_texture) + ", " +
                    std::to_string(frame_width) + "x" + std::to_string(frame_height));
-    }
+    }*/
 
     if (frame_texture != 0) {
         // SUCCESS: Got a valid frame from timeline cache
@@ -4835,36 +4960,52 @@ void VideoPlayer::InjectCurrentTimelineFrame() {
             last_timeline_frame_ = current_frame;
         }
     } else {
-        // Cache miss (valid clip, not loaded yet)
-        // Use gap placeholder instead of falling through to MPV dummy video
-        // This prevents the 1px black square from showing during loading
+        // Cache miss - use previous frame or content dimensions placeholder
+        // This should be rare now that the cache returns gap textures for gaps
         if (timeline_texture_ != 0) {
             // Keep previous timeline frame while loading
             video_texture = timeline_texture_;
             video_width = timeline_texture_width_;
             video_height = timeline_texture_height_;
             has_video = true;
-        } else if (gap_placeholder_texture_ != 0) {
-            // No previous frame yet - use transparent gap texture
-            video_texture = gap_placeholder_texture_;
-            video_width = 1;
-            video_height = 1;
-            has_video = true;
         } else {
-            // Create gap texture on demand if it doesn't exist
-            // This handles the case where timeline mode was re-enabled but
-            // SetTimelineMode didn't create the texture (e.g., during timeline switching)
-            glGenTextures(1, &gap_placeholder_texture_);
-            glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
-            unsigned char transparent_pixel[4] = {0, 0, 0, 0};
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, transparent_pixel);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            Debug::Log("InjectCurrentTimelineFrame: Created gap placeholder texture on demand (cache miss path)");
+            // No previous frame - use content dimensions to prevent FBO resize
+            // Use content dimensions if set, otherwise use standard HD
+            int placeholder_w = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : 1920;
+            int placeholder_h = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : 1080;
+
+            // Check if we need to recreate the placeholder at new dimensions
+            if (gap_placeholder_texture_ == 0 ||
+                gap_placeholder_width_ != placeholder_w ||
+                gap_placeholder_height_ != placeholder_h) {
+                // Delete old texture if exists
+                if (gap_placeholder_texture_ != 0) {
+                    glDeleteTextures(1, &gap_placeholder_texture_);
+                }
+
+                // Create properly-sized black texture
+                std::vector<unsigned char> black_pixels(placeholder_w * placeholder_h * 4, 0);
+                for (size_t i = 3; i < black_pixels.size(); i += 4) {
+                    black_pixels[i] = 255;  // Alpha = opaque
+                }
+
+                glGenTextures(1, &gap_placeholder_texture_);
+                glBindTexture(GL_TEXTURE_2D, gap_placeholder_texture_);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, placeholder_w, placeholder_h, 0,
+                             GL_RGBA, GL_UNSIGNED_BYTE, black_pixels.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glBindTexture(GL_TEXTURE_2D, 0);
+
+                gap_placeholder_width_ = placeholder_w;
+                gap_placeholder_height_ = placeholder_h;
+                Debug::Log("InjectCurrentTimelineFrame: Created gap placeholder at " +
+                           std::to_string(placeholder_w) + "x" + std::to_string(placeholder_h));
+            }
+
             video_texture = gap_placeholder_texture_;
-            video_width = 1;
-            video_height = 1;
+            video_width = gap_placeholder_width_;
+            video_height = gap_placeholder_height_;
             has_video = true;
         }
     }
@@ -5276,12 +5417,34 @@ void VideoPlayer::ClearVideoTextureReference() {
     // NOTE: In EXR mode, video_texture points to EXR cache textures (not FBO-attached)
     // so we can't use ClearVideoTextureToBackground() - must use placeholder fallback
     if (is_exr_mode && video_texture == exr_texture && exr_texture != 0) {
-        Debug::Log("VideoPlayer: Clearing video texture reference before cache reinitialization");
+        Debug::Log("VideoPlayer: Clearing EXR texture reference before cache reinitialization");
         // Use placeholder as fallback since EXR textures aren't FBO-attached
         video_texture = transition_placeholder_texture_;
         video_width = transition_placeholder_width_;
         video_height = transition_placeholder_height_;
         exr_texture = 0;
+
+        // Clear color texture to background to prevent showing stale frames
+        ClearColorTextureToBackground();
+    }
+
+    // TIMELINE MODE: Clear timeline texture reference before cache clears textures
+    // Without this, timeline_texture_ may point to a deleted texture after edit = crash
+    if (is_timeline_mode_ && timeline_texture_ != 0) {
+        Debug::Log("VideoPlayer: Clearing timeline texture reference before cache reinitialization");
+        // Use gap placeholder as fallback - it has correct dimensions
+        if (gap_placeholder_texture_ != 0) {
+            video_texture = gap_placeholder_texture_;
+            video_width = gap_placeholder_width_;
+            video_height = gap_placeholder_height_;
+        } else if (transition_placeholder_texture_ != 0) {
+            video_texture = transition_placeholder_texture_;
+            video_width = transition_placeholder_width_;
+            video_height = transition_placeholder_height_;
+        }
+        timeline_texture_ = 0;
+        timeline_texture_width_ = 0;
+        timeline_texture_height_ = 0;
 
         // Clear color texture to background to prevent showing stale frames
         ClearColorTextureToBackground();
@@ -5417,6 +5580,11 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
         // Default to side-by-side mode
         comparison_mode_ = ComparisonMode::SIDE_BY_SIDE;
 
+        // Initialize left clip from primary video if already loaded
+        if (HasVideo()) {
+            UpdateDualViewClipFromPrimary();
+        }
+
         Debug::Log("VideoPlayer: Comparison mode enabled (side-by-side)");
     } else {
         // Exit lavfi mode if currently active
@@ -5433,6 +5601,12 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
             original_video_path_before_difference_.clear();
         }
 
+        // Clean up dual view timer
+        if (dual_view_timer_) {
+            dual_view_timer_.reset();
+            Debug::Log("VideoPlayer: Dual view timer destroyed");
+        }
+
         // Clean up comparison video
         if (comparison_video_) {
             comparison_video_->Cleanup();
@@ -5441,6 +5615,9 @@ void VideoPlayer::EnableComparisonMode(bool enabled) {
 
         // Clean up difference compositor
         CleanupDifferenceCompositor();
+
+        // Clear dual view timeline data
+        dual_view_timeline_ = ump::DualViewTimeline();
 
         comparison_mode_ = ComparisonMode::DISABLED;
 
@@ -5475,13 +5652,28 @@ void VideoPlayer::LoadComparisonVideo(const std::string& path) {
     // Sync current settings to comparison video
     comparison_video_->SetLoop(loop_enabled);
     Debug::Log("VideoPlayer: Synced loop mode to comparison video: " + std::string(loop_enabled ? "enabled" : "disabled"));
+
+    // Update dual view clip data and initialize timer if both clips loaded
+    UpdateDualViewClipFromSecondary();
+    if (dual_view_timeline_.HasAnyClip() && dual_view_timeline_.right.IsLoaded()) {
+        InitializeDualViewPlayback();
+    }
 }
 
 void VideoPlayer::UnloadComparisonVideo() {
+    // Clean up dual view timer
+    if (dual_view_timer_) {
+        dual_view_timer_.reset();
+        Debug::Log("VideoPlayer: Dual view timer destroyed");
+    }
+
     if (comparison_video_) {
         comparison_video_->Unload();
         Debug::Log("VideoPlayer: Comparison video unloaded");
     }
+
+    // Clear dual view timeline data for right clip
+    dual_view_timeline_.right = ump::DualViewClip();
 }
 
 bool VideoPlayer::HasComparisonVideo() const {
@@ -5497,10 +5689,22 @@ void VideoPlayer::SetComparisonMode(ComparisonMode mode) {
     ComparisonMode old_mode = comparison_mode_;
     comparison_mode_ = mode;
 
+    // Track non-lavfi edit modes for auto-revert
+    if (mode == ComparisonMode::SIDE_BY_SIDE || mode == ComparisonMode::SPLIT_SCREEN) {
+        last_edit_mode_ = mode;
+        Debug::Log("VideoPlayer: Saved last edit mode: " +
+                   std::string(mode == ComparisonMode::SIDE_BY_SIDE ? "Side-by-Side" : "Split Screen"));
+    }
+
     const char* mode_name = "";
     switch (mode) {
         case ComparisonMode::SIDE_BY_SIDE: mode_name = "Side-by-Side"; break;
+        case ComparisonMode::SPLIT_SCREEN: mode_name = "Split Screen"; break;
         case ComparisonMode::DIFFERENCE_VIEW: mode_name = "Difference"; break;
+        case ComparisonMode::SPLIT_HORIZONTAL: mode_name = "Lavfi Horizontal"; break;
+        case ComparisonMode::SPLIT_VERTICAL: mode_name = "Lavfi Vertical"; break;
+        case ComparisonMode::SPLIT_5050_HORIZONTAL: mode_name = "Lavfi 50/50"; break;
+        case ComparisonMode::DIFFERENCE_BLEND: mode_name = "Lavfi Difference"; break;
         default: mode_name = "Disabled"; break;
     }
 
@@ -5547,6 +5751,144 @@ void VideoPlayer::ClearPendingViewportDrop() {
     viewport_drop_pending_id_.clear();
 }
 
+void VideoPlayer::RevertToEditMode() {
+    if (!IsLavfiMode(comparison_mode_)) {
+        Debug::Log("VideoPlayer::RevertToEditMode: Not in lavfi mode, nothing to do");
+        return;
+    }
+
+    Debug::Log("VideoPlayer::RevertToEditMode: Reverting from lavfi to " +
+               std::string(last_edit_mode_ == ComparisonMode::SIDE_BY_SIDE ? "Side-by-Side" : "Split Screen"));
+
+    // Save the FULL dual view timeline state (paths, trims, offsets, everything)
+    ump::DualViewTimeline saved_timeline = dual_view_timeline_;
+    ComparisonMode target_mode = last_edit_mode_;
+
+    Debug::Log("VideoPlayer::RevertToEditMode: Saved timeline state:");
+    Debug::Log("  Left: " + saved_timeline.left.source_path +
+               " in=" + std::to_string(saved_timeline.left.source_in) +
+               " out=" + std::to_string(saved_timeline.left.source_out) +
+               " offset=" + std::to_string(saved_timeline.left.position_offset));
+    Debug::Log("  Right: " + saved_timeline.right.source_path +
+               " in=" + std::to_string(saved_timeline.right.source_in) +
+               " out=" + std::to_string(saved_timeline.right.source_out) +
+               " offset=" + std::to_string(saved_timeline.right.position_offset));
+
+    // Exit lavfi mode (this destroys MPV and comparison video)
+    ExitLavfiMode();
+
+    // Reload primary video
+    if (!saved_timeline.left.source_path.empty()) {
+        Debug::Log("VideoPlayer::RevertToEditMode: Reloading primary video");
+        LoadFile(saved_timeline.left.source_path.c_str());
+    }
+
+    // Enable comparison mode and reload secondary video
+    if (!saved_timeline.right.source_path.empty()) {
+        Debug::Log("VideoPlayer::RevertToEditMode: Enabling comparison mode and loading secondary");
+        EnableComparisonMode(true);
+        LoadComparisonVideo(saved_timeline.right.source_path);
+    }
+
+    // Restore the full timeline state (trims, offsets, etc.)
+    dual_view_timeline_ = saved_timeline;
+
+    // Apply trim points to the video player's internal state
+    if (saved_timeline.left.source_in > 0 || saved_timeline.left.source_out > 0) {
+        SetPrimaryTrimPoints(saved_timeline.left.source_in,
+                            saved_timeline.left.source_out - saved_timeline.left.source_in);
+    }
+    if (saved_timeline.right.source_in > 0 || saved_timeline.right.source_out > 0) {
+        SetSecondaryTrimPoints(saved_timeline.right.source_in,
+                              saved_timeline.right.source_out - saved_timeline.right.source_in);
+    }
+
+    // Set the target comparison mode
+    SetComparisonMode(target_mode);
+
+    Debug::Log("VideoPlayer::RevertToEditMode: Transition complete with restored timeline state");
+}
+
+void VideoPlayer::UpdateDualViewClipFromPrimary() {
+    // Sync left clip from primary video metadata
+    // LEFT CLIP IS LOCKED - always uses full source duration, no trim, no offset
+    // This ensures the timeline duration equals the primary video's full duration,
+    // allowing MPV to handle audio/seeking natively without virtual timeline extension.
+    dual_view_timeline_.left.source_path = current_file_path;
+    dual_view_timeline_.left.width = video_width;
+    dual_view_timeline_.left.height = video_height;
+    dual_view_timeline_.left.fps = cached_fps;
+    dual_view_timeline_.left.source_duration = cached_duration;
+
+    // LOCKED: Always use full source - no trim allowed on left clip
+    dual_view_timeline_.left.source_in = 0.0;
+    dual_view_timeline_.left.source_out = dual_view_timeline_.left.source_duration;
+    dual_view_timeline_.left.duration = dual_view_timeline_.left.source_duration;
+    dual_view_timeline_.left.position_offset = 0.0;  // LOCKED: No offset
+
+    dual_view_timeline_.UpdateDuration();
+}
+
+void VideoPlayer::UpdateDualViewClipFromSecondary() {
+    // Sync right clip from secondary video
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        dual_view_timeline_.right.source_path = comparison_video_->GetFilePath();
+        dual_view_timeline_.right.width = comparison_video_->GetWidth();
+        dual_view_timeline_.right.height = comparison_video_->GetHeight();
+
+        // Use cached metadata from ComparisonVideoPlayer (probed on file load)
+        dual_view_timeline_.right.fps = comparison_video_->GetFrameRate();
+        dual_view_timeline_.right.source_duration = comparison_video_->GetDuration();
+
+        // Initialize trim to full source if not already set
+        if (dual_view_timeline_.right.source_out <= 0 ||
+            dual_view_timeline_.right.source_out > dual_view_timeline_.right.source_duration) {
+            dual_view_timeline_.right.source_in = 0.0;
+            dual_view_timeline_.right.source_out = dual_view_timeline_.right.source_duration;
+            dual_view_timeline_.right.duration = dual_view_timeline_.right.source_duration;
+        }
+
+        // Apply current trim points if they exist
+        if (secondary_trim_start_ >= 0) {
+            dual_view_timeline_.right.source_in = secondary_trim_start_;
+            if (secondary_trim_duration_ > 0) {
+                dual_view_timeline_.right.source_out = secondary_trim_start_ + secondary_trim_duration_;
+            }
+            dual_view_timeline_.right.duration = dual_view_timeline_.right.source_out - dual_view_timeline_.right.source_in;
+        }
+
+        dual_view_timeline_.UpdateDuration();
+    } else if (!lavfi_secondary_path_.empty()) {
+        // In lavfi mode, use the stored secondary path and cached metadata
+        dual_view_timeline_.right.source_path = lavfi_secondary_path_;
+        dual_view_timeline_.right.width = secondary_video_width_;
+        dual_view_timeline_.right.height = secondary_video_height_;
+        // In lavfi mode, use stored secondary metadata if available, otherwise fall back to primary's
+        dual_view_timeline_.right.fps = (lavfi_secondary_fps_ > 0) ? lavfi_secondary_fps_ : cached_fps;
+        dual_view_timeline_.right.source_duration = (lavfi_secondary_duration_ > 0) ? lavfi_secondary_duration_ : cached_duration;
+
+        // Initialize trim to full source if not already set
+        if (dual_view_timeline_.right.source_out <= 0 ||
+            dual_view_timeline_.right.source_out > dual_view_timeline_.right.source_duration) {
+            dual_view_timeline_.right.source_in = 0.0;
+            dual_view_timeline_.right.source_out = dual_view_timeline_.right.source_duration;
+            dual_view_timeline_.right.duration = dual_view_timeline_.right.source_duration;
+        }
+
+        // Apply secondary trim if set
+        if (secondary_trim_start_ >= 0) {
+            dual_view_timeline_.right.source_in = secondary_trim_start_;
+            if (secondary_trim_duration_ > 0) {
+                dual_view_timeline_.right.source_out = secondary_trim_start_ + secondary_trim_duration_;
+            }
+            dual_view_timeline_.right.duration = dual_view_timeline_.right.source_out - dual_view_timeline_.right.source_in;
+        }
+
+        dual_view_timeline_.UpdateDuration();
+        Debug::Log("VideoPlayer: Updated right clip from lavfi secondary - " + lavfi_secondary_path_);
+    }
+}
+
 // ============================================================================
 // Lavfi-based Comparison Mode (NEW)
 // ============================================================================
@@ -5559,15 +5901,294 @@ bool VideoPlayer::IsLavfiMode(ComparisonMode mode) const {
 }
 
 void VideoPlayer::SetPrimaryTrimPoints(double start, double duration) {
-    primary_trim_start_ = start;
-    primary_trim_duration_ = duration;
-    Debug::Log("Primary trim set: start=" + std::to_string(start) + ", duration=" + std::to_string(duration));
+    // LEFT/PRIMARY VIDEO IS LOCKED - trim is not allowed
+    // This function is now a no-op. The left video always uses its full duration
+    // to define the timeline, ensuring MPV can handle audio/seeking natively.
+    Debug::Log("SetPrimaryTrimPoints IGNORED (left video is locked): start=" +
+               std::to_string(start) + ", duration=" + std::to_string(duration));
+    // Don't set primary_trim_start_ or primary_trim_duration_
 }
 
 void VideoPlayer::SetSecondaryTrimPoints(double start, double duration) {
     secondary_trim_start_ = start;
     secondary_trim_duration_ = duration;
     Debug::Log("Secondary trim set: start=" + std::to_string(start) + ", duration=" + std::to_string(duration));
+}
+
+double VideoPlayer::CalculateSecondaryPosition(double timeline_position) const {
+    const auto& clip = dual_view_timeline_.right;
+
+    // Use the new TimelineToSource method for proper gap handling
+    double source_pos = clip.TimelineToSource(timeline_position);
+
+    // Handle gaps - return held frame positions
+    if (source_pos < 0) {
+        // Gap before clip - hold at first frame (source_in or 0)
+        return clip.source_in > 0 ? clip.source_in : 0.0;
+    }
+    if (source_pos > clip.source_duration) {
+        // Gap after clip - hold at last frame (source_out or duration)
+        return clip.source_out > 0 ? clip.source_out : clip.source_duration;
+    }
+
+    return source_pos;
+}
+
+double VideoPlayer::CalculatePrimaryPosition(double timeline_position) const {
+    const auto& clip = dual_view_timeline_.left;
+
+    // Use the new TimelineToSource method for proper gap handling
+    double source_pos = clip.TimelineToSource(timeline_position);
+
+    // Handle gaps - return held frame positions
+    if (source_pos < 0) {
+        // Gap before clip - hold at first frame (source_in or 0)
+        return clip.source_in > 0 ? clip.source_in : 0.0;
+    }
+    if (source_pos > clip.source_duration) {
+        // Gap after clip - hold at last frame (source_out or duration)
+        return clip.source_out > 0 ? clip.source_out : clip.source_duration;
+    }
+
+    return source_pos;
+}
+
+ClipGapState VideoPlayer::GetPrimaryGapState(double timeline_position) const {
+    const auto& clip = dual_view_timeline_.left;
+
+    if (!clip.IsLoaded()) {
+        return ClipGapState::GAP_BEFORE;  // No clip = all gap
+    }
+
+    if (timeline_position < clip.GetTimelineStart()) {
+        return ClipGapState::GAP_BEFORE;
+    }
+    if (timeline_position >= clip.GetTimelineEnd()) {
+        return ClipGapState::GAP_AFTER;
+    }
+    return ClipGapState::PLAYING;
+}
+
+ClipGapState VideoPlayer::GetSecondaryGapState(double timeline_position) const {
+    const auto& clip = dual_view_timeline_.right;
+
+    if (!clip.IsLoaded()) {
+        return ClipGapState::GAP_BEFORE;  // No clip = all gap
+    }
+
+    if (timeline_position < clip.GetTimelineStart()) {
+        return ClipGapState::GAP_BEFORE;
+    }
+    if (timeline_position >= clip.GetTimelineEnd()) {
+        return ClipGapState::GAP_AFTER;
+    }
+    return ClipGapState::PLAYING;
+}
+
+double VideoPlayer::GetVirtualTimelineDuration() const {
+    return dual_view_timeline_.GetVirtualDuration();
+}
+
+void VideoPlayer::SeekDualView(double timeline_position) {
+    // Clamp to virtual timeline bounds
+    double duration = GetVirtualTimelineDuration();
+    if (duration <= 0.0) {
+        return;  // No valid timeline
+    }
+
+    // Clamp position
+    if (timeline_position < 0.0) timeline_position = 0.0;
+    if (timeline_position > duration) timeline_position = duration;
+
+    // Update timer position if active
+    if (dual_view_timer_) {
+        dual_view_timer_->Seek(timeline_position);
+    }
+
+    // Seek primary video to its calculated position (direct MPV command, not Seek())
+    double primary_pos = CalculatePrimaryPosition(timeline_position);
+    if (mpv) {
+        std::string pos_str = std::to_string(primary_pos);
+        const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
+        mpv_command_async(mpv, 0, cmd);
+    }
+
+    // Sync secondary video if loaded
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        double secondary_pos = CalculateSecondaryPosition(timeline_position);
+        comparison_video_->SyncToPosition(secondary_pos);
+    }
+
+    // Update the dual view timeline's internal duration tracker
+    dual_view_timeline_.UpdateDuration();
+}
+
+double VideoPlayer::GetVirtualTimelinePosition() const {
+    if (dual_view_timer_) {
+        return dual_view_timer_->GetPosition();
+    }
+    // In lavfi mode, MPV's position IS the virtual timeline position
+    // (because tpad filter already pads the start for offset)
+    if (IsLavfiMode(comparison_mode_)) {
+        return cached_position;
+    }
+    // Non-lavfi fallback: calculate from primary video position + offset
+    return cached_position + dual_view_timeline_.left.position_offset;
+}
+
+bool VideoPlayer::InitializeDualViewPlayback() {
+    Debug::Log("InitializeDualViewPlayback: Setting up PlaybackTimer for virtual timeline");
+
+    // Ensure we have at least one clip loaded
+    if (!dual_view_timeline_.HasAnyClip()) {
+        Debug::Log("InitializeDualViewPlayback: No clips loaded");
+        return false;
+    }
+
+    // Update timeline duration
+    dual_view_timeline_.UpdateDuration();
+    double virtual_duration = dual_view_timeline_.GetVirtualDuration();
+
+    if (virtual_duration <= 0.0) {
+        Debug::Log("InitializeDualViewPlayback: Invalid virtual duration");
+        return false;
+    }
+
+    Debug::Log("InitializeDualViewPlayback: Virtual timeline duration = " + std::to_string(virtual_duration) + "s");
+
+    // Get frame rate from clips
+    double fps = 24.0;
+    if (dual_view_timeline_.left.IsLoaded() && dual_view_timeline_.left.fps > 0) {
+        fps = dual_view_timeline_.left.fps;
+    } else if (dual_view_timeline_.right.IsLoaded() && dual_view_timeline_.right.fps > 0) {
+        fps = dual_view_timeline_.right.fps;
+    }
+
+    // Create or reset the playback timer
+    if (!dual_view_timer_) {
+        dual_view_timer_ = std::make_unique<ump::PlaybackTimer>();
+    }
+
+    dual_view_timer_->SetDuration(virtual_duration);
+    dual_view_timer_->SetFrameRate(fps);
+    dual_view_timer_->SetLooping(loop_enabled);
+    dual_view_timer_->Seek(0.0);
+
+    // Pause both MPV instances - timer will drive position via seeks
+    mpv_set_property_string(mpv, "pause", "yes");
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->SyncPlaybackState(false);
+    }
+
+    // Set up callbacks
+    dual_view_timer_->SetOnLoop([this]() {
+        Debug::Log("DualView: Timeline looped");
+        // Sync both videos to start position directly (not via SeekDualView to avoid recursion)
+        double primary_pos = CalculatePrimaryPosition(0.0);
+        double secondary_pos = CalculateSecondaryPosition(0.0);
+
+        if (mpv) {
+            std::string pos_str = std::to_string(primary_pos);
+            const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
+            mpv_command_async(mpv, 0, cmd);
+        }
+        if (comparison_video_ && comparison_video_->HasVideo()) {
+            comparison_video_->SyncToPosition(secondary_pos);
+        }
+    });
+
+    dual_view_timer_->SetOnEnd([this]() {
+        Debug::Log("DualView: Timeline ended (non-looping)");
+        is_playing = false;
+    });
+
+    dual_view_timer_->SetOnPositionChanged([this](double pos) {
+        // Seek both videos to the new position (seek-based sync)
+        double primary_pos = CalculatePrimaryPosition(pos);
+        double secondary_pos = CalculateSecondaryPosition(pos);
+
+        // Update cached position for UI
+        cached_position = primary_pos;
+
+        // Seek primary video
+        if (mpv) {
+            std::string pos_str = std::to_string(primary_pos);
+            const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
+            mpv_command_async(mpv, 0, cmd);
+        }
+
+        // Seek secondary video
+        if (comparison_video_ && comparison_video_->HasVideo()) {
+            comparison_video_->SyncToPosition(secondary_pos);
+        }
+    });
+
+    // Initial sync to position 0
+    double primary_pos = CalculatePrimaryPosition(0.0);
+    double secondary_pos = CalculateSecondaryPosition(0.0);
+    if (mpv) {
+        std::string pos_str = std::to_string(primary_pos);
+        const char* cmd[] = { "seek", pos_str.c_str(), "absolute", "exact", nullptr };
+        mpv_command_async(mpv, 0, cmd);
+    }
+    if (comparison_video_ && comparison_video_->HasVideo()) {
+        comparison_video_->SyncToPosition(secondary_pos);
+    }
+
+    is_playing = false;  // Start paused
+
+    Debug::Log("InitializeDualViewPlayback: Timer initialized with duration=" +
+              std::to_string(virtual_duration) + "s, fps=" + std::to_string(fps));
+    return true;
+}
+
+void VideoPlayer::UpdateDualViewTimer() {
+    if (!dual_view_timer_) {
+        return;
+    }
+
+    // Update the timer (advances position if playing)
+    // The OnPositionChanged callback handles seeking both videos
+    dual_view_timer_->Update();
+}
+
+void VideoPlayer::OnVirtualTimelineDurationChanged() {
+    // Update timeline duration calculation
+    dual_view_timeline_.UpdateDuration();
+    double new_duration = dual_view_timeline_.GetVirtualDuration();
+
+    if (new_duration <= 0.0) {
+        return;  // No valid duration
+    }
+
+    // Update timer duration if timer is active
+    if (dual_view_timer_) {
+        double old_duration = dual_view_timer_->GetDuration();
+
+        // Check if duration changed significantly (more than 0.1 seconds)
+        if (std::abs(new_duration - old_duration) < 0.1) {
+            return;  // No significant change
+        }
+
+        Debug::Log("OnVirtualTimelineDurationChanged: Duration changed from " +
+                  std::to_string(old_duration) + "s to " + std::to_string(new_duration) + "s");
+
+        // Store current position (clamped to new duration)
+        double current_pos = dual_view_timer_->GetPosition();
+        if (current_pos > new_duration) {
+            current_pos = new_duration;
+        }
+
+        // Update timer with new duration
+        dual_view_timer_->SetDuration(new_duration);
+
+        // Seek to clamped position if it changed
+        if (current_pos != dual_view_timer_->GetPosition()) {
+            dual_view_timer_->Seek(current_pos);
+        }
+
+        Debug::Log("OnVirtualTimelineDurationChanged: Timer updated, position=" + std::to_string(current_pos) + "s");
+    }
 }
 
 void VideoPlayer::ClearPrimaryTrimPoints() {
@@ -5779,6 +6400,12 @@ void VideoPlayer::TransitionToLavfiMode(ComparisonMode lavfi_mode, int viewport_
     }
     comparison_mode_enabled_ = false;
 
+    // CRITICAL: Reset dual view timer - lavfi mode uses native MPV playback, not timer-driven seeks
+    if (dual_view_timer_) {
+        Debug::Log("Resetting dual_view_timer_ for lavfi mode");
+        dual_view_timer_.reset();
+    }
+
     // Load with lavfi using original paths
     LoadLavfiComparison(primary_original, secondary_original, lavfi_mode, viewport_width, viewport_height);
 
@@ -5827,6 +6454,20 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
         secondary_video_height_ = 1080;
     }
 
+    // Cache secondary FPS and duration for timeline calculations
+    lavfi_secondary_fps_ = secondary_metadata.frame_rate;
+    if (lavfi_secondary_fps_ <= 0) {
+        lavfi_secondary_fps_ = 24.0;  // Default fallback
+    }
+    // Calculate duration from frame count and fps
+    if (secondary_metadata.total_frames > 0 && lavfi_secondary_fps_ > 0) {
+        lavfi_secondary_duration_ = static_cast<double>(secondary_metadata.total_frames) / lavfi_secondary_fps_;
+    } else {
+        lavfi_secondary_duration_ = 0.0;  // Unknown, will fall back to primary's duration
+    }
+    Debug::Log("Secondary video metadata: fps=" + std::to_string(lavfi_secondary_fps_) +
+               ", duration=" + std::to_string(lavfi_secondary_duration_) + "s");
+
     // Generate lavfi filter
     UpdateLavfiFilter(mode, viewport_width, viewport_height);
     Debug::Log("Generated lavfi filter: " + current_lavfi_filter_);
@@ -5865,7 +6506,9 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
     ConfigureHardwareDecoding(true);  // true = lavfi mode (hwdec-copy, thread limit)
 
     // 4. SET LAVFI OPTIONS BEFORE INITIALIZE (This is the key!)
-    Debug::Log("LoadLavfiComparison: Setting external-file option (BEFORE init)");
+    // Primary is loaded as main file, secondary as external file
+    // vid1 = primary (main file), vid2 = secondary (external file)
+    Debug::Log("LoadLavfiComparison: Setting external-file: " + secondary_path);
     int ext_result = mpv_set_option_string(mpv, "external-file", secondary_path.c_str());
     if (ext_result < 0) {
         Debug::Log("WARNING: Failed to set external-file: " + std::string(mpv_error_string(ext_result)));
@@ -5908,7 +6551,8 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
     // 7. Configure for single file mode (lavfi creates single composite output)
     ConfigureForSingleFile();
 
-    // 8. Load primary file (MPV will automatically apply lavfi filter)
+    // 8. Load PRIMARY file as main file
+    // The lavfi filter uses vid1 (primary) and vid2 (secondary/external)
     Debug::Log("LoadLavfiComparison: Loading primary file");
     const char* cmd[] = {"loadfile", primary_path.c_str(), "replace", nullptr};
     int result = mpv_command(mpv, cmd);
@@ -5921,6 +6565,14 @@ void VideoPlayer::LoadLavfiComparison(const std::string& primary_path, const std
     // 9. Update mode state
     comparison_mode_ = mode;
     comparison_mode_enabled_ = true;
+
+    // 10. Wait for file to load before seeking
+    Debug::Log("LoadLavfiComparison: Waiting for file load...");
+    WaitForFileLoad();
+
+    // 11. Seek to start of timeline
+    Debug::Log("LoadLavfiComparison: Seeking to start of timeline");
+    Seek(0.0);
 
     Debug::Log("LoadLavfiComparison: Success! Both videos should now be composited");
 }
@@ -5939,23 +6591,44 @@ void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int
     config.split_position = split_screen_position_;  // Use current split position
     config.maintain_aspect = true;
 
+    // Calculate total virtual timeline duration (both clips must be padded to this length)
+    dual_view_timeline_.UpdateDuration();
+    config.timeline_duration = dual_view_timeline_.GetVirtualDuration();
+    Debug::Log("UpdateLavfiFilter: Virtual timeline duration = " + std::to_string(config.timeline_duration));
+
     // Create primary input configuration
+    // LEFT/PRIMARY VIDEO IS LOCKED - no trim, no offset
+    // It defines the timeline duration and plays with native MPV audio
+    const auto& left_clip = dual_view_timeline_.left;
     ump::LavfiFilterGenerator::VideoInput primary_input;
+    // vid1 = primary (main file loaded with loadfile)
     primary_input.stream_id = "vid1";
-    primary_input.trim_start = primary_trim_start_;
-    primary_input.trim_duration = primary_trim_duration_;
+    primary_input.trim_start = -1.0;  // LOCKED: No trim (full video)
+    primary_input.trim_duration = left_clip.source_duration;  // Full source duration
+    primary_input.position_offset = 0.0;  // LOCKED: No offset
     primary_input.source_width = primary_video_width_;
     primary_input.source_height = primary_video_height_;
     primary_input.has_audio = primary_has_audio_;
 
-    // Create secondary input configuration
+    // Create secondary input configuration from dual_view_timeline_ for consistency
+    const auto& right_clip = dual_view_timeline_.right;
     ump::LavfiFilterGenerator::VideoInput secondary_input;
+    // vid2 = secondary (external file)
     secondary_input.stream_id = "vid2";
-    secondary_input.trim_start = secondary_trim_start_;
-    secondary_input.trim_duration = secondary_trim_duration_;
+    secondary_input.trim_start = right_clip.source_in;  // Use source_in from timeline
+    secondary_input.trim_duration = right_clip.GetEffectiveDuration();  // source_out - source_in
+    secondary_input.position_offset = right_clip.position_offset;
     secondary_input.source_width = secondary_video_width_;
     secondary_input.source_height = secondary_video_height_;
     secondary_input.has_audio = false;  // Secondary video audio is never used in lavfi mode
+
+    // Debug: Log the input values
+    Debug::Log("UpdateLavfiFilter inputs:");
+    Debug::Log("  Primary (LOCKED): full duration=" + std::to_string(primary_input.trim_duration) + "s");
+    Debug::Log("  Secondary: source_in=" + std::to_string(right_clip.source_in) +
+               ", source_out=" + std::to_string(right_clip.source_out) +
+               ", duration=" + std::to_string(secondary_input.trim_duration) +
+               ", offset=" + std::to_string(secondary_input.position_offset));
 
     // Generate filter string
     current_lavfi_filter_ = ump::LavfiFilterGenerator::GenerateLavfiFilter(
@@ -5999,6 +6672,8 @@ void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int
         ConfigureHardwareDecoding(true);  // true = lavfi mode (hwdec-copy, thread limit)
 
         // 4. SET LAVFI OPTIONS BEFORE INITIALIZE (initialization-only options!)
+        // Primary is loaded as main file, secondary as external file
+        // vid1 = primary (main file), vid2 = secondary (external file)
         int ext_result = mpv_set_option_string(mpv, "external-file", lavfi_secondary_path_.c_str());
         if (ext_result < 0) {
             Debug::Log("Trying plural 'external-files' option");
@@ -6030,7 +6705,7 @@ void VideoPlayer::UpdateLavfiFilter(ComparisonMode mode, int viewport_width, int
         // Configure for single file mode (lavfi creates single composite output)
         ConfigureForSingleFile();
 
-        // 7. Load primary file
+        // 7. Load PRIMARY file as main file
         const char* cmd[] = {"loadfile", lavfi_primary_path_.c_str(), "replace", nullptr};
         int result = mpv_command(mpv, cmd);
 
@@ -6102,21 +6777,23 @@ void VideoPlayer::RenderSideBySide() {
     // Get draw list and viewport position for overlays
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 viewport_pos = ImGui::GetCursorScreenPos();
-
-    // Left side: Primary video or placeholder
-    GLuint primary_texture = GetDisplayTexture();
     ImVec2 cursor_pos = ImGui::GetCursorPos();
 
-    if (primary_texture > 0 && glIsTexture(primary_texture)) {
-        // Render primary video
-        ImVec2 left_size = CalculateFitSize(video_width, video_height, half_width, content_region.y);
+    // Left side: Primary video from main MPV context
+    GLuint left_texture = GetDisplayTexture();
+    int left_width = video_width;
+    int left_height = video_height;
+
+    if (left_texture > 0 && glIsTexture(left_texture)) {
+        // Render left video
+        ImVec2 left_size = CalculateFitSize(left_width, left_height, half_width, content_region.y);
 
         // Center both vertically and horizontally
         float left_offset_x = (half_width - left_size.x) * 0.5f;
         float left_offset_y = (content_region.y - left_size.y) * 0.5f;
         ImGui::SetCursorPos(ImVec2(cursor_pos.x + left_offset_x, cursor_pos.y + left_offset_y));
 
-        ImGui::Image((void*)(intptr_t)primary_texture, left_size);
+        ImGui::Image((void*)(intptr_t)left_texture, left_size);
     } else {
         // Show drop target placeholder on left side
         ImGui::SetCursorPos(cursor_pos);
@@ -6199,6 +6876,55 @@ void VideoPlayer::RenderSideBySide() {
             comparison_drop_pending_id_ = media_id;
         }
         ImGui::EndDragDropTarget();
+    }
+
+    // Draw gap overlays (black) when playhead is outside a clip's range on virtual timeline
+    // This provides visual feedback that the clip has a gap at this position
+    double timeline_pos = GetVirtualTimelinePosition();
+
+    // Left video gap overlay
+    ClipGapState left_gap = GetPrimaryGapState(timeline_pos);
+    if (left_gap != ClipGapState::PLAYING && left_texture > 0) {
+        // Calculate the video display area (same as above)
+        ImVec2 left_size = CalculateFitSize(left_width, left_height, half_width, content_region.y);
+        float left_offset_x = (half_width - left_size.x) * 0.5f;
+        float left_offset_y = (content_region.y - left_size.y) * 0.5f;
+
+        ImVec2 gap_min(viewport_pos.x + left_offset_x, viewport_pos.y + left_offset_y);
+        ImVec2 gap_max(gap_min.x + left_size.x, gap_min.y + left_size.y);
+        draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
+
+        // Optional: Add "GAP" text indicator
+        const char* gap_text = (left_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
+        if (font_mono) {
+            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+            ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
+                           (gap_min.y + gap_max.y - text_size.y) * 0.5f);
+            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+        }
+    }
+
+    // Right video gap overlay
+    ClipGapState right_gap = GetSecondaryGapState(timeline_pos);
+    if (right_gap != ClipGapState::PLAYING && comparison_video_ && comparison_video_->HasVideo()) {
+        int comp_w = comparison_video_->GetWidth();
+        int comp_h = comparison_video_->GetHeight();
+        ImVec2 right_size = CalculateFitSize(comp_w, comp_h, half_width, content_region.y);
+        float right_offset_x = half_width + (half_width - right_size.x) * 0.5f;
+        float right_offset_y = (content_region.y - right_size.y) * 0.5f;
+
+        ImVec2 gap_min(viewport_pos.x + right_offset_x, viewport_pos.y + right_offset_y);
+        ImVec2 gap_max(gap_min.x + right_size.x, gap_min.y + right_size.y);
+        draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
+
+        // Optional: Add "GAP" text indicator
+        const char* gap_text = (right_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
+        if (font_mono) {
+            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+            ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
+                           (gap_min.y + gap_max.y - text_size.y) * 0.5f);
+            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+        }
     }
 
     // Draw vertical divider line between left and right sides
@@ -6309,7 +7035,7 @@ void VideoPlayer::RenderSideBySide() {
     ImGui::EndChild();
 
     // Lavfi Mode Dropdown (positioned close below view picker)
-    if (primary_texture > 0 && comparison_video_ && comparison_video_->HasVideo()) {
+    if (left_texture > 0 && comparison_video_ && comparison_video_->HasVideo()) {
         const float lavfi_dropdown_y = viewport_pos.y + 10.0f + dropdown_height + dropdown_spacing;
 
         ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10.0f, lavfi_dropdown_y));
@@ -6965,28 +7691,11 @@ render_toggle_button:
                 Debug::Log("Switched to Split Screen mode");
             }
 
-            // Check if either video uses inter-frame codec (H.264/H.265)
-            bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
-            bool comparison_is_h264 = false;
-            if (comparison_video_) {
-                comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
-            }
-            bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
-
-            if (diff_mode_disabled) {
-                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
-            }
-            if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
-                if (!diff_mode_disabled) {
-                    SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-                    Debug::Log("Switched to Difference mode");
-                }
-            }
-            if (diff_mode_disabled) {
-                ImGui::PopStyleVar();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
-                }
+            // Difference mode - now enabled for all codecs
+            // Note: Inter-frame codecs (H.264/H.265) may have slight frame misalignment
+            if (ImGui::Selectable("Difference", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+                Debug::Log("Switched to Difference mode");
             }
             ImGui::EndCombo();
         }
@@ -7169,28 +7878,11 @@ render_toggle_button:
             Debug::Log("Switched to Split Screen mode");
         }
 
-        // Check if either video uses inter-frame codec (H.264/H.265)
-        bool primary_is_h264 = ump::ProjectManager::IsInterFrameCodec(GetVideoCodec());
-        bool comparison_is_h264 = false;
-        if (comparison_video_) {
-            comparison_is_h264 = ump::ProjectManager::IsInterFrameCodec(comparison_video_->GetVideoCodec());
-        }
-        bool diff_mode_disabled = primary_is_h264 || comparison_is_h264;
-
-        if (diff_mode_disabled) {
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.5f);
-        }
-        if (ImGui::Selectable("Difference##2", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW, diff_mode_disabled ? ImGuiSelectableFlags_Disabled : 0)) {
-            if (!diff_mode_disabled) {
-                SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
-                Debug::Log("Switched to Difference mode");
-            }
-        }
-        if (diff_mode_disabled) {
-            ImGui::PopStyleVar();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                ImGui::SetTooltip("Difference mode requires intra-frame codecs (ProRes, DNxHD).\nH.264/H.265 not supported.");
-            }
+        // Difference mode - now enabled for all codecs
+        // Note: Inter-frame codecs (H.264/H.265) may have slight frame misalignment
+        if (ImGui::Selectable("Difference##2", comparison_mode_ == ComparisonMode::DIFFERENCE_VIEW)) {
+            SetComparisonMode(ComparisonMode::DIFFERENCE_VIEW);
+            Debug::Log("Switched to Difference mode");
         }
         ImGui::EndCombo();
     }

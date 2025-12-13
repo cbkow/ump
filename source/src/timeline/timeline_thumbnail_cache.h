@@ -211,6 +211,10 @@ private:
     // Statistics
     std::atomic<int> cache_hits_{0};
     std::atomic<int> cache_misses_{0};
+
+    // Clear protection: prevents returning stale texture IDs for one frame after Clear()
+    // This avoids the issue where deleted texture IDs get reassigned to ImGui font atlas
+    std::atomic<bool> clear_pending_{false};
 };
 
 } // namespace ump

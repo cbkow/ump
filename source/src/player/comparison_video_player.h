@@ -51,6 +51,11 @@ public:
     std::string GetFilePath() const { return file_path_; }
     std::string GetVideoCodec() const;
 
+    // Cached metadata (probed once on file load)
+    double GetDuration() const { return cached_duration_; }
+    double GetFrameRate() const { return cached_fps_ > 0 ? cached_fps_ : 24.0; }
+    bool HasAudioTrack() const { return cached_has_audio_; }
+
     // Texture access for compositing
     GLuint GetTexture() const { return texture_; }
     int GetWidth() const { return width_; }
@@ -76,6 +81,11 @@ private:
     bool has_video_ = false;
     bool is_playing_ = false;
 
+    // Cached metadata (probed once on file load)
+    double cached_duration_ = 0.0;
+    double cached_fps_ = 0.0;
+    bool cached_has_audio_ = false;
+
     // Configuration
     void ConfigureBasicOptions();
     void ConfigureVideoOptions();
@@ -90,6 +100,9 @@ private:
 
     // Rendering
     void UpdateProperties();
+
+    // Metadata probing (called after file load)
+    void CacheMetadata();
 
     // OpenGL callback
     static void* GetProcAddress(void* ctx, const char* name);
