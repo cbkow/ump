@@ -56,10 +56,15 @@ bool StreamingVideoDecoder::Initialize() {
 
     Debug::Log("StreamingVideoDecoder: Video opened - " +
                std::to_string(width_) + "x" + std::to_string(height_) +
-               " @ " + std::to_string(fps_) + " fps, " +
-               std::to_string(frame_count_) + " frames, buffer size " +
+               " @ " + std::to_string(fps_) + " fps, duration=" +
+               std::to_string(duration_) + "s, " +
+               std::to_string(frame_count_) + " frames (dur*fps=" +
+               std::to_string(duration_ * fps_) + "), buffer size " +
                std::to_string(buffer_size) + ", decode: " +
                std::string(HWAccelTypeToString(hw_accel_type_)));
+
+    // Build keyframe index for H.264/inter-frame scrubbing
+    BuildKeyframeIndex();
 
     // Start decode thread
     running_ = true;
@@ -472,8 +477,8 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::GetClosestFrame(int frame_numb
             std::string filename = video_path_;
             size_t pos = filename.find_last_of("/\\");
             if (pos != std::string::npos) filename = filename.substr(pos + 1);
-            Debug::Log("StreamingVideoDecoder::GetClosestFrame [" + filename + "]: buffer EMPTY, requested frame " +
-                       std::to_string(frame_number));
+ /*           Debug::Log("StreamingVideoDecoder::GetClosestFrame [" + filename + "]: buffer EMPTY, requested frame " +
+                       std::to_string(frame_number));*/
         }
         return nullptr;
     }
@@ -662,8 +667,8 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
             bool must_seek_backward = (buffer_start >= 0 && frame_number < buffer_start);
 
             if (!already_seeking || target_changed || must_seek_backward) {
-                Debug::Log("StreamingVideoDecoder: Seek to frame " + std::to_string(frame_number) +
-                           (must_seek_backward ? " (backward seek)" : ""));
+               /* Debug::Log("StreamingVideoDecoder: Seek to frame " + std::to_string(frame_number) +
+                           (must_seek_backward ? " (backward seek)" : ""));*/
 
                 seek_target_frame_ = frame_number;
                 seek_quality_ = quality;
@@ -785,13 +790,20 @@ void StreamingVideoDecoder::DecodeThread() {
         // Decode next frame
         bool decoded = DecodeNextFrame(frame);
         if (decoded) {
+            // CRITICAL: Get actual frame number from PTS for accurate labeling
+            int actual_frame = FrameNumberFromPTS(frame);
+            if (actual_frame < 0) {
+                // No PTS - fall back to sequential numbering
+                actual_frame = decode_frame_;
+            }
+
             // Check for duplicate BEFORE expensive ConvertToPixelData
             // This prevents allocating ~33MB only to discard it
             {
                 std::lock_guard<std::mutex> lock(buffer_mutex_);
-                if (buffer_frame_set_.count(decode_frame_) > 0) {
+                if (buffer_frame_set_.count(actual_frame) > 0) {
                     // Frame already in buffer - skip conversion
-                    decode_frame_++;
+                    decode_frame_ = actual_frame + 1;
                     av_frame_unref(frame);
                     continue;
                 }
@@ -800,19 +812,20 @@ void StreamingVideoDecoder::DecodeThread() {
             // Convert to PixelData
             auto pixels = ConvertToPixelData(frame);
             if (pixels) {
-                AddToBuffer(decode_frame_, pixels);
+                AddToBuffer(actual_frame, pixels);
                 frames_decoded++;
 
                 // Log progress rarely to avoid I/O overhead during playback
-                if (frames_decoded == 1 || frames_decoded % 100 == 0) {
+               /* if (frames_decoded == 1 || frames_decoded % 100 == 0) {
                     Debug::Log("StreamingVideoDecoder: Decoded frame " +
-                               std::to_string(decode_frame_) + " (" +
+                               std::to_string(actual_frame) + " (" +
                                std::to_string(frames_decoded) + " total, ahead=" +
                                std::to_string(buffer_ahead_count_.load()) + ")");
-                }
+                }*/
             }
-            // Don't log every conversion failure - too noisy
-            decode_frame_++;
+
+            // Update decode position to next expected frame
+            decode_frame_ = actual_frame + 1;
 
             // Check for end of video
             if (decode_frame_ >= frame_count_) {
@@ -827,9 +840,9 @@ void StreamingVideoDecoder::DecodeThread() {
             // DecodeNextFrame returned false - EOF or error
             // Set EOF flag to prevent spin loop trying to decode more frames
             if (!eof_reached_.load()) {
-                Debug::Log("StreamingVideoDecoder: EOF/error at decode_frame " +
+               /* Debug::Log("StreamingVideoDecoder: EOF/error at decode_frame " +
                            std::to_string(decode_frame_) + " (frame_count=" +
-                           std::to_string(frame_count_) + ")");
+                           std::to_string(frame_count_) + ")");*/
                 eof_reached_ = true;
             }
         }
@@ -890,6 +903,36 @@ bool StreamingVideoDecoder::DecodeNextFrame(AVFrame* frame) {
 
     av_packet_free(&packet);
     return got_frame;
+}
+
+int StreamingVideoDecoder::FrameNumberFromPTS(AVFrame* frame) const {
+    if (!frame || !format_ctx_ || video_stream_idx_ < 0) {
+        return -1;
+    }
+
+    // Get the best available timestamp
+    int64_t pts = frame->best_effort_timestamp;
+    if (pts == AV_NOPTS_VALUE) {
+        pts = frame->pts;
+    }
+    if (pts == AV_NOPTS_VALUE) {
+        return -1;
+    }
+
+    // Convert PTS to time in seconds
+    AVStream* stream = format_ctx_->streams[video_stream_idx_];
+    double time_seconds = static_cast<double>(pts) * av_q2d(stream->time_base);
+
+    // Subtract start_time offset if present
+    if (start_time_ > 0) {
+        time_seconds -= static_cast<double>(start_time_) / AV_TIME_BASE;
+    }
+
+    // Convert to frame number (round to nearest)
+    int frame_num = static_cast<int>(time_seconds * fps_ + 0.5);
+
+    // Clamp to valid range
+    return std::max(0, std::min(frame_num, frame_count_ - 1));
 }
 
 std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* frame) {
@@ -987,13 +1030,13 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
 void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) {
     // Safety check - codec context must be valid
     if (!codec_ctx_ || !format_ctx_) {
-        Debug::Log("StreamingVideoDecoder: FlushAndSeek called with invalid context, ignoring");
+        //Debug::Log("StreamingVideoDecoder: FlushAndSeek called with invalid context, ignoring");
         return;
     }
 
     // Only log full quality seeks to reduce noise during scrubbing
     if (quality == SeekQuality::NORMAL) {
-        Debug::Log("StreamingVideoDecoder: FlushAndSeek to frame " + std::to_string(target_frame));
+        //Debug::Log("StreamingVideoDecoder: FlushAndSeek to frame " + std::to_string(target_frame));
     }
 
     // Clear buffer
@@ -1045,31 +1088,85 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
         Debug::Log("StreamingVideoDecoder: Seek failed, error " + std::to_string(ret));
     }
 
-    // Update decode position
-    decode_frame_ = target_frame;
-
-    // Decode forward to target frame
+    // CRITICAL FIX: After seeking, decode the first frame and determine actual position from PTS
+    // FFmpeg seeks to the nearest keyframe BEFORE target, so we need to know where we actually landed
     AVFrame* frame = av_frame_alloc();
     if (frame) {
-        // Decode frames until we reach target
-        int decoded_count = 0;
-        while (decode_frame_ < target_frame && decoded_count < 120 && running_) {
-            if (DecodeNextFrame(frame)) {
-                decoded_count++;
-                av_frame_unref(frame);
-            } else {
-                break;
+        // Decode first frame to get actual position
+        if (DecodeNextFrame(frame)) {
+            // Calculate actual frame number from PTS
+            int64_t pts = frame->best_effort_timestamp;
+            if (pts == AV_NOPTS_VALUE) {
+                pts = frame->pts;
             }
+
+            if (pts != AV_NOPTS_VALUE) {
+                // Convert PTS to frame number
+                double time_seconds = static_cast<double>(pts) * av_q2d(stream->time_base);
+                // Subtract start_time if present
+                if (start_time_ > 0) {
+                    time_seconds -= static_cast<double>(start_time_) / AV_TIME_BASE;
+                }
+                int actual_frame = static_cast<int>(time_seconds * fps_ + 0.5);  // Round to nearest
+
+                // Clamp to valid range
+                actual_frame = std::max(0, std::min(actual_frame, frame_count_ - 1));
+
+                decode_frame_ = actual_frame;
+
+                if (quality == SeekQuality::NORMAL) {
+                   /* Debug::Log("StreamingVideoDecoder: Seek landed at frame " +
+                               std::to_string(actual_frame) + " (target was " +
+                               std::to_string(target_frame) + ")");*/
+                }
+
+                // Add this first decoded frame to buffer with correct frame number
+                auto pixels = ConvertToPixelData(frame);
+                if (pixels) {
+                    AddToBuffer(decode_frame_, pixels);
+                }
+                decode_frame_++;
+
+                // Now decode forward until we reach or pass target
+                int decoded_count = 1;
+                while (decode_frame_ <= target_frame && decoded_count < 250 && running_) {
+                    av_frame_unref(frame);
+                    if (DecodeNextFrame(frame)) {
+                        // CRITICAL: Use PTS for accurate frame labeling (consistent with main decode loop)
+                        int actual_frame_num = FrameNumberFromPTS(frame);
+                        if (actual_frame_num < 0) {
+                            actual_frame_num = decode_frame_;  // Fallback
+                        }
+
+                        auto pix = ConvertToPixelData(frame);
+                        if (pix) {
+                            AddToBuffer(actual_frame_num, pix);
+                        }
+                        decoded_count++;
+                        decode_frame_ = actual_frame_num + 1;
+                    } else {
+                        break;
+                    }
+                }
+
+      /*          if (decoded_count > 1) {
+                    Debug::Log("StreamingVideoDecoder: Decoded " + std::to_string(decoded_count) +
+                               " frames to reach target " + std::to_string(target_frame));
+                }*/
+            } else {
+                // No PTS available - fall back to assuming we're at target
+                decode_frame_ = target_frame;
+               /* Debug::Log("StreamingVideoDecoder: No PTS available, assuming at target");*/
+            }
+            av_frame_unref(frame);
+        } else {
+            // Failed to decode first frame
+            decode_frame_ = target_frame;
         }
         av_frame_free(&frame);
-
-        if (decoded_count > 0) {
-            Debug::Log("StreamingVideoDecoder: Decoded " + std::to_string(decoded_count) +
-                       " frames to reach target");
-        }
+    } else {
+        decode_frame_ = target_frame;
     }
-
-    decode_frame_ = target_frame;
 
     // DEBUG: Log final state after seek (with filename)
     int buf_start = -1, buf_end = -1;
@@ -1077,8 +1174,8 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
     std::string filename = video_path_;
     size_t pos = filename.find_last_of("/\\");
     if (pos != std::string::npos) filename = filename.substr(pos + 1);
-    Debug::Log("StreamingVideoDecoder::FlushAndSeek COMPLETE [" + filename + "]: target=" + std::to_string(target_frame) +
-               ", buffer=[" + std::to_string(buf_start) + "," + std::to_string(buf_end) + "]");
+   /* Debug::Log("StreamingVideoDecoder::FlushAndSeek COMPLETE [" + filename + "]: target=" + std::to_string(target_frame) +
+               ", buffer=[" + std::to_string(buf_start) + "," + std::to_string(buf_end) + "]");*/
 }
 
 //=============================================================================
@@ -1182,6 +1279,276 @@ bool StreamingVideoDecoder::NeedsMoreFrames() const {
     }
     // O(1) check using atomic counter
     return buffer_ahead_count_.load() < config_.readAheadFrames;
+}
+
+//=============================================================================
+// Keyframe Index - For H.264/Inter-Frame Codec Scrubbing
+//=============================================================================
+
+void StreamingVideoDecoder::BuildKeyframeIndex() {
+    if (keyframe_index_built_) return;
+    if (!format_ctx_ || video_stream_idx_ < 0) return;
+
+    auto start_time = std::chrono::steady_clock::now();
+
+    // Detect if this is an intra-frame codec (every frame is a keyframe)
+    // ProRes, DNxHD, MJPEG, etc. don't need keyframe-only scrubbing
+    AVCodecID codec_id = format_ctx_->streams[video_stream_idx_]->codecpar->codec_id;
+    const char* codec_name = avcodec_get_name(codec_id);
+
+    // Known intra-frame codecs (every frame is independently decodable)
+    if (codec_id == AV_CODEC_ID_PRORES ||
+        codec_id == AV_CODEC_ID_DNXHD ||
+        codec_id == AV_CODEC_ID_MJPEG ||
+        codec_id == AV_CODEC_ID_JPEG2000 ||
+        codec_id == AV_CODEC_ID_RAWVIDEO ||
+        codec_id == AV_CODEC_ID_V210 ||
+        codec_id == AV_CODEC_ID_V410 ||
+        codec_id == AV_CODEC_ID_FFV1 ||
+        codec_id == AV_CODEC_ID_HUFFYUV) {
+        is_intra_frame_codec_ = true;
+        keyframe_index_built_ = true;
+        Debug::Log("StreamingVideoDecoder: Codec '" + std::string(codec_name) +
+                   "' is intra-frame - every frame is a keyframe, skipping index build");
+        return;
+    }
+
+    // Scan file for keyframes
+    AVPacket* packet = av_packet_alloc();
+    if (!packet) {
+        Debug::Log("StreamingVideoDecoder: Failed to allocate packet for keyframe scan");
+        return;
+    }
+
+    keyframe_positions_.clear();
+    keyframe_positions_.reserve(frame_count_ / 24);  // Assume ~1 keyframe per second at 24fps
+
+    // Save current position (we're called after OpenVideo but before decode thread starts)
+    int64_t original_pos = -1;
+    if (format_ctx_->pb) {
+        original_pos = avio_tell(format_ctx_->pb);
+    }
+
+    // Seek to beginning
+    av_seek_frame(format_ctx_, video_stream_idx_, 0, AVSEEK_FLAG_BACKWARD);
+
+    int frame_num = 0;
+    int keyframe_count = 0;
+
+    while (av_read_frame(format_ctx_, packet) >= 0) {
+        if (packet->stream_index == video_stream_idx_) {
+            if (packet->flags & AV_PKT_FLAG_KEY) {
+                keyframe_positions_.push_back(frame_num);
+                keyframe_count++;
+            }
+            frame_num++;
+        }
+        av_packet_unref(packet);
+
+        // Safety limit - don't scan forever on corrupted files
+        if (frame_num > frame_count_ + 1000) {
+            Debug::Log("StreamingVideoDecoder: Keyframe scan hit safety limit at frame " +
+                       std::to_string(frame_num));
+            break;
+        }
+    }
+
+    av_packet_free(&packet);
+
+    // Seek back to beginning for decode thread
+    av_seek_frame(format_ctx_, video_stream_idx_, 0, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(codec_ctx_);
+
+    keyframe_index_built_ = true;
+
+    auto end_time = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+
+    // Calculate average GOP size
+    double avg_gop = keyframe_count > 1 ?
+        static_cast<double>(frame_num) / keyframe_count : frame_num;
+
+    Debug::Log("StreamingVideoDecoder: Built keyframe index - " +
+               std::to_string(keyframe_count) + " keyframes in " +
+               std::to_string(frame_num) + " frames (avg GOP: " +
+               std::to_string(static_cast<int>(avg_gop)) + " frames, " +
+               std::to_string(elapsed_ms) + "ms)");
+}
+
+int StreamingVideoDecoder::GetNearestKeyframePosition(int target_frame) const {
+    // For intra-frame codecs, every frame is a keyframe
+    if (is_intra_frame_codec_) {
+        return target_frame;
+    }
+
+    // If no keyframe index, return target (will decode from actual nearest keyframe)
+    if (!keyframe_index_built_ || keyframe_positions_.empty()) {
+        return target_frame;
+    }
+
+    // Binary search for largest keyframe <= target_frame
+    auto it = std::upper_bound(keyframe_positions_.begin(), keyframe_positions_.end(), target_frame);
+
+    if (it == keyframe_positions_.begin()) {
+        // target_frame is before first keyframe, return first keyframe
+        return keyframe_positions_.front();
+    }
+
+    // Return the keyframe just before the upper_bound
+    return *(--it);
+}
+
+std::shared_ptr<PixelData> StreamingVideoDecoder::GetKeyframe(int target_frame, int* actual_keyframe) {
+    // For intra-frame codecs, just return the exact frame (it's always a keyframe)
+    if (is_intra_frame_codec_) {
+        if (actual_keyframe) *actual_keyframe = target_frame;
+        return GetFrame(target_frame);
+    }
+
+    // Find nearest keyframe position
+    int kf_pos = GetNearestKeyframePosition(target_frame);
+    if (actual_keyframe) *actual_keyframe = kf_pos;
+
+    // Check if keyframe is already in buffer
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+        for (const auto& bf : ring_buffer_) {
+            if (bf.frame_number == kf_pos) {
+                return bf.pixels;
+            }
+        }
+    }
+
+    // Keyframe not in buffer - try to find ANY keyframe in buffer as fallback
+    // This avoids the thread-unsafe DecodeSingleKeyframe() call
+    // The decode thread will eventually catch up
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+        // Find the keyframe closest to our target that's in the buffer
+        int best_kf = -1;
+        int best_distance = INT_MAX;
+        std::shared_ptr<PixelData> best_pixels = nullptr;
+
+        for (const auto& bf : ring_buffer_) {
+            // Check if this frame is a keyframe
+            if (std::binary_search(keyframe_positions_.begin(), keyframe_positions_.end(), bf.frame_number)) {
+                int distance = std::abs(bf.frame_number - target_frame);
+                if (distance < best_distance) {
+                    best_distance = distance;
+                    best_kf = bf.frame_number;
+                    best_pixels = bf.pixels;
+                }
+            }
+        }
+
+        if (best_pixels) {
+            if (actual_keyframe) *actual_keyframe = best_kf;
+            return best_pixels;
+        }
+    }
+
+    // No keyframe in buffer - just return closest frame we have
+    // Update playhead to trigger decode thread to seek
+    return GetClosestFrame(target_frame, actual_keyframe);
+}
+
+std::shared_ptr<PixelData> StreamingVideoDecoder::DecodeSingleKeyframe(int keyframe_number) {
+    // Lock to prevent concurrent access during single-frame decode
+    std::lock_guard<std::mutex> lock(keyframe_mutex_);
+
+    if (!codec_ctx_ || !format_ctx_) {
+        return nullptr;
+    }
+
+    // Calculate timestamp for the keyframe
+    double timestamp = static_cast<double>(keyframe_number) / fps_;
+    if (start_time_ > 0) {
+        timestamp += static_cast<double>(start_time_) / AV_TIME_BASE;
+    }
+
+    AVStream* stream = format_ctx_->streams[video_stream_idx_];
+    int64_t target_pts = av_rescale_q(
+        static_cast<int64_t>(timestamp * AV_TIME_BASE),
+        AV_TIME_BASE_Q,
+        stream->time_base);
+
+    // Seek to keyframe (BACKWARD finds the keyframe at or before target)
+    int ret = av_seek_frame(format_ctx_, video_stream_idx_, target_pts, AVSEEK_FLAG_BACKWARD);
+    if (ret < 0) {
+        Debug::Log("StreamingVideoDecoder: DecodeSingleKeyframe seek failed");
+        return nullptr;
+    }
+
+    avcodec_flush_buffers(codec_ctx_);
+
+    // Read and decode just one keyframe
+    AVPacket* packet = av_packet_alloc();
+    AVFrame* frame = av_frame_alloc();
+    AVFrame* sw_frame = av_frame_alloc();  // For HW decode transfer
+
+    if (!packet || !frame || !sw_frame) {
+        if (packet) av_packet_free(&packet);
+        if (frame) av_frame_free(&frame);
+        if (sw_frame) av_frame_free(&sw_frame);
+        return nullptr;
+    }
+
+    std::shared_ptr<PixelData> result = nullptr;
+
+    // Read packets until we get a keyframe
+    int attempts = 0;
+    while (av_read_frame(format_ctx_, packet) >= 0 && attempts < 50) {
+        if (packet->stream_index != video_stream_idx_) {
+            av_packet_unref(packet);
+            continue;
+        }
+
+        // Only decode keyframes
+        if (!(packet->flags & AV_PKT_FLAG_KEY)) {
+            av_packet_unref(packet);
+            attempts++;
+            continue;
+        }
+
+        // Send packet to decoder
+        ret = avcodec_send_packet(codec_ctx_, packet);
+        av_packet_unref(packet);
+
+        if (ret < 0) {
+            break;
+        }
+
+        // Receive decoded frame
+        ret = avcodec_receive_frame(codec_ctx_, frame);
+        if (ret == 0) {
+            // Got a frame - handle HW transfer if needed
+            AVFrame* final_frame = frame;
+
+            if (hw_accel_type_ != HWAccelType::NONE && frame->format == hw_pix_fmt_) {
+                // Transfer from GPU to CPU
+                if (av_hwframe_transfer_data(sw_frame, frame, 0) == 0) {
+                    sw_frame->pts = frame->pts;
+                    final_frame = sw_frame;
+                } else {
+                    Debug::Log("StreamingVideoDecoder: HW transfer failed in DecodeSingleKeyframe");
+                    break;
+                }
+            }
+
+            // Convert to PixelData
+            result = ConvertToPixelData(final_frame);
+            break;
+        }
+
+        attempts++;
+    }
+
+    av_packet_free(&packet);
+    av_frame_free(&frame);
+    av_frame_free(&sw_frame);
+
+    return result;
 }
 
 } // namespace ump

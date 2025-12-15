@@ -11,11 +11,20 @@
 #include <ctime>
 #include <cmath>
 
-// External font from main.cpp for consistent styling
+// External fonts from main.cpp for consistent styling
 extern ImFont* font_mono;
+extern ImFont* font_icons;  // Material Icons font
 
 // Helper to get Windows accent color (matching main.cpp implementation)
 extern ImVec4 GetWindowsAccentColor();
+
+// Material Icons (matching main.cpp definitions)
+#define ICON_VISIBILITY             u8"\uE8F4"   // Eye open
+#define ICON_VISIBILITY_OFF         u8"\uE8F5"   // Eye with slash
+#define ICON_VOLUME_UP              u8"\uE050"   // Speaker on
+#define ICON_VOLUME_MUTE            u8"\uE04F"   // Speaker muted
+#define ICON_VIEW_TIMELINE          u8"\uEB85"   // Video track icon
+#define ICON_AUDIO_TRACK            u8"\uE3A1"   // Audio track icon
 
 // OTIO includes - only when library is available
 #ifdef USE_OPENTIMELINEIO
@@ -156,6 +165,30 @@ const OTIOClip* TimelineFlattener::GetVisibleClipAtTime(double timestamp) {
     return best_clip;
 }
 
+const OTIOClip* TimelineFlattener::GetAudibleClipAtTime(double timestamp) {
+    // Find the topmost visible clip from a track that is NOT audio_muted
+    // This is for audio playback - respects video track audio mute button AND clip-level mute
+    const OTIOClip* best_clip = nullptr;
+    int best_z_index = -1;
+
+    for (const auto& track : tracks_) {
+        // Must be video track, visible, and NOT track-level audio muted
+        if (!track.is_video || !track.visible || track.audio_muted) continue;
+
+        const OTIOClip* clip = FindClipInTrack(track, timestamp);
+        // Check clip exists, not a gap, linked, AND not clip-level muted
+        if (clip && !clip->is_gap && clip->is_linked && !clip->audio_muted) {
+            // Use z_index to determine priority (higher = on top)
+            if (track.z_index > best_z_index) {
+                best_z_index = track.z_index;
+                best_clip = clip;
+            }
+        }
+    }
+
+    return best_clip;
+}
+
 std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double timestamp) {
     std::vector<std::string> audio_paths;
     
@@ -187,9 +220,9 @@ TimelineView::~TimelineView() {
     ShutdownPlayback();
 }
 
-bool TimelineView::InitializePlayback(DummyVideoGenerator* dummy_generator) {
-    if (!video_player_ || !dummy_generator) {
-        Debug::Log("TimelineView::InitializePlayback: Invalid parameters");
+bool TimelineView::InitializePlayback() {
+    if (!video_player_) {
+        Debug::Log("TimelineView::InitializePlayback: Invalid video player");
         return false;
     }
 
@@ -217,13 +250,16 @@ bool TimelineView::InitializePlayback(DummyVideoGenerator* dummy_generator) {
     // Create and initialize playback controller
     playback_controller_ = std::make_unique<TimelinePlaybackController>();
 
-    if (!playback_controller_->InitializeForTimeline(this, video_player_, dummy_generator)) {
-        Debug::Log("TimelineView::InitializePlayback: Failed to initialize controller");
+    // Use virtual timeline mode (no dummy video required)
+    // Pass canvas dimensions for consistent output sizing (prevents flickering with mixed resolutions)
+    if (!playback_controller_->InitializeForVirtualTimeline(this, video_player_,
+                                                             canvas_width_, canvas_height_)) {
+        Debug::Log("TimelineView::InitializePlayback: Failed to initialize virtual timeline controller");
         playback_controller_.reset();
         return false;
     }
 
-    Debug::Log("TimelineView::InitializePlayback: Playback initialized successfully");
+    Debug::Log("TimelineView::InitializePlayback: Virtual timeline playback initialized successfully");
     return true;
 }
 
@@ -296,6 +332,39 @@ void TimelineView::SetZoomLevel(float zoom) {
     if (zoom < 0.1f) zoom = 0.1f;
     if (zoom > 100.0f) zoom = 100.0f;
     zoom_level_ = zoom;
+
+    // Clamp scroll offset to new valid range (prevents view from going outside timeline bounds)
+    float max_offset = GetMaxScrollOffset();
+    if (scroll_offset_x_ > max_offset) {
+        scroll_offset_x_ = max_offset;
+    }
+}
+
+void TimelineView::SetZoomLevelAroundTime(float zoom, double time) {
+    // Clamp to reasonable range
+    if (zoom < 0.1f) zoom = 0.1f;
+    if (zoom > 100.0f) zoom = 100.0f;
+
+    float old_zoom = zoom_level_;
+    if (old_zoom <= 0) old_zoom = 50.0f;
+
+    // Calculate where the time position appears on screen before zoom
+    float time_in_timeline_old = static_cast<float>(time) * old_zoom;
+    float time_screen_x = time_in_timeline_old - scroll_offset_x_;
+
+    // Apply new zoom
+    zoom_level_ = zoom;
+
+    // Calculate where time position should be in new zoomed timeline
+    float time_in_timeline_new = static_cast<float>(time) * zoom_level_;
+
+    // Adjust scroll to keep time at same screen position
+    scroll_offset_x_ = time_in_timeline_new - time_screen_x;
+
+    // Clamp scroll offset to valid range
+    float max_offset = GetMaxScrollOffset();
+    if (scroll_offset_x_ < 0) scroll_offset_x_ = 0;
+    if (scroll_offset_x_ > max_offset) scroll_offset_x_ = max_offset;
 }
 
 void TimelineView::SetScrollOffset(float offset) {
@@ -485,31 +554,71 @@ void TimelineView::RenderTrackList() {
 
 void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
     ImGui::BeginGroup();
-    
-    // Track name and type
-    const char* icon = track.is_video ? "🎬" : "🎵";
-    ImGui::Text("%s %s", icon, track.name.c_str());
-    
-    // Visibility/Mute toggle
+
+    // DEBUG: Check if font_icons is available (log once per session)
+    static bool logged_font_status = false;
+    if (!logged_font_status) {
+        Debug::Log("TimelineView: font_icons = " + std::string(font_icons ? "valid" : "NULL"));
+        logged_font_status = true;
+    }
+
+    // Track name with Material Icon (need icon font for the icon part)
+    if (font_icons) {
+        ImGui::PushFont(font_icons);
+        const char* track_icon = track.is_video ? ICON_VIEW_TIMELINE : ICON_AUDIO_TRACK;
+        ImGui::Text("%s", track_icon);
+        ImGui::PopFont();
+        ImGui::SameLine(0, 4);
+    }
+    ImGui::Text("%s", track.name.c_str());
+
     if (track.is_video) {
-        bool visible = track.visible;
-        if (ImGui::Checkbox("👁️##vis", &visible)) {
+        // Video track: Eye icon for visibility
+        ImGui::SameLine();
+        const char* vis_icon = track.visible ? ICON_VISIBILITY : ICON_VISIBILITY_OFF;
+        ImGui::PushID("vis");
+        if (font_icons) ImGui::PushFont(font_icons);
+        if (ImGui::SmallButton(vis_icon)) {
             HandleTrackVisibilityToggle(track.id);
         }
+        if (font_icons) ImGui::PopFont();
+        ImGui::PopID();
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Toggle track visibility");
+            ImGui::SetTooltip(track.visible ? "Hide track" : "Show track");
+        }
+
+        // Video track: Speaker icon for audio mute
+        ImGui::SameLine();
+        const char* audio_icon = track.audio_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+        ImGui::PushID("audio");
+        if (font_icons) ImGui::PushFont(font_icons);
+        if (ImGui::SmallButton(audio_icon)) {
+            track.audio_muted = !track.audio_muted;
+            // AudioMixer will check this flag when selecting clips
+            Debug::Log("Track " + track.name + " audio " + (track.audio_muted ? "muted" : "unmuted"));
+        }
+        if (font_icons) ImGui::PopFont();
+        ImGui::PopID();
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(track.audio_muted ? "Unmute track audio" : "Mute track audio");
         }
     } else {
-        bool muted = track.muted;
-        if (ImGui::Checkbox("🔇##mute", &muted)) {
+        // Audio track: Speaker icon for mute
+        ImGui::SameLine();
+        const char* mute_icon = track.muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+        ImGui::PushID("mute");
+        if (font_icons) ImGui::PushFont(font_icons);
+        if (ImGui::SmallButton(mute_icon)) {
             HandleTrackMuteToggle(track.id);
         }
+        if (font_icons) ImGui::PopFont();
+        ImGui::PopID();
         if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Mute/Unmute track");
+            ImGui::SetTooltip(track.muted ? "Unmute track" : "Mute track");
         }
     }
-    
-    // Solo button
+
+    // Solo button (uses regular text font)
     ImGui::SameLine();
     if (ImGui::SmallButton("S")) {
         HandleTrackSolo(track.id);
@@ -517,9 +626,9 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Solo this track (disable all others)");
     }
-    
+
     ImGui::EndGroup();
-    
+
     // Fixed width for header
     ImGui::SameLine();
     ImGui::Dummy(ImVec2(200 - ImGui::GetItemRectSize().x, 0));
@@ -1335,6 +1444,8 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
     timeline_name_ = name.empty() ? "New Timeline" : name;
     timeline_duration_ = duration;
     frame_rate_ = fps;
+    canvas_width_ = width;
+    canvas_height_ = height;
 
     // Create one empty video track and one empty audio track
     OTIOTrack video_track;
@@ -1539,6 +1650,11 @@ OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offs
     auto duration_rt = otio_clip->duration(&err);
     if (!otio::is_error(err)) {
         clip.duration = duration_rt.to_seconds();
+        // Extract source frame rate from the duration's rate (this is the source rate)
+        // Note: This is a hint - actual source fps will be confirmed when media is probed
+        if (duration_rt.rate() > 0) {
+            clip.source_fps = duration_rt.rate();
+        }
     } else {
         clip.duration = 1.0;
     }
@@ -1548,6 +1664,10 @@ OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offs
     if (source_range.has_value()) {
         clip.source_in = source_range.value().start_time().to_seconds();
         clip.source_out = clip.source_in + source_range.value().duration().to_seconds();
+        // Also try to get source fps from source range if not already set
+        if (clip.source_fps <= 0 && source_range.value().start_time().rate() > 0) {
+            clip.source_fps = source_range.value().start_time().rate();
+        }
     } else {
         clip.source_in = 0.0;
         clip.source_out = clip.duration;
@@ -1663,15 +1783,17 @@ int TimelineView::GetTrackIndexForClip(const std::string& clip_id) const {
 }
 
 void TimelineView::RecalculateDuration() {
-    timeline_duration_ = 0.0;
+    double max_end = 1.0;  // Minimum 1 second for empty timelines
     for (const auto& track : tracks_) {
         for (const auto& clip : track.clips) {
             double clip_end = clip.start_time + clip.duration;
-            if (clip_end > timeline_duration_) {
-                timeline_duration_ = clip_end;
+            if (clip_end > max_end) {
+                max_end = clip_end;
             }
         }
     }
+    // Add small padding so playhead doesn't immediately hit end
+    timeline_duration_ = max_end + 0.5;
 }
 
 void TimelineView::SyncFlattenerAndInvalidate() {

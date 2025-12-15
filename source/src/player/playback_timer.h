@@ -61,7 +61,14 @@ public:
     //=========================================================================
 
     // Updates position based on elapsed time. Returns true if position changed.
+    // NOTE: For frame-locked playback, use AdvanceByFrame() instead.
     bool Update();
+
+    // Advance position by exactly one frame duration (frame-locked playback).
+    // Use this instead of Update() when you want playback to be locked to
+    // actual frame display rate rather than wall-clock time.
+    // This prevents desync when decoder can't keep up with timer.
+    void AdvanceByFrame();
 
     //=========================================================================
     // Configuration

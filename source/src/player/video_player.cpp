@@ -8,7 +8,7 @@
 #include "../timeline/timeline_cache.h"
 #include "../utils/debug_utils.h"
 #include "../utils/gpu_scheduler.h"
-#include "dummy_video_generator.h"
+// Note: dummy_video_generator.h removed - now using PlaybackTimer virtual timeline
 #include "exr_transcoder.h"
 #include "direct_exr_cache.h"
 #include "image_loaders.h"  // For TIFF/PNG/JPEG loaders
@@ -17,6 +17,7 @@
 #include "../metadata/video_metadata.h"  // For VideoMetadata
 #include "../metadata/ffmpeg_metadata_extractor.h"  // For FFmpeg-based metadata extraction
 #include "../project/project_manager.h"  // For IsInterFrameCodec helper
+#include "../audio/audio_player.h"  // For independent audio playback in dual view mode
 
 #include <algorithm>
 #include <chrono>
@@ -987,6 +988,31 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
 // ============================================================================
 
 void VideoPlayer::Play() {
+    // Debug: Log ALL play calls
+    Debug::Log("VideoPlayer::Play() called - is_playing=" + std::to_string(is_playing) +
+               ", timeline_mode=" + std::to_string(is_timeline_mode_) +
+               ", virtual=" + std::to_string(timeline_controller_ ? timeline_controller_->IsVirtualTimelineMode() : false) +
+               ", exr_mode=" + std::to_string(is_exr_mode) +
+               ", img_seq_timer=" + std::to_string(image_sequence_timer_ != nullptr));
+
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        image_sequence_timer_->Play();
+        is_playing = true;
+        if (exr_cache_) {
+            exr_cache_->UpdatePlaybackState(true);
+        }
+        return;
+    }
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        timeline_controller_->Play();
+        is_playing = true;
+        return;
+    }
+
     // When dual view timer is active, control timer instead of MPV
     if (dual_view_timer_) {
         dual_view_timer_->Play();
@@ -994,9 +1020,13 @@ void VideoPlayer::Play() {
 
         // Keep both MPV instances paused - timer drives position via seeks
         // This ensures proper sync and respects trim boundaries
-        // Audio will not play in this mode (seek-based)
         if (comparison_video_ && comparison_video_->HasVideo()) {
             comparison_video_->SyncPlaybackState(false);
+        }
+
+        // Start audio playback
+        if (dual_view_audio_) {
+            dual_view_audio_->Play();
         }
         return;
     }
@@ -1016,6 +1046,29 @@ void VideoPlayer::Play() {
 }
 
 void VideoPlayer::Pause() {
+    // Debug: Log ALL pause calls with extra info
+    Debug::Log("VideoPlayer::Pause() called - is_playing=" + std::to_string(is_playing) +
+               ", timeline_mode=" + std::to_string(is_timeline_mode_) +
+               ", virtual=" + std::to_string(timeline_controller_ ? timeline_controller_->IsVirtualTimelineMode() : false));
+
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        image_sequence_timer_->Pause();
+        is_playing = false;
+        if (exr_cache_) {
+            exr_cache_->UpdatePlaybackState(false);
+        }
+        return;
+    }
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        timeline_controller_->Pause();
+        is_playing = false;
+        return;
+    }
+
     // When dual view timer is active, control timer instead of MPV
     if (dual_view_timer_) {
         dual_view_timer_->Pause();
@@ -1025,6 +1078,11 @@ void VideoPlayer::Pause() {
         mpv_set_property_string(mpv, "pause", "yes");
         if (comparison_video_ && comparison_video_->HasVideo()) {
             comparison_video_->SyncPlaybackState(false);
+        }
+
+        // Pause audio playback
+        if (dual_view_audio_) {
+            dual_view_audio_->Pause();
         }
         return;
     }
@@ -1057,7 +1115,23 @@ void VideoPlayer::Stop() {
 }
 
 void VideoPlayer::Seek(double pos) {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        if (pos < 0) pos = 0.0;
+        if (pos > cached_duration) pos = cached_duration;
+        image_sequence_timer_->Seek(pos);
+        cached_position = pos;
+        return;
+    }
+
     if (!mpv) return;
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        timeline_controller_->Seek(pos);
+        return;
+    }
 
     // When dual view timer is active, use SeekDualView instead
     if (dual_view_timer_) {
@@ -1092,6 +1166,28 @@ void VideoPlayer::Seek(double pos) {
 }
 
 void VideoPlayer::StepFrame(int direction) {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        if (direction > 0) {
+            image_sequence_timer_->StepForward(1);
+        } else {
+            image_sequence_timer_->StepBackward(1);
+        }
+        cached_position = image_sequence_timer_->GetPosition();
+        return;
+    }
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        if (direction > 0) {
+            timeline_controller_->StepForward(1);
+        } else {
+            timeline_controller_->StepBackward(1);
+        }
+        return;
+    }
+
     // When dual view timer is active, use timer stepping
     if (dual_view_timer_) {
         if (direction > 0) {
@@ -1114,6 +1210,20 @@ void VideoPlayer::StepFrame(int direction) {
 }
 
 void VideoPlayer::GoToStart() {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        image_sequence_timer_->Seek(0.0);
+        cached_position = 0.0;
+        return;
+    }
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        timeline_controller_->GoToStart();
+        return;
+    }
+
     // When dual view timer is active, seek to virtual timeline start
     if (dual_view_timer_) {
         SeekDualView(0.0);
@@ -1123,6 +1233,24 @@ void VideoPlayer::GoToStart() {
 }
 
 void VideoPlayer::GoToEnd() {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        double end_pos = image_sequence_timer_->GetDuration();
+        // Seek to last frame (one frame before end)
+        double fps = exr_frame_rate > 0 ? exr_frame_rate : 24.0;
+        end_pos = std::max(0.0, end_pos - (1.0 / fps));
+        image_sequence_timer_->Seek(end_pos);
+        cached_position = end_pos;
+        return;
+    }
+
+    // Virtual timeline mode - route to timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        timeline_controller_->GoToEnd();
+        return;
+    }
+
     // When dual view timer is active, seek to virtual timeline end
     if (dual_view_timer_) {
         double virtual_duration = GetVirtualTimelineDuration();
@@ -1187,20 +1315,47 @@ void VideoPlayer::StopFastSeek() {
 void VideoPlayer::UpdateFastSeek() {
     if (!is_fast_seeking) return;
 
-    // When dual view timer is active or in lavfi mode, use virtual timeline position and duration
-    bool use_virtual_timeline = dual_view_timer_ || !current_lavfi_filter_.empty();
-    double current_pos = dual_view_timer_ ? GetVirtualTimelinePosition() : cached_position;
+    // Check if we're in image sequence virtual timeline mode
+    bool is_image_seq_virtual = is_exr_mode && image_sequence_timer_;
+
+    // Check if we're in virtual timeline mode (OTIO timeline with PlaybackTimer)
+    bool is_virtual_timeline = is_timeline_mode_ && timeline_controller_ &&
+                               timeline_controller_->IsVirtualTimelineMode();
+
+    // When dual view timer is active, lavfi mode, or virtual timeline mode
+    bool use_virtual_timeline = dual_view_timer_ || !current_lavfi_filter_.empty() || is_virtual_timeline || is_image_seq_virtual;
+
+    // Get current position from appropriate source
+    double current_pos;
+    if (is_image_seq_virtual) {
+        current_pos = image_sequence_timer_->GetPosition();
+    } else if (is_virtual_timeline) {
+        current_pos = timeline_controller_->GetPosition();
+    } else if (dual_view_timer_) {
+        current_pos = GetVirtualTimelinePosition();
+    } else {
+        current_pos = cached_position;
+    }
+
     double max_duration = cached_duration;
-    if (use_virtual_timeline) {
+    if (is_image_seq_virtual) {
+        // Image sequence mode - get duration from timer
+        max_duration = image_sequence_timer_->GetDuration();
+    } else if (is_virtual_timeline) {
+        // OTIO timeline mode - get duration from timeline controller
+        max_duration = timeline_controller_->GetDuration();
+    } else if (use_virtual_timeline) {
+        // Dual view or lavfi mode
         double virtual_duration = GetVirtualTimelineDuration();
         if (virtual_duration > 0) {
             max_duration = virtual_duration;
         }
     }
 
-    // Use slower base seek for dual view mode (0.033s = ~1 frame at 30fps)
+    // Use slower base seek for virtual timeline modes (0.033s = ~1 frame at 30fps)
     // Normal mode uses faster seeking (0.1s base)
-    double base_seek = dual_view_timer_ ? 0.033 : 0.1;
+    bool use_slow_seek = dual_view_timer_ || is_virtual_timeline || is_image_seq_virtual;
+    double base_seek = use_slow_seek ? 0.033 : 0.1;
     double seek_amount = base_seek * fast_seek_speed;
     if (!fast_forward) seek_amount = -seek_amount;
 
@@ -1208,18 +1363,36 @@ void VideoPlayer::UpdateFastSeek() {
     if (new_pos < 0) new_pos = 0;
     if (new_pos > max_duration) new_pos = max_duration;
 
-    // In dual view mode, use SeekDualView directly for proper sync
-    if (dual_view_timer_) {
+    // Debug logging for FF/RW diagnosis
+    static int ff_log_counter = 0;
+    if (++ff_log_counter % 30 == 0) {  // Log every 30 frames to avoid spam
+        Debug::Log("FastSeek: is_virtual=" + std::to_string(is_virtual_timeline) +
+                   ", cur=" + std::to_string(current_pos) +
+                   ", new=" + std::to_string(new_pos) +
+                   ", dur=" + std::to_string(max_duration) +
+                   ", speed=" + std::to_string(fast_seek_speed) +
+                   ", ff=" + std::to_string(fast_forward));
+    }
+
+    // Route seek to appropriate handler
+    if (is_image_seq_virtual) {
+        // Image sequence mode - seek through timer
+        image_sequence_timer_->Seek(new_pos);
+        cached_position = new_pos;
+    } else if (is_virtual_timeline) {
+        // Virtual timeline mode - seek through timeline controller
+        timeline_controller_->Seek(new_pos);
+    } else if (dual_view_timer_) {
         SeekDualView(new_pos);
     } else {
         Seek(new_pos);
     }
 
-    // Gradually increase speed (slower ramp-up for dual view)
+    // Gradually increase speed (slower ramp-up for virtual timeline modes)
     static int frame_counter = 0;
     frame_counter++;
-    int ramp_frames = dual_view_timer_ ? 90 : 60;  // Slower ramp for dual view
-    int max_speed = dual_view_timer_ ? 6 : 8;      // Lower max speed for dual view
+    int ramp_frames = use_slow_seek ? 90 : 60;  // Slower ramp for virtual timelines
+    int max_speed = use_slow_seek ? 6 : 8;      // Lower max speed for virtual timelines
     if (frame_counter > ramp_frames && fast_seek_speed < max_speed) {
         fast_seek_speed++;
         frame_counter = 0;
@@ -1268,6 +1441,11 @@ float VideoPlayer::GetVolume() const {
 
 void VideoPlayer::SetLoop(bool enabled) {
     loop_enabled = enabled;
+
+    // Sync looping state to image sequence timer
+    if (image_sequence_timer_) {
+        image_sequence_timer_->SetLooping(enabled);
+    }
 
     if (enabled) {
         if (is_playlist_loop_mode) {
@@ -1319,6 +1497,14 @@ void VideoPlayer::SetupPropertyObservation() {
 
 void VideoPlayer::UpdateFromMPVEvents() {
     if (!mpv) return;
+
+    // In virtual timeline mode, MPV is not used - skip event processing entirely
+    // This prevents MPV pause/position events from interfering with PlaybackTimer control
+    if (is_timeline_mode_ && timeline_controller_ && timeline_controller_->IsVirtualTimelineMode()) {
+        // Drain events without processing to prevent queue buildup
+        while (mpv_wait_event(mpv, 0.0)->event_id != MPV_EVENT_NONE) {}
+        return;
+    }
 
     while (true) {
         mpv_event* event = mpv_wait_event(mpv, 0.0);
@@ -1375,8 +1561,10 @@ void VideoPlayer::HandlePropertyChange(const std::string& prop_name, mpv_event_p
         }
     }
     else if (prop_name == "pause" && prop->format == MPV_FORMAT_FLAG && prop->data) {
-        // When dual view timer is active, timer controls is_playing, not MPV events
-        if (!dual_view_timer_) {
+        // When dual view timer or virtual timeline is active, timer controls is_playing, not MPV events
+        bool timer_controls_playback = dual_view_timer_ != nullptr ||
+            (is_timeline_mode_ && timeline_controller_ && timeline_controller_->IsVirtualTimelineMode());
+        if (!timer_controls_playback) {
             is_playing = !(*((int*)prop->data));
         }
     }
@@ -1387,6 +1575,17 @@ void VideoPlayer::HandlePropertyChange(const std::string& prop_name, mpv_event_p
 // ============================================================================
 
 double VideoPlayer::GetPosition() const {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        return image_sequence_timer_->GetPosition();
+    }
+
+    // Virtual timeline mode - get position from timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        return timeline_controller_->GetPosition();
+    }
+
     // When dual view timer is active, return virtual timeline position
     if (dual_view_timer_) {
         return GetVirtualTimelinePosition();
@@ -1395,6 +1594,17 @@ double VideoPlayer::GetPosition() const {
 }
 
 double VideoPlayer::GetDuration() const {
+    // Image sequence virtual timeline mode
+    if (is_exr_mode && image_sequence_timer_) {
+        return image_sequence_timer_->GetDuration();
+    }
+
+    // Virtual timeline mode - get duration from timeline controller
+    if (is_timeline_mode_ && timeline_controller_ &&
+        timeline_controller_->IsVirtualTimelineMode()) {
+        return timeline_controller_->GetDuration();
+    }
+
     // When dual view timer is active or in lavfi mode, return virtual timeline duration
     if (dual_view_timer_ || !current_lavfi_filter_.empty()) {
         double virtual_duration = GetVirtualTimelineDuration();
@@ -1713,11 +1923,6 @@ void VideoPlayer::RenderControls() {
         LoadFile("test.mp4");
     }
 
-    // Test dummy video generation
-    if (ImGui::Button("Test Dummy Generation")) {
-        TestDummyVideoGeneration(1920, 1080, 24.0);
-    }
-
     // EXR Cache Progress and Statistics (when in EXR mode)
     if (is_exr_mode && HasEXRCache()) {
         ImGui::Separator();
@@ -1791,8 +1996,12 @@ void VideoPlayer::UpdateVideoTexture() {
     // Force render for EXR mode to ensure frame updates regardless of dummy video state
     bool force_render_for_exr = (needs_render <= 0) && is_exr_mode && !exr_sequence_files.empty();
 
-    if (needs_render <= 0 && !force_render_for_color && !force_render_for_exr) {
-        // No new frame to render and no color pipeline or EXR needing current frame
+    // Force render for timeline mode (virtual timeline has no MPV dummy, so needs_render may be 0)
+    // Timeline controller drives playback via PlaybackTimer, not MPV
+    bool force_render_for_timeline = (needs_render <= 0) && is_timeline_mode_ && timeline_controller_;
+
+    if (needs_render <= 0 && !force_render_for_color && !force_render_for_exr && !force_render_for_timeline) {
+        // No new frame to render and no special mode needing current frame
         return;
     }
 
@@ -1836,6 +2045,12 @@ void VideoPlayer::UpdateVideoTexture() {
                       GL_COLOR_BUFFER_BIT, GL_LINEAR);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     video_gpu_scheduler.CooperativeYield();
+
+    // 🔧 IMAGE SEQUENCE TIMER UPDATE: Advance timer if playing (virtual timeline mode)
+    if (is_exr_mode && image_sequence_timer_ && image_sequence_timer_->IsPlaying()) {
+        image_sequence_timer_->Update();
+        cached_position = image_sequence_timer_->GetPosition();
+    }
 
     // 🔧 EXR INJECTION POINT: Replace dummy video with current EXR frame
     if (is_exr_mode && !exr_sequence_files.empty()) {
@@ -2201,6 +2416,13 @@ void VideoPlayer::ResetState() {
     // Clean up EXR/image sequence state if active
     if (is_exr_mode) {
         Debug::Log("ResetState: Cleaning up EXR/image sequence state");
+
+        // Stop and reset image sequence timer (virtual timeline mode)
+        if (image_sequence_timer_) {
+            image_sequence_timer_->Pause();
+            image_sequence_timer_.reset();
+            Debug::Log("ResetState: Image sequence timer cleaned up");
+        }
 
         is_exr_mode = false;
         exr_sequence_files.clear();
@@ -3685,12 +3907,6 @@ bool VideoPlayer::CaptureScreenshotToPath(const std::string& directory_path, con
     return success;
 }
 
-// EXR sequence loading (DEPRECATED - use LoadEXRSequenceWithShader instead)
-bool VideoPlayer::LoadEXRSequence(const std::string& sequence_path, const std::string& layer_name, double fps, const std::vector<std::string>& sequence_files) {
-    Debug::Log("LoadEXRSequence: DEPRECATED - redirecting to LoadEXRSequenceWithShader");
-    return LoadEXRSequenceWithShader(sequence_files, layer_name, fps);
-}
-
 bool VideoPlayer::FeedEXRFrame(const void* rgba_data, int width, int height, double timestamp) {
     if (!is_exr_mode || !rgba_data) {
         return false;
@@ -3822,88 +4038,6 @@ bool VideoPlayer::ProcessAndFeedEXRFrame(int frame_index) {
 // Shader Injection EXR Integration
 // ============================================================================
 
-bool VideoPlayer::TestDummyVideoGeneration(int width, int height, double fps) {
-    Debug::Log("Testing dummy video generation: " + std::to_string(width) + "x" +
-               std::to_string(height) + " @ " + std::to_string(fps) + " fps");
-
-    std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps);
-
-    if (dummy_path.empty()) {
-        Debug::Log("ERROR: Failed to generate dummy video");
-        return false;
-    }
-
-    Debug::Log("Successfully generated dummy: " + dummy_path);
-
-    // Test loading the dummy video in MPV
-    LoadFile(dummy_path);
-
-    return true;
-}
-
-bool VideoPlayer::LoadEXRSequenceWithShader(const std::vector<std::string>& sequence_files,
-                                           const std::string& layer_name,
-                                           double fps) {
-    if (sequence_files.empty()) {
-        Debug::Log("ERROR: Empty sequence files list");
-        return false;
-    }
-
-    // Get dimensions from first EXR frame
-    int width, height;
-    if (!ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], width, height)) {
-        //Debug::Log("ERROR: Could not get dimensions from first EXR file: " + sequence_files[0]);
-        return false;
-    }
-
-    Debug::Log("EXR sequence dimensions: " + std::to_string(width) + "x" + std::to_string(height));
-
-    // Generate or get cached dummy video
-    std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps);
-
-    if (dummy_path.empty()) {
-        Debug::Log("ERROR: Failed to generate dummy video");
-        return false;
-    }
-
-    // Load dummy video in MPV (handles timeline automatically)
-    // NOTE: LoadFile clears content dimensions, so we set them AFTER
-    LoadFile(dummy_path);
-
-    // Store content dimensions for overlay mode (allows 1x1 dummies)
-    // Must be after LoadFile since that clears content dimensions
-    SetContentDimensions(width, height);
-
-    // Override timeline to match EXR sequence length
-    // Add one extra frame time to ensure last frame is fully visible before loop
-    double duration = (sequence_files.size() + 1) / fps;
-    mpv_set_property(mpv, "length", MPV_FORMAT_DOUBLE, &duration);
-    Debug::Log("EXR sequence duration set to " + std::to_string(duration) + "s (includes last frame display time)");
-    mpv_set_property_string(mpv, "loop-file", "inf");  // Loop short dummy
-
-    // TODO: Load EXR replacement shader
-    // mpv_set_property_string(mpv, "glsl-shaders-append", "shaders/exr_injection.glsl");
-
-    // Store sequence data for frame processing
-    exr_sequence_files = sequence_files;
-    exr_layer_name = layer_name;
-    exr_frame_rate = fps;
-    exr_frame_count = static_cast<int>(sequence_files.size());
-
-    // Extract and cache EXR metadata for inspector
-    VideoMetadata exr_metadata = ExtractEXRMetadata(sequence_files, layer_name, fps);
-    Debug::Log("ExtractEXRMetadata completed, calling project manager to cache metadata");
-
-    // TODO: Need to pass this to ProjectManager for caching
-    // This will make EXR metadata appear in the inspector panel
-
-    // TODO: Process initial frame to setup texture
-    // return ProcessAndUploadEXRFrame(0);
-
-    Debug::Log("EXR sequence loaded with shader approach (shader loading pending)");
-    return true;
-}
-
 // Helper function to extract start frame number from image sequence filenames
 static int ExtractStartFrameFromSequence(const std::vector<std::string>& files) {
     if (files.empty()) return 0;
@@ -3925,6 +4059,35 @@ static int ExtractStartFrameFromSequence(const std::vector<std::string>& files) 
     }
 
     return 0; // Fallback to 0 if no frame number found
+}
+
+// ============================================================================
+// Image Sequence Timer Initialization (Virtual Timeline Mode)
+// ============================================================================
+
+bool VideoPlayer::InitializeImageSequenceTimer(double duration, double fps) {
+    // Create timer for image sequence playback (replaces dummy video)
+    image_sequence_timer_ = std::make_unique<ump::PlaybackTimer>();
+    image_sequence_timer_->SetDuration(duration);
+    image_sequence_timer_->SetFrameRate(fps);
+    image_sequence_timer_->SetLooping(loop_enabled);
+    image_sequence_timer_->Seek(0.0);
+
+    // Loop callback
+    image_sequence_timer_->SetOnLoop([this]() {
+        Debug::Log("Image sequence looped");
+    });
+
+    // End callback (pause at end if not looping)
+    image_sequence_timer_->SetOnEnd([this]() {
+        Debug::Log("Image sequence reached end");
+        is_playing = false;
+    });
+
+    cached_duration = duration;
+    Debug::Log("Image sequence timer initialized: duration=" + std::to_string(duration) +
+               "s, fps=" + std::to_string(fps) + ", loop=" + std::to_string(loop_enabled));
+    return true;
 }
 
 bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files,
@@ -4002,31 +4165,21 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     double duration = static_cast<double>(sequence_files.size()) / fps;
     Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames)");
 
-    // Generate or get cached dummy video with full duration
-    std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, duration);
-    if (dummy_path.empty()) {
-        Debug::Log("ERROR: Failed to generate full-duration dummy video");
+    // Initialize virtual timeline (no dummy video needed)
+    if (!InitializeImageSequenceTimer(duration, fps)) {
+        Debug::Log("ERROR: Failed to initialize image sequence timer");
         return false;
     }
 
-    Debug::Log("Using full-duration dummy video: " + dummy_path);
+    // Set content dimensions for rendering
+    SetContentDimensions(width, height);
 
-    // Load dummy video in MPV (no duration override needed - dummy matches sequence length)
-    // CRITICAL: Use async load for EXR mode - don't block UI waiting for dummy
-    if (!mpv) return false;
+    // Ensure FBO resources exist for rendering
+    if (fbo == 0) {
+        CreateVideoTextures(width, height);
+    }
 
-    const char* cmd[] = {"loadfile", dummy_path.c_str(), nullptr};
-    mpv_command_async(mpv, 0, cmd);  // Async load - don't block!
-    Debug::Log("Started async dummy video load (non-blocking)");
-
-    // Reapply loop settings for the dummy video (MPV resets settings on new file load)
-    SetLoop(loop_enabled);
-    Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
-
-    // NEW: Always load in paused state (deliberate autoplay control)
-    // Image sequences never autoplay - need cache warmup time
-    Pause();
-    Debug::Log("LoadEXRSequenceWithDummy: Dummy video loaded in paused state (no autoplay for image sequences)");
+    Debug::Log("LoadEXRSequenceWithDummy: Using virtual timeline (no dummy video)");
 
     // Store sequence data for frame processing
     exr_sequence_files = sequence_files;
@@ -4238,32 +4391,23 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
 
     // Calculate actual sequence duration
     double sequence_duration = static_cast<double>(sequence_files.size()) / fps;
+    Debug::Log("Image sequence duration: " + std::to_string(sequence_duration) + "s (" + std::to_string(sequence_files.size()) + " frames)");
 
-    // Generate dummy video for the full sequence duration
-    std::string dummy_path = dummy_generator.GetDummyFor(width, height, fps, sequence_duration);
-    Debug::Log("Image sequence duration set to " + std::to_string(sequence_duration) + "s (" + std::to_string(sequence_files.size()) + " frames)");
-    if (dummy_path.empty()) {
-        Debug::Log("ERROR: Failed to generate full-duration dummy video");
+    // Initialize virtual timeline (no dummy video needed)
+    if (!InitializeImageSequenceTimer(sequence_duration, fps)) {
+        Debug::Log("ERROR: Failed to initialize image sequence timer");
         return false;
     }
 
-    Debug::Log("Using full-duration dummy video: " + dummy_path);
+    // Set content dimensions for rendering
+    SetContentDimensions(width, height);
 
-    // Load dummy video in MPV (async to avoid blocking UI)
-    if (!mpv) return false;
+    // Ensure FBO resources exist for rendering
+    if (fbo == 0) {
+        CreateVideoTextures(width, height);
+    }
 
-    const char* cmd[] = {"loadfile", dummy_path.c_str(), nullptr};
-    mpv_command_async(mpv, 0, cmd);
-    Debug::Log("Started async dummy video load (non-blocking)");
-
-    // Reapply loop settings for the dummy video
-    SetLoop(loop_enabled);
-    Debug::Log("Reapplied loop setting: " + std::string(loop_enabled ? "enabled" : "disabled"));
-
-    // NEW: Always load in paused state (deliberate autoplay control)
-    // Image sequences never autoplay - need cache warmup time
-    Pause();
-    Debug::Log("LoadImageSequenceWithCache: Dummy video loaded in paused state (no autoplay for image sequences)");
+    Debug::Log("LoadImageSequenceWithCache: Using virtual timeline (no dummy video)");
 
     // Store sequence data for frame processing (reuse EXR infrastructure)
     exr_sequence_files = sequence_files;
@@ -4475,33 +4619,13 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         last_log_time = now;
     }
 
-    // SEAMLESS LOOPING: Wrap-around caching eliminates need for loop pause
-    // Cache pre-loads frames 0-20 when approaching end of sequence (if looping enabled)
+    // SEAMLESS LOOPING: Now handled by PlaybackTimer callbacks (SetOnLoop, SetOnEnd)
+    // - SetOnLoop: Called when timer wraps, logs event
+    // - SetOnEnd: Called when reaching end without looping, pauses playback
+    // DirectEXRCache wrap-around caching pre-loads frames 0-20 when approaching end (if looping enabled)
     // This allows smooth, hitch-free looping without interruption
-    // Old strategy (pausing at loop point) removed - now handled by DirectEXRCache wrap-around logic
 
-    // Handle end-of-sequence behavior AFTER pre-caching
-    // Check MPV's actual position to detect loop/end conditions
-    if (is_playing && mpv) {
-        double mpv_position = 0.0;
-        if (mpv_get_property(mpv, "time-pos", MPV_FORMAT_DOUBLE, &mpv_position) == 0) {
-            if (loop_enabled) {
-                // Loop: seek MPV back when it exceeds duration
-                if (mpv_position >= sequence_duration) {
-                    Debug::Log("EXR loop: MPV position " + std::to_string(mpv_position) + "s >= " +
-                              std::to_string(sequence_duration) + "s, seeking to 0");
-                    mpv_command_string(mpv, "seek 0 absolute");
-                }
-            } else {
-                // No loop: pause when reaching end
-                if (mpv_position >= sequence_duration - (0.5 / exr_frame_rate)) {
-                    Debug::Log("EXR end: pausing at " + std::to_string(mpv_position) + "s");
-                    Pause();
-                    return; // Don't inject more frames after pausing
-                }
-            }
-        }
-    }
+    // NOTE: No MPV-based loop detection needed - image_sequence_timer_ handles all timing
 
     // Use DirectEXRCache with automatic load-on-miss
     if (exr_cache_) {
@@ -4845,61 +4969,6 @@ void VideoPlayer::ClearColorTextureToBackground() {
     glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
 
     Debug::Log("VideoPlayer: Cleared color texture to background");
-}
-
-void VideoPlayer::SwapTimelineDummy(const std::string& new_dummy_path) {
-    // Lightweight dummy swap for timeline mode
-    // Only swaps the MPV file - does NOT clear caches, reset state, or touch timeline controller
-    // Used when timeline duration changes and we need a longer/shorter dummy
-
-    if (!mpv || !is_timeline_mode_) {
-        Debug::Log("SwapTimelineDummy: Not in timeline mode or no MPV");
-        return;
-    }
-
-    if (new_dummy_path.empty()) {
-        Debug::Log("SwapTimelineDummy: Empty path");
-        return;
-    }
-
-    Debug::Log("SwapTimelineDummy: Swapping to " + new_dummy_path);
-
-    // Store current position and play state
-    double current_pos = GetPosition();
-    bool was_playing = IsPlaying();
-
-    // Just send loadfile command - no cache clearing, no state reset
-    const char* cmd[] = { "loadfile", new_dummy_path.c_str(), nullptr };
-    if (mpv_command(mpv, cmd) < 0) {
-        Debug::Log("SwapTimelineDummy: ERROR - Failed to send loadfile command");
-        return;
-    }
-
-    // Wait briefly for file to load
-    // Use a shorter timeout than full LoadFile since dummy videos are tiny
-    for (int i = 0; i < 50; i++) {  // 500ms max
-        mpv_event* event = mpv_wait_event(mpv, 0.01);
-        if (event->event_id == MPV_EVENT_FILE_LOADED) {
-            break;
-        }
-        if (event->event_id == MPV_EVENT_END_FILE) {
-            Debug::Log("SwapTimelineDummy: File ended unexpectedly");
-            break;
-        }
-    }
-
-    // Restore position (clamp to new duration if needed)
-    Seek(current_pos);
-
-    // Restore play state
-    if (!was_playing) {
-        Pause();
-    }
-
-    // Reapply loop settings
-    SetLoop(loop_enabled);
-
-    Debug::Log("SwapTimelineDummy: Complete, restored to " + std::to_string(current_pos) + "s");
 }
 
 void VideoPlayer::InjectCurrentTimelineFrame() {
@@ -5470,28 +5539,24 @@ std::vector<ump::CacheSegment> VideoPlayer::GetEXRCacheSegments() const {
 }
 
 void VideoPlayer::SetCacheSettings(const std::string& custom_path, int retention_days,
-                                   int dummy_max_gb, int transcode_max_gb, bool clear_on_exit) {
-    // Apply to DummyVideoGenerator
-    dummy_generator.SetCacheConfig(custom_path, retention_days, dummy_max_gb, clear_on_exit);
+                                   int transcode_max_gb, bool clear_on_exit) {
+    // Note: DummyVideoGenerator removed - no longer need dummy video cache settings
 
     Debug::Log("VideoPlayer: Disk cache settings updated - retention=" + std::to_string(retention_days) +
-              " days, dummy limit=" + std::to_string(dummy_max_gb) + " GB, transcode limit=" +
-              std::to_string(transcode_max_gb) + " GB, clear on exit=" + std::string(clear_on_exit ? "ON" : "OFF"));
+              " days, transcode limit=" + std::to_string(transcode_max_gb) +
+              " GB, clear on exit=" + std::string(clear_on_exit ? "ON" : "OFF"));
 }
 
 size_t VideoPlayer::ClearEXRDiskCache() {
     size_t total_bytes = 0;
 
-    // Clear dummy videos (already configured with custom cache path via SetCacheSettings)
-    total_bytes += dummy_generator.ClearAllDummies();
+    // Note: DummyVideoGenerator removed - no longer create dummy video files
 
     // Clear EXR transcodes
-    // NOTE: We create a temporary transcoder and configure it with the same settings
-    // as the dummy generator to ensure it checks both default and custom cache paths
+    // NOTE: We create a temporary transcoder and configure it with the current cache settings
     static ump::EXRTranscoder transcoder;
 
     // Configure transcoder with current cache settings (custom path, retention, etc.)
-    // The dummy_generator already has these settings from SetCacheSettings()
     extern std::string g_custom_cache_path;
     extern int g_cache_retention_days;
     extern int g_transcode_cache_max_gb;
@@ -5642,6 +5707,9 @@ void VideoPlayer::LoadComparisonVideo(const std::string& path) {
 
     Debug::Log("VideoPlayer: Loading comparison video: " + path);
 
+    // Clear any previous trim points before loading new file
+    ClearSecondaryTrimPoints();
+
     if (!comparison_video_->LoadFile(path)) {
         Debug::Log("ERROR: Failed to load comparison video: " + path);
         return;
@@ -5658,6 +5726,115 @@ void VideoPlayer::LoadComparisonVideo(const std::string& path) {
     if (dual_view_timeline_.HasAnyClip() && dual_view_timeline_.right.IsLoaded()) {
         InitializeDualViewPlayback();
     }
+}
+
+void VideoPlayer::LoadPrimaryVideoInDualView(const std::string& path) {
+    if (!comparison_mode_enabled_) {
+        Debug::Log("ERROR: Cannot load primary in dual view - comparison mode not enabled");
+        // Fall back to regular load
+        LoadFile(path);
+        return;
+    }
+
+    Debug::Log("VideoPlayer: Loading primary video in dual view: " + path);
+
+    // Stop current dual view playback
+    if (dual_view_timer_) {
+        dual_view_timer_.reset();
+    }
+
+    // Stop audio
+    if (dual_view_audio_) {
+        dual_view_audio_->Stop();
+    }
+
+    // Clear EXR mode flag BEFORE cache shutdown
+    is_exr_mode = false;
+
+    // Clear content dimensions (overlay mode) - new media will set its own if needed
+    content_width_ = 0;
+    content_height_ = 0;
+    use_content_dimensions_ = false;
+
+    // Switch video_texture to placeholder BEFORE destroying any cache textures
+    video_texture = transition_placeholder_texture_;
+    video_width = transition_placeholder_width_;
+    video_height = transition_placeholder_height_;
+    has_video = true;
+    exr_texture = 0;
+
+    // Clear color texture to background
+    ClearColorTextureToBackground();
+
+    // Clear caches
+    if (cache_clear_callback) {
+        Debug::Log("LoadPrimaryVideoInDualView: Clearing video cache");
+        cache_clear_callback();
+    }
+
+    if (exr_cache_) {
+        Debug::Log("LoadPrimaryVideoInDualView: Clearing EXR cache");
+        exr_cache_->Shutdown();
+        while (exr_cache_->HasPendingTextureDeletions()) {
+            exr_cache_->ProcessReadyTextures();
+        }
+        exr_cache_.reset();
+    }
+
+    if (thumbnail_cache_) {
+        Debug::Log("LoadPrimaryVideoInDualView: Clearing thumbnail cache");
+        thumbnail_cache_->ClearCache();
+        thumbnail_cache_.reset();
+    }
+
+    // Reset some state but preserve comparison mode
+    current_file_path.clear();
+    is_image_sequence = false;
+    image_sequence_frame_rate = 24.0;
+
+    ConfigureForSingleFile();
+
+    if (has_video) {
+        Stop();
+    }
+
+    // Store current file path
+    current_file_path = path;
+
+    Debug::Log("LoadPrimaryVideoInDualView: Sending loadfile command to MPV");
+    const char* cmd[] = { "loadfile", path.c_str(), nullptr };
+    if (mpv_command(mpv, cmd) < 0) {
+        Debug::Log("LoadPrimaryVideoInDualView: ERROR - Failed to send loadfile command");
+        return;
+    }
+
+    WaitForFileLoad(false);
+    FinalizeLoad();
+
+    // Load in paused state
+    Pause();
+    Debug::Log("LoadPrimaryVideoInDualView: Media loaded in paused state");
+    Debug::Log("LoadPrimaryVideoInDualView: cached_duration=" + std::to_string(cached_duration) +
+               ", cached_fps=" + std::to_string(cached_fps) +
+               ", video_width=" + std::to_string(video_width) +
+               ", video_height=" + std::to_string(video_height));
+
+    // Update dual view clip data from newly loaded primary
+    UpdateDualViewClipFromPrimary();
+
+    Debug::Log("LoadPrimaryVideoInDualView: After UpdateDualViewClipFromPrimary - left.source_duration=" +
+               std::to_string(dual_view_timeline_.left.source_duration) +
+               ", left.duration=" + std::to_string(dual_view_timeline_.left.duration));
+
+    // Re-initialize dual view playback if secondary is also loaded
+    if (dual_view_timeline_.HasBothClips()) {
+        InitializeDualViewPlayback();
+    } else if (dual_view_timeline_.left.IsLoaded()) {
+        // Only primary loaded - still initialize timer for single clip playback
+        InitializeDualViewPlayback();
+    }
+
+    Debug::Log("VideoPlayer: Primary video loaded in dual view successfully");
 }
 
 void VideoPlayer::UnloadComparisonVideo() {
@@ -5832,29 +6009,63 @@ void VideoPlayer::UpdateDualViewClipFromPrimary() {
 void VideoPlayer::UpdateDualViewClipFromSecondary() {
     // Sync right clip from secondary video
     if (comparison_video_ && comparison_video_->HasVideo()) {
-        dual_view_timeline_.right.source_path = comparison_video_->GetFilePath();
+        // Check if this is a new file (path changed)
+        std::string new_path = comparison_video_->GetFilePath();
+        bool is_new_file = (dual_view_timeline_.right.source_path != new_path);
+
+        if (is_new_file) {
+            Debug::Log("UpdateDualViewClipFromSecondary: NEW FILE detected");
+            Debug::Log("  Old path: " + dual_view_timeline_.right.source_path);
+            Debug::Log("  New path: " + new_path);
+        }
+
+        dual_view_timeline_.right.source_path = new_path;
         dual_view_timeline_.right.width = comparison_video_->GetWidth();
         dual_view_timeline_.right.height = comparison_video_->GetHeight();
 
         // Use cached metadata from ComparisonVideoPlayer (probed on file load)
         dual_view_timeline_.right.fps = comparison_video_->GetFrameRate();
-        dual_view_timeline_.right.source_duration = comparison_video_->GetDuration();
+        double new_duration = comparison_video_->GetDuration();
 
-        // Initialize trim to full source if not already set
-        if (dual_view_timeline_.right.source_out <= 0 ||
+        if (is_new_file) {
+            Debug::Log("  New duration from comparison_video_: " + std::to_string(new_duration));
+            Debug::Log("  Old source_duration: " + std::to_string(dual_view_timeline_.right.source_duration));
+        }
+
+        dual_view_timeline_.right.source_duration = new_duration;
+
+        // Reset trim to full source when loading a new file, or if current trim is invalid
+        if (is_new_file ||
+            dual_view_timeline_.right.source_out <= 0 ||
             dual_view_timeline_.right.source_out > dual_view_timeline_.right.source_duration) {
             dual_view_timeline_.right.source_in = 0.0;
             dual_view_timeline_.right.source_out = dual_view_timeline_.right.source_duration;
             dual_view_timeline_.right.duration = dual_view_timeline_.right.source_duration;
+
+            if (is_new_file) {
+                Debug::Log("  Reset trim to full source: source_out=" + std::to_string(dual_view_timeline_.right.source_out) +
+                           ", duration=" + std::to_string(dual_view_timeline_.right.duration));
+            }
         }
 
         // Apply current trim points if they exist
         if (secondary_trim_start_ >= 0) {
+            Debug::Log("  WARNING: Applying secondary trim override: start=" + std::to_string(secondary_trim_start_) +
+                       ", duration=" + std::to_string(secondary_trim_duration_));
             dual_view_timeline_.right.source_in = secondary_trim_start_;
             if (secondary_trim_duration_ > 0) {
                 dual_view_timeline_.right.source_out = secondary_trim_start_ + secondary_trim_duration_;
             }
             dual_view_timeline_.right.duration = dual_view_timeline_.right.source_out - dual_view_timeline_.right.source_in;
+        }
+
+        // Log final values
+        if (is_new_file) {
+            Debug::Log("  FINAL right clip: source_duration=" + std::to_string(dual_view_timeline_.right.source_duration) +
+                       ", source_in=" + std::to_string(dual_view_timeline_.right.source_in) +
+                       ", source_out=" + std::to_string(dual_view_timeline_.right.source_out) +
+                       ", duration=" + std::to_string(dual_view_timeline_.right.duration) +
+                       ", GetEffectiveDuration()=" + std::to_string(dual_view_timeline_.right.GetEffectiveDuration()));
         }
 
         dual_view_timeline_.UpdateDuration();
@@ -6137,6 +6348,31 @@ bool VideoPlayer::InitializeDualViewPlayback() {
 
     is_playing = false;  // Start paused
 
+    // Initialize audio player for left video
+    if (!dual_view_audio_) {
+        dual_view_audio_ = std::make_unique<ump::AudioPlayer>();
+        if (!dual_view_audio_->Initialize()) {
+            Debug::Log("InitializeDualViewPlayback: Failed to initialize audio player (continuing without audio)");
+            dual_view_audio_.reset();
+        }
+    }
+
+    // Load audio from left video if audio player initialized
+    // Use the original source path (not lavfi path which is for video filters)
+    std::string audio_source_path = dual_view_timeline_.left.source_path;
+
+    if (dual_view_audio_ && dual_view_timeline_.left.IsLoaded() && !audio_source_path.empty()) {
+        ump::AudioClipConfig audio_config;
+        audio_config.source_in = dual_view_timeline_.left.source_in;
+        audio_config.source_out = dual_view_timeline_.left.source_out;
+        audio_config.position_offset = dual_view_timeline_.left.position_offset;
+        audio_config.source_duration = dual_view_timeline_.left.source_duration;
+
+        if (dual_view_audio_->LoadClip(audio_source_path, audio_config)) {
+            dual_view_audio_->SetTimer(dual_view_timer_.get());
+        }
+    }
+
     Debug::Log("InitializeDualViewPlayback: Timer initialized with duration=" +
               std::to_string(virtual_duration) + "s, fps=" + std::to_string(fps));
     return true;
@@ -6150,6 +6386,11 @@ void VideoPlayer::UpdateDualViewTimer() {
     // Update the timer (advances position if playing)
     // The OnPositionChanged callback handles seeking both videos
     dual_view_timer_->Update();
+
+    // Update audio sync
+    if (dual_view_audio_) {
+        dual_view_audio_->Update();
+    }
 }
 
 void VideoPlayer::OnVirtualTimelineDurationChanged() {
@@ -6224,6 +6465,15 @@ void VideoPlayer::ExitLavfiMode() {
         comparison_video_->Cleanup();
         comparison_video_.reset();
     }
+
+    // 4.5. Cleanup dual view audio player
+    if (dual_view_audio_) {
+        dual_view_audio_->Shutdown();
+        dual_view_audio_.reset();
+    }
+
+    // 4.6. Cleanup dual view timer
+    dual_view_timer_.reset();
 
     // 5. Destroy current MPV instance
     if (mpv_gl) {
@@ -6400,10 +6650,14 @@ void VideoPlayer::TransitionToLavfiMode(ComparisonMode lavfi_mode, int viewport_
     }
     comparison_mode_enabled_ = false;
 
-    // CRITICAL: Reset dual view timer - lavfi mode uses native MPV playback, not timer-driven seeks
+    // CRITICAL: Reset dual view timer and audio - lavfi mode uses native MPV playback, not timer-driven seeks
     if (dual_view_timer_) {
         Debug::Log("Resetting dual_view_timer_ for lavfi mode");
         dual_view_timer_.reset();
+    }
+    if (dual_view_audio_) {
+        dual_view_audio_->Shutdown();
+        dual_view_audio_.reset();
     }
 
     // Load with lavfi using original paths

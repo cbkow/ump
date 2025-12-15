@@ -20,7 +20,6 @@ namespace ump {
 
 // Forward declarations
 class TimelinePlaybackController;
-class DummyVideoGenerator;
 
 // Flattening engine - computes visible clip at any timestamp
 class TimelineFlattener {
@@ -35,6 +34,9 @@ public:
     // Get flattened result at specific time
     std::string GetVisibleClipPathAtTime(double timestamp);
     const OTIOClip* GetVisibleClipAtTime(double timestamp);
+
+    // Get audible clip (top-layer video clip where track is not audio_muted)
+    const OTIOClip* GetAudibleClipAtTime(double timestamp);
 
     // Get all enabled audio tracks (for mixing)
     std::vector<std::string> GetAudibleClipPathsAtTime(double timestamp);
@@ -76,6 +78,11 @@ public:
     int GetAudioTrackCount() const;
     std::string GetSourceFilePath() const { return source_file_path_; }
     std::string GetSourceDirectory() const;
+
+    // Canvas dimensions (output resolution for multi-resolution support)
+    void SetCanvasDimensions(int width, int height) { canvas_width_ = width; canvas_height_ = height; }
+    int GetCanvasWidth() const { return canvas_width_; }
+    int GetCanvasHeight() const { return canvas_height_; }
 
     // Access to tracks for external rendering
     std::vector<OTIOTrack>& GetTracks() { return tracks_; }
@@ -121,7 +128,7 @@ public:
 
     // Playback controller for timeline mode
     // Call InitializePlayback() after loading EDL/OTIO and linking media
-    bool InitializePlayback(DummyVideoGenerator* dummy_generator);
+    bool InitializePlayback();
     void ShutdownPlayback();
     TimelinePlaybackController* GetPlaybackController() const { return playback_controller_.get(); }
     bool HasPlaybackController() const { return playback_controller_ != nullptr || external_playback_controller_ != nullptr; }
@@ -150,6 +157,7 @@ public:
     // Zoom/Pan control for external UI (sliders)
     float GetZoomLevel() const { return zoom_level_; }
     void SetZoomLevel(float zoom);
+    void SetZoomLevelAroundTime(float zoom, double time);  // Zoom keeping time position stable
     float GetScrollOffset() const { return scroll_offset_x_; }
     void SetScrollOffset(float offset);
     float GetMaxScrollOffset() const;
@@ -209,6 +217,8 @@ private:
     double timeline_duration_ = 0.0;
     double frame_rate_ = 24.0;
     double current_time_ = 0.0;
+    int canvas_width_ = 1920;     // Output canvas width (default HD)
+    int canvas_height_ = 1080;    // Output canvas height (default HD)
 
     // UI state
     enum class FlattenMode {

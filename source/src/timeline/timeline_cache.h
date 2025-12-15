@@ -72,6 +72,8 @@ struct SourceCoords {
     double clip_start_time = 0.0;
     double clip_duration = 0.0;
     double source_in = 0.0;  // For debugging source frame calculation
+    double source_fps = 0.0; // For debugging FPS mismatch
+    double source_duration = 0.0;  // For debugging frame count
 };
 
 //=============================================================================
@@ -230,7 +232,9 @@ public:
 
     // Get frame for display (returns 0 if not ready)
     // Must be called from GL thread
-    GLuint GetFrame(int timeline_frame, int& width, int& height);
+    // If got_exact_frame is provided, it will be set to true only if the exact requested frame was returned
+    // (false means a fallback/held frame was returned)
+    GLuint GetFrame(int timeline_frame, int& width, int& height, bool* got_exact_frame = nullptr);
 
     // Request frame to be loaded (async)
     // Can be called from any thread
@@ -283,6 +287,11 @@ public:
     // Get source coordinates for a timeline frame (for debugging/UI)
     SourceCoords GetSourceCoords(int timeline_frame) const;
 
+    // Check if a specific frame is ready for display (in cache or decoder buffer)
+    // This is a lightweight check - doesn't trigger loading or modify state
+    // Used by playback controller to decide whether to advance the timer
+    bool HasFrameReady(int timeline_frame) const;
+
     // Get frame directly by source path and frame number (for slip/trim preview)
     // This bypasses the flattener and looks up cached source frames directly
     // Returns 0 if not cached, queues async load if not available
@@ -296,6 +305,15 @@ public:
     // Must be called from GL thread after Initialize()
     // This prevents OpenGL corruption when transitioning between clips and gaps
     void SetGapTextureDimensions(int width, int height);
+
+    // Set canvas dimensions for consistent output sizing
+    // All GetFrame() calls will report these dimensions regardless of actual frame size
+    // This prevents flickering when clips have different resolutions
+    void SetCanvasDimensions(int width, int height);
+
+    // Get canvas dimensions
+    int GetCanvasWidth() const { return canvas_width_; }
+    int GetCanvasHeight() const { return canvas_height_; }
 
 private:
     //=========================================================================
@@ -431,6 +449,7 @@ private:
     GLuint last_good_texture_ = 0;
     int last_good_width_ = 0;
     int last_good_height_ = 0;
+    int last_good_frame_ = -1;  // Timeline frame number of last_good_texture_
 
     // Post-edit state: After an edit, disable "closest frame" fallback briefly
     // This prevents showing stale frames from the decoder's pre-edit buffer
@@ -452,6 +471,35 @@ private:
     // Textures marked for deletion (delete on GL thread)
     std::vector<GLuint> textures_to_delete_;
     std::mutex delete_mutex_;
+
+    //=========================================================================
+    // Canvas Dimensions - Consistent output size for all frames
+    // Prevents flickering when clips have different resolutions
+    //=========================================================================
+
+    int canvas_width_ = 0;
+    int canvas_height_ = 0;
+
+    //=========================================================================
+    // Letterbox Compositing - GPU-side aspect ratio preservation
+    // Composites source frames onto canvas with letterbox/pillarbox
+    //=========================================================================
+
+    GLuint letterbox_shader_ = 0;
+    GLuint letterbox_quad_vao_ = 0;
+    GLuint letterbox_quad_vbo_ = 0;
+    GLuint letterbox_fbo_ = 0;
+    GLuint letterbox_output_texture_ = 0;
+    int letterbox_output_width_ = 0;
+    int letterbox_output_height_ = 0;
+
+    // Initialize letterbox shader and resources (called on first use)
+    void InitializeLetterboxShader();
+    void CleanupLetterboxResources();
+
+    // Composite source texture onto canvas with letterbox/pillarbox
+    // Returns texture at canvas dimensions with aspect ratio preserved
+    GLuint CompositeFrameToCanvas(GLuint source_texture, int src_w, int src_h);
 
     //=========================================================================
     // Gap Texture - Persistent black texture for timeline gaps

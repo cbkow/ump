@@ -50,6 +50,23 @@ namespace ump {
         double in_point = -1.0;       // In point timestamp in seconds (-1 = not set)
         double out_point = -1.0;      // Out point timestamp in seconds (-1 = not set)
 
+        // View state for restoring zoom/pan/playhead when switching media
+        struct ViewState {
+            float zoom_level = 1.0f;       // Standard timeline zoom (1.0 = fit to width)
+            float scroll_offset = 0.0f;    // Standard timeline pan offset
+            double playhead_position = 0.0; // Playhead time in seconds
+
+            // OTIO timeline specific (only used for MediaType::TIMELINE)
+            float timeline_zoom = 50.0f;   // Pixels per second (default: 50)
+            float timeline_scroll = 0.0f;  // Horizontal scroll offset
+            double timeline_playhead = 0.0; // OTIO timeline playhead position
+
+            // Timeline In/Out points (per-timeline range markers)
+            double timeline_in_point = -1.0;   // -1 = not set
+            double timeline_out_point = -1.0;  // -1 = not set
+        };
+        ViewState view_state;
+
         // Timeline-specific fields (for MediaType::TIMELINE)
         std::string timeline_id;      // Reference to timeline data
         std::string timeline_format;  // "otio", "edl", "aaf", "xml"
@@ -76,6 +93,7 @@ namespace ump {
             bool is_video = true;
             bool visible = true;
             bool muted = false;
+            bool audio_muted = false;  // Audio mute for video tracks (video displays, audio silent)
             int z_index = 0;
         };
         std::vector<CachedTrackMetadata> track_metadata;  // Saved track structure

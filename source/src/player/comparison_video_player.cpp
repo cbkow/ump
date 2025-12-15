@@ -95,9 +95,9 @@ bool ComparisonVideoPlayer::LoadFile(const std::string& path) {
         return false;
     }
 
-    file_path_ = path;
-
     // Wait for file to load (simple blocking wait)
+    // Note: When replacing a file, MPV sends END_FILE for the old file before FILE_LOADED for the new one
+    // So we need to ignore END_FILE events and only look for FILE_LOADED or errors
     bool file_loaded = false;
     int wait_count = 0;
     const int max_wait = 100; // 10 seconds max
@@ -107,8 +107,13 @@ bool ComparisonVideoPlayer::LoadFile(const std::string& path) {
         if (event->event_id == MPV_EVENT_FILE_LOADED) {
             file_loaded = true;
         } else if (event->event_id == MPV_EVENT_END_FILE) {
-            Debug::Log("ERROR: ComparisonVideoPlayer: File load failed or ended early");
-            return false;
+            // Check if this is an error or just the old file ending
+            mpv_event_end_file* end_file = (mpv_event_end_file*)event->data;
+            if (end_file && end_file->reason == MPV_END_FILE_REASON_ERROR) {
+                Debug::Log("ERROR: ComparisonVideoPlayer: File load error");
+                return false;
+            }
+            // Otherwise it's just the old file ending - continue waiting
         }
         wait_count++;
     }
@@ -117,6 +122,9 @@ bool ComparisonVideoPlayer::LoadFile(const std::string& path) {
         Debug::Log("ERROR: ComparisonVideoPlayer: Timeout waiting for file load");
         return false;
     }
+
+    // Only set the file path after successful load
+    file_path_ = path;
 
     // Get video dimensions
     UpdateProperties();
@@ -292,11 +300,11 @@ void ComparisonVideoPlayer::UpdateVideoTexture() {
 
     // Debug: Log render call (only every 60 frames)
     static int render_counter = 0;
-    if (render_counter++ % 60 == 0) {
+    /*if (render_counter++ % 60 == 0) {
         Debug::Log("ComparisonVideoPlayer: Rendering to FBO " + std::to_string(fbo_) +
                    ", texture " + std::to_string(texture_) +
                    ", size " + std::to_string(width_) + "x" + std::to_string(height_));
-    }
+    }*/
 
     mpv_render_context_render(mpv_gl_, params);
 }

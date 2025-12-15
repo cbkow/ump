@@ -6,6 +6,9 @@ D:\z_DevTemp\UnionPlayer\src\annotations\annotation_serializer.cpp;D:\z_DevTemp\
 D:\z_DevTemp\UnionPlayer\src\annotations\annotation_toolbar.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\annotation_toolbar.obj
 D:\z_DevTemp\UnionPlayer\src\annotations\stroke_smoother.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\stroke_smoother.obj
 D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\viewport_annotator.obj
+D:\z_DevTemp\UnionPlayer\src\audio\audio_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_decoder.obj
+D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_mixer.obj
+D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_player.obj
 D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ocio_config_manager.obj
 D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ocio_pipeline.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\gpu_compute_processor.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\gpu_compute_processor.obj
@@ -34,6 +37,7 @@ D:\z_DevTemp\UnionPlayer\src\player\image_loaders.cpp;D:\z_DevTemp\UnionPlayer\b
 D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\image_sequence_config.obj
 D:\z_DevTemp\UnionPlayer\src\player\lavfi_filter_generator.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\lavfi_filter_generator.obj
 D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\media_background_extractor.obj
+D:\z_DevTemp\UnionPlayer\src\player\playback_timer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\playback_timer.obj
 D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\shared_memory_pool.obj
 D:\z_DevTemp\UnionPlayer\src\player\streaming_video_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\streaming_video_decoder.obj
 D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\thumbnail_cache.obj
@@ -59,6 +63,7 @@ D:\z_DevTemp\UnionPlayer\src\transcode\transcode_worker_pool.cpp;D:\z_DevTemp\Un
 D:\z_DevTemp\UnionPlayer\src\transcode\video_sequence_transcoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\video_sequence_transcoder.obj
 D:\z_DevTemp\UnionPlayer\src\transcode\video_transcoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\video_transcoder.obj
 D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\annotation_panel.obj
+D:\z_DevTemp\UnionPlayer\src\ui\dual_view_timeline_widget.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\dual_view_timeline_widget.obj
 D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\node_editor_theme.obj
 D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\timeline_manager.obj
 D:\z_DevTemp\UnionPlayer\src\ui\transcode_queue_window.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\transcode_queue_window.obj

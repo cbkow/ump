@@ -25,7 +25,7 @@
 #include "../color/ocio_pipeline.h"
 #include "../overlay/safety_overlay_system.h"
 #include "../overlay/svg_overlay_renderer.h"
-#include "dummy_video_generator.h"
+// Note: DummyVideoGenerator removed - image sequences and timeline now use PlaybackTimer-based virtual timeline
 #include "direct_exr_cache.h"           // Direct EXR cache (100% OpenEXR)
 #include "dual_view_types.h"            // DualViewTimeline for dual view editing
 #include "playback_timer.h"             // Manual playback timer for virtual timelines
@@ -40,6 +40,7 @@ namespace ump {
     class TranscodeManager;  // NEW: For difference mode transcoding
     class DifferenceCache;   // NEW: For difference mode caching
     class TimelinePlaybackController;  // Timeline mode playback
+    class AudioPlayer;       // Independent audio playback for dual view mode
 }
 
 #include "pipeline_mode.h"
@@ -97,22 +98,21 @@ public:
     void SetMFFrameRate(double fps);
     void SetImageSequenceFrameRate(double fps, int start_frame = 1);  // Store FPS and start frame for image sequences
 
-    // EXR custom data feeding
-    bool LoadEXRSequence(const std::string& sequence_path, const std::string& layer_name, double fps, const std::vector<std::string>& sequence_files);
+    // EXR custom data feeding (legacy - kept for potential future use)
     bool FeedEXRFrame(const void* rgba_data, int width, int height, double timestamp);
     bool CopyTextureForPlayback(GLuint source_texture, int width, int height);
     bool ProcessAndFeedEXRFrame(int frame_index);
 
-    // Hybrid dummy video + OpenGL overlay approach
+    // Image sequence loading (uses PlaybackTimer virtual timeline, no dummy videos)
     bool LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps,
-                                 int cached_width = 0, int cached_height = 0);  // NEW: Optional cached dimensions from MediaItem
-    bool LoadEXRSequenceWithShader(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps);
+                                 int cached_width = 0, int cached_height = 0);  // Note: Name kept for compatibility, uses virtual timeline
 
-    // NEW: Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
+    // Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
     bool LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode,
-                                   int cached_width = 0, int cached_height = 0);  // NEW: Optional cached dimensions from MediaItem
+                                   int cached_width = 0, int cached_height = 0);
 
-    bool TestDummyVideoGeneration(int width = 1920, int height = 1080, double fps = 24.0);
+    // Image sequence timer initialization (virtual timeline mode)
+    bool InitializeImageSequenceTimer(double duration, double fps);
 
     // EXR frame synchronization helpers
     int CalculateCurrentEXRFrameIndex() const;
@@ -125,11 +125,8 @@ public:
     bool IsInTimelineMode() const { return is_timeline_mode_; }
     void InjectCurrentTimelineFrame();
 
-    // Lightweight dummy swap for timeline mode (avoids full LoadFile reset)
-    void SwapTimelineDummy(const std::string& new_dummy_path);
-
     // Content dimensions (for overlay modes - EXR/image sequences/timeline)
-    // Allows 1x1 dummy videos while using correct content dimensions for textures
+    // Used with PlaybackTimer virtual timeline for correct content dimensions
     void SetContentDimensions(int width, int height);
 
     void Play();
@@ -329,12 +326,9 @@ public:
     void ClearThumbnailCache();
     ump::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }
 
-    // Dummy video generator access (for timeline playback)
-    ump::DummyVideoGenerator* GetDummyGenerator() { return &dummy_generator; }
-
-    // Disk cache settings (for DummyVideoGenerator and EXRTranscoder)
+    // Disk cache settings (for EXRTranscoder)
     void SetCacheSettings(const std::string& custom_path, int retention_days,
-                         int dummy_max_gb, int transcode_max_gb, bool clear_on_exit);
+                         int transcode_max_gb, bool clear_on_exit);
 
     // Clear EXR disk caches (dummies + transcodes)
     // Returns total bytes deleted
@@ -347,6 +341,7 @@ public:
     bool IsComparisonModeEnabled() const;
     ump::ComparisonVideoPlayer* GetComparisonPlayer() const { return comparison_video_.get(); }
     void LoadComparisonVideo(const std::string& path);
+    void LoadPrimaryVideoInDualView(const std::string& path);  // Load primary video while staying in dual view
     void UnloadComparisonVideo();
     bool HasComparisonVideo() const;
     void SetComparisonMode(ComparisonMode mode);
@@ -420,6 +415,9 @@ public:
 
     // Get the dual view timer (for external control if needed)
     ump::PlaybackTimer* GetDualViewTimer() const { return dual_view_timer_.get(); }
+
+    // Get the dual view audio player (for volume control, etc.)
+    ump::AudioPlayer* GetDualViewAudio() const { return dual_view_audio_.get(); }
 
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
@@ -595,9 +593,6 @@ private:
 
     // Image sequences removed - will be re-added with different libraries later
 
-    // Dummy video generation for shader injection
-    ump::DummyVideoGenerator dummy_generator;
-
     // EXR texture management
     GLuint exr_texture = 0;
     int exr_texture_width = 0;
@@ -616,6 +611,8 @@ private:
     bool comparison_mode_enabled_ = false;
     ump::DualViewTimeline dual_view_timeline_;  // Timeline data for dual view editing
     std::unique_ptr<ump::PlaybackTimer> dual_view_timer_;  // Manual timer for virtual timeline playback
+    std::unique_ptr<ump::AudioPlayer> dual_view_audio_;    // Independent audio for dual view mode (left video)
+    std::unique_ptr<ump::PlaybackTimer> image_sequence_timer_;  // Timer for image sequence playback (no dummy video)
     std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop (comparison video)
     std::string viewport_drop_pending_id_;  // Pending media ID from drag-drop (main viewport)
     std::string original_video_path_before_difference_;  // Stores original video to restore when exiting difference mode

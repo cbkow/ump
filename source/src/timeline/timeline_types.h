@@ -32,6 +32,9 @@ struct OTIOClip {
     int source_width = 0;         // Source dimensions
     int source_height = 0;
     double source_duration = 0.0; // Full duration of source media (for trim limits)
+
+    // Clip-level audio control
+    bool audio_muted = false;     // Per-clip audio mute (speaker icon on clip)
 };
 
 // Represents a single video or audio track
@@ -40,8 +43,9 @@ struct OTIOTrack {
     std::string name;
     std::vector<OTIOClip> clips;
     bool is_video = true;          // true=video, false=audio
-    bool visible = true;           // Eye icon state (for video)
-    bool muted = false;            // Mute icon state (for audio)
+    bool visible = true;           // Eye icon state (for video tracks - controls visibility)
+    bool muted = false;            // Mute icon state (for audio tracks)
+    bool audio_muted = false;      // Audio mute for video tracks (video still displays, audio silent)
     int z_index = 0;               // Stacking order (higher = on top)
 };
 

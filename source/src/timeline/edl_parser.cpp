@@ -5,6 +5,7 @@
 #include <regex>
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <limits>
 
 namespace ump {
@@ -14,7 +15,29 @@ namespace ump {
 // ============================================================================
 
 double EDLParser::Timecode::ToSeconds(double fps, bool drop_frame) const {
-    // Basic conversion (ignoring drop frame complexity for now)
+    // For drop frame (29.97 DF), 2 frames are "dropped" every minute except every 10th minute
+    // This keeps timecode synchronized with real-time clock
+    if (drop_frame && (std::abs(fps - 29.97) < 0.1 || std::abs(fps - 30.0) < 0.1)) {
+        // Calculate total nominal frames first (as if non-drop frame)
+        int total_minutes = hours * 60 + minutes;
+
+        // Calculate dropped frames:
+        // - 2 frames dropped per minute
+        // - But NOT on the 10th minute (00, 10, 20, 30, 40, 50)
+        int dropped_frames = 2 * (total_minutes - (total_minutes / 10));
+
+        // Total actual frames
+        double actual_fps = 30000.0 / 1001.0;  // Exact 29.97
+        int total_frames = hours * 30 * 60 * 60 +
+                          minutes * 30 * 60 +
+                          seconds * 30 +
+                          frames -
+                          dropped_frames;
+
+        return total_frames / actual_fps;
+    }
+
+    // Non-drop frame: simple conversion
     double total_frames = hours * 3600.0 * fps +
                          minutes * 60.0 * fps +
                          seconds * fps +
@@ -350,6 +373,10 @@ EDLParser::ParseResult EDLParser::ParseString(const std::string& content, double
             clip.duration = rec_out - rec_in;
             clip.source_in = src_in;
             clip.source_out = src_out;
+
+            // EDL assumes source and timeline use same frame rate
+            // This is a hint - actual source fps will be confirmed when media is probed
+            clip.source_fps = result.frame_rate;
 
             // Handle transitions
             if (event->edit_type == "D" && event->transition_frames > 0) {

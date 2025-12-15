@@ -224,6 +224,9 @@ void TimelineCache::Shutdown() {
     // Delete gap texture
     DeleteGapTexture();
 
+    // Cleanup letterbox compositing resources
+    CleanupLetterboxResources();
+
     // Clear loaders
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
@@ -240,22 +243,70 @@ void TimelineCache::Shutdown() {
 // Frame Access
 //=============================================================================
 
-GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
-    if (!initialized_) return 0;
+GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool* got_exact_frame) {
+    if (!initialized_) {
+        if (got_exact_frame) *got_exact_frame = false;
+        return 0;
+    }
+
+    // Helper to set output dimensions - uses canvas dimensions if set for consistency
+    // This prevents flickering when clips have different resolutions
+    auto setOutputDimensions = [this, &width, &height](int actual_w, int actual_h) {
+        if (canvas_width_ > 0 && canvas_height_ > 0) {
+            width = canvas_width_;
+            height = canvas_height_;
+        } else {
+            width = actual_w;
+            height = actual_h;
+        }
+    };
+
+    // Helper to composite frame to canvas with letterbox/pillarbox if dimensions differ
+    // Returns the composited texture (or original if no compositing needed)
+    auto maybeComposite = [this](GLuint texture, int src_w, int src_h) -> GLuint {
+        if (texture == 0) return 0;
+        // Only composite if canvas is set and dimensions differ
+        if (canvas_width_ > 0 && canvas_height_ > 0 &&
+            (src_w != canvas_width_ || src_h != canvas_height_)) {
+            return CompositeFrameToCanvas(texture, src_w, src_h);
+        }
+        return texture;
+    };
+
+    // Track whether we return the exact requested frame
+    bool is_exact = false;
 
     SourceCoords coords = TimelineToSource(timeline_frame);
     if (!coords.valid) {
         // Gap or unlinked clip - return gap texture at consistent dimensions
         // This prevents OpenGL corruption from constant FBO resize on clip/gap transitions
         if (gap_texture_ != 0) {
-            width = gap_texture_width_;
-            height = gap_texture_height_;
+            setOutputDimensions(gap_texture_width_, gap_texture_height_);
             return gap_texture_;
         }
         return 0;
     }
 
     TimelineCacheKey key{coords.source_path, coords.source_frame};
+
+    // DEBUG: Periodic playback frame mapping log (every ~1 second during playback)
+    static int playback_log_counter = 0;
+    static int last_logged_frame = -1000;
+    int frame_delta = std::abs(timeline_frame - last_logged_frame);
+    if (frame_delta >= static_cast<int>(config_.fps)) {  // Log every ~1 second of playback
+        playback_log_counter++;
+        // Calculate expected source frames from duration to check for mismatch
+        int expected_source_frames = coords.source_duration > 0 && coords.source_fps > 0 ?
+            static_cast<int>(coords.source_duration * coords.source_fps) : -1;
+        Debug::Log("TimelineCache PLAYBACK [" + std::to_string(playback_log_counter) + "]: " +
+                   "timeline=" + std::to_string(timeline_frame) +
+                   " -> source=" + std::to_string(coords.source_frame) +
+                   " (timeline_fps=" + std::to_string(config_.fps) +
+                   ", source_fps=" + std::to_string(coords.source_fps) +
+                   ", source_dur=" + std::to_string(coords.source_duration) +
+                   ", expected_frames=" + std::to_string(expected_source_frames) + ")");
+        last_logged_frame = timeline_frame;
+    }
 
     // DEBUG: Log the main display request unconditionally for first calls after edit
     static int display_req_count = 0;
@@ -279,6 +330,33 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
     // During scrubbing, always try decoder buffer first (freshest frame)
     // This ensures we show the most recently decoded frame immediately
     bool is_scrubbing = (scrub_state_.load() != ScrubState::IDLE);
+
+    // CRITICAL: Invalidate last_good_texture_ if user has moved too far from it
+    // This prevents showing a frame from position 100 when user is at position 500
+    // The threshold should be large enough to tolerate normal decode latency but
+    // small enough to prevent showing wildly wrong frames after big scrubs
+    constexpr int kLastGoodMaxDistance = 48;  // ~2 seconds @ 24fps
+    if (last_good_frame_ >= 0 && std::abs(timeline_frame - last_good_frame_) > kLastGoodMaxDistance) {
+        // last_good_texture_ is too stale - invalidate it
+        // Don't delete the texture if it's in the cache (would cause double-free)
+        bool in_cache = false;
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            for (const auto& [k, cf] : frame_cache_) {
+                if (cf.texture_id == last_good_texture_) {
+                    in_cache = true;
+                    break;
+                }
+            }
+        }
+        if (!in_cache && last_good_texture_ != 0) {
+            glDeleteTextures(1, &last_good_texture_);
+        }
+        last_good_texture_ = 0;
+        last_good_width_ = 0;
+        last_good_height_ = 0;
+        last_good_frame_ = -1;
+    }
 
     // Post-edit state tracking (for logging only now)
     // The decoder seek in NotifyTracksEdited() clears stale frames, so we can allow
@@ -321,22 +399,22 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         auto it = frame_cache_.find(key);
         if (it != frame_cache_.end()) {
-            width = it->second.width;
-            height = it->second.height;
+            setOutputDimensions(it->second.width, it->second.height);
             cache_hits_++;
             markSuccess();
 
-            // Track as last good frame for fallback
+            // Track as last good frame for fallback (store actual dimensions for internal use)
             last_good_texture_ = it->second.texture_id;
-            last_good_width_ = width;
-            last_good_height_ = height;
-            return it->second.texture_id;
+            last_good_width_ = it->second.width;
+            last_good_height_ = it->second.height;
+            last_good_frame_ = timeline_frame;  // Track which frame this is
+            if (got_exact_frame) *got_exact_frame = true;  // Cache hit = exact frame
+            return maybeComposite(it->second.texture_id, it->second.width, it->second.height);
         }
     }
 
     if (is_scrubbing) {
-        // Fast path for scrubbing: check decoder buffer
-        // Minimize lock hold time - get shared_ptr, then access decoder outside lock
+        // Scrubbing path: try to get exact frame, fall back to closest
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
             std::lock_guard<std::mutex> lock(loaders_mutex_);
@@ -346,72 +424,50 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
             }
         }
         if (loader_info && loader_info->video_decoder) {
-            // First try to get the exact frame
+            // Try exact frame first
             auto pixels = loader_info->video_decoder->GetFrame(key.source_frame);
             bool is_exact_frame = (pixels != nullptr);
 
-            // If exact frame not available, get closest frame from buffer
+            // If exact not available, get closest
             if (!pixels) {
                 pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
             }
 
-            // During post-edit, don't block - just note the miss
-            // The decoder will catch up and subsequent frames will be available
-            // Blocking here causes frame drops (200ms blocks on 16ms frame budget)
-            if (!pixels && is_post_edit) {
-                // Log miss but don't block - use last_good_texture as fallback below
-                Debug::Log("TimelineCache::GetFrame: Post-edit frame miss for " +
-                           std::to_string(key.source_frame) + " - using fallback");
-            }
-
             if (pixels) {
-                // Frame is in decoder buffer - upload immediately
-                // But first, re-check cache (may have been added while we were decoding)
+                // Check cache first for exact frames
                 if (is_exact_frame) {
                     std::lock_guard<std::mutex> cache_lock(cache_mutex_);
                     auto it = frame_cache_.find(key);
                     if (it != frame_cache_.end()) {
-                        // Already cached - return existing texture
-                        width = it->second.width;
-                        height = it->second.height;
+                        setOutputDimensions(it->second.width, it->second.height);
                         cache_hits_++;
                         markSuccess();
                         last_good_texture_ = it->second.texture_id;
-                        last_good_width_ = width;
-                        last_good_height_ = height;
-                        return it->second.texture_id;
+                        last_good_width_ = it->second.width;
+                        last_good_height_ = it->second.height;
+                        last_good_frame_ = timeline_frame;
+                        if (got_exact_frame) *got_exact_frame = true;
+                        return maybeComposite(it->second.texture_id, it->second.width, it->second.height);
                     }
                 }
 
-                // Only create texture if we got the EXACT frame requested
-                // For "closest frame" fallbacks, just use last_good_texture_ to avoid leaks
-                // (non-cached textures have no tracking and would leak)
-                if (!is_exact_frame) {
-                    // Got a different frame than requested - use last_good_texture as fallback
-                    // Don't create a new texture (it would leak since we can't cache it)
-                    if (last_good_texture_ != 0) {
-                        width = last_good_width_;
-                        height = last_good_height_;
-                        return last_good_texture_;
-                    }
-                    // No fallback available - fall through to queue request
-                } else {
+                // Cache and return exact frames
+                if (is_exact_frame) {
                     GLuint texture = CreateGLTexture(pixels);
                     if (texture != 0) {
                         std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-                        // CRITICAL: Re-check and delete old texture if exists (race condition)
                         auto existing = frame_cache_.find(key);
                         if (existing != frame_cache_.end()) {
-                            // Another thread beat us - delete our new texture and return existing
                             glDeleteTextures(1, &texture);
-                            width = existing->second.width;
-                            height = existing->second.height;
+                            setOutputDimensions(existing->second.width, existing->second.height);
                             cache_hits_++;
                             markSuccess();
                             last_good_texture_ = existing->second.texture_id;
-                            last_good_width_ = width;
-                            last_good_height_ = height;
-                            return existing->second.texture_id;
+                            last_good_width_ = existing->second.width;
+                            last_good_height_ = existing->second.height;
+                            last_good_frame_ = timeline_frame;
+                            if (got_exact_frame) *got_exact_frame = true;
+                            return maybeComposite(existing->second.texture_id, existing->second.width, existing->second.height);
                         }
                         CachedFrame cf;
                         cf.texture_id = texture;
@@ -420,24 +476,26 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
                         cf.byte_size = pixels->pixels.size();
                         frame_cache_[key] = cf;
 
-                        width = pixels->width;
-                        height = pixels->height;
+                        setOutputDimensions(pixels->width, pixels->height);
                         cache_hits_++;
                         markSuccess();
 
-                        // Track as last good frame for fallback
                         last_good_texture_ = texture;
-                        last_good_width_ = width;
-                        last_good_height_ = height;
-                        return texture;
+                        last_good_width_ = pixels->width;
+                        last_good_height_ = pixels->height;
+                        last_good_frame_ = timeline_frame;
+                        if (got_exact_frame) *got_exact_frame = true;
+                        return maybeComposite(texture, pixels->width, pixels->height);
                     }
                 }
+                // For non-exact frames, fall through to use last_good_texture
             }
         }
     }
 
-    // Not scrubbing: try decoder buffer as fallback
-    // Minimize lock hold time - get shared_ptr, then access decoder outside lock
+    // Playback path: Use same logic as scrubbing - just show whatever we have
+    // This matches dual view behavior where MPV shows whatever it can decode
+    // The timer is the source of truth for timecode, video can lag slightly
     if (!is_scrubbing) {
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
@@ -448,80 +506,34 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
             }
         }
         if (loader_info && loader_info->video_decoder) {
+            // Try exact frame first
             auto pixels = loader_info->video_decoder->GetFrame(key.source_frame);
             bool is_exact_frame = (pixels != nullptr);
 
-            // During playback, fallback to closest frame if exact not available
+            // If not available, get closest frame (like scrubbing does)
             if (!pixels) {
                 pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
             }
 
-            // During post-edit, if buffer is empty, wait briefly for decoder to catch up
-            if (!pixels && is_post_edit) {
-                for (int retry = 0; retry < 20 && !pixels; retry++) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    pixels = loader_info->video_decoder->GetFrame(key.source_frame);
-                    if (!pixels) {
-                        pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
-                    }
-                    if (pixels) {
-                        is_exact_frame = (loader_info->video_decoder->GetFrame(key.source_frame) != nullptr);
-                        Debug::Log("TimelineCache::GetFrame (non-scrub): Post-edit retry " + std::to_string(retry) +
-                                   " got frame (exact=" + std::to_string(is_exact_frame) + ")");
-                    }
-                }
-                if (!pixels) {
-                    Debug::Log("TimelineCache::GetFrame (non-scrub): Post-edit wait TIMEOUT for source frame " +
-                               std::to_string(key.source_frame));
-                }
-            }
-
             if (pixels) {
-                // Only create texture if we got the EXACT frame requested
-                // For "closest frame" fallbacks, just use last_good_texture_ to avoid leaks
-                if (!is_exact_frame) {
-                    // Got a different frame than requested - use last_good_texture as fallback
-                    if (last_good_texture_ != 0) {
-                        width = last_good_width_;
-                        height = last_good_height_;
-                        return last_good_texture_;
-                    }
-                    // No fallback available - fall through to queue request
-                } else {
-                    // Re-check cache before creating texture (may have been added while decoding)
-                    {
-                        std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-                        auto it = frame_cache_.find(key);
-                        if (it != frame_cache_.end()) {
-                            // Already cached - return existing texture
-                            width = it->second.width;
-                            height = it->second.height;
-                            cache_hits_++;
-                            markSuccess();
-                            last_good_texture_ = it->second.texture_id;
-                            last_good_width_ = width;
-                            last_good_height_ = height;
-                            return it->second.texture_id;
-                        }
+                if (is_exact_frame) {
+                    // Exact frame - cache it
+                    std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                    auto existing = frame_cache_.find(key);
+                    if (existing != frame_cache_.end()) {
+                        setOutputDimensions(existing->second.width, existing->second.height);
+                        cache_hits_++;
+                        markSuccess();
+                        last_good_texture_ = existing->second.texture_id;
+                        last_good_width_ = existing->second.width;
+                        last_good_height_ = existing->second.height;
+                        last_good_frame_ = timeline_frame;
+                        if (got_exact_frame) *got_exact_frame = true;
+                        return maybeComposite(existing->second.texture_id, existing->second.width, existing->second.height);
                     }
 
                     GLuint texture = CreateGLTexture(pixels);
                     if (texture != 0) {
-                        std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-                        // CRITICAL: Re-check - another thread may have added while we created texture
-                        auto existing = frame_cache_.find(key);
-                        if (existing != frame_cache_.end()) {
-                            // Another thread beat us - delete our new texture and return existing
-                            glDeleteTextures(1, &texture);
-                            width = existing->second.width;
-                            height = existing->second.height;
-                            cache_hits_++;
-                            markSuccess();
-                            last_good_texture_ = existing->second.texture_id;
-                            last_good_width_ = width;
-                            last_good_height_ = height;
-                            return existing->second.texture_id;
-                        }
                         CachedFrame cf;
                         cf.texture_id = texture;
                         cf.width = pixels->width;
@@ -529,16 +541,23 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
                         cf.byte_size = pixels->pixels.size();
                         frame_cache_[key] = cf;
 
-                        width = pixels->width;
-                        height = pixels->height;
+                        setOutputDimensions(pixels->width, pixels->height);
                         cache_hits_++;
                         markSuccess();
-
-                        // Track as last good frame for fallback
                         last_good_texture_ = texture;
-                        last_good_width_ = width;
-                        last_good_height_ = height;
-                        return texture;
+                        last_good_width_ = pixels->width;
+                        last_good_height_ = pixels->height;
+                        last_good_frame_ = timeline_frame;
+                        if (got_exact_frame) *got_exact_frame = true;
+                        return maybeComposite(texture, pixels->width, pixels->height);
+                    }
+                } else {
+                    // Closest frame (not exact) - don't create texture, just use last_good
+                    // Creating textures for every closest frame causes oscillation
+                    if (last_good_texture_ != 0) {
+                        setOutputDimensions(last_good_width_, last_good_height_);
+                        if (got_exact_frame) *got_exact_frame = false;
+                        return maybeComposite(last_good_texture_, last_good_width_, last_good_height_);
                     }
                 }
             }
@@ -553,9 +572,9 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
     // FALLBACK: Return last good frame instead of black
     // This ensures visual continuity when cache/decoder is momentarily behind
     if (last_good_texture_ != 0) {
-        width = last_good_width_;
-        height = last_good_height_;
+        setOutputDimensions(last_good_width_, last_good_height_);
         // Don't increment cache_misses_ - this is a soft miss (showing previous frame)
+        if (got_exact_frame) *got_exact_frame = false;  // Fallback, not exact
 
         // DEBUG: Log when using fallback during post-edit
         if (is_post_edit) {
@@ -564,7 +583,7 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
                 Debug::Log("TimelineCache::GetFrame [POST-EDIT]: Using last_good_texture fallback");
             }
         }
-        return last_good_texture_;
+        return maybeComposite(last_good_texture_, last_good_width_, last_good_height_);
     }
 
     // DEBUG: Log hard miss during post-edit (no frame to show)
@@ -575,6 +594,7 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height) {
         }
     }
 
+    if (got_exact_frame) *got_exact_frame = false;  // No frame at all
     cache_misses_++;
     return 0;
 }
@@ -610,7 +630,30 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
             pending_refine_frame_ = timeline_frame;
         } else if (is_playing) {
             // Playing - exit scrub mode
-            scrub_state_ = ScrubState::IDLE;
+            ScrubState prev_state = scrub_state_.exchange(ScrubState::IDLE);
+
+            // CRITICAL: If we were scrubbing and now starting playback, force a seek
+            // to ensure the decoder is at the exact frame. Without this, the decoder
+            // might be at a keyframe from the last scrub position, causing desync.
+            if (prev_state == ScrubState::SCRUBBING || prev_state == ScrubState::REFINING) {
+                SourceCoords coords = TimelineToSource(timeline_frame);
+                if (coords.valid) {
+                    std::shared_ptr<ClipLoaderInfo> loader_info;
+                    {
+                        std::lock_guard<std::mutex> lock(loaders_mutex_);
+                        auto it = loaders_.find(coords.source_path);
+                        if (it != loaders_.end() && it->second) {
+                            loader_info = it->second;
+                        }
+                    }
+                    if (loader_info && loader_info->video_decoder) {
+                        // Force seek to exact frame before playback starts
+                        loader_info->video_decoder->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+                        Debug::Log("TimelineCache: Play-from-scrub force seek to source frame " +
+                                   std::to_string(coords.source_frame));
+                    }
+                }
+            }
         }
 
         previousFrame_ = timeline_frame;
@@ -620,13 +663,6 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
     // Update atomic state
     current_frame_ = timeline_frame;
     is_playing_ = is_playing;
-
-    // Cancel all pending requests on seek (like EXR cache)
-    //if (isSeek) {
-    //    Debug::Log("TimelineCache: [SEEK] Jump detected to frame " + std::to_string(timeline_frame) +
-    //               ", clearing pending requests");
-    //    ClearRequests();
-    //}
 
     // Wake up cache thread immediately (don't wait for next tick)
     // This ensures instant response on seeks and position updates
@@ -860,6 +896,7 @@ void TimelineCache::NotifyTracksEdited() {
     last_good_texture_ = 0;
     last_good_width_ = 0;
     last_good_height_ = 0;
+    last_good_frame_ = -1;
 
     // Clear pending uploads - frames decoded before edit may be stale
     {
@@ -1162,6 +1199,42 @@ SourceCoords TimelineCache::GetSourceCoords(int timeline_frame) const {
     return TimelineToSource(timeline_frame);
 }
 
+bool TimelineCache::HasFrameReady(int timeline_frame) const {
+    if (!initialized_) return false;
+
+    // Map timeline frame to source coordinates
+    SourceCoords coords = TimelineToSource(timeline_frame);
+    if (!coords.valid) {
+        // Gap or unlinked - gaps are always "ready" (we show black)
+        return true;
+    }
+
+    TimelineCacheKey key{coords.source_path, coords.source_frame};
+
+    // Check 1: Is it in the GPU cache? (instant)
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        if (frame_cache_.find(key) != frame_cache_.end()) {
+            return true;
+        }
+    }
+
+    // Check 2: Is it in the decoder buffer? (fast - no decode, just buffer check)
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        auto it = loaders_.find(key.source_path);
+        if (it != loaders_.end() && it->second && it->second->video_decoder) {
+            // Check if the exact frame is in the decoder's frame buffer
+            // This does NOT trigger decoding - it just checks the ring buffer
+            if (it->second->video_decoder->HasFrame(key.source_frame)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 GLuint TimelineCache::GetSourceFrame(const std::string& source_path, int source_frame,
                                       int& width, int& height) {
     if (source_path.empty()) return 0;
@@ -1288,7 +1361,8 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
         source_time = clip->source_in + clip_offset;
     }
 
-    int source_frame = static_cast<int>(source_time * fps_for_frame_calc);
+    // Use rounding (+ 0.5) to match decoder's PTS-based frame numbering
+    int source_frame = static_cast<int>(source_time * fps_for_frame_calc + 0.5);
 
     // Clamp source_frame to valid range for the source media
     // This handles single-frame holds and prevents seeking beyond end of clip
@@ -1343,6 +1417,8 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
     coords.clip_start_time = clip->start_time;
     coords.clip_duration = clip->duration;
     coords.source_in = clip->source_in;
+    coords.source_fps = clip->source_fps;
+    coords.source_duration = clip->source_duration;
 
     return coords;
 }
@@ -2663,6 +2739,19 @@ void TimelineCache::OnEvicted(const TimelineCacheKey& key) {
 }
 
 //=============================================================================
+// Canvas Dimensions - Consistent output size for all frames
+//=============================================================================
+
+void TimelineCache::SetCanvasDimensions(int width, int height) {
+    if (width > 0 && height > 0) {
+        canvas_width_ = width;
+        canvas_height_ = height;
+        Debug::Log("TimelineCache::SetCanvasDimensions: " +
+                   std::to_string(width) + "x" + std::to_string(height));
+    }
+}
+
+//=============================================================================
 // Gap Texture - Persistent black texture for timeline gaps
 //=============================================================================
 
@@ -2724,6 +2813,272 @@ void TimelineCache::DeleteGapTexture() {
         gap_texture_width_ = 0;
         gap_texture_height_ = 0;
     }
+}
+
+//=============================================================================
+// Letterbox Compositing - GPU-side aspect ratio preservation
+//=============================================================================
+
+void TimelineCache::InitializeLetterboxShader() {
+    if (letterbox_shader_ != 0) return;  // Already initialized
+
+    Debug::Log("TimelineCache::InitializeLetterboxShader: Compiling letterbox shader");
+
+    // Vertex shader - fullscreen quad
+    const char* vertex_shader_src = R"(
+        #version 330 core
+        layout(location = 0) in vec2 aPos;
+        layout(location = 1) in vec2 aTexCoord;
+        out vec2 TexCoord;
+        void main() {
+            gl_Position = vec4(aPos, 0.0, 1.0);
+            TexCoord = aTexCoord;
+        }
+    )";
+
+    // Fragment shader - letterbox compositing
+    const char* fragment_shader_src = R"(
+        #version 330 core
+        in vec2 TexCoord;
+        out vec4 FragColor;
+        uniform sampler2D sourceTexture;
+        uniform vec4 letterboxRect;  // x, y, width, height (normalized 0-1)
+
+        void main() {
+            float lx = letterboxRect.x;
+            float ly = letterboxRect.y;
+            float lw = letterboxRect.z;
+            float lh = letterboxRect.w;
+
+            // Check if outside letterbox area
+            if (TexCoord.x < lx || TexCoord.x > (lx + lw) ||
+                TexCoord.y < ly || TexCoord.y > (ly + lh)) {
+                FragColor = vec4(0.0, 0.0, 0.0, 1.0);  // Black bars
+                return;
+            }
+
+            // Map to source texture coordinates
+            vec2 srcUV = (TexCoord - vec2(lx, ly)) / vec2(lw, lh);
+            FragColor = texture(sourceTexture, srcUV);
+        }
+    )";
+
+    // Compile vertex shader
+    GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertex_shader, 1, &vertex_shader_src, nullptr);
+    glCompileShader(vertex_shader);
+
+    GLint success;
+    glGetShaderiv(vertex_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetShaderInfoLog(vertex_shader, 512, nullptr, info_log);
+        Debug::Log("TimelineCache: Vertex shader compilation failed: " + std::string(info_log));
+        glDeleteShader(vertex_shader);
+        return;
+    }
+
+    // Compile fragment shader
+    GLuint fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader, 1, &fragment_shader_src, nullptr);
+    glCompileShader(fragment_shader);
+
+    glGetShaderiv(fragment_shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetShaderInfoLog(fragment_shader, 512, nullptr, info_log);
+        Debug::Log("TimelineCache: Fragment shader compilation failed: " + std::string(info_log));
+        glDeleteShader(vertex_shader);
+        glDeleteShader(fragment_shader);
+        return;
+    }
+
+    // Link program
+    letterbox_shader_ = glCreateProgram();
+    glAttachShader(letterbox_shader_, vertex_shader);
+    glAttachShader(letterbox_shader_, fragment_shader);
+    glLinkProgram(letterbox_shader_);
+
+    glGetProgramiv(letterbox_shader_, GL_LINK_STATUS, &success);
+    if (!success) {
+        char info_log[512];
+        glGetProgramInfoLog(letterbox_shader_, 512, nullptr, info_log);
+        Debug::Log("TimelineCache: Shader program linking failed: " + std::string(info_log));
+        glDeleteProgram(letterbox_shader_);
+        letterbox_shader_ = 0;
+    }
+
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+
+    // Create fullscreen quad VAO/VBO
+    float quad_vertices[] = {
+        // pos        // texcoord
+        -1.0f,  1.0f,  0.0f, 1.0f,
+        -1.0f, -1.0f,  0.0f, 0.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+        -1.0f,  1.0f,  0.0f, 1.0f,
+         1.0f, -1.0f,  1.0f, 0.0f,
+         1.0f,  1.0f,  1.0f, 1.0f
+    };
+
+    glGenVertexArrays(1, &letterbox_quad_vao_);
+    glGenBuffers(1, &letterbox_quad_vbo_);
+
+    glBindVertexArray(letterbox_quad_vao_);
+    glBindBuffer(GL_ARRAY_BUFFER, letterbox_quad_vbo_);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    Debug::Log("TimelineCache::InitializeLetterboxShader: Shader initialized successfully");
+}
+
+void TimelineCache::CleanupLetterboxResources() {
+    if (letterbox_shader_ != 0) {
+        glDeleteProgram(letterbox_shader_);
+        letterbox_shader_ = 0;
+    }
+    if (letterbox_quad_vao_ != 0) {
+        glDeleteVertexArrays(1, &letterbox_quad_vao_);
+        letterbox_quad_vao_ = 0;
+    }
+    if (letterbox_quad_vbo_ != 0) {
+        glDeleteBuffers(1, &letterbox_quad_vbo_);
+        letterbox_quad_vbo_ = 0;
+    }
+    if (letterbox_fbo_ != 0) {
+        glDeleteFramebuffers(1, &letterbox_fbo_);
+        letterbox_fbo_ = 0;
+    }
+    if (letterbox_output_texture_ != 0) {
+        glDeleteTextures(1, &letterbox_output_texture_);
+        letterbox_output_texture_ = 0;
+    }
+    letterbox_output_width_ = 0;
+    letterbox_output_height_ = 0;
+}
+
+GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, int src_h) {
+    if (source_texture == 0 || canvas_width_ <= 0 || canvas_height_ <= 0) {
+        return source_texture;  // Can't composite, return original
+    }
+
+    // Initialize shader on first use
+    if (letterbox_shader_ == 0) {
+        InitializeLetterboxShader();
+        if (letterbox_shader_ == 0) {
+            Debug::Log("TimelineCache::CompositeFrameToCanvas: Shader init failed, returning original");
+            return source_texture;
+        }
+    }
+
+    // Create/resize output texture if needed
+    if (letterbox_output_width_ != canvas_width_ || letterbox_output_height_ != canvas_height_) {
+        // Delete old resources
+        if (letterbox_output_texture_ != 0) {
+            glDeleteTextures(1, &letterbox_output_texture_);
+        }
+        if (letterbox_fbo_ != 0) {
+            glDeleteFramebuffers(1, &letterbox_fbo_);
+        }
+
+        // Create output texture
+        glGenTextures(1, &letterbox_output_texture_);
+        glBindTexture(GL_TEXTURE_2D, letterbox_output_texture_);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, canvas_width_, canvas_height_, 0,
+                     GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // Create FBO
+        glGenFramebuffers(1, &letterbox_fbo_);
+        glBindFramebuffer(GL_FRAMEBUFFER, letterbox_fbo_);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
+                               letterbox_output_texture_, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+            Debug::Log("TimelineCache::CompositeFrameToCanvas: FBO incomplete!");
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            CleanupLetterboxResources();
+            return source_texture;
+        }
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        letterbox_output_width_ = canvas_width_;
+        letterbox_output_height_ = canvas_height_;
+
+        Debug::Log("TimelineCache::CompositeFrameToCanvas: Created output texture " +
+                   std::to_string(canvas_width_) + "x" + std::to_string(canvas_height_));
+    }
+
+    // Save GL state
+    GLint prev_fbo, prev_program, prev_viewport[4];
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prev_fbo);
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prev_program);
+    glGetIntegerv(GL_VIEWPORT, prev_viewport);
+
+    // Calculate letterbox parameters
+    float src_aspect = (float)src_w / (float)src_h;
+    float canvas_aspect = (float)canvas_width_ / (float)canvas_height_;
+    float rect_x, rect_y, rect_w, rect_h;
+
+    if (src_aspect > canvas_aspect) {
+        // Source is wider - letterbox (black bars top/bottom)
+        rect_w = 1.0f;
+        rect_h = canvas_aspect / src_aspect;
+        rect_x = 0.0f;
+        rect_y = (1.0f - rect_h) / 2.0f;
+    } else {
+        // Source is taller - pillarbox (black bars left/right)
+        rect_h = 1.0f;
+        rect_w = src_aspect / canvas_aspect;
+        rect_x = (1.0f - rect_w) / 2.0f;
+        rect_y = 0.0f;
+    }
+
+    // Bind FBO and set viewport
+    glBindFramebuffer(GL_FRAMEBUFFER, letterbox_fbo_);
+    glViewport(0, 0, canvas_width_, canvas_height_);
+
+    // Clear to black
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Use letterbox shader
+    glUseProgram(letterbox_shader_);
+
+    // Set uniforms
+    GLint rect_loc = glGetUniformLocation(letterbox_shader_, "letterboxRect");
+    glUniform4f(rect_loc, rect_x, rect_y, rect_w, rect_h);
+
+    GLint tex_loc = glGetUniformLocation(letterbox_shader_, "sourceTexture");
+    glUniform1i(tex_loc, 0);
+
+    // Bind source texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, source_texture);
+
+    // Render quad
+    glBindVertexArray(letterbox_quad_vao_);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+
+    // Restore GL state
+    glUseProgram(prev_program);
+    glBindFramebuffer(GL_FRAMEBUFFER, prev_fbo);
+    glViewport(prev_viewport[0], prev_viewport[1], prev_viewport[2], prev_viewport[3]);
+
+    return letterbox_output_texture_;
 }
 
 } // namespace ump

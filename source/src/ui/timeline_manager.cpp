@@ -76,6 +76,21 @@ void TimelineManager::Update(VideoPlayer* video_player) {
         return;
     }
 
+    // TIMELINE MODE: Skip MPV-related operations (virtual timeline drives playback)
+    // This is critical for playback through gaps/empty space - the virtual timeline
+    // continues advancing even when there's no clip at the current position
+    if (video_player->IsInTimelineMode()) {
+        // Update duration
+        ui_duration = video_player->GetDuration();
+
+        // Update position from VideoPlayer (routes to timeline controller)
+        if (!is_scrubbing) {
+            ui_position = video_player->GetPosition();
+        }
+
+        return;
+    }
+
     // VIDEO MODE: Normal MPV operations
     // Process pending seek operations (throttled)
     if (pending_seek_position >= 0.0) {

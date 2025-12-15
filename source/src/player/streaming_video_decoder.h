@@ -127,6 +127,29 @@ public:
     // Thread-safe
     bool HasFrame(int frame_number) const;
 
+    //=========================================================================
+    // Keyframe Access (for H.264/inter-frame codec scrubbing)
+    //=========================================================================
+
+    // Get the nearest keyframe at or before the target frame
+    // For intra-frame codecs (ProRes, DNxHD), returns target_frame itself
+    // Thread-safe
+    std::shared_ptr<PixelData> GetKeyframe(int target_frame, int* actual_keyframe = nullptr);
+
+    // Get the frame number of the nearest keyframe at or before target
+    // Returns target_frame if keyframe index not built or codec is all-intra
+    int GetNearestKeyframePosition(int target_frame) const;
+
+    // Check if the video is an intra-frame codec (every frame is a keyframe)
+    // ProRes, DNxHD, MJPEG, etc. return true
+    bool IsIntraFrameCodec() const { return is_intra_frame_codec_; }
+
+    // Check if keyframe index has been built
+    bool HasKeyframeIndex() const { return keyframe_index_built_; }
+
+    // Get all keyframe positions (for debugging/visualization)
+    const std::vector<int>& GetKeyframePositions() const { return keyframe_positions_; }
+
     // Update playhead position
     // Triggers seek if frame is outside buffer range
     // quality: PREVIEW for fast scrubbing, NORMAL for full quality
@@ -153,6 +176,13 @@ public:
     // Clear the frame buffer (free memory for inactive decoders)
     // Thread-safe: can be called from any thread
     void ClearBuffer();
+
+    // Check if a seek is currently in progress (requested but not yet completed)
+    // When true, buffer contents may be stale/invalid
+    bool IsSeekPending() const { return seek_requested_.load(); }
+
+    // Get the last seek target frame (for debugging/validation)
+    int GetLastSeekTarget() const { return seek_target_frame_; }
 
     //=========================================================================
     // Metadata
@@ -190,6 +220,10 @@ private:
     // Decode next frame from stream
     // Returns true if frame decoded, false on EOF or error
     bool DecodeNextFrame(::AVFrame* frame);
+
+    // Calculate frame number from AVFrame's PTS
+    // Returns -1 if PTS is not available
+    int FrameNumberFromPTS(::AVFrame* frame) const;
 
     // Convert AVFrame to PixelData
     std::shared_ptr<PixelData> ConvertToPixelData(::AVFrame* frame);
@@ -230,6 +264,18 @@ private:
 
     // Transfer hardware frame to CPU memory
     bool TransferHWFrame(::AVFrame* hw_frame, ::AVFrame* sw_frame);
+
+    //=========================================================================
+    // Keyframe Index
+    //=========================================================================
+
+    // Build keyframe index by scanning the video file
+    // Called automatically during Initialize()
+    void BuildKeyframeIndex();
+
+    // Decode a single keyframe directly (without filling buffer)
+    // Used for scrubbing - decodes just the keyframe, no GOP traversal
+    std::shared_ptr<PixelData> DecodeSingleKeyframe(int keyframe_number);
 
     //=========================================================================
     // State
@@ -304,6 +350,15 @@ private:
 
     // EOF state - prevents spin loop after reaching end of video
     std::atomic<bool> eof_reached_{false};
+
+    //=========================================================================
+    // Keyframe Index
+    //=========================================================================
+
+    std::vector<int> keyframe_positions_;      // Frame numbers of all keyframes
+    bool keyframe_index_built_ = false;        // True after BuildKeyframeIndex() completes
+    bool is_intra_frame_codec_ = false;        // True for ProRes, DNxHD, MJPEG (every frame is keyframe)
+    mutable std::mutex keyframe_mutex_;        // Protects keyframe access during scrubbing
 };
 
 } // namespace ump

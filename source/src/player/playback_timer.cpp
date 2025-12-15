@@ -1,4 +1,5 @@
 #include "playback_timer.h"
+#include "../utils/debug_utils.h"
 #include <algorithm>
 #include <cmath>
 
@@ -154,6 +155,43 @@ bool PlaybackTimer::Update() {
     }
 
     return changed;
+}
+
+//=============================================================================
+// Frame-Locked Advancement
+//=============================================================================
+
+void PlaybackTimer::AdvanceByFrame() {
+    if (!is_playing_ || duration_ <= 0.0 || frame_rate_ <= 0.0) {
+        return;
+    }
+
+    // Advance by exactly one frame duration (playback speed is handled by caller)
+    double frame_duration = 1.0 / frame_rate_;
+    double old_position = position_;
+    position_ += frame_duration;
+
+    // Handle end of timeline
+    if (position_ >= duration_) {
+        if (looping_) {
+            // Loop back to start
+            position_ = std::fmod(position_, duration_);
+            if (on_loop_) {
+                on_loop_();
+            }
+        } else {
+            // Stop at end
+            position_ = duration_;
+            is_playing_ = false;
+            if (on_end_) {
+                on_end_();
+            }
+        }
+    }
+
+    if (position_ != old_position) {
+        NotifyPositionChanged();
+    }
 }
 
 //=============================================================================

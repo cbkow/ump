@@ -212,6 +212,19 @@ namespace ump {
             video_change_callback = callback;
         }
 
+        // Pre-video change callback - called BEFORE loading new media
+        // Used to cache view state of current media before switching
+        // Parameters: old_path (the path that is about to be unloaded)
+        void SetPreVideoChangeCallback(std::function<void(const std::string&)> callback) {
+            pre_video_change_callback = callback;
+        }
+
+        // View state callback - called when loading media to restore zoom/pan/playhead
+        // Parameters: zoom_level, scroll_offset, playhead_position (from MediaItem.view_state)
+        void SetViewStateCallback(std::function<void(float, float, double)> callback) {
+            view_state_callback = callback;
+        }
+
         // Color preset callback for auto 1-2-1 detection
         void SetColorPresetCallback(std::function<void(const std::string&)> callback) {
             color_preset_callback = callback;
@@ -259,6 +272,14 @@ namespace ump {
                                          const std::vector<MediaItem::CachedTrackMetadata>& tracks);
         const std::vector<MediaItem::CachedTrackMetadata>* GetTimelineTrackMetadata(const std::string& timeline_id) const;
 
+        // View state management (for persistent zoom/pan/playhead per-media)
+        void CacheCurrentViewState(const std::string& media_path, float zoom, float scroll, double playhead);
+        void CacheTimelineViewState(const std::string& timeline_id, float zoom, float scroll,
+                                   double playhead, double in_point, double out_point);
+        bool GetCachedViewState(const std::string& media_path, float& zoom, float& scroll, double& playhead);
+        bool GetTimelineViewState(const std::string& timeline_id, float& zoom, float& scroll,
+                                 double& playhead, double& in_point, double& out_point);
+
         // Timeline editor mode callback
         void SetTimelineEditorCallback(std::function<void(const std::string&)> callback) {
             timeline_editor_callback = callback;
@@ -273,6 +294,11 @@ namespace ump {
         // This ensures current timeline edits are captured in MediaItem.cached_tracks
         void SetFlushTimelineEditsCallback(std::function<void()> callback) {
             flush_timeline_edits_callback = callback;
+        }
+
+        // Exit comparison/dual-view mode callback (called when loading new project)
+        void SetExitComparisonModeCallback(std::function<void()> callback) {
+            exit_comparison_mode_callback = callback;
         }
 
         // ========================================================================
@@ -469,9 +495,7 @@ namespace ump {
         int new_timeline_width = 1920;
         int new_timeline_height = 1080;
         double new_timeline_fps = 24.0;
-        int new_timeline_hours = 0;
-        int new_timeline_minutes = 10;   // 10 minutes default
-        int new_timeline_seconds = 0;
+        // Duration removed - timelines auto-extend as clips are added
 
         // EDL import settings dialog state
         bool show_edl_import_dialog = false;
@@ -631,10 +655,13 @@ namespace ump {
         void OpenFileInExplorer(const std::string& file_path);
         void CopyToClipboard(const std::string& text);
         std::function<void(const std::string&)> video_change_callback;
+        std::function<void(const std::string&)> pre_video_change_callback;  // Callback before video change (for caching view state)
+        std::function<void(float, float, double)> view_state_callback;  // Callback for view state (zoom, scroll, playhead)
         std::function<void(const std::string&)> color_preset_callback;  // Callback for auto 1-2-1 OCIO preset
         std::function<void(const std::string&)> timeline_editor_callback;  // Callback to open timeline in editor
         std::function<void()> exit_timeline_mode_callback;  // Callback to exit timeline editor mode
         std::function<void()> flush_timeline_edits_callback;  // Callback to flush current timeline edits before save
+        std::function<void()> exit_comparison_mode_callback;  // Callback to exit comparison/dual-view mode
 
         // Cloud sync helper - waits for file to become readable
         bool WaitForFileReadable(const std::string& file_path, int timeout_seconds = 30);

@@ -1,4 +1,13 @@
-﻿  main.cpp
+﻿  audio_mixer.cpp
+  main.cpp
+  project_manager.cpp
+  edl_parser.cpp
+  media_linker.cpp
+  timeline_cache.cpp
+  timeline_commands.cpp
+  timeline_playback_controller.cpp
+  timeline_view.cpp
+  Generating Code...
   ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe
   'pwsh.exe' is not recognized as an internal or external command,
   operable program or batch file.

@@ -1352,11 +1352,13 @@ bool EXRImageLoader::GetDimensions(const std::string& path, int& width, int& hei
     return ump::DirectEXRCache::GetFrameDimensions(path, width, height);
 }
 
+} // namespace ump (closing to include FFmpeg headers in global namespace)
+
 //=============================================================================
 // Video Image Loader (FFmpeg-based frame extraction for thumbnails)
 //=============================================================================
 
-// FFmpeg headers
+// FFmpeg headers - must be outside namespace ump to avoid type conflicts
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -1366,6 +1368,8 @@ extern "C" {
 #include <libavfilter/buffersrc.h>
 #include <libavfilter/buffersink.h>
 }
+
+namespace ump {  // re-open namespace for VideoImageLoader
 
 VideoImageLoader::VideoImageLoader(const std::string& video_path, double fps, double duration)
     : video_path_(video_path)

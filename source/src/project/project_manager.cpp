@@ -365,6 +365,11 @@ namespace ump {
                 item_obj["in_point"] = item.in_point;
                 item_obj["out_point"] = item.out_point;
 
+                // View state for persistent zoom/pan/playhead per-media
+                item_obj["view_zoom"] = item.view_state.zoom_level;
+                item_obj["view_scroll"] = item.view_state.scroll_offset;
+                item_obj["view_playhead"] = item.view_state.playhead_position;
+
                 // Timeline-specific fields (for MediaType::TIMELINE)
                 if (item.type == MediaType::TIMELINE) {
                     item_obj["timeline_id"] = item.timeline_id;
@@ -373,6 +378,13 @@ namespace ump {
                     item_obj["audio_track_count"] = item.audio_track_count;
                     item_obj["timeline_width"] = item.timeline_width;
                     item_obj["timeline_height"] = item.timeline_height;
+
+                    // OTIO timeline view state (zoom/scroll/playhead/in-out points)
+                    item_obj["timeline_view_zoom"] = item.view_state.timeline_zoom;
+                    item_obj["timeline_view_scroll"] = item.view_state.timeline_scroll;
+                    item_obj["timeline_view_playhead"] = item.view_state.timeline_playhead;
+                    item_obj["timeline_view_in"] = item.view_state.timeline_in_point;
+                    item_obj["timeline_view_out"] = item.view_state.timeline_out_point;
 
                     // Save cached clip links for persistent media linking
                     if (!item.clip_links.empty()) {
@@ -402,6 +414,7 @@ namespace ump {
                             track_obj["is_video"] = track.is_video;
                             track_obj["visible"] = track.visible;
                             track_obj["muted"] = track.muted;
+                            track_obj["audio_muted"] = track.audio_muted;
                             track_obj["z_index"] = track.z_index;
                             tracks_array.push_back(track_obj);
                         }
@@ -420,6 +433,7 @@ namespace ump {
                             track_obj["is_video"] = track.is_video;
                             track_obj["visible"] = track.visible;
                             track_obj["muted"] = track.muted;
+                            track_obj["audio_muted"] = track.audio_muted;
                             track_obj["z_index"] = track.z_index;
 
                             json clips_array = json::array();
@@ -443,6 +457,7 @@ namespace ump {
                                 clip_obj["has_fade_out"] = clip.has_fade_out;
                                 clip_obj["fade_in_duration"] = clip.fade_in_duration;
                                 clip_obj["fade_out_duration"] = clip.fade_out_duration;
+                                clip_obj["audio_muted"] = clip.audio_muted;
                                 clips_array.push_back(clip_obj);
                             }
                             track_obj["clips"] = clips_array;
@@ -584,6 +599,41 @@ namespace ump {
             Debug::Log("LoadProject: Paused playback before loading project");
         }
 
+        // ========================================================================
+        // COMPREHENSIVE MODE CLEANUP
+        // Exit all active modes before loading new project to prevent
+        // stale state from previous media/timeline/playlist sessions
+        // ========================================================================
+
+        // 1. Exit timeline mode (if active)
+        if (exit_timeline_mode_callback) {
+            exit_timeline_mode_callback();
+            Debug::Log("LoadProject: Exited timeline mode");
+        }
+
+        // 2. Exit comparison/dual-view mode (if active)
+        if (exit_comparison_mode_callback) {
+            exit_comparison_mode_callback();
+            Debug::Log("LoadProject: Exited comparison mode");
+        }
+
+        // 3. Clear playlist state (if in playlist mode)
+        if (IsSequenceMode()) {
+            Sequence* seq = GetCurrentSequence();
+            if (seq && video_player && video_player->GetMPVHandle()) {
+                // Clear MPV playlist before clearing data structures
+                const char* cmd[] = { "playlist-clear", nullptr };
+                mpv_command(video_player->GetMPVHandle(), cmd);
+            }
+            Debug::Log("LoadProject: Cleared playlist state");
+        }
+
+        // 4. Stop any current playback (timeline/comparison callbacks already clear their respective states)
+        if (video_player) {
+            video_player->Stop();
+            Debug::Log("LoadProject: Stopped video player");
+        }
+
         // Show open dialog if no path provided
         std::string load_path = file_path;
         if (load_path.empty()) {
@@ -670,6 +720,11 @@ namespace ump {
                     item.in_point = item_json.value("in_point", -1.0);
                     item.out_point = item_json.value("out_point", -1.0);
 
+                    // View state for persistent zoom/pan/playhead per-media
+                    item.view_state.zoom_level = item_json.value("view_zoom", 1.0f);
+                    item.view_state.scroll_offset = item_json.value("view_scroll", 0.0f);
+                    item.view_state.playhead_position = item_json.value("view_playhead", 0.0);
+
                     // Timeline-specific fields (for MediaType::TIMELINE)
                     if (item.type == MediaType::TIMELINE) {
                         item.timeline_id = item_json.value("timeline_id", "");
@@ -678,6 +733,13 @@ namespace ump {
                         item.audio_track_count = item_json.value("audio_track_count", 0);
                         item.timeline_width = item_json.value("timeline_width", 1920);
                         item.timeline_height = item_json.value("timeline_height", 1080);
+
+                        // OTIO timeline view state (zoom/scroll/playhead/in-out points)
+                        item.view_state.timeline_zoom = item_json.value("timeline_view_zoom", 50.0f);
+                        item.view_state.timeline_scroll = item_json.value("timeline_view_scroll", 0.0f);
+                        item.view_state.timeline_playhead = item_json.value("timeline_view_playhead", 0.0);
+                        item.view_state.timeline_in_point = item_json.value("timeline_view_in", -1.0);
+                        item.view_state.timeline_out_point = item_json.value("timeline_view_out", -1.0);
 
                         // Restore cached clip links for persistent media linking
                         if (item_json.contains("clip_links")) {
@@ -704,6 +766,7 @@ namespace ump {
                                 track.is_video = track_json.value("is_video", true);
                                 track.visible = track_json.value("visible", true);
                                 track.muted = track_json.value("muted", false);
+                                track.audio_muted = track_json.value("audio_muted", false);
                                 track.z_index = track_json.value("z_index", 0);
                                 item.track_metadata.push_back(track);
                             }
@@ -722,6 +785,7 @@ namespace ump {
                                 track.is_video = track_json.value("is_video", true);
                                 track.visible = track_json.value("visible", true);
                                 track.muted = track_json.value("muted", false);
+                                track.audio_muted = track_json.value("audio_muted", false);
                                 track.z_index = track_json.value("z_index", 0);
 
                                 if (track_json.contains("clips")) {
@@ -745,6 +809,7 @@ namespace ump {
                                         clip.has_fade_out = clip_json.value("has_fade_out", false);
                                         clip.fade_in_duration = clip_json.value("fade_in_duration", 0.0);
                                         clip.fade_out_duration = clip_json.value("fade_out_duration", 0.0);
+                                        clip.audio_muted = clip_json.value("audio_muted", false);
                                         track.clips.push_back(clip);
                                     }
                                 }
@@ -1416,9 +1481,6 @@ namespace ump {
             new_timeline_width = 1920;
             new_timeline_height = 1080;
             new_timeline_fps = 24.0;
-            new_timeline_hours = 0;
-            new_timeline_minutes = 10;
-            new_timeline_seconds = 0;
         }
 
         if (ImGui::BeginPopupModal("New Timeline", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1488,58 +1550,12 @@ namespace ump {
 
             ImGui::Spacing();
             ImGui::Spacing();
-            ImGui::TextDisabled("Duration:");
-
-            // Hours, Minutes, Seconds on one row with comfortable spacing
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(50);
-            ImGui::InputInt("##TimelineHours", &new_timeline_hours, 0, 0);
-            if (font_mono) ImGui::PopFont();
-            ImGui::SameLine();
-            ImGui::Text("hrs");
-            ImGui::SameLine();
-            ImGui::Spacing();
-            ImGui::SameLine();
-
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(50);
-            ImGui::InputInt("##TimelineMinutes", &new_timeline_minutes, 0, 0);
-            if (font_mono) ImGui::PopFont();
-            ImGui::SameLine();
-            ImGui::Text("min");
-            ImGui::SameLine();
-            ImGui::Spacing();
-            ImGui::SameLine();
-
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(50);
-            ImGui::InputInt("##TimelineSeconds", &new_timeline_seconds, 0, 0);
-            if (font_mono) ImGui::PopFont();
-            ImGui::SameLine();
-            ImGui::Text("sec");
-
-            // Quick duration presets on separate row
-            if (ImGui::Button("5 min")) { new_timeline_hours = 0; new_timeline_minutes = 5; new_timeline_seconds = 0; }
-            ImGui::SameLine();
-            if (ImGui::Button("10 min")) { new_timeline_hours = 0; new_timeline_minutes = 10; new_timeline_seconds = 0; }
-            ImGui::SameLine();
-            if (ImGui::Button("30 min")) { new_timeline_hours = 0; new_timeline_minutes = 30; new_timeline_seconds = 0; }
-            ImGui::SameLine();
-            if (ImGui::Button("1 hr")) { new_timeline_hours = 1; new_timeline_minutes = 0; new_timeline_seconds = 0; }
-            ImGui::SameLine();
-            if (ImGui::Button("2 hr")) { new_timeline_hours = 2; new_timeline_minutes = 0; new_timeline_seconds = 0; }
+            ImGui::TextDisabled("Duration auto-extends as clips are added.");
 
             // Clamp values
             new_timeline_width = std::max(320, std::min(new_timeline_width, 8192));
             new_timeline_height = std::max(240, std::min(new_timeline_height, 8192));
             new_timeline_fps = std::max(1.0, std::min(new_timeline_fps, 120.0));
-            new_timeline_hours = std::max(0, std::min(new_timeline_hours, 24));
-            new_timeline_minutes = std::max(0, std::min(new_timeline_minutes, 59));
-            new_timeline_seconds = std::max(0, std::min(new_timeline_seconds, 59));
-
-            // Calculate total duration in seconds
-            double total_duration = (new_timeline_hours * 3600.0) + (new_timeline_minutes * 60.0) + new_timeline_seconds;
-            if (total_duration < 1.0) total_duration = 1.0;  // Minimum 1 second
 
             ImGui::Spacing();
             ImGui::Separator();
@@ -1550,7 +1566,7 @@ namespace ump {
                     new_timeline_width,
                     new_timeline_height,
                     new_timeline_fps,
-                    total_duration
+                    1.0  // Start at 1 second - auto-extends as clips are added
                 );
                 // Optionally open the timeline immediately
                 if (!timeline_id.empty() && timeline_editor_callback) {
@@ -2256,15 +2272,18 @@ namespace ump {
                     cached_meta.state = MetadataState::VIDEO_READY;
                 }
 
-                // Set duration from metadata
+                // Set duration and frame rate from metadata
                 if (metadata.total_frames > 0 && metadata.frame_rate > 0) {
                     item.duration = metadata.total_frames / metadata.frame_rate;
+                    item.frame_rate = metadata.frame_rate;  // Store actual video fps
                 } else {
                     item.duration = (item.type == MediaType::VIDEO) ? 30.0 : 180.0;
+                    // frame_rate stays at default 24.0 if not detected
                 }
 
                 Debug::Log("AddMediaFileToProject: Cached metadata for: " + file_path);
                 Debug::Log("  Resolution: " + std::to_string(metadata.width) + "x" + std::to_string(metadata.height));
+                Debug::Log("  Frame Rate: " + std::to_string(metadata.frame_rate) + " fps");
                 Debug::Log("  Codec: " + metadata.video_codec);
                 Debug::Log("  Pixel Format: " + metadata.pixel_format);
             } else {
@@ -2339,6 +2358,13 @@ namespace ump {
         Debug::Log("  - FFmpeg pattern: " + (item.ffmpeg_pattern.empty() ? "(empty)" : item.ffmpeg_pattern));
         Debug::Log("  - Sequence pattern: " + (item.sequence_pattern.empty() ? "(empty)" : item.sequence_pattern));
         Debug::Log("  - EXR layer: " + (item.exr_layer.empty() ? "(empty)" : item.exr_layer));
+
+        // Cache view state of current media BEFORE loading new media
+        // This must happen before current_file_path is updated
+        if (pre_video_change_callback && current_file_path && !current_file_path->empty()) {
+            Debug::Log("LoadSingleMediaItem: Pre-change callback for: " + *current_file_path);
+            pre_video_change_callback(*current_file_path);
+        }
 
         ClearSelection();
         // Clear all active states - loading a single file makes nothing else active
@@ -2440,6 +2466,19 @@ namespace ump {
                     if (video_change_callback) {
                         video_change_callback(item.path);
                     }
+                    // Restore view state from MediaItem (look up fresh to get latest cached values)
+                    if (view_state_callback) {
+                        MediaItem* fresh_item = GetMediaItem(item.id);
+                        if (fresh_item) {
+                            view_state_callback(fresh_item->view_state.zoom_level,
+                                               fresh_item->view_state.scroll_offset,
+                                               fresh_item->view_state.playhead_position);
+                        } else {
+                            view_state_callback(item.view_state.zoom_level,
+                                               item.view_state.scroll_offset,
+                                               item.view_state.playhead_position);
+                        }
+                    }
 
                     // Select this item and extract metadata
                     SelectMediaItem(item.id, false, false);
@@ -2489,6 +2528,19 @@ namespace ump {
                             // Notify callbacks
                             if (video_change_callback) {
                                 video_change_callback(item.path);
+                            }
+                            // Restore view state from MediaItem (look up fresh to get latest cached values)
+                            if (view_state_callback) {
+                                MediaItem* fresh_item = GetMediaItem(item.id);
+                                if (fresh_item) {
+                                    view_state_callback(fresh_item->view_state.zoom_level,
+                                                       fresh_item->view_state.scroll_offset,
+                                                       fresh_item->view_state.playhead_position);
+                                } else {
+                                    view_state_callback(item.view_state.zoom_level,
+                                                       item.view_state.scroll_offset,
+                                                       item.view_state.playhead_position);
+                                }
                             }
 
                             // Select this item and extract metadata
@@ -2579,6 +2631,23 @@ namespace ump {
             // For audio, just notify main (no cache needed)
             if (video_change_callback) {
                 video_change_callback(item.path);
+            }
+        }
+
+        // Restore view state from MediaItem (for regular videos and audio)
+        // Look up fresh from media_pool to get the latest cached values
+        if (view_state_callback) {
+            MediaItem* fresh_item = GetMediaItem(item.id);
+            if (fresh_item) {
+                Debug::Log("Restoring view state from fresh MediaItem lookup");
+                view_state_callback(fresh_item->view_state.zoom_level,
+                                   fresh_item->view_state.scroll_offset,
+                                   fresh_item->view_state.playhead_position);
+            } else {
+                // Fallback to parameter (shouldn't happen)
+                view_state_callback(item.view_state.zoom_level,
+                                   item.view_state.scroll_offset,
+                                   item.view_state.playhead_position);
             }
         }
 
@@ -3323,6 +3392,126 @@ namespace ump {
         return count;
     }
 
+    // ========================================================================
+    // VIEW STATE MANAGEMENT (for persistent zoom/pan per-media)
+    // ========================================================================
+
+    void ProjectManager::CacheCurrentViewState(const std::string& media_path, float zoom, float scroll, double playhead) {
+        // Handle URL-style paths (mf://, exr://) by extracting the base path
+        std::string search_path = media_path;
+
+        // Strip mf:// prefix and everything after | separator
+        if (search_path.rfind("mf://", 0) == 0) {
+            search_path = search_path.substr(5);  // Remove "mf://"
+            size_t pipe_pos = search_path.find('|');
+            if (pipe_pos != std::string::npos) {
+                search_path = search_path.substr(0, pipe_pos);
+            }
+        }
+        // Strip exr:// prefix and query params
+        else if (search_path.rfind("exr://", 0) == 0) {
+            search_path = search_path.substr(6);  // Remove "exr://"
+            size_t query_pos = search_path.find('?');
+            if (query_pos != std::string::npos) {
+                search_path = search_path.substr(0, query_pos);
+            }
+        }
+
+        for (auto& item : media_pool) {
+            // Match by exact path or by base path for sequences
+            // For sequences with ffmpeg_pattern, check if the first frame path is in the item's path
+            bool exact_match = (item.path == media_path);
+            bool stripped_match = (item.path == search_path);
+            bool sequence_match = (!item.ffmpeg_pattern.empty() && item.path.find(search_path) != std::string::npos);
+
+            if (exact_match || stripped_match || sequence_match) {
+                item.view_state.zoom_level = zoom;
+                item.view_state.scroll_offset = scroll;
+                item.view_state.playhead_position = playhead;
+                Debug::Log("CacheCurrentViewState: Saved zoom=" + std::to_string(zoom) +
+                           ", scroll=" + std::to_string(scroll) +
+                           ", playhead=" + std::to_string(playhead) + " for: " + item.name);
+                return;
+            }
+        }
+        Debug::Log("CacheCurrentViewState: No matching media found for: " + media_path);
+        Debug::Log("  search_path: " + search_path);
+    }
+
+    void ProjectManager::CacheTimelineViewState(const std::string& timeline_id, float zoom, float scroll,
+                                                double playhead, double in_point, double out_point) {
+        MediaItem* item = GetTimelineItem(timeline_id);
+        if (item) {
+            item->view_state.timeline_zoom = zoom;
+            item->view_state.timeline_scroll = scroll;
+            item->view_state.timeline_playhead = playhead;
+            item->view_state.timeline_in_point = in_point;
+            item->view_state.timeline_out_point = out_point;
+            Debug::Log("CacheTimelineViewState: Saved zoom=" + std::to_string(zoom) +
+                       ", scroll=" + std::to_string(scroll) +
+                       ", playhead=" + std::to_string(playhead) + " for timeline: " + timeline_id);
+        }
+    }
+
+    bool ProjectManager::GetCachedViewState(const std::string& media_path, float& zoom, float& scroll, double& playhead) {
+        // Handle URL-style paths (mf://, exr://) by extracting the base path
+        std::string search_path = media_path;
+
+        // Strip mf:// prefix and everything after | separator
+        if (search_path.rfind("mf://", 0) == 0) {
+            search_path = search_path.substr(5);  // Remove "mf://"
+            size_t pipe_pos = search_path.find('|');
+            if (pipe_pos != std::string::npos) {
+                search_path = search_path.substr(0, pipe_pos);
+            }
+        }
+        // Strip exr:// prefix and query params
+        else if (search_path.rfind("exr://", 0) == 0) {
+            search_path = search_path.substr(6);  // Remove "exr://"
+            size_t query_pos = search_path.find('?');
+            if (query_pos != std::string::npos) {
+                search_path = search_path.substr(0, query_pos);
+            }
+        }
+
+        for (const auto& item : media_pool) {
+            // Match by exact path or by base path for sequences
+            // For sequences with ffmpeg_pattern, check if the first frame path is in the item's path
+            bool exact_match = (item.path == media_path);
+            bool stripped_match = (item.path == search_path);
+            bool sequence_match = (!item.ffmpeg_pattern.empty() && item.path.find(search_path) != std::string::npos);
+
+            if (exact_match || stripped_match || sequence_match) {
+                zoom = item.view_state.zoom_level;
+                scroll = item.view_state.scroll_offset;
+                playhead = item.view_state.playhead_position;
+                Debug::Log("GetCachedViewState: Restored zoom=" + std::to_string(zoom) +
+                           ", scroll=" + std::to_string(scroll) +
+                           ", playhead=" + std::to_string(playhead) + " for: " + item.name);
+                return true;
+            }
+        }
+        Debug::Log("GetCachedViewState: No cached state for: " + media_path);
+        return false;
+    }
+
+    bool ProjectManager::GetTimelineViewState(const std::string& timeline_id, float& zoom, float& scroll,
+                                             double& playhead, double& in_point, double& out_point) {
+        MediaItem* item = GetTimelineItem(timeline_id);
+        if (item) {
+            zoom = item->view_state.timeline_zoom;
+            scroll = item->view_state.timeline_scroll;
+            playhead = item->view_state.timeline_playhead;
+            in_point = item->view_state.timeline_in_point;
+            out_point = item->view_state.timeline_out_point;
+            Debug::Log("GetTimelineViewState: Restored zoom=" + std::to_string(zoom) +
+                       ", scroll=" + std::to_string(scroll) +
+                       ", playhead=" + std::to_string(playhead) + " for timeline: " + timeline_id);
+            return true;
+        }
+        return false;
+    }
+
     std::string ProjectManager::CreateNewTimeline(const std::string& name,
                                                    int width, int height,
                                                    double fps, double duration) {
@@ -4009,7 +4198,13 @@ namespace ump {
         }
 
         // Load into MPV for playback (metadata already cached)
-        video_player->LoadFile(file_path);
+        // If in dual view mode, use LoadPrimaryVideoInDualView to stay in dual view
+        if (video_player->IsComparisonModeEnabled()) {
+            Debug::Log("LoadSingleFileFromDrop: In dual view mode, using LoadPrimaryVideoInDualView");
+            video_player->LoadPrimaryVideoInDualView(file_path);
+        } else {
+            video_player->LoadFile(file_path);
+        }
         *current_file_path = file_path;
 
         // Use OnVideoLoaded for proper sequencing (600ms delay before cache starts)

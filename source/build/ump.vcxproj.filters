@@ -25,6 +25,15 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_decoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -109,6 +118,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -184,6 +196,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\dual_view_timeline_widget.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -232,6 +247,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\ring_buffer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.h">
@@ -294,6 +321,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dual_view_types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dummy_video_generator.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -319,6 +349,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.h">
@@ -360,6 +393,9 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_thumbnail_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_types.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_view.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -397,6 +433,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\dual_view_timeline_widget.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.h">
