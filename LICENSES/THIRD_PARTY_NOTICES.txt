@@ -179,6 +179,14 @@ found in the respective LICENSE file in this directory.
     File: OpenTimelineIO-LICENSE.txt
     Note: Multi-track timeline interchange format library (ASWF project)
 
+32. miniaudio
+    Copyright 2025 David Reid
+    License: Public Domain (Unlicense) / MIT No Attribution (dual licensed)
+    Website: https://miniaud.io/
+    GitHub: https://github.com/mackron/miniaudio
+    File: miniaudio-LICENSE.txt
+    Note: Single-header audio playback and capture library for cross-platform audio
+
 ================================================================================
 
 ACES and Blender OpenColorIO Configurations
