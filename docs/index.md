@@ -36,4 +36,4 @@ I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test
 
 ## Source Code
 
-u.m.p. is open souce. It's a personal, in-house app, but hopefully useful for others. [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
+u.m.p. is open souce. It's a personal, in-house app, but free to use and alter. It's only Licenesed GPL due to dependancies such FFMPEG and Exiftool. [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
