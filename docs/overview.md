@@ -7,11 +7,19 @@ nav_order: 3
 
 ## Basic app flow
 
+This diagram is a simplification, but it illustrates one of the main reasons for this app: everything flows through the OICO color correction FBO—either to the display or to files.
+
+![app flow 1](images/chart.png)
+
+---
+
 ### Video
 
 The basic app flow places a media FBO between the interface and a separate OCIO FBO. This flow allows real-time background color/pattern swapping (try toggling `B` on the keyboard) and real-time OCIO shader generation across all videos and image sequences. Videos are controlled by libmpv and use its OpenGL API to push frames to our media FBO.
 
 ![app flow 1](images/ump_IxDkF0dn30.png)
+
+---
 
 ### Image Sequences
 
@@ -23,9 +31,9 @@ Image sequences use OTIO for control in place of mpv. When loading an image sequ
 
 ## Pipeline Modes
 
-u.m.p. supports several pipeline modes with various media types. What this means in practice: When a particular pipeline mode is selected, mpv itself is configured for the appropriate bitrate in playback, and the cache settings are adjusted appropriately. Here is a breakdown:
+u.m.p. supports several pipeline modes with various media types. What this means in practice: When a particular pipeline mode is selected, mpv is configured for the appropriate bitrate during playback, and the cache settings are adjusted accordingly. Here is a breakdown:
 
-![pipeline modes](images/ump_K8UVPrC0s4.png)
+![pipeline modes](images/ump_E1tLMP1lFA.png)
 
 - **Normal mode:** This allows for normal 8-bit mpv playback and is appropriate for most video formats and 8-bit TIFF, PNG, and JPEG sequences. Caches are adjusted to the RGBA8 format to match.
 - **High-Res mode:** This allows for mpv to playback 12-bit video with full fidelity (think ProRes 4444) and adjusts the cache to RGBA16 (integer). I am keeping this as a user-selectible option for videos, but for the most part, 8-bit is fine for reviewing--even with ProRes. This mode will also be used automatically for 16-bit TIFFs and 16-bit PNGs. 
