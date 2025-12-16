@@ -38,3 +38,5 @@ To import from Frame.io, you will need a Developer API token. These are availabl
 - Add, and optionally save, your API token. (Note: These are not saved securely, so don't do this on a public computer.)
 - Add the URL for the webpage of the video you want to import. Note: This is the actual URL of the video, and not Frame.io's shortened client URL.
 - Press `Import`.
+
+![Window](images/ump_Tvs32YDrwM.png)

@@ -38,4 +38,4 @@ I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test
 
 u.m.p. is open source. It's a personal, in-house app, but free to use and alter. It's only licensed under GPL due to dependencies such as FFMPEG and Exiftool.
 
- [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
+[https://github.com/cbkow/ump](https://github.com/cbkow/ump)
