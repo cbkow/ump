@@ -10,7 +10,7 @@ nav_order: 9
 
 u.m.p.'s annotation panel curates a list of all notes and illustrated annotations for loaded media. Notes and screenshots are saved in a `.ump` folder next to the loaded media, making them accessible to coworkers as well. They will load with the media, if available.
 
-![Window](images/ump_dnJ3OzwYm4.png)
+![Window](images/ump_n5IQAgCEEU.png)
 
 ## Notes
 
