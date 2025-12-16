@@ -75,3 +75,19 @@ If you click the tiny triangle in the top-left corner, you can reveal the panel 
 `Ctrl + C` opens the **OCIO Color Preset** panel. Enabling one of these options applies an OCIO node-tree preset to your **Viewer**, and everything in the **Viewer** will have this color correction applied. See the **OCIO Nodes** page for more details on how these presets work.
 
 ![ump image](images/ump_rPpfu7V3vk.png)
+
+---
+
+## Themes
+
+### System Accent Colors
+
+Toggleing System Accent Color will use your Windows Accent Color.
+
+![ump image](images/ump_ZXYIJ3A0K5.png)
+
+### Color Theme Options
+
+You can also select a color theme from one of these options.
+
+![ump image](images/ump_Z3Nz0uYukp.png)
