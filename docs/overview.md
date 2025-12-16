@@ -3,7 +3,7 @@ title: Technical Overview
 permalink: /technical-overview/
 nav_order: 3
 ---
-# Techincal Overview
+# Technical Overview
 
 ## Basic app flow
 
