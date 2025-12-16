@@ -217,6 +217,17 @@ found in the respective LICENSE file in this directory.
 
 ================================================================================
 
+Media Assets (used in documentation)
+
+37. Big Buck Bunny
+    (c) 2008 Blender Foundation
+    License: Creative Commons Attribution 3.0 (CC-BY 3.0)
+    Website: https://www.bigbuckbunny.org/
+    File: BigBuckBunny-LICENSE.txt
+    Note: Screenshots used in application manual for demonstration purposes
+
+================================================================================
+
 ACES and Blender OpenColorIO Configurations
 Located in assets/OCIO/ - See respective LICENSE files for details.
 

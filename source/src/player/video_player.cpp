@@ -6035,6 +6035,19 @@ void VideoPlayer::SetComparisonMode(ComparisonMode mode) {
     ComparisonMode old_mode = comparison_mode_;
     comparison_mode_ = mode;
 
+    // Debug: Log timer state and timeline values when switching modes
+    Debug::Log("SetComparisonMode: Timer active=" + std::to_string(dual_view_timer_ != nullptr) +
+               ", right.source_in=" + std::to_string(dual_view_timeline_.right.source_in) +
+               ", right.source_out=" + std::to_string(dual_view_timeline_.right.source_out) +
+               ", right.position_offset=" + std::to_string(dual_view_timeline_.right.position_offset));
+
+    // Force re-sync when switching between non-lavfi modes to ensure trim is applied
+    if (!IsLavfiMode(old_mode) && !IsLavfiMode(mode) && dual_view_timer_) {
+        double current_pos = dual_view_timer_->GetPosition();
+        Debug::Log("SetComparisonMode: Re-syncing videos to timeline position " + std::to_string(current_pos));
+        SeekDualView(current_pos);
+    }
+
     // Track non-lavfi edit modes for auto-revert
     if (mode == ComparisonMode::SIDE_BY_SIDE || mode == ComparisonMode::SPLIT_SCREEN) {
         last_edit_mode_ = mode;
@@ -6219,8 +6232,9 @@ void VideoPlayer::UpdateDualViewClipFromSecondary() {
 
         // Apply current trim points if they exist
         if (secondary_trim_start_ >= 0) {
-            Debug::Log("  WARNING: Applying secondary trim override: start=" + std::to_string(secondary_trim_start_) +
-                       ", duration=" + std::to_string(secondary_trim_duration_));
+            // Only log when trim override values actually differ from current (avoid spam)
+            // Debug::Log("  Applying secondary trim override: start=" + std::to_string(secondary_trim_start_) +
+            //            ", duration=" + std::to_string(secondary_trim_duration_));
             dual_view_timeline_.right.source_in = secondary_trim_start_;
             if (secondary_trim_duration_ > 0) {
                 dual_view_timeline_.right.source_out = secondary_trim_start_ + secondary_trim_duration_;
@@ -6486,6 +6500,15 @@ bool VideoPlayer::InitializeDualViewPlayback() {
         // Seek both videos to the new position (seek-based sync)
         double primary_pos = CalculatePrimaryPosition(pos);
         double secondary_pos = CalculateSecondaryPosition(pos);
+
+        // Debug: Log every 30 callbacks (approx 1 per second at 30fps)
+        static int timer_cb_counter = 0;
+        if (timer_cb_counter++ % 30 == 0) {
+            Debug::Log("TimerCallback: timeline=" + std::to_string(pos) +
+                       ", primary=" + std::to_string(primary_pos) +
+                       ", secondary=" + std::to_string(secondary_pos) +
+                       ", mode=" + std::to_string(static_cast<int>(comparison_mode_)));
+        }
 
         // Update cached position for UI
         cached_position = primary_pos;
@@ -7194,6 +7217,14 @@ ImVec2 VideoPlayer::CalculateFitSize(int source_w, int source_h, float max_w, fl
 }
 
 void VideoPlayer::RenderSideBySide() {
+    // Debug: Log every 60 frames
+    static int sbs_debug_counter = 0;
+    if (sbs_debug_counter++ % 60 == 0) {
+        Debug::Log("RenderSideBySide: Timer active=" + std::to_string(dual_view_timer_ != nullptr) +
+                   ", right.source_in=" + std::to_string(dual_view_timeline_.right.source_in) +
+                   ", right.position_offset=" + std::to_string(dual_view_timeline_.right.position_offset));
+    }
+
     ImVec2 content_region = ImGui::GetContentRegionAvail();
     float half_width = content_region.x * 0.5f;
 
@@ -7607,6 +7638,14 @@ void VideoPlayer::RenderSideBySide() {
 }
 
 void VideoPlayer::RenderSplitScreen() {
+    // Debug: Log every 60 frames
+    static int split_debug_counter = 0;
+    if (split_debug_counter++ % 60 == 0) {
+        Debug::Log("RenderSplitScreen: Timer active=" + std::to_string(dual_view_timer_ != nullptr) +
+                   ", right.source_in=" + std::to_string(dual_view_timeline_.right.source_in) +
+                   ", right.position_offset=" + std::to_string(dual_view_timeline_.right.position_offset));
+    }
+
     ImVec2 content_region = ImGui::GetContentRegionAvail();
 
     // Get draw list and viewport position for overlays
@@ -7733,6 +7772,59 @@ void VideoPlayer::RenderSplitScreen() {
             comparison_drop_pending_id_ = media_id;
         }
         ImGui::EndDragDropTarget();
+    }
+
+    // Draw gap overlays (black) when playhead is outside a clip's range on virtual timeline
+    // This provides visual feedback that the clip has a gap at this position
+    double timeline_pos = GetVirtualTimelinePosition();
+
+    // Left video gap overlay (clipped to left side of split)
+    ClipGapState left_gap = GetPrimaryGapState(timeline_pos);
+    if (left_gap != ClipGapState::PLAYING && primary_texture > 0) {
+        ImVec2 gap_min(viewport_pos.x + primary_pos.x, viewport_pos.y + primary_pos.y);
+        ImVec2 gap_max(gap_min.x + primary_size.x, gap_min.y + primary_size.y);
+
+        // Clip to left side of split
+        draw_list->PushClipRect(viewport_pos, ImVec2(viewport_pos.x + split_x, viewport_pos.y + content_region.y), true);
+        draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
+
+        const char* gap_text = (left_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
+        if (font_mono) {
+            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+            ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
+                           (gap_min.y + gap_max.y - text_size.y) * 0.5f);
+            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+        }
+        draw_list->PopClipRect();
+    }
+
+    // Right video gap overlay (clipped to right side of split)
+    ClipGapState right_gap = GetSecondaryGapState(timeline_pos);
+    if (right_gap != ClipGapState::PLAYING && comparison_video_ && comparison_video_->HasVideo()) {
+        int comp_w = comparison_video_->GetWidth();
+        int comp_h = comparison_video_->GetHeight();
+        ImVec2 comparison_size = CalculateFitSize(comp_w, comp_h, content_region.x, content_region.y);
+        ImVec2 comparison_pos_calc = ImVec2(
+            (content_region.x - comparison_size.x) * 0.5f,
+            (content_region.y - comparison_size.y) * 0.5f
+        );
+
+        ImVec2 gap_min(viewport_pos.x + comparison_pos_calc.x, viewport_pos.y + comparison_pos_calc.y);
+        ImVec2 gap_max(gap_min.x + comparison_size.x, gap_min.y + comparison_size.y);
+
+        // Clip to right side of split
+        draw_list->PushClipRect(ImVec2(viewport_pos.x + split_x, viewport_pos.y),
+                                ImVec2(viewport_pos.x + content_region.x, viewport_pos.y + content_region.y), true);
+        draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
+
+        const char* gap_text = (right_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
+        if (font_mono) {
+            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+            ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
+                           (gap_min.y + gap_max.y - text_size.y) * 0.5f);
+            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+        }
+        draw_list->PopClipRect();
     }
 
     // Draw draggable divider line
