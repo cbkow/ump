@@ -14,7 +14,7 @@ The bottom of the **Viewport** panel contains controls for media playback and ap
 
 ---
 
-# Transport Controls
+## Transport Controls
 
 Media navigation is controlled with these buttons:
 
@@ -66,8 +66,6 @@ Options are:
 * A recreation of the default light-themed mpv checkerboard background
 
 ![window](images/ump_8qgyVRhPrr.png)
-
-### 
 
 ---
 
