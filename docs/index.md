@@ -6,7 +6,7 @@ nav_order: 1
 
 # u.m.p.
 
-![ump image](images/explorer_g93uYKq5BO.png)
+![ump image](images/ump_G0JZxN4gUp.png)
 
 ## Overview
 
@@ -26,7 +26,7 @@ nav_order: 1
 
 ---
 
-![ump image](images/explorer_orioXEpCs0.png)
+![ump image](images/ump_zqTzqiLxrS.png)
 
 ## Notes and Bugs:
 
