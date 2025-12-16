@@ -1,5 +1,5 @@
 ---
-title: OCIO nodes
+title: OCIO Color Nodes
 permalink: /ocio-nodes/
 nav_order: 8
 ---
