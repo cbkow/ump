@@ -43,7 +43,10 @@ Special thanks to:
 - The **mpv** community for comprehensive documentation and examples
 - The **OpenEXR** community for technical guidance 
 - The **OpenColorIO** project for color management
+- The **OpenTimelineIO** project timeline management
 - The **ImGui** community for UI/UX patterns and widget design inspiration
+- The **miniaudio** project for audio handling in timelines
+- The **Exiftool** project for getting us access to metadata 
 
 ---
 
