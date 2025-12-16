@@ -8,7 +8,16 @@ nav_order: 2
 
 ## Recommended
 
-To install, download the latest `.exe` installer from [releases.](https://github.com/cbkow/ump/releases/).
+To install, download the latest `.exe` installer from [releases.](https://github.com/cbkow/ump/releases/)
+
+*The installer has a few extras:*
+ - Registry entries for common media files
+ - Adds a `ump:///XXX` custom URI scheme to share file paths with colleagues.
+
+
+![ump image](images/chrome_6kt4eaw0I2.png)
+
+---
 
 ## Alternative
 

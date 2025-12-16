@@ -6,29 +6,33 @@ nav_order: 1
 
 # u.m.p.
 
+![ump image](images/explorer_g93uYKq5BO.png)
+
 ## Overview
 
-![ump image](images/ump_oFy88Xj15I.png)
+**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with memory-mapped playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
 
-**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
-
- - a spiraling seek/scrubbing cache for videos
- - a separate live playback memory cache for image sequences 
- - a [Thumbfast-inspired](https://github.com/po5/thumbfast) thumbnail system for all media
+ - RAM cache for scrubbing/seeking in videos, image sequence playback, and timelines
+ - [OTIO](https://github.com/OpenTimelineIO) timelines for image sequences and timelines 
+ - a custom playlist manager for mpv's playlist system
+ - a [Thumbfast](https://github.com/po5/thumbfast)-inspired thumbnail preview panel
  - frame-stepping and cache-enhanced RW/FF
  - live [OCIO-based](https://opencolorio.org/) color correction switching with a node-based interface
- - live background switching for alpha-channel visibility
+ - live background switching for alpha-channel media review
  - an annotation/notes system with PDF/Markdown/HTML export + [Frame.io](https://frame.io/home) import
- - embedded timecode for supported media
+ - extracts embedded timecode in supported media 
  - title-safety guides for standard broadcast and social-media deliverables
+ - screenshots from all media
 
+---
+
+![ump image](images/explorer_orioXEpCs0.png)
 
 ## Notes and Bugs:
 
-- Timeline mode is currently only looking for QT Start time and XMP timecode in the metdata, but I am sure there are other metadata I can look for. I need to test more media.
-- I have only tested Octane and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
-- Audio has very basic visualization currently. I would like to rethink this.
-- There are some instance where you will see a flash of what looks like font setup, in the viewport, when switching between modes or media. This is a moment of corruption in OpenGL and it is errantly loading the ImGui font cache because it doesn't have a proper gl texture loaded. It's on my list of things to fix.
+I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
+
+---
 
 ## Source Code
 
