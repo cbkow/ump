@@ -25,9 +25,9 @@ Download the zip if you would rather not use the installer.
 
 ---
 
-## Upgrade and Installer Guide
+## Upgrade with the Installer
 
-### Check for Updateas
+### Check for Updates
 
 `Check for Updates` in the `Help` menu will bring you the u.m.p. releases page on GitHub. Here you can find the latest installer. 
 
