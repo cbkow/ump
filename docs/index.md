@@ -30,10 +30,10 @@ nav_order: 1
 
 ## Notes and Bugs:
 
-I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
+u.m.p. is open source. It's a personal, in-house app, but free to use and alter. It's only licensed under GPL due to dependencies such as FFMPEG and Exiftool.
 
 ---
 
 ## Source Code
 
-u.m.p. is open souce. It's a personal, in-house app, but free to use and alter. It's only Licenesed GPL due to dependancies such FFMPEG and Exiftool. [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
+ [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
