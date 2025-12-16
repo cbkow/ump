@@ -45,7 +45,7 @@ If you choose to transcode a sequence for better playback, this is where the tem
 
 ![Window](images/ump_TsbN7YkAd9.png)
 
-#### Manually Deleting Disk Cache
+### Manually Deleting Disk Cache
 
 You can manually trigger a Disk Cache purge.
 
