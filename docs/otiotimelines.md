@@ -87,4 +87,4 @@ For the most part, playback in timeline mode is similar to that of image sequenc
 
 ---
 
-*Note: The timeline mode is still WIP and a bit fragile. I am still chasing down edge case bugs that crash the app.*
+*Note: The timeline mode is still WIP and a bit fragile. I am still chasing down edge case bugs that crash the app. Currently on video sources are supported. Image sequences are not supported.*
