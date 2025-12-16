@@ -370,6 +370,16 @@ std::string TimelinePlaybackController::GetCurrentSourcePath() const {
     return coords.valid ? coords.source_path : "";
 }
 
+std::string TimelinePlaybackController::GetTimelineName() const {
+    if (!timeline_view_) return "";
+    return timeline_view_->GetTimelineName();
+}
+
+std::string TimelinePlaybackController::GetSourceFilePath() const {
+    if (!timeline_view_) return "";
+    return timeline_view_->GetSourceFilePath();
+}
+
 // NOTE: SyncFromMPV and GenerateDummy removed - virtual timeline mode uses PlaybackTimer
 
 //=============================================================================

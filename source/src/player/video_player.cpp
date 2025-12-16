@@ -3821,9 +3821,26 @@ bool VideoPlayer::CaptureScreenshotToDesktop(const std::string& filename) {
         char timestamp[64];
         std::strftime(timestamp, sizeof(timestamp), "%Y%m%d_%H%M%S", &tm);
 
-        // Get filename from current file path, fallback to generic name
+        // Get filename from timeline name (if in timeline mode) or current file path
         std::string base_filename = "ump_Screenshot";
-        if (mpv) {
+        if (is_timeline_mode_ && timeline_controller_) {
+            // In timeline mode, use the timeline name instead of current clip
+            std::string timeline_name = timeline_controller_->GetTimelineName();
+            if (!timeline_name.empty()) {
+                base_filename = timeline_name;
+                Debug::Log("Screenshot: Using timeline name '" + base_filename + "'");
+            } else {
+                // Fallback to source file path stem if timeline name is empty
+                std::string source_path = timeline_controller_->GetSourceFilePath();
+                if (!source_path.empty()) {
+                    std::filesystem::path p(source_path);
+                    base_filename = p.stem().string();
+                    Debug::Log("Screenshot: Using timeline source file '" + base_filename + "'");
+                } else {
+                    Debug::Log("Screenshot: Timeline mode but no timeline name, using fallback");
+                }
+            }
+        } else if (mpv) {
             char* path_result = nullptr;
             if (mpv_get_property(mpv, "path", MPV_FORMAT_STRING, &path_result) == 0 && path_result) {
                 std::string file_path = path_result;

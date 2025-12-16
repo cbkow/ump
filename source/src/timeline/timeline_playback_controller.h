@@ -102,6 +102,10 @@ public:
     // Check if using virtual timeline mode (always true now)
     bool IsVirtualTimelineMode() const { return use_virtual_timeline_; }
 
+    // Access timeline metadata (for screenshot naming, etc.)
+    std::string GetTimelineName() const;
+    std::string GetSourceFilePath() const;
+
     // Access timer (for external position queries)
     PlaybackTimer* GetTimer() const { return timeline_timer_.get(); }
 
