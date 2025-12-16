@@ -1,6 +1,6 @@
 /* Sidebar link hover */
 .nav-list-link:hover {
-  background-color: rgba(63, 50, 34, 0.5);  /* subtle highlight */
+  background-color: rgba(241, 236, 231, 0.5);  /* subtle highlight */
   color: #171717;                               /* optional hover text color */
 }
 .nav-list-link.active {
@@ -20,5 +20,5 @@
 }
 
 .nav-list .nav-list-item .nav-list-link:hover, .nav-list .nav-list-item .nav-list-link.active {
-    background-image: linear-gradient(-90deg, #d4aa72 0%, rgba(212, 170, 115,0.8) 80%, rgba(212, 170, 115,0) 100%);
+    background-image: linear-gradient(-90deg, #e5ded5 0%, rgba(237, 232, 225, 0.8) 80%, rgba(212, 170, 115,0) 100%);
 }
