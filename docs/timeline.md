@@ -107,10 +107,38 @@ If you click on the button to the right of the timecode and frame counter, you c
 
 ![window](images/ump_PdJlTR7IHX.png)
 
+---
 
+### The Timeline
 
+You can zoom into a tighter presentation of this timeline visual by using `Ctrl + Mouse Scroll`. If you `Ctrl + Middle-click` this area, you can pan it. Triggering the `Mouse scroll wheel` without `Ctrl` pans it as well. 
 
+![window](images/ump_GsLLrIfwud.png)
 
+When zoomed in, you may also click on this representation of the zoom zone and drag to pan the timeline.
 
+![window](images/ump_vZfKlj7oTv.png)
 
+---
 
+### Volume, Mute, Loop, and Follow-Playhead Mode
+
+Sliding the Volume slider adjusts the volume, and clicking the speaker button toggles Mute mode. Clicking the Loop button will trigger a loop mode for single media, playlists, or timelines—-depending on the media loaded. The `F*` button signifies Follow Playhead Mode. When this is toggled, and the timeline is zoomed in, it will auto-pan to keep the playhead in view.
+
+![window](images/ump_LlVwycO4LJ.png)
+
+---
+
+### Loop Zones
+
+The keyboard command `I` and `O`, as well as the two buttons in this section, will toggle In and Out points on your timeline. Once an Out point is toggled, a Loop Zone will appear. This visual signifies a set range within which the media will play. Pressing `Clear` releases the Loop Zone and lets you play the entire clip again. 
+
+![window](images/ump_rSNUJutW6B.png)
+
+---
+
+### Zoom / Pan
+
+In addition to your middle mouse button, you can use these sliders to zoom and pan a timeline.
+
+![window](images/ump_loXCSy9iUw.png)
