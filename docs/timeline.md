@@ -6,67 +6,111 @@ nav_order: 5
 
 # Timeline and Transport Controls
 
-The timeline and transport panel contains playback controls, annotation markers, a cache progress bar, time/frame counts, volume controls, and loop controls.
+The bottom of the **Viewport** panel contains controls for media playback and app state shortcuts. It dynamically shifts based on the loaded media and presents appropriate options. 
 
-## Timecode mode
+![window](images/ump_5PKciehAgY.png)
 
-![window](images/ump_SatErKc9hW.png)
+## Transport Controls
+
 Timecode mode looks for QT start time or XMP timecode in video metadata and changes the time counter to match the timecode of the video.
 
----
+### Transport Controls
 
-## Transport controls
+Media navigation is controlled with these buttons:
 
-![window](images/explorer_YLJZWJ3O0O.png)
-The transport controls are as follows:
-- Previous video in playlist (only available in playlist mode)
-- Beginning of media
-- Rewind (press and hold--it will speed up over time)
-- Back one frame
-- Play/Pause
-- Forward one frame
-- Fast Forward (press and hold--it will speed up over time)
-- End of media
-- Next video in playlist (only available in playlist mode)
+* Previous video in playlist (only available in playlist mode)
+* Beginning of media
+* Rewind (press and hold–it will speed up over time)
+* Back one frame
+* Play/Pause
+* Forward one frame
+* Fast Forward (press and hold–it will speed up over time)
+* End of media
+* Next video in playlist (only available in playlist mode)
 
----
-
-## The Timeline
-
-![window](images/explorer_SeFLZCiN0l.png)
-
-### Video mode
-In video mode there is a colored cache bar at the bottom of the timeline. This represents a fast-seek cache. Most useful for shorter videos, this cache has stored all the marked frames in memory for fast timeline scrubbing and seeking. It only runs when the video is paused--preventing playback interference. Fask scrubbing the timeline will quickly shuttle these frames stored in memory for precise seeks.
-
-**Note:** *Seek cache is disabled for h.264 and h.265 videos. Because of b-frames inherent in those formats, true frame accuracy is impossible.*
-
-
-### Image sequence mode
-
-When an image sequence is loaded into the viewport, this colored cache serves a different purpose--it shows frames cached for playback. Since some image sequences are huge files with massive i/o and decompression requirements, this is a relatively small cache that follows the playhead and keeps the immediate frames in memory. Scrubbing the timeline will not shuttle frames, but frames will instantly generate when the seekbar is released.
-
-### Both modes
-
-In both modes, we have an additional floating thumbnail viewer that loads when hovered over the timeline. On media loading, this thumbnail viewer instantaneously caches 25 evenly distributed frames to memory. As you hover over uncached parts of the timeline, it will regenerate missing frames--providing a seamless overview of frame content. These thumbnails are low resolution and supplied as a fast-seek tool. Depending on the format decoder, they will look low resolution, and will not be affected by our OCIO color correct pipeline. They can be disabled in the `View` menu.
-
-Additionally, in both modes, there are diamond shapes that mark notes in our annotation window. See the annotation page for more details.
+![window](images/ump_uOfVbnvZe8.png)
 
 ---
 
-## Mute, Volume, Loop, and Frame count
+### Overlays
 
-![window](images/explorer_5noSG9vZDc.png)
-At the bottom of our panel, on the left, we have a Volume bar, a Mute state button, and a Loop state button. On the right, we see the current time and frame of the playhead.
+These three buttons toggle overlay selectors:
 
+* Colorspace Presets
+* Safety Guide Overlays
+* Background colors/patterns.
 
-## Loop in/out
+![window](images/ump_VbwPwqOKM4.png)
 
-![window](images/explorer_ArMq05VuGy.png)
-Pressing `:` or toggling the loop-in button will set an in point, then pressing `'` or toggling the loop-out button will set an out point. Once selected, looping will be constrained to the area.
+#### Color Presets
+
+Color Presets trigger OCIO node trees for commonly accessed color correction flows. Click any to activate the flow, and click `Remove All Color Profiles` to remove any preset applied.
+
+![window](images/ump_qiVKQXG5ME.png)
+
+#### Safety Overlays
+
+The **Safety Overlays** panel triggers title safety overlays in accordance with common broadcast and social media standards. You can control opacity, line thickness, and color. The app will remember your preferences for these variables. 
+
+![window](images/ump_4c3CuWCcOp.png)
+
+#### Background
+
+This panel allows you to change the **Viewer’s** background color and pattern. This background will be presented behind the media, with alpha channels, as well as in the **Viewer's** periphery.
+
+Options are:
+
+* A plain black background
+* A default sold grey background
+* A dark variation of the mpv-style checkerboard background
+* A recreation of the default light-themed mpv checkerboard background
+
+![window](images/ump_8qgyVRhPrr.png)
+
+#### 
 
 ---
 
-## Playlist Mode
+### Screenshots
 
-![window](images/ump_Ybz5R4jUfh.png)
-When in playlist mode, the playlist will be represented below the timeline as clips. You can click on any to move the playlist to the selection. You can also drag/drop clips to rearrange the playlist.
+These two buttons allow you to take screenshots of the **Viewer**. The first saves the screenshot to the Windows clipboard so you can paste it into other apps. The second saves a screenshot to your Desktop.
+
+![window](images/ump_Ojwleo4WTq.png)
+
+---
+
+### Panel Toggles
+
+The buttons toggle commonly used app panels including:
+
+- The Inspector
+- The Project Manager
+- The OCIO color panels
+- Annotations / Notes
+- Miminal mode (just the viewport and timeline)
+
+![window](images/ump_6Sj2YsykIL.png)
+
+---
+
+### Timecode mode
+
+The Timecode mode button is a toggle state that searches the loaded media for embedded timecode.
+
+![window](images/ump_44NZ4FZ9ih.png)
+
+If the loaded media item has embedded timecode, our timecode readout will adjust to display it. 
+
+![window](images/ump_RnrI923Q8v.png)
+
+If you click on the button to the right of the timecode and frame counter, you can navigate to a specific timecode or frame in the timeline.
+
+![window](images/ump_PdJlTR7IHX.png)
+
+
+
+
+
+
+
+
