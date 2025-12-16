@@ -4,27 +4,83 @@ permalink: /ocio-nodes/
 nav_order: 8
 ---
 
-# OCIO
+# OCIO Color Panels
 
-## The Color Panels
+## The Panels
 
-The OCIO color panel is a basic node builder for OCIO flows. Currently, u.m.p supports ACES 1.3 and the Blender 4.5 configs. 
-
-![Window](images/ump_kpONVno12H.png)
-
-
-The left panel has two tabs: **Configs** and **Presets**. The **Configs** tab has our two supported configs preloaded, and **Presets** contains the presets that are available in the quick-access 'Toggle colorspace presets' button. 
-- Additionally, our **Presets** tab has a `Custom` dropdown tree. After building your own custom flow, you can click the `Save Current as Preset` button to save your own presets.
+The OCIO color panel is a basic node builder for OCIO flows. Currently, u.m.p supports `ACES 1.3`, `ACES 2.0`, `Blender 4.5`, and the `Blender 5.0` configs. 
 
 ---
 
 ## The Flow
 
-The basic flow for OCIO nodes is `Input` -> `(Optional) Look` -> `Output`. At minimum, you need an input and an output.
+### Using OCIO Configs
 
-### Usage
+To build an OCIO node tree, you need at least an **Input** node and an **Output** node. 
 
-- Drag a nodes from the **Configs** tab on the left to the node editor in the middle.
-- Connect your `Input` to the `Output` (`Looks` go in between them if you use them).
-- Click on the output node, Select a `View` from the available list in the right panel.
-- Click `Generate Shader` in the right panel.
+![Window](images/ump_ZyoF3qEqSK.png)
+
+### Select a Config
+
+First, select a config that matches your DLC.
+
+![Window](images/ump_J3fxSMUJX9.png)
+
+### Select a Input Node
+
+Then, select an **Input** Node and drag it into the **Node Graph** panel.
+
+![Window](images/ump_2741P6nJL6.png)
+
+### Select a Output Node
+
+Select and output node, drag it into the graph, and hook them up.
+
+![Window](images/ump_OX4p8c6GJI.png)
+
+### Generate a Shader
+
+![Window](images/ump_6Ft6V9wJg3.png)
+
+Click on the output node to load a settings panel on the right side of the color panel layout. Select a View if the **Output** node requires one. Then click the `Generate Shader` button. You will see the shader applied in your Viewer. Click `Remove Shader` to undo. 
+
+![Window](images/ump_7bvpUdaEJI.png)
+
+---
+
+## Node Management
+
+You can click on any node or branch and use the keyboard's `X` or `Delete` to remove it.
+
+![Window](images/ump_CiHVbOZrrf.png)
+
+---
+
+## LUTS
+
+You can add custom LUTs to the chain. **Scene LUTs** go before the **Output** node, and **Display LUTs** go after. Click on the `Select LUT File` button to assign a .cube file. 
+
+![Window](images/ump_SVFsHr46Tp.png)
+
+---
+
+## Looks
+
+**Looks** belong in the chain between **Input** and **Output**. All Blender looks are supported (Contrast looks, AGX looks, Greyscale looks, Punchy, etc...)
+
+![Window](images/ump_2c23Ai7fdc.png)
+
+---
+
+## Presets
+
+Presets are provided for each included config. Click on the preset to apply.
+
+![Window](images/ump_ZAbCy39nVg.png)
+
+### Custom Presets
+
+Save your own if you would like.
+
+![Window](images/ump_m3Ruof1trR.png)
+
