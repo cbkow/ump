@@ -1,7 +1,7 @@
 ---
 title: Memory Safety
 permalink: /memory-safety/
-nav_order: 15
+nav_order: 17
 ---
 
 # Memory Safety
