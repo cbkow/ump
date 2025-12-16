@@ -278,6 +278,10 @@ namespace ump {
     void ProjectManager::SaveProject() {
         using json = nlohmann::json;
 
+        Debug::Log("SaveProject: Called - current_project_path = " + (current_project_path.empty() ? "(empty)" : current_project_path));
+        Debug::Log("SaveProject: sequences.size() = " + std::to_string(sequences.size()));
+        Debug::Log("SaveProject: media_pool.size() = " + std::to_string(media_pool.size()));
+
         // CRITICAL: Flush current timeline edits to MediaItem before saving
         // Without this, edits made to the active timeline won't be captured
         if (flush_timeline_edits_callback) {
@@ -306,6 +310,8 @@ namespace ump {
                 save_path += ".umproj";
             }
         }
+
+        Debug::Log("SaveProject: Saving to path: " + save_path);
 
         try {
             json project_data;
@@ -580,8 +586,19 @@ namespace ump {
             }
             project_data["media_pool"] = media_pool_array;
 
-            // Serialize sequences
+            // Count SEQUENCE type MediaItems for debugging
+            int sequence_media_items = 0;
+            for (const auto& item : media_pool) {
+                if (item.type == MediaType::SEQUENCE) {
+                    sequence_media_items++;
+                    Debug::Log("SaveProject: Found SEQUENCE MediaItem '" + item.name + "' (id=" + item.id + ", sequence_id=" + item.sequence_id + ")");
+                }
+            }
+            Debug::Log("SaveProject: Total SEQUENCE MediaItems in media_pool: " + std::to_string(sequence_media_items));
+
+            // Serialize sequences (playlists)
             json sequences_array = json::array();
+            Debug::Log("SaveProject: Saving " + std::to_string(sequences.size()) + " playlists");
             for (const auto& seq : sequences) {
                 json seq_obj;
                 seq_obj["id"] = seq.id;
@@ -606,6 +623,7 @@ namespace ump {
                 }
                 seq_obj["clips"] = clips_array;
                 sequences_array.push_back(seq_obj);
+                Debug::Log("  - Playlist '" + seq.name + "' with " + std::to_string(seq.clips.size()) + " clips");
             }
             project_data["sequences"] = sequences_array;
             project_data["current_sequence_id"] = current_sequence_id;
@@ -1033,6 +1051,16 @@ namespace ump {
                 }
             }
 
+            // Count SEQUENCE type MediaItems for debugging
+            int sequence_media_items = 0;
+            for (const auto& item : media_pool) {
+                if (item.type == MediaType::SEQUENCE) {
+                    sequence_media_items++;
+                    Debug::Log("LoadProject: Found SEQUENCE MediaItem '" + item.name + "' (id=" + item.id + ", sequence_id=" + item.sequence_id + ")");
+                }
+            }
+            Debug::Log("LoadProject: Total SEQUENCE MediaItems loaded: " + std::to_string(sequence_media_items));
+
             // Load bins (references media_pool by ID)
             if (project_data.contains("bins")) {
                 for (const auto& bin_json : project_data["bins"]) {
@@ -1054,11 +1082,19 @@ namespace ump {
                     }
 
                     bins.push_back(bin);
+                    Debug::Log("LoadProject: Loaded bin '" + bin.name + "' with " + std::to_string(bin.items.size()) + " items");
                 }
             }
 
-            // Load sequences
+            // Log Playlists bin contents specifically
+            if (bins.size() > PLAYLISTS_BIN_INDEX) {
+                Debug::Log("LoadProject: Playlists bin (index " + std::to_string(PLAYLISTS_BIN_INDEX) + ") has " +
+                           std::to_string(bins[PLAYLISTS_BIN_INDEX].items.size()) + " items");
+            }
+
+            // Load sequences (playlists)
             if (project_data.contains("sequences")) {
+                Debug::Log("LoadProject: Found sequences array in project file");
                 for (const auto& seq_json : project_data["sequences"]) {
                     Sequence seq;
                     seq.id = seq_json.value("id", "");
@@ -1085,7 +1121,10 @@ namespace ump {
                     }
 
                     sequences.push_back(seq);
+                    Debug::Log("  - Loaded playlist '" + seq.name + "' with " + std::to_string(seq.clips.size()) + " clips");
                 }
+            } else {
+                Debug::Log("LoadProject: No sequences array found in project file");
             }
 
             // Restore current sequence and timeline
@@ -2480,18 +2519,25 @@ namespace ump {
                     cached_meta.state = MetadataState::VIDEO_READY;
                 }
 
-                // Set duration and frame rate from metadata
-                if (metadata.total_frames > 0 && metadata.frame_rate > 0) {
+                // Set duration from container metadata (works for audio-only files too)
+                if (metadata.duration > 0) {
+                    item.duration = metadata.duration;
+                } else if (metadata.total_frames > 0 && metadata.frame_rate > 0) {
+                    // Fallback: calculate from video frames if container duration unavailable
                     item.duration = metadata.total_frames / metadata.frame_rate;
-                    item.frame_rate = metadata.frame_rate;  // Store actual video fps
                 } else {
                     item.duration = (item.type == MediaType::VIDEO) ? 30.0 : 180.0;
-                    // frame_rate stays at default 24.0 if not detected
+                }
+
+                // Store frame rate if available (for video files)
+                if (metadata.frame_rate > 0) {
+                    item.frame_rate = metadata.frame_rate;
                 }
 
                 Debug::Log("AddMediaFileToProject: Cached metadata for: " + file_path);
                 Debug::Log("  Resolution: " + std::to_string(metadata.width) + "x" + std::to_string(metadata.height));
                 Debug::Log("  Frame Rate: " + std::to_string(metadata.frame_rate) + " fps");
+                Debug::Log("  Duration: " + std::to_string(item.duration) + "s");
                 Debug::Log("  Codec: " + metadata.video_codec);
                 Debug::Log("  Pixel Format: " + metadata.pixel_format);
             } else {

@@ -4413,7 +4413,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.7");
+                ImGui::TextDisabled("About u.m.p. v0.4.8");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);

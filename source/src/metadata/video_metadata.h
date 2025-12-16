@@ -24,6 +24,7 @@ struct VideoMetadata {
     int height = 0;
     double frame_rate = 0.0;
     int total_frames = 0;
+    double duration = 0.0;              // Container duration in seconds (works for audio-only files too)
     std::string video_codec;
     std::string pixel_format;
     std::string colorspace;

@@ -112,8 +112,9 @@ void FFmpegMetadataExtractor::ExtractFileInfo(const std::string& file_path,
         metadata.file_size = fs::file_size(file_path);
     }
 
-    // Duration from container
+    // Duration from container (works for audio-only files too)
     if (format_ctx->duration != AV_NOPTS_VALUE) {
+        metadata.duration = format_ctx->duration / static_cast<double>(AV_TIME_BASE);
         metadata.total_frames = 0; // Will be calculated after we know frame rate
     }
 }
