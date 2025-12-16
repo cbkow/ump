@@ -1,18 +1,22 @@
 # u.m.p.
 
- ![ump image](docs/images/ump_PVMQbUxZvo.png)
+ ![ump image](docs/images/ump_G0JZxN4gUp.png)
 
-**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with direct memory-mapping playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
+**u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ [libmpv-based](https://mpv.io/) OpenGL video player with memory-mapped playback for EXR, PNG, TIFF, and JPEG image sequences for Windows. Basic features include:
 
- - a spiraling seek/scrubbing cache for videos
- - a separate live playback memory cache for image sequences 
- - a [Thumbfast-inspired](https://github.com/po5/thumbfast) thumbnail system for all media
+ - RAM cache for scrubbing/seeking in videos, image sequence playback, and timelines
+ - [OTIO](https://github.com/OpenTimelineIO) timelines for image sequences and timelines 
+ - a custom playlist manager for mpv's playlist system
+ - a [Thumbfast](https://github.com/po5/thumbfast)-inspired thumbnail preview panel
  - frame-stepping and cache-enhanced RW/FF
  - live [OCIO-based](https://opencolorio.org/) color correction switching with a node-based interface
- - live background switching for alpha-channel visibility
+ - live background switching for alpha-channel media review
  - an annotation/notes system with PDF/Markdown/HTML export + [Frame.io](https://frame.io/home) import
- - embedded timecode for supported media
+ - extracts embedded timecode in supported media 
  - title-safety guides for standard broadcast and social-media deliverables
+ - screenshots from all media
+
+![ump image](docs/images/ump_zqTzqiLxrS.png)
 
 ## Manual and documentation
 
