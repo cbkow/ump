@@ -98,29 +98,47 @@ void AudioMixer::PreloadClips(const std::vector<OTIOClip>& clips) {
 
     std::lock_guard<std::mutex> lock(decoders_mutex_);
 
+    int preloaded = 0;
     for (const auto& clip : clips) {
-        // Skip gaps and unlinked clips
-        if (clip.is_gap || !clip.is_linked || clip.linked_path.empty()) {
+        // Skip gaps
+        if (clip.is_gap) {
             continue;
         }
+
+        // Get the media path - prefer linked_path, fall back to file_path
+        std::string media_path = clip.linked_path;
+        if (media_path.empty()) {
+            media_path = clip.file_path;
+        }
+
+        // Skip if no valid path
+        if (media_path.empty()) {
+            continue;
+        }
+
+        // Key by clip_id to allow multiple clips from same source
+        // (e.g., Premiere linked video+audio, or same clip used multiple times)
+        std::string cache_key = clip.id + "|" + media_path;
 
         // Skip if already loaded
-        if (decoders_.find(clip.linked_path) != decoders_.end()) {
+        if (decoders_.find(cache_key) != decoders_.end()) {
             continue;
         }
 
-        // Create decoder
+        // Create decoder for this specific clip instance
         auto decoder = std::make_shared<AudioDecoder>();
-        if (decoder->Open(clip.linked_path)) {
+        if (decoder->Open(media_path)) {
             decoder->Start();
-            decoders_[clip.linked_path] = decoder;
-            Debug::Log("AudioMixer: Preloaded audio for " + clip.linked_path);
+            decoders_[cache_key] = decoder;
+            Debug::Log("AudioMixer: Preloaded audio for clip " + clip.id + " -> " + media_path);
+            preloaded++;
         } else {
-            Debug::Log("AudioMixer: No audio in " + clip.linked_path);
+            Debug::Log("AudioMixer: No audio in " + media_path);
         }
     }
 
-    Debug::Log("AudioMixer: Preloaded " + std::to_string(decoders_.size()) + " audio decoders");
+    Debug::Log("AudioMixer: Preloaded " + std::to_string(preloaded) + " new decoders, total: " +
+               std::to_string(decoders_.size()));
 }
 
 void AudioMixer::ClearClips() {
@@ -135,14 +153,13 @@ void AudioMixer::ClearClips() {
     }
     decoders_.clear();
 
-    // Clear current source
+    // Clear active sources
     {
         std::lock_guard<std::mutex> source_lock(source_mutex_);
-        current_source_ = ActiveAudioSource{};
-        outgoing_decoder_ = nullptr;
+        active_sources_.clear();
     }
 
-    last_clip_id_.clear();
+    last_clip_ids_.clear();
 }
 
 //=============================================================================
@@ -185,13 +202,12 @@ void AudioMixer::Stop() {
 
     // Reset position
     current_position_ = 0.0;
-    last_clip_id_.clear();
+    last_clip_ids_.clear();
 
-    // Clear current source
+    // Clear all active sources
     {
         std::lock_guard<std::mutex> lock(source_mutex_);
-        current_source_ = ActiveAudioSource{};
-        outgoing_decoder_ = nullptr;
+        active_sources_.clear();
     }
 }
 
@@ -211,17 +227,22 @@ void AudioMixer::Update() {
         timeline_pos = current_position_.load();
     }
 
-    // Get top-layer clip at current position
-    const OTIOClip* clip = GetTopLayerClipAtTime(timeline_pos);
+    // Get ALL audible clips at current position (multi-track mixing)
+    auto clips = GetAllAudibleClipsAtTime(timeline_pos);
 
-    // Check if clip changed
-    std::string clip_id = clip ? clip->id : "";
-    if (clip_id != last_clip_id_) {
-        SwitchToClip(clip, timeline_pos);
-        last_clip_id_ = clip_id;
+    // Build set of current clip IDs
+    std::set<std::string> current_clip_ids;
+    for (const auto* clip : clips) {
+        if (clip) current_clip_ids.insert(clip->id);
     }
 
-    // Check sync periodically
+    // Check if clips changed
+    if (current_clip_ids != last_clip_ids_) {
+        UpdateActiveSources(clips, timeline_pos);
+        last_clip_ids_ = current_clip_ids;
+    }
+
+    // Check sync periodically for all active sources
     double now = std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
 
@@ -229,24 +250,25 @@ void AudioMixer::Update() {
     if (elapsed_ms >= sync_check_interval_ms_) {
         last_sync_check_time_ = now;
 
-        // Check sync for current decoder
         std::lock_guard<std::mutex> lock(source_mutex_);
-        if (current_source_.decoder) {
+        for (auto& source : active_sources_) {
+            if (!source.decoder) continue;
+
             // Calculate expected source position
-            double expected_source = current_source_.source_in +
-                (timeline_pos - current_source_.clip_start_time);
+            double expected_source = source.source_in +
+                (timeline_pos - source.clip_start_time);
 
             // Clamp to valid range
-            expected_source = std::max(current_source_.source_in,
-                std::min(expected_source, current_source_.source_out));
+            expected_source = std::max(source.source_in,
+                std::min(expected_source, source.source_out));
 
-            double actual_pos = current_source_.decoder->GetReadPosition();
+            double actual_pos = source.decoder->GetReadPosition();
             double drift_ms = std::abs(actual_pos - expected_source) * 1000.0;
 
             if (drift_ms > sync_threshold_ms_) {
-                Debug::Log("AudioMixer: Sync correction - drift: " + std::to_string(drift_ms) +
-                           "ms, seeking to " + std::to_string(expected_source));
-                current_source_.decoder->Seek(expected_source);
+                Debug::Log("AudioMixer: Sync correction for " + source.clip_id +
+                           " - drift: " + std::to_string(drift_ms) + "ms");
+                source.decoder->Seek(expected_source);
             }
         }
     }
@@ -257,94 +279,161 @@ void AudioMixer::Update() {
 void AudioMixer::Seek(double position) {
     current_position_ = position;
 
-    // Get clip at seek position and switch if needed
-    const OTIOClip* clip = GetTopLayerClipAtTime(position);
-    std::string clip_id = clip ? clip->id : "";
+    // Get all audible clips at seek position
+    auto clips = GetAllAudibleClipsAtTime(position);
 
-    if (clip_id != last_clip_id_) {
-        SwitchToClip(clip, position);
-        last_clip_id_ = clip_id;
-    } else if (clip) {
-        // Same clip, just seek the decoder
+    // Build set of current clip IDs
+    std::set<std::string> current_clip_ids;
+    for (const auto* clip : clips) {
+        if (clip) current_clip_ids.insert(clip->id);
+    }
+
+    // Update sources if clips changed
+    if (current_clip_ids != last_clip_ids_) {
+        UpdateActiveSources(clips, position);
+        last_clip_ids_ = current_clip_ids;
+    } else {
+        // Same clips, just seek all decoders
         std::lock_guard<std::mutex> lock(source_mutex_);
-        if (current_source_.decoder) {
-            double source_pos = current_source_.source_in +
-                (position - current_source_.clip_start_time);
-            source_pos = std::max(current_source_.source_in,
-                std::min(source_pos, current_source_.source_out));
-            current_source_.decoder->Seek(source_pos);
+        for (auto& source : active_sources_) {
+            if (!source.decoder) continue;
+            double source_pos = source.source_in + (position - source.clip_start_time);
+            source_pos = std::max(source.source_in, std::min(source_pos, source.source_out));
+            source.decoder->Seek(source_pos);
         }
     }
 }
 
 //=============================================================================
-// Clip Switching
+// Multi-track Audio Mixing
 //=============================================================================
 
-const OTIOClip* AudioMixer::GetTopLayerClipAtTime(double timestamp) {
-    if (!flattener_) return nullptr;
-
-    // Use GetAudibleClipAtTime which respects track audio_muted flag
-    // This allows users to mute audio from specific video tracks
-    return flattener_->GetAudibleClipAtTime(timestamp);
+std::vector<const OTIOClip*> AudioMixer::GetAllAudibleClipsAtTime(double timestamp) {
+    if (!flattener_) return {};
+    return flattener_->GetAllAudibleClipsAtTime(timestamp);
 }
 
-void AudioMixer::SwitchToClip(const OTIOClip* clip, double timeline_pos) {
+void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, double timeline_pos) {
     std::lock_guard<std::mutex> lock(source_mutex_);
 
-    // Start crossfade from current decoder
-    if (current_source_.decoder && crossfade_position_ >= 1.0f) {
-        outgoing_decoder_ = current_source_.decoder;
-        crossfade_position_ = 0.0f;
+    // Build map of existing sources by clip ID for reuse
+    std::unordered_map<std::string, ActiveAudioSource> existing_sources;
+    for (auto& source : active_sources_) {
+        existing_sources[source.clip_id] = std::move(source);
     }
+    active_sources_.clear();
 
-    if (!clip || clip->is_gap || !clip->is_linked) {
-        // No clip at this position - clear current source
-        current_source_ = ActiveAudioSource{};
-        Debug::Log("AudioMixer: Switched to gap/empty at " + std::to_string(timeline_pos));
+    if (clips.empty()) {
+        Debug::Log("AudioMixer: No audible clips at " + std::to_string(timeline_pos));
         return;
     }
 
-    // Get decoder for this clip
-    auto decoder = GetDecoderForClip(clip->linked_path);
-    if (!decoder) {
-        current_source_ = ActiveAudioSource{};
-        Debug::Log("AudioMixer: No audio decoder for " + clip->linked_path);
-        return;
+    // Setup new active sources
+    for (const auto* clip : clips) {
+        if (!clip || clip->is_gap) continue;
+
+        // Get the media path - prefer linked_path, fall back to file_path
+        std::string media_path = clip->linked_path;
+        if (media_path.empty()) {
+            media_path = clip->file_path;
+        }
+
+        // Skip if no valid path
+        if (media_path.empty()) {
+            Debug::Log("AudioMixer: Skipping clip '" + clip->name + "' - no media path");
+            continue;
+        }
+
+        // Check if we already have this source
+        auto it = existing_sources.find(clip->id);
+        if (it != existing_sources.end() && it->second.decoder) {
+            // Reuse existing source
+            active_sources_.push_back(std::move(it->second));
+            existing_sources.erase(it);
+            continue;
+        }
+
+        // Create new source - use clip ID to ensure separate decoder per clip instance
+        auto decoder = GetDecoderForClip(media_path, clip->id);
+        if (!decoder) {
+            Debug::Log("AudioMixer: No audio in " + media_path);
+            continue;
+        }
+
+        ActiveAudioSource source;
+        source.clip_id = clip->id;
+        source.source_path = media_path;
+        source.clip_start_time = clip->start_time;
+        source.clip_duration = clip->duration;
+        source.decoder = decoder;
+
+        // Get actual media duration for validation
+        double media_duration = decoder->GetDuration();
+
+        // Validate source_in/source_out against actual media duration
+        // AAF/OTIO imports often have timecode-based values (e.g., 3598s for 00:59:58:00)
+        // that exceed the actual media length - we need to normalize these
+        double src_in = clip->source_in;
+        double src_out = clip->source_out > 0 ? clip->source_out : media_duration;
+
+        if (media_duration > 0) {
+            // If source_in exceeds media duration, it's likely a timecode offset
+            // Reset to use the clip duration as a subclip from start of media
+            if (src_in >= media_duration) {
+                Debug::Log("AudioMixer: Normalizing invalid source_in (" +
+                           std::to_string(src_in) + "s) for " + clip->name +
+                           " - media duration is only " + std::to_string(media_duration) + "s");
+                src_in = 0.0;
+                src_out = std::min(clip->duration, media_duration);
+            }
+            // Also check if source_out is beyond media
+            else if (src_out > media_duration) {
+                src_out = media_duration;
+            }
+        }
+
+        source.source_in = src_in;
+        source.source_out = src_out;
+
+        // Seek decoder to correct position within clip
+        double source_pos = source.source_in + (timeline_pos - clip->start_time);
+        source_pos = std::max(source.source_in, std::min(source_pos, source.source_out));
+        decoder->Seek(source_pos);
+
+        active_sources_.push_back(std::move(source));
+        Debug::Log("AudioMixer: Added source '" + clip->name + "'"
+                   " clip_start=" + std::to_string(clip->start_time) +
+                   " duration=" + std::to_string(clip->duration) +
+                   " source_in=" + std::to_string(src_in) +
+                   " source_out=" + std::to_string(src_out) +
+                   " media_dur=" + std::to_string(media_duration) +
+                   " seek_to=" + std::to_string(source_pos) +
+                   " path=" + media_path);
     }
 
-    // Setup new source
-    current_source_.clip_id = clip->id;
-    current_source_.source_path = clip->linked_path;
-    current_source_.clip_start_time = clip->start_time;
-    current_source_.clip_duration = clip->duration;
-    current_source_.source_in = clip->source_in;
-    current_source_.source_out = clip->source_out > 0 ? clip->source_out : decoder->GetDuration();
-    current_source_.decoder = decoder;
-
-    // Seek decoder to correct position within clip
-    double source_pos = current_source_.source_in + (timeline_pos - clip->start_time);
-    source_pos = std::max(current_source_.source_in,
-        std::min(source_pos, current_source_.source_out));
-    decoder->Seek(source_pos);
-
-    Debug::Log("AudioMixer: Switched to clip " + clip->id + " at " +
-               std::to_string(source_pos) + "s (timeline " + std::to_string(timeline_pos) + "s)");
+    Debug::Log("AudioMixer: Now mixing " + std::to_string(active_sources_.size()) +
+               " audio sources at timeline " + std::to_string(timeline_pos) + "s");
 }
 
-std::shared_ptr<AudioDecoder> AudioMixer::GetDecoderForClip(const std::string& source_path) {
+std::shared_ptr<AudioDecoder> AudioMixer::GetDecoderForClip(const std::string& source_path,
+                                                              const std::string& clip_id) {
     std::lock_guard<std::mutex> lock(decoders_mutex_);
 
-    auto it = decoders_.find(source_path);
+    // Key by clip_id, not source_path, to allow multiple clips from same source
+    // (e.g., Premiere linked video+audio, or same clip used multiple times)
+    std::string cache_key = clip_id + "|" + source_path;
+
+    auto it = decoders_.find(cache_key);
     if (it != decoders_.end()) {
         return it->second;
     }
 
-    // Not preloaded - create on demand
+    // Create new decoder for this clip instance
     auto decoder = std::make_shared<AudioDecoder>();
     if (decoder->Open(source_path)) {
         decoder->Start();
-        decoders_[source_path] = decoder;
+        decoders_[cache_key] = decoder;
+        Debug::Log("AudioMixer: Created decoder for clip " + clip_id + " -> " + source_path);
         return decoder;
     }
 
@@ -369,12 +458,14 @@ void AudioMixer::SetMuted(bool muted) {
 
 std::string AudioMixer::GetCurrentClipId() const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(source_mutex_));
-    return current_source_.clip_id;
+    if (active_sources_.empty()) return "";
+    return active_sources_[0].clip_id;  // Return first active source
 }
 
 std::string AudioMixer::GetCurrentSourcePath() const {
     std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(source_mutex_));
-    return current_source_.source_path;
+    if (active_sources_.empty()) return "";
+    return active_sources_[0].source_path;  // Return first active source
 }
 
 //=============================================================================
@@ -400,56 +491,55 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
 
     std::lock_guard<std::mutex> lock(source_mutex_);
 
-    // Check if we have a current decoder
-    if (!current_source_.decoder || !current_source_.decoder->HasAudio()) {
+    // Check if we have any active sources
+    if (active_sources_.empty()) {
         std::memset(output, 0, frame_count * 2 * sizeof(float));
         return;
     }
 
-    // Check if we're past the clip's end
     double timeline_pos = current_position_.load();
-    double clip_end = current_source_.clip_start_time + current_source_.clip_duration;
-    if (timeline_pos >= clip_end) {
-        std::memset(output, 0, frame_count * 2 * sizeof(float));
-        return;
-    }
 
-    // Read from current decoder
-    std::vector<float> current_buf(frame_count * 2);
-    current_source_.decoder->Read(current_buf.data(), frame_count);
+    // Initialize output buffer to zero
+    std::memset(output, 0, frame_count * 2 * sizeof(float));
 
-    // Apply crossfade if transitioning
-    if (outgoing_decoder_ && crossfade_position_ < 1.0f) {
-        std::vector<float> outgoing_buf(frame_count * 2);
-        outgoing_decoder_->Read(outgoing_buf.data(), frame_count);
+    // Temporary buffer for each source
+    std::vector<float> source_buf(frame_count * 2);
 
-        // Linear crossfade
-        float samples_per_fade = CROSSFADE_DURATION_SECONDS * 48000.0f;
-        for (unsigned int i = 0; i < frame_count; ++i) {
-            float fade_pos = crossfade_position_ + (static_cast<float>(i) / samples_per_fade);
-            fade_pos = std::min(1.0f, fade_pos);
+    // Mix all active sources together
+    int sources_mixed = 0;
+    for (auto& source : active_sources_) {
+        if (!source.decoder || !source.decoder->HasAudio()) continue;
 
-            float fade_in = fade_pos;
-            float fade_out = 1.0f - fade_pos;
-
-            output[i * 2] = current_buf[i * 2] * fade_in + outgoing_buf[i * 2] * fade_out;
-            output[i * 2 + 1] = current_buf[i * 2 + 1] * fade_in + outgoing_buf[i * 2 + 1] * fade_out;
+        // Check if we're within the clip's time range
+        double clip_end = source.clip_start_time + source.clip_duration;
+        if (timeline_pos < source.clip_start_time || timeline_pos >= clip_end) {
+            continue;
         }
 
-        crossfade_position_ += static_cast<float>(frame_count) / samples_per_fade;
-        if (crossfade_position_ >= 1.0f) {
-            outgoing_decoder_ = nullptr;
-        }
-    } else {
-        std::memcpy(output, current_buf.data(), frame_count * 2 * sizeof(float));
-    }
+        // Read audio from this source
+        std::memset(source_buf.data(), 0, frame_count * 2 * sizeof(float));
+        source.decoder->Read(source_buf.data(), frame_count);
 
-    // Apply volume
-    float vol = volume_.load();
-    if (vol < 1.0f) {
+        // Mix into output (additive mixing)
         for (unsigned int i = 0; i < frame_count * 2; ++i) {
-            output[i] *= vol;
+            output[i] += source_buf[i];
         }
+        sources_mixed++;
+    }
+
+    // Apply volume only - no artificial gain reduction
+    // Professional mixing simply sums tracks; the user controls levels
+    float vol = volume_.load();
+
+    for (unsigned int i = 0; i < frame_count * 2; ++i) {
+        float sample = output[i] * vol;
+
+        // Hard clamp to prevent any clipping artifacts
+        // No soft clipping - let the sum be what it is, just prevent overflow
+        if (sample > 1.0f) sample = 1.0f;
+        else if (sample < -1.0f) sample = -1.0f;
+
+        output[i] = sample;
     }
 }
 

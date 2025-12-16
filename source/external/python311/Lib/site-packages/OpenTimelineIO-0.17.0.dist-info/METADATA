@@ -1,0 +1,55 @@
+Metadata-Version: 2.1
+Name: OpenTimelineIO
+Version: 0.17.0
+Summary: Editorial interchange format and API
+Home-page: http://opentimeline.io
+Author: Contributors to the OpenTimelineIO project
+Author-email: otio-discussion@lists.aswf.io
+License: Apache 2.0 License
+Project-URL: Source, https://github.com/AcademySoftwareFoundation/OpenTimelineIO
+Project-URL: Documentation, https://opentimelineio.readthedocs.io/
+Project-URL: Issues, https://github.com/AcademySoftwareFoundation/OpenTimelineIO/issues
+Keywords: film tv editing editorial edit non-linear edl time
+Platform: any
+Classifier: Development Status :: 4 - Beta
+Classifier: Topic :: Multimedia :: Graphics
+Classifier: Topic :: Multimedia :: Video
+Classifier: Topic :: Multimedia :: Video :: Display
+Classifier: Topic :: Multimedia :: Video :: Non-Linear Editor
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: License :: OSI Approved :: Apache Software License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Operating System :: OS Independent
+Classifier: Natural Language :: English
+Requires-Python: >=3.7, !=3.9.0
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+License-File: NOTICE.txt
+Requires-Dist: importlib-metadata >=1.4 ; python_version < "3.8"
+Provides-Extra: dev
+Requires-Dist: check-manifest ; extra == 'dev'
+Requires-Dist: flake8 >=3.5 ; extra == 'dev'
+Requires-Dist: coverage >=4.5 ; extra == 'dev'
+Requires-Dist: urllib3 >=1.24.3 ; extra == 'dev'
+Provides-Extra: view
+Requires-Dist: PySide6 ~=6.2 ; (platform_machine == "aarch64") and extra == 'view'
+Requires-Dist: PySide2 ~=5.11 ; (platform_machine == "x86_64") and extra == 'view'
+
+OpenTimelineIO is an interchange format and API for
+editorial cut information. OTIO is not a container format for media, rather it
+contains information about the order and length of cuts and references to
+external media.
+
+OTIO includes both a file format and an API for manipulating that format. It
+also includes a plugin architecture for writing adapters to convert from/to
+existing editorial timeline formats. It also implements a dependency- less
+library for dealing strictly with time, opentime.
+
+You can provide adapters for your video editing tool or pipeline as needed.
+Each adapter allows for import/export between that proprietary tool and the
+OpenTimelineIO format.

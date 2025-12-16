@@ -171,6 +171,12 @@ namespace ump {
         void ImportTimelineFromMenu();
         std::string GetProjectPath() const { return current_project_path; }
 
+        // Pending dialog flags (set by context menus, checked by main.cpp)
+        bool IsPendingOpenMediaDialog() const { return pending_open_media_dialog; }
+        void ClearPendingOpenMediaDialog() { pending_open_media_dialog = false; }
+        bool IsPendingOpenProjectDialog() const { return pending_open_project_dialog; }
+        void ClearPendingOpenProjectDialog() { pending_open_project_dialog = false; }
+
         // ========================================================================
         // UI RENDERING
         // ========================================================================
@@ -250,6 +256,8 @@ namespace ump {
         bool ImportTimeline(const std::string& file_path);  // Auto-detect format
         bool ImportOTIOFile(const std::string& file_path);
         bool ImportEDLFile(const std::string& file_path);  // Shows settings dialog
+        bool ImportAAFFile(const std::string& file_path);  // AAF via Python adapter
+        bool ImportXMLFile(const std::string& file_path);  // FCP/Premiere XML via Python adapter
         bool CompleteEDLImport();  // Called after user confirms EDL import settings
         void OpenTimelineInEditor(const std::string& timeline_id);
         MediaItem* GetTimelineItem(const std::string& timeline_id_or_path);  // Accepts timeline_id or file path
@@ -496,6 +504,10 @@ namespace ump {
         int new_timeline_height = 1080;
         double new_timeline_fps = 24.0;
         // Duration removed - timelines auto-extend as clips are added
+
+        // Pending dialog flags (triggered from context menus, handled by main.cpp)
+        bool pending_open_media_dialog = false;
+        bool pending_open_project_dialog = false;
 
         // EDL import settings dialog state
         bool show_edl_import_dialog = false;

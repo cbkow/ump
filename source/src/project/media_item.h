@@ -16,6 +16,48 @@ namespace ump {
         TIMELINE        // OTIO/EDL multi-track timeline
     };
 
+    // Image sequence specific data (for IMAGE_SEQUENCE and EXR_SEQUENCE types)
+    // This struct holds all state needed to properly reinitialize playback when switching media
+    struct ImageSequenceData {
+        // Core sequence info
+        std::string pattern;           // e.g., "shot_%04d.exr"
+        std::string ffmpeg_pattern;    // Full path pattern for FFmpeg
+        std::string directory;         // Directory containing sequence files
+
+        // Frame range
+        int frame_count = 0;
+        int start_frame = 1;
+        int end_frame = 1;
+
+        // Timing (critical for playback)
+        double frame_rate = 24.0;
+        double duration = 0.0;         // Calculated: frame_count / frame_rate
+
+        // Dimensions (cached from first frame for instant loading)
+        int width = 0;
+        int height = 0;
+
+        // Pipeline/format
+        PipelineMode pipeline_mode = PipelineMode::NORMAL;
+        std::string format;            // "EXR", "TIFF", "PNG", "JPEG", etc.
+
+        // EXR-specific
+        std::string layer;             // Selected EXR layer (e.g., "beauty", "diffuse")
+        std::string layer_display;     // Display name for EXR layer
+
+        // Helper to check if data is valid/populated
+        bool IsValid() const {
+            return frame_count > 0 && frame_rate > 0 && duration > 0;
+        }
+
+        // Calculate duration from frame count and rate
+        void CalculateDuration() {
+            if (frame_count > 0 && frame_rate > 0) {
+                duration = static_cast<double>(frame_count) / frame_rate;
+            }
+        }
+    };
+
     struct MediaItem {
         std::string id;
         std::string name;
@@ -29,22 +71,27 @@ namespace ump {
         int clip_count = 0;
         bool is_active = false;
 
-        // For image sequence items
-        std::string sequence_pattern;  // e.g., "shot_%04d.exr"
-        std::string ffmpeg_pattern;    // Full path pattern for FFmpeg cache e.g., "/path/shot_%04d.exr"
-        int frame_count = 0;          // Number of frames in sequence
-        int start_frame = 1;          // First frame number
-        int end_frame = 1;            // Last frame number
-        double frame_rate = 24.0;     // Frame rate for sequence
-        PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Auto-detected bit depth/precision
+        // Image sequence data (for IMAGE_SEQUENCE and EXR_SEQUENCE types)
+        // This is the primary source of truth for sequence playback parameters
+        ImageSequenceData image_seq;
+
+        // LEGACY FIELDS - kept for backward compatibility with existing projects
+        // New code should use image_seq.* instead
+        std::string sequence_pattern;  // LEGACY: use image_seq.pattern
+        std::string ffmpeg_pattern;    // LEGACY: use image_seq.ffmpeg_pattern
+        int frame_count = 0;          // LEGACY: use image_seq.frame_count
+        int start_frame = 1;          // LEGACY: use image_seq.start_frame
+        int end_frame = 1;            // LEGACY: use image_seq.end_frame
+        double frame_rate = 24.0;     // LEGACY: use image_seq.frame_rate
+        PipelineMode pipeline_mode = PipelineMode::NORMAL;  // LEGACY: use image_seq.pipeline_mode
 
         // Cached dimensions from first frame (for instant loading without I/O)
-        int sequence_width = 0;       // For IMAGE_SEQUENCE and EXR_SEQUENCE types
-        int sequence_height = 0;      // Avoids async MPV discovery and file I/O on load
+        int sequence_width = 0;       // LEGACY: use image_seq.width
+        int sequence_height = 0;      // LEGACY: use image_seq.height
 
         // EXR-specific fields
-        std::string exr_layer;        // Selected EXR layer (e.g., "beauty", "diffuse")
-        std::string exr_layer_display;// Display name for EXR layer
+        std::string exr_layer;        // LEGACY: use image_seq.layer
+        std::string exr_layer_display;// LEGACY: use image_seq.layer_display
 
         // In/Out points for range-constrained playback and transcode
         double in_point = -1.0;       // In point timestamp in seconds (-1 = not set)
@@ -83,6 +130,8 @@ namespace ump {
             int source_width = 0;
             int source_height = 0;
             double source_duration = 0.0;
+            bool has_audio = false;
+            bool audio_muted = false;  // Per-clip audio mute state
         };
         std::vector<CachedClipLink> clip_links;  // Saved media links for clips
 

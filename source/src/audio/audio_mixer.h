@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <vector>
+#include <set>
 #include <unordered_map>
 #include <atomic>
 #include <mutex>
@@ -135,17 +136,18 @@ private:
     void ProcessAudio(float* output, unsigned int frame_count);
 
     //=========================================================================
-    // Clip Switching
+    // Clip Switching (Multi-track mixing)
     //=========================================================================
 
-    // Get top-layer clip at position (uses flattener like video)
-    const OTIOClip* GetTopLayerClipAtTime(double timestamp);
+    // Get all audible clips at position (from all video and audio tracks)
+    std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
 
-    // Switch to new clip (with crossfade)
-    void SwitchToClip(const OTIOClip* clip, double timeline_pos);
+    // Update active sources based on current clips
+    void UpdateActiveSources(const std::vector<const OTIOClip*>& clips, double timeline_pos);
 
-    // Get or create decoder for clip
-    std::shared_ptr<AudioDecoder> GetDecoderForClip(const std::string& source_path);
+    // Get or create decoder for clip (keyed by clip_id to allow same source in multiple clips)
+    std::shared_ptr<AudioDecoder> GetDecoderForClip(const std::string& source_path,
+                                                     const std::string& clip_id);
 
     //=========================================================================
     // State
@@ -162,14 +164,9 @@ private:
     std::unordered_map<std::string, std::shared_ptr<AudioDecoder>> decoders_;
     std::mutex decoders_mutex_;
 
-    // Current active source
-    ActiveAudioSource current_source_;
+    // Multiple active sources for multi-track mixing
+    std::vector<ActiveAudioSource> active_sources_;
     std::mutex source_mutex_;
-
-    // Crossfade state (for smooth transitions)
-    std::shared_ptr<AudioDecoder> outgoing_decoder_;
-    float crossfade_position_ = 0.0f;
-    static constexpr float CROSSFADE_DURATION_SECONDS = 0.05f;  // 50ms crossfade
 
     // Playback state
     std::atomic<bool> is_playing_{false};
@@ -178,7 +175,7 @@ private:
     std::atomic<double> current_position_{0.0};
 
     // Last known state for change detection
-    std::string last_clip_id_;
+    std::set<std::string> last_clip_ids_;
     double last_position_ = 0.0;
 
     // Sync configuration

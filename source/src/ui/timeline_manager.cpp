@@ -169,11 +169,11 @@ void TimelineManager::StartScrubbing(VideoPlayer* video_player) {
 
     is_scrubbing = true;
     was_playing_before_scrub = video_player->IsPlaying();
-    
+
     // Reset stability tracking for clean state
     stable_frame_count = 0;
     last_stable_position = -1.0;
-    
+
     if (was_playing_before_scrub) {
         video_player->Pause();
     }
@@ -428,7 +428,7 @@ void TimelineManager::ProcessPendingSeek(VideoPlayer* video_player) {
     if (!video_player || pending_seek_position < 0.0) return;
 
     auto now = std::chrono::steady_clock::now();
-    
+
     // Check if enough time has passed since last seek
     if (now - last_seek_time >= SEEK_THROTTLE_MS) {
         video_player->Seek(pending_seek_position);

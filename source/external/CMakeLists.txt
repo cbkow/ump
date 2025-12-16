@@ -68,7 +68,59 @@ set(ZLIB_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/ocio/lib/zlib.lib" CACHE FILEPATH 
 FetchContent_MakeAvailable(libharu)
 
 # ========================================
-# OPENCOLORIO - Manual Setup  
+# OPENTIMELINEIO - Timeline interchange format
+# ========================================
+FetchContent_Declare(
+    opentimelineio
+    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/OpenTimelineIO.git
+    GIT_TAG v0.17.0
+    GIT_SHALLOW TRUE
+)
+# Configure OTIO options before making it available
+set(OTIO_CXX_INSTALL OFF CACHE BOOL "Don't install OTIO" FORCE)
+set(OTIO_PYTHON_INSTALL OFF CACHE BOOL "Don't build Python bindings" FORCE)
+set(OTIO_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
+set(OTIO_FIND_IMATH OFF CACHE BOOL "Don't require Imath" FORCE)
+set(OTIO_DEPENDENCIES_INSTALL OFF CACHE BOOL "Don't install dependencies" FORCE)
+FetchContent_MakeAvailable(opentimelineio)
+message(STATUS "OpenTimelineIO configured")
+
+# ========================================
+# PYTHON EMBEDDING - For OTIO Python adapters (AAF/XML support)
+# ========================================
+option(UMP_ENABLE_PYTHON_ADAPTERS "Enable Python-based OTIO adapters for AAF/XML import" ON)
+
+if(UMP_ENABLE_PYTHON_ADAPTERS AND WIN32)
+    set(PYTHON_EMBED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/python311")
+
+    if(EXISTS "${PYTHON_EMBED_DIR}/include/Python.h" AND EXISTS "${PYTHON_EMBED_DIR}/libs/python311.lib")
+        # Create interface library for Python embedding
+        add_library(python_embed INTERFACE)
+        target_include_directories(python_embed INTERFACE "${PYTHON_EMBED_DIR}/include")
+        target_link_libraries(python_embed INTERFACE "${PYTHON_EMBED_DIR}/libs/python311.lib")
+
+        # Mark that Python adapters are available
+        set(UMP_PYTHON_ADAPTERS_AVAILABLE TRUE CACHE INTERNAL "Python adapters are available")
+        message(STATUS "Python embedding enabled from: ${PYTHON_EMBED_DIR}")
+    else()
+        set(UMP_PYTHON_ADAPTERS_AVAILABLE FALSE CACHE INTERNAL "Python adapters not available")
+        message(STATUS "Python embed directory not found at ${PYTHON_EMBED_DIR}")
+        message(STATUS "  To enable AAF/XML import, run: scripts/prepare_python_embed.ps1")
+        message(STATUS "  Continuing build without Python adapter support...")
+
+        # Create dummy interface target so CMake doesn't fail
+        add_library(python_embed INTERFACE)
+    endif()
+else()
+    set(UMP_PYTHON_ADAPTERS_AVAILABLE FALSE CACHE INTERNAL "Python adapters not available")
+    add_library(python_embed INTERFACE)
+    if(NOT WIN32)
+        message(STATUS "Python embedding currently only supported on Windows")
+    endif()
+endif()
+
+# ========================================
+# OPENCOLORIO - Manual Setup
 # ========================================
 set(OCIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ocio")
 
@@ -93,9 +145,14 @@ if(EXISTS "${OCIO_ROOT}/lib/OpenColorIO.lib")
     # Create imported target
     add_library(OpenColorIO SHARED IMPORTED)
     set_target_properties(OpenColorIO PROPERTIES
-        IMPORTED_LOCATION "${OCIO_ROOT}/bin/OpenColorIO.dll"
-        IMPORTED_IMPLIB "${OCIO_ROOT}/lib/OpenColorIO.lib"
+        IMPORTED_LOCATION_RELEASE "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
+        IMPORTED_IMPLIB_RELEASE "${OCIO_ROOT}/lib/OpenColorIO.lib"
+        IMPORTED_LOCATION_DEBUG "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
+        IMPORTED_IMPLIB_DEBUG "${OCIO_ROOT}/lib/OpenColorIO.lib"
         INTERFACE_INCLUDE_DIRECTORIES "${OCIO_ROOT}/include"
+        MAP_IMPORTED_CONFIG_DEBUG Release
+        MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
+        MAP_IMPORTED_CONFIG_MINSIZEREL Release
     )
     message(STATUS "OpenColorIO target configured")
 else()

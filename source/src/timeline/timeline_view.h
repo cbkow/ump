@@ -41,6 +41,11 @@ public:
     // Get all enabled audio tracks (for mixing)
     std::vector<std::string> GetAudibleClipPathsAtTime(double timestamp);
 
+    // Get ALL audible clips at a given time for multi-track audio mixing
+    // Returns clips from: video tracks (where !audio_muted) AND audio tracks (where !muted)
+    // Each clip has timing info needed for proper audio sync
+    std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
+
     // Clear cache (call when visibility changes)
     void InvalidateCache();
 
@@ -50,6 +55,9 @@ private:
 
     // Helper: find clip in track at given time
     const OTIOClip* FindClipInTrack(const OTIOTrack& track, double timestamp);
+
+    // Helper: flatten into nested clip to find visible media at given timeline time
+    const OTIOClip* GetVisibleClipInNest(const OTIOClip* nest_clip, double timeline_timestamp);
 };
 
 // Main timeline viewer UI component
@@ -65,6 +73,21 @@ public:
     bool LoadOTIOFile(const std::string& file_path);
     bool LoadEDLFile(const std::string& file_path);
     bool LoadFCPXMLFile(const std::string& file_path);
+
+    // Python adapter imports (AAF, XML via OTIO Python adapters)
+    bool LoadAAFFile(const std::string& file_path);
+    bool LoadXMLFile(const std::string& file_path);  // FCP 7/X XML, Premiere XML
+
+    // Auto-mute video clips with embedded audio on video tracks
+    // Called after import since imported timelines likely have their own audio tracks
+    void AutoMuteVideoClipsWithAudio();
+
+    // Nested timeline navigation (for AAF/XML compositions)
+    bool EnterNestedClip(const std::string& clip_id);
+    bool ExitNestedTimeline();
+    bool IsViewingNestedTimeline() const;
+    int GetNestedDepth() const;
+    std::vector<std::string> GetBreadcrumbPath() const;
 
     // Initialize empty scratch timeline (no source file)
     void InitializeForScratch(const std::string& name, double duration, double fps,
@@ -199,10 +222,19 @@ private:
 #ifdef USE_OPENTIMELINEIO
     void ExtractTracksFromOTIO(otio::Timeline* timeline);
     OTIOClip ConvertOTIOClip(otio::Clip* otio_clip, double global_offset);
+    // Recursively parse nested stack into nested_tracks and link media
+    void ParseNestedStack(OTIOClip& nest_clip, otio::Stack* nested_stack, const std::string& source_dir);
 #endif
 
     // Helper to find track by ID
     OTIOTrack* GetTrackById(const std::string& track_id);
+
+    // Parse JSON string from Python adapter into timeline
+    bool ParseTimelineFromJson(const std::string& json_string);
+
+    // Resolve AAF MobIDs to file paths via pyaaf2 mob chain traversal
+    // Called after OTIO import to fill in missing file paths for nested clips
+    void ResolveAAFMobPaths(const std::string& aaf_path);
 
     // Data members
     ::VideoPlayer* video_player_;
@@ -210,6 +242,7 @@ private:
     std::unique_ptr<TimelinePlaybackController> playback_controller_;
     TimelinePlaybackController* external_playback_controller_ = nullptr;  // Non-owning, for scratch timelines
     TimelineSelection selection_;
+    std::unique_ptr<class NestedTimelineManager> nested_manager_;  // For AAF/XML nested compositions
 
     std::vector<OTIOTrack> tracks_;
     std::string timeline_name_;

@@ -321,6 +321,7 @@ EDLParser::ParseResult EDLParser::ParseString(const std::string& content, double
         bool is_video = (track_type == "V" || track_type == "B");
         track.is_video = is_video;
 
+        // Always use V1/V2/A1/A2 naming for consistency
         if (is_video) {
             video_track_num++;
             track.id = "V" + std::to_string(video_track_num);
@@ -328,8 +329,8 @@ EDLParser::ParseResult EDLParser::ParseString(const std::string& content, double
             track.z_index = video_track_num;
         } else {
             audio_track_num++;
-            track.id = track_type.empty() ? ("A" + std::to_string(audio_track_num)) : track_type;
-            track.name = track.id;
+            track.id = "A" + std::to_string(audio_track_num);
+            track.name = "A" + std::to_string(audio_track_num);
             track.z_index = 0;
         }
 

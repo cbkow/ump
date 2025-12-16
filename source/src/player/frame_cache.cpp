@@ -1217,9 +1217,10 @@ void FrameCache::SetCacheConfig(const CacheConfig& new_config) {
 
 void FrameCache::SetCachingEnabled(bool enabled) {
     // EXR PATTERN: Just set the flag, thread checks it in the loop
+    // Note: Actual cache init/clear is handled by ProjectManager::SetCacheEnabled()
+    // which calls NotifyVideoChanged() when enabling (proper initialization)
     caching_enabled = enabled;
     Debug::Log(enabled ? "FrameCache: Caching enabled" : "FrameCache: Caching disabled");
-    // Thread continues running, just skips work when disabled
 }
 
 bool FrameCache::IsInitialized() const {
@@ -1227,25 +1228,31 @@ bool FrameCache::IsInitialized() const {
 }
 
 void FrameCache::ClearCachedFrames() {
-    std::lock_guard<std::mutex> lock(cache_mutex);
+    // Phase 1: Clear caches while holding lock
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex);
 
-    // Remove all entries from SharedMemoryPool first
-    if (config.use_shared_pool) {
-        for (const auto& pair : scrub_cache) {
-            RemoveFromPool(pair.first);
+        // Remove all entries from SharedMemoryPool first
+        if (config.use_shared_pool) {
+            for (const auto& pair : scrub_cache) {
+                RemoveFromPool(pair.first);
+            }
+            for (const auto& pair : keyframe_cache) {
+                RemoveFromPool(pair.first);
+            }
         }
-        for (const auto& pair : keyframe_cache) {
-            RemoveFromPool(pair.first);
-        }
+
+        // Clear all cached frames but keep the cache structure
+        scrub_cache.clear();     // Main RAM cache
+        keyframe_cache.clear();  // Keyframe cache
+
+        Debug::Log("FrameCache: Cleared all cached frames (kept cache structure)");
     }
+    // Lock released here - CRITICAL: Must release before calling extractor methods
+    // because ForceWindowRefresh() → RequestFrame() → IsFrameAlreadyCached() → IsFrameCached()
+    // which tries to acquire cache_mutex again, causing deadlock
 
-    // Clear all cached frames but keep the cache structure
-    scrub_cache.clear();     // Main RAM cache
-    keyframe_cache.clear();  // Keyframe cache
-
-    Debug::Log("FrameCache: Cleared all cached frames (kept cache structure)");
-
-    // Restart background extraction to repopulate the cache
+    // Phase 2: Restart background extraction (no lock held)
     if (background_extractor) {
         // Check if extractor is initialized (has video loaded)
         if (!background_extractor->IsInitialized()) {

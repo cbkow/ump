@@ -1,0 +1,2 @@
+[opentimelineio.plugins]
+otio_aaf_adapter = otio_aaf_adapter

@@ -2,6 +2,9 @@
 #include "timeline_playback_controller.h"
 #include "timeline_cache.h"
 #include "edl_parser.h"
+#include "nested_timeline_manager.h"
+#include "python_adapter_bridge.h"
+#include "media_linker.h"
 #include "../utils/debug_utils.h"
 #include <imgui.h>
 #include <sstream>
@@ -10,6 +13,8 @@
 #include <filesystem>
 #include <ctime>
 #include <cmath>
+#include <map>
+#include <functional>
 
 // External fonts from main.cpp for consistent styling
 extern ImFont* font_mono;
@@ -45,6 +50,55 @@ namespace otio = opentimelineio::OPENTIMELINEIO_VERSION;
 namespace ump {
 
 // ============================================================================
+// Helper to normalize file URLs from AAF/XML imports
+// Handles: file:///C:/path/to/file.mov, file://hostname/path, URL encoding
+// ============================================================================
+static std::string NormalizeMediaPath(const std::string& url) {
+    std::string path = url;
+
+    // Strip file:/// or file:// prefix
+    if (path.rfind("file:///", 0) == 0) {
+        path = path.substr(8);  // Remove "file:///"
+    } else if (path.rfind("file://", 0) == 0) {
+        path = path.substr(7);  // Remove "file://"
+        // May have hostname, find next slash
+        size_t slash = path.find('/');
+        if (slash != std::string::npos) {
+            path = path.substr(slash + 1);
+        }
+    }
+
+    // URL decode common sequences
+    std::string decoded;
+    decoded.reserve(path.size());
+    for (size_t i = 0; i < path.size(); ++i) {
+        if (path[i] == '%' && i + 2 < path.size()) {
+            // Decode hex
+            char hex[3] = { path[i+1], path[i+2], 0 };
+            char* end;
+            long val = strtol(hex, &end, 16);
+            if (end == hex + 2) {
+                decoded += static_cast<char>(val);
+                i += 2;
+                continue;
+            }
+        }
+        decoded += path[i];
+    }
+
+    return decoded;
+}
+
+// Extract just the filename from a path (handles both / and \ separators)
+static std::string ExtractFilename(const std::string& path) {
+    size_t last_slash = path.find_last_of("/\\");
+    if (last_slash != std::string::npos) {
+        return path.substr(last_slash + 1);
+    }
+    return path;
+}
+
+// ============================================================================
 // TimelineFlattener Implementation
 // ============================================================================
 
@@ -52,21 +106,43 @@ void TimelineFlattener::SetTracks(const std::vector<OTIOTrack>& tracks) {
     tracks_ = tracks;
     InvalidateCache();
 
-    // Debug: Log track and clip info
+    // Debug: Log track and clip info (including nested clips)
     int linked_count = 0;
     int total_clips = 0;
-    for (const auto& track : tracks_) {
-        for (const auto& clip : track.clips) {
-            if (!clip.is_gap) {
-                total_clips++;
-                if (clip.is_linked) {
-                    linked_count++;
+    int nested_linked = 0;
+    int nested_total = 0;
+
+    // Recursive lambda to count nested clips
+    std::function<void(const std::vector<OTIOTrack>&, bool)> count_clips =
+        [&](const std::vector<OTIOTrack>& trks, bool is_nested) {
+        for (const auto& track : trks) {
+            for (const auto& clip : track.clips) {
+                if (clip.is_gap) continue;
+
+                if (is_nested) {
+                    nested_total++;
+                    if (clip.is_linked) nested_linked++;
+                } else {
+                    total_clips++;
+                    if (clip.is_linked) linked_count++;
+                }
+
+                // Recurse into nested tracks
+                if (clip.is_nested && clip.nested_loaded) {
+                    count_clips(clip.nested_tracks, true);
                 }
             }
         }
+    };
+
+    count_clips(tracks_, false);
+
+    std::string msg = "Flattener::SetTracks: " + std::to_string(linked_count) + "/" +
+                      std::to_string(total_clips) + " clips linked";
+    if (nested_total > 0) {
+        msg += " (nested: " + std::to_string(nested_linked) + "/" + std::to_string(nested_total) + ")";
     }
-    Debug::Log("Flattener::SetTracks: " + std::to_string(linked_count) + "/" +
-               std::to_string(total_clips) + " clips linked");
+    Debug::Log(msg);
 }
 
 void TimelineFlattener::SetTrackVisibility(const std::string& track_id, bool visible) {
@@ -153,11 +229,62 @@ const OTIOClip* TimelineFlattener::GetVisibleClipAtTime(double timestamp) {
         if (!track.is_video || !track.visible) continue;
 
         const OTIOClip* clip = FindClipInTrack(track, timestamp);
-        if (clip && !clip->is_gap && clip->is_linked) {
+        if (clip && !clip->is_gap) {
             // Use z_index to determine priority (higher = on top)
             if (track.z_index > best_z_index) {
                 best_z_index = track.z_index;
-                best_clip = clip;
+
+                // If this is a nested clip, flatten into it to find the actual media
+                if (clip->is_nested && clip->nested_loaded && !clip->nested_tracks.empty()) {
+                    const OTIOClip* nested_clip = GetVisibleClipInNest(clip, timestamp);
+                    if (nested_clip && nested_clip->is_linked) {
+                        best_clip = nested_clip;
+                    } else {
+                        // Nested clip has no linked content at this time - treat as gap
+                        best_clip = nullptr;
+                    }
+                } else if (clip->is_linked) {
+                    best_clip = clip;
+                }
+            }
+        }
+    }
+
+    return best_clip;
+}
+
+const OTIOClip* TimelineFlattener::GetVisibleClipInNest(const OTIOClip* nest_clip, double timeline_timestamp) {
+    // Calculate the relative timestamp within the nested composition
+    // timeline_timestamp is absolute, nest_clip->start_time is where the nest starts on timeline
+    double relative_time = timeline_timestamp - nest_clip->start_time;
+
+    // Clamp to nested duration
+    if (relative_time < 0 || relative_time >= nest_clip->duration) {
+        return nullptr;
+    }
+
+    // Find the topmost visible clip within the nested tracks at the relative time
+    const OTIOClip* best_clip = nullptr;
+    int best_z_index = -1;
+
+    for (const auto& track : nest_clip->nested_tracks) {
+        if (!track.is_video || !track.visible) continue;
+
+        const OTIOClip* clip = FindClipInTrack(track, relative_time);
+        if (clip && !clip->is_gap) {
+            if (track.z_index > best_z_index) {
+                best_z_index = track.z_index;
+
+                // Handle deeply nested clips (nest within nest)
+                if (clip->is_nested && clip->nested_loaded && !clip->nested_tracks.empty()) {
+                    // Recursively flatten - calculate time relative to this inner nest
+                    const OTIOClip* inner_clip = GetVisibleClipInNest(clip, clip->start_time + relative_time);
+                    if (inner_clip && inner_clip->is_linked) {
+                        best_clip = inner_clip;
+                    }
+                } else if (clip->is_linked) {
+                    best_clip = clip;
+                }
             }
         }
     }
@@ -176,12 +303,23 @@ const OTIOClip* TimelineFlattener::GetAudibleClipAtTime(double timestamp) {
         if (!track.is_video || !track.visible || track.audio_muted) continue;
 
         const OTIOClip* clip = FindClipInTrack(track, timestamp);
-        // Check clip exists, not a gap, linked, AND not clip-level muted
-        if (clip && !clip->is_gap && clip->is_linked && !clip->audio_muted) {
+        // Check clip exists, not a gap, AND not clip-level muted
+        if (clip && !clip->is_gap && !clip->audio_muted) {
             // Use z_index to determine priority (higher = on top)
             if (track.z_index > best_z_index) {
                 best_z_index = track.z_index;
-                best_clip = clip;
+
+                // If this is a nested clip, flatten into it to find the actual media
+                if (clip->is_nested && clip->nested_loaded && !clip->nested_tracks.empty()) {
+                    const OTIOClip* nested_clip = GetVisibleClipInNest(clip, timestamp);
+                    if (nested_clip && nested_clip->is_linked && !nested_clip->audio_muted) {
+                        best_clip = nested_clip;
+                    } else {
+                        best_clip = nullptr;
+                    }
+                } else if (clip->is_linked) {
+                    best_clip = clip;
+                }
             }
         }
     }
@@ -191,7 +329,7 @@ const OTIOClip* TimelineFlattener::GetAudibleClipAtTime(double timestamp) {
 
 std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double timestamp) {
     std::vector<std::string> audio_paths;
-    
+
     for (const auto& track : tracks_) {
         if (!track.is_video && !track.muted) {
             const OTIOClip* clip = FindClipInTrack(track, timestamp);
@@ -200,8 +338,49 @@ std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double tim
             }
         }
     }
-    
+
     return audio_paths;
+}
+
+std::vector<const OTIOClip*> TimelineFlattener::GetAllAudibleClipsAtTime(double timestamp) {
+    std::vector<const OTIOClip*> audible_clips;
+
+    for (const auto& track : tracks_) {
+        // For VIDEO tracks: include if visible and NOT audio_muted
+        // For AUDIO tracks: include if NOT muted
+        bool include_track = false;
+        if (track.is_video) {
+            include_track = track.visible && !track.audio_muted;
+        } else {
+            include_track = !track.muted;
+        }
+
+        if (!include_track) continue;
+
+        const OTIOClip* clip = FindClipInTrack(track, timestamp);
+        if (!clip || clip->is_gap) continue;
+
+        // Check clip-level audio mute
+        if (clip->audio_muted) continue;
+
+        // Handle nested clips - get the actual media clip inside
+        if (clip->is_nested && clip->nested_loaded && !clip->nested_tracks.empty()) {
+            const OTIOClip* nested_clip = GetVisibleClipInNest(clip, timestamp);
+            // For nested clips, check if it has any usable path
+            if (nested_clip && !nested_clip->audio_muted &&
+                (!nested_clip->linked_path.empty() || !nested_clip->file_path.empty())) {
+                audible_clips.push_back(nested_clip);
+            }
+        } else {
+            // For regular clips, include if it has any usable path (linked or file_path)
+            // The audio mixer will handle the actual path resolution
+            if (!clip->linked_path.empty() || !clip->file_path.empty()) {
+                audible_clips.push_back(clip);
+            }
+        }
+    }
+
+    return audible_clips;
 }
 
 void TimelineFlattener::InvalidateCache() {
@@ -213,7 +392,8 @@ void TimelineFlattener::InvalidateCache() {
 // ============================================================================
 
 TimelineView::TimelineView(::VideoPlayer* player)
-    : video_player_(player) {
+    : video_player_(player)
+    , nested_manager_(std::make_unique<NestedTimelineManager>()) {
 }
 
 TimelineView::~TimelineView() {
@@ -231,21 +411,25 @@ bool TimelineView::InitializePlayback() {
         return false;
     }
 
-    // Count linked clips
-    int linked_count = 0;
+    // Count clips with usable media paths (linked or file_path)
+    // This allows playback to work for imported timelines (AAF/XML/OTIO)
+    // that have file_path set even before explicit media linking
+    int usable_count = 0;
     for (const auto& track : tracks_) {
         for (const auto& clip : track.clips) {
-            if (clip.is_linked) linked_count++;
+            if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
+                usable_count++;
+            }
         }
     }
 
-    if (linked_count == 0) {
-        Debug::Log("TimelineView::InitializePlayback: No linked clips - link media first");
+    if (usable_count == 0) {
+        Debug::Log("TimelineView::InitializePlayback: No clips with media paths - link media first");
         return false;
     }
 
     Debug::Log("TimelineView::InitializePlayback: Initializing with " +
-               std::to_string(linked_count) + " linked clips");
+               std::to_string(usable_count) + " clips with media paths");
 
     // Create and initialize playback controller
     playback_controller_ = std::make_unique<TimelinePlaybackController>();
@@ -328,9 +512,9 @@ void TimelineView::ClearTimelineInOutPoints() {
 //=============================================================================
 
 void TimelineView::SetZoomLevel(float zoom) {
-    // Clamp to reasonable range
-    if (zoom < 0.1f) zoom = 0.1f;
-    if (zoom > 100.0f) zoom = 100.0f;
+    // Clamp to reasonable range (2.5 - 1400 px/s)
+    if (zoom < 2.5f) zoom = 2.5f;
+    if (zoom > 1400.0f) zoom = 1400.0f;
     zoom_level_ = zoom;
 
     // Clamp scroll offset to new valid range (prevents view from going outside timeline bounds)
@@ -341,9 +525,9 @@ void TimelineView::SetZoomLevel(float zoom) {
 }
 
 void TimelineView::SetZoomLevelAroundTime(float zoom, double time) {
-    // Clamp to reasonable range
-    if (zoom < 0.1f) zoom = 0.1f;
-    if (zoom > 100.0f) zoom = 100.0f;
+    // Clamp to reasonable range (2.5 - 1400 px/s)
+    if (zoom < 2.5f) zoom = 2.5f;
+    if (zoom > 1400.0f) zoom = 1400.0f;
 
     float old_zoom = zoom_level_;
     if (old_zoom <= 0) old_zoom = 50.0f;
@@ -1426,8 +1610,416 @@ bool TimelineView::LoadEDLFile(const std::string& file_path) {
 
 bool TimelineView::LoadFCPXMLFile(const std::string& file_path) {
     Debug::Log("Loading FCP XML file: " + file_path);
-    // TODO: Use OTIO's FCP XML adapter
+
+#ifdef USE_PYTHON_ADAPTERS
+    // Use Python adapter to import FCP XML
+    return LoadXMLFile(file_path);
+#else
+    Debug::Log("Python adapters not enabled - cannot import FCP XML");
     return false;
+#endif
+}
+
+void TimelineView::AutoMuteVideoClipsWithAudio() {
+    // Auto-mute video clips that have embedded audio on video tracks
+    // This is useful for imported timelines that likely have their own audio track layout
+    int muted_count = 0;
+
+    for (auto& track : tracks_) {
+        if (!track.is_video) continue;  // Only process video tracks
+
+        for (auto& clip : track.clips) {
+            if (clip.is_gap) continue;
+
+            // If the clip has audio (detected during probe/link), auto-mute it
+            if (clip.has_audio && !clip.audio_muted) {
+                clip.audio_muted = true;
+                muted_count++;
+            }
+        }
+    }
+
+    if (muted_count > 0) {
+        Debug::Log("AutoMuteVideoClipsWithAudio: Muted " + std::to_string(muted_count) +
+                   " video clips with embedded audio");
+        flattener_.SetTracks(tracks_);
+    }
+}
+
+bool TimelineView::LoadAAFFile(const std::string& file_path) {
+    Debug::Log("Loading AAF file via Python adapter: " + file_path);
+
+#ifdef USE_PYTHON_ADAPTERS
+    // Shutdown existing playback controller before loading new timeline
+    ShutdownPlayback();
+
+    // Store source file path for auto-relinking
+    source_file_path_ = file_path;
+
+    // Initialize Python if not already done
+    auto& bridge = PythonAdapterBridge::Instance();
+    if (!bridge.IsInitialized()) {
+        // Get executable directory for Python home
+        std::filesystem::path exe_path = std::filesystem::current_path();
+        std::string python_home = (exe_path / "python311").string();
+
+        if (!bridge.Initialize(python_home)) {
+            Debug::Log("Failed to initialize Python runtime from: " + python_home);
+            return false;
+        }
+    }
+
+    // Import timeline using Python OTIO adapter
+    std::string error_message;
+    std::string json = bridge.ImportTimeline(file_path, error_message);
+
+    if (json.empty()) {
+        Debug::Log("AAF import failed: " + error_message);
+        return false;
+    }
+
+    // Parse the JSON string into our timeline structure
+    if (!ParseTimelineFromJson(json)) {
+        return false;
+    }
+
+    // Resolve missing media paths via AAF mob chain traversal
+    // This fills in file_path for clips where OTIO only provided MobID
+    // Note: ParseNestedStack already tried linking but failed because clips had PNG paths
+    // ResolveAAFMobPaths sets the MXF paths and marks clips as linked if files exist
+    ResolveAAFMobPaths(file_path);
+
+    // Update flattener with newly linked tracks
+    flattener_.SetTracks(tracks_);
+
+    return true;
+#else
+    Debug::Log("Python adapters not enabled - cannot import AAF");
+    return false;
+#endif
+}
+
+bool TimelineView::LoadXMLFile(const std::string& file_path) {
+    Debug::Log("Loading XML file via Python adapter: " + file_path);
+
+#ifdef USE_PYTHON_ADAPTERS
+    // Shutdown existing playback controller before loading new timeline
+    ShutdownPlayback();
+
+    // Store source file path for auto-relinking
+    source_file_path_ = file_path;
+
+    // Initialize Python if not already done
+    auto& bridge = PythonAdapterBridge::Instance();
+    if (!bridge.IsInitialized()) {
+        // Get executable directory for Python home
+        std::filesystem::path exe_path = std::filesystem::current_path();
+        std::string python_home = (exe_path / "python311").string();
+
+        if (!bridge.Initialize(python_home)) {
+            Debug::Log("Failed to initialize Python runtime from: " + python_home);
+            return false;
+        }
+    }
+
+    // Import timeline using Python OTIO adapter
+    std::string error_message;
+    std::string json = bridge.ImportTimeline(file_path, error_message);
+
+    if (json.empty()) {
+        Debug::Log("XML import failed: " + error_message);
+        return false;
+    }
+
+    // Parse the JSON string into our timeline structure
+    return ParseTimelineFromJson(json);
+#else
+    Debug::Log("Python adapters not enabled - cannot import XML");
+    return false;
+#endif
+}
+
+void TimelineView::ResolveAAFMobPaths(const std::string& aaf_path) {
+#ifdef USE_PYTHON_ADAPTERS
+    Debug::Log("ResolveAAFMobPaths: Starting comprehensive AAF mob resolution for " + aaf_path);
+
+    // Determine search directory for MXF files
+    // Strategy: Look for "Avid MediaFiles" folder relative to AAF location
+    std::filesystem::path aaf_dir = std::filesystem::path(aaf_path).parent_path();
+    std::string search_directory = aaf_dir.string();  // Default: same directory as AAF
+
+    // Look for common Avid media folder patterns
+    std::vector<std::filesystem::path> search_candidates = {
+        aaf_dir / "Avid MediaFiles" / "MXF",
+        aaf_dir / "Avid MediaFiles",
+        aaf_dir.parent_path() / "Avid MediaFiles" / "MXF",
+        aaf_dir.parent_path() / "Avid MediaFiles",
+        aaf_dir  // Fallback: same folder as AAF
+    };
+
+    for (const auto& candidate : search_candidates) {
+        if (std::filesystem::exists(candidate) && std::filesystem::is_directory(candidate)) {
+            search_directory = candidate.string();
+            Debug::Log("ResolveAAFMobPaths: Using MXF search directory: " + search_directory);
+            break;
+        }
+    }
+
+    // Use ResolveAllMobs to get complete mapping of ALL MasterMobs -> MXF paths
+    // This handles edge cases where:
+    // - OTIO adapter only gave us original source paths (external volume)
+    // - Clips have MobID but OTIO didn't follow to FileSourceMob
+    auto& bridge = PythonAdapterBridge::Instance();
+    std::string error;
+    auto all_resolved = bridge.ResolveAllMobs(aaf_path, search_directory, error);
+
+    if (!error.empty()) {
+        Debug::Log("ResolveAAFMobPaths: Error from ResolveAllMobs - " + error);
+    }
+
+    Debug::Log("ResolveAAFMobPaths: Got " + std::to_string(all_resolved.by_mob_id.size()) +
+               " MobID mappings and " + std::to_string(all_resolved.by_name.size()) + " name mappings");
+
+    // Helper to check if a path exists and is accessible
+    auto path_exists = [](const std::string& path) -> bool {
+        if (path.empty()) return false;
+        // Check for external volume paths that won't exist locally
+        // e.g., "Volumes/Lake_Placid/..." or paths starting with non-existent drive letters
+        if (path.find("Volumes/") != std::string::npos ||
+            path.find("/Volumes/") != std::string::npos) {
+            return false;  // External Mac volume path
+        }
+        return std::filesystem::exists(path);
+    };
+
+    // Helper to apply resolved path to a clip
+    auto apply_path_to_clip = [&](OTIOClip* clip, const std::string& path) -> bool {
+        // Normalize path separators
+        std::string normalized_path = path;
+        std::replace(normalized_path.begin(), normalized_path.end(), '/', '\\');
+
+        bool file_exists = std::filesystem::exists(normalized_path);
+        if (!file_exists) return false;
+
+        clip->file_path = normalized_path;
+        clip->linked_path = normalized_path;
+        clip->is_linked = true;
+
+        // Probe video files to get source metadata
+        if (MediaLinker::IsVideoFile(normalized_path)) {
+            VideoProbeResult probe = MediaLinker::ProbeVideoFile(normalized_path);
+            if (probe.valid) {
+                clip->source_fps = probe.fps;
+                clip->source_width = probe.width;
+                clip->source_height = probe.height;
+                clip->source_duration = probe.duration;
+                clip->has_audio = probe.has_audio;
+            }
+        }
+
+        return true;
+    };
+
+    // Process all clips (including nested) - try multiple resolution strategies
+    int resolved_by_mobid = 0;
+    int resolved_by_name = 0;
+    int already_linked = 0;
+    int unresolved = 0;
+
+    std::function<void(std::vector<OTIOTrack>&)> process_clips = [&](std::vector<OTIOTrack>& tracks) {
+        for (auto& track : tracks) {
+            for (auto& clip : track.clips) {
+                if (clip.is_gap) continue;
+
+                // Skip already linked clips
+                if (clip.is_linked && !clip.linked_path.empty() && path_exists(clip.linked_path)) {
+                    already_linked++;
+                    continue;
+                }
+
+                // Check if current file_path exists - if so, clip is already linked
+                if (!clip.file_path.empty() && path_exists(clip.file_path)) {
+                    clip.linked_path = clip.file_path;
+                    clip.is_linked = true;
+                    already_linked++;
+                    continue;
+                }
+
+                bool resolved = false;
+
+                // Strategy 1: Try MobID lookup
+                if (!resolved && !clip.aaf_mob_id.empty()) {
+                    auto it = all_resolved.by_mob_id.find(clip.aaf_mob_id);
+                    if (it != all_resolved.by_mob_id.end() && !it->second.empty()) {
+                        if (apply_path_to_clip(&clip, it->second)) {
+                            resolved = true;
+                            resolved_by_mobid++;
+                            Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name + "' via MobID -> " + clip.linked_path);
+                        }
+                    }
+                }
+
+                // Strategy 2: Try name-based lookup
+                // This handles clips where OTIO gave us external volume paths
+                if (!resolved && !clip.name.empty()) {
+                    std::string lower_name = clip.name;
+                    std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+
+                    auto it = all_resolved.by_name.find(lower_name);
+                    if (it != all_resolved.by_name.end() && !it->second.empty()) {
+                        if (apply_path_to_clip(&clip, it->second)) {
+                            resolved = true;
+                            resolved_by_name++;
+                            Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name + "' via name match -> " + clip.linked_path);
+                        }
+                    }
+                }
+
+                // Strategy 3: Try partial name matching for clips with version suffixes
+                // e.g., "LP_ARC2980_APFT_X03056_SovietInvasionOnTheGround_19800101.new.02"
+                // might match "LP_ARC2980_APFT_X03056_SovietInvasionOnTheGround_19800101"
+                if (!resolved && !clip.name.empty()) {
+                    std::string lower_name = clip.name;
+                    std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
+
+                    // Strip common version suffixes: .new.##, _v##, .##
+                    std::string base_name = lower_name;
+                    // Remove .new.## suffix
+                    size_t new_pos = base_name.rfind(".new.");
+                    if (new_pos != std::string::npos) {
+                        base_name = base_name.substr(0, new_pos);
+                    }
+                    // Remove _v## suffix
+                    size_t v_pos = base_name.rfind("_v");
+                    if (v_pos != std::string::npos && v_pos + 2 < base_name.length()) {
+                        bool all_digits = true;
+                        for (size_t i = v_pos + 2; i < base_name.length(); i++) {
+                            if (!std::isdigit(base_name[i])) { all_digits = false; break; }
+                        }
+                        if (all_digits) base_name = base_name.substr(0, v_pos);
+                    }
+
+                    // Search all by_name entries for partial match
+                    for (const auto& [name, path] : all_resolved.by_name) {
+                        // Check if base_name matches start of this entry
+                        if (name.find(base_name) == 0 || base_name.find(name) == 0) {
+                            if (apply_path_to_clip(&clip, path)) {
+                                resolved = true;
+                                resolved_by_name++;
+                                Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name +
+                                           "' via partial name match (" + base_name + ") -> " + clip.linked_path);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (!resolved) {
+                    unresolved++;
+                    Debug::Log("ResolveAAFMobPaths: Could not resolve '" + clip.name +
+                               "' (file_path: " + clip.file_path +
+                               ", aaf_mob_id: " + (clip.aaf_mob_id.empty() ? "<none>" : clip.aaf_mob_id.substr(0, 50) + "...") + ")");
+                }
+
+                // Recurse into nested tracks
+                if (clip.is_nested && clip.nested_loaded) {
+                    process_clips(clip.nested_tracks);
+                }
+            }
+        }
+    };
+
+    process_clips(tracks_);
+
+    Debug::Log("ResolveAAFMobPaths: Summary - " +
+               std::to_string(already_linked) + " already linked, " +
+               std::to_string(resolved_by_mobid) + " resolved by MobID, " +
+               std::to_string(resolved_by_name) + " resolved by name, " +
+               std::to_string(unresolved) + " unresolved");
+
+    // Final verification count
+    int verify_linked = 0;
+    int verify_total = 0;
+    std::function<void(const std::vector<OTIOTrack>&)> verify_clips = [&](const std::vector<OTIOTrack>& trks) {
+        for (const auto& track : trks) {
+            for (const auto& clip : track.clips) {
+                if (clip.is_gap) continue;
+                verify_total++;
+                if (clip.is_linked) verify_linked++;
+                if (clip.is_nested && clip.nested_loaded) {
+                    verify_clips(clip.nested_tracks);
+                }
+            }
+        }
+    };
+    verify_clips(tracks_);
+    Debug::Log("ResolveAAFMobPaths: Final status: " + std::to_string(verify_linked) + "/" +
+               std::to_string(verify_total) + " clips linked");
+#else
+    Debug::Log("ResolveAAFMobPaths: Python adapters not enabled");
+#endif
+}
+
+bool TimelineView::ParseTimelineFromJson(const std::string& json_string) {
+#ifdef USE_OPENTIMELINEIO
+    Debug::Log("Parsing timeline from JSON (" + std::to_string(json_string.length()) + " bytes)");
+
+    otio::ErrorStatus error_status;
+
+    // Parse JSON to OTIO SerializableObject
+    auto* obj = otio::SerializableObject::from_json_string(json_string, &error_status);
+    if (!obj || otio::is_error(error_status)) {
+        Debug::Log("Failed to parse OTIO JSON: " + error_status.full_description);
+        return false;
+    }
+
+    // Cast to Timeline
+    auto* timeline = dynamic_cast<otio::Timeline*>(obj);
+    if (!timeline) {
+        Debug::Log("Parsed object is not an OTIO Timeline");
+        return false;
+    }
+
+    // Extract timeline metadata
+    timeline_name_ = timeline->name();
+    if (timeline_name_.empty()) {
+        timeline_name_ = "Imported Timeline";
+    }
+
+    // Get global start time and rate
+    auto global_start = timeline->global_start_time();
+    if (global_start.has_value()) {
+        frame_rate_ = global_start->rate();
+    } else {
+        frame_rate_ = 24.0; // Default
+    }
+
+    // Extract tracks from timeline (includes nested stack handling)
+    ExtractTracksFromOTIO(timeline);
+
+    // Calculate timeline duration from tracks
+    timeline_duration_ = 0.0;
+    for (const auto& track : tracks_) {
+        for (const auto& clip : track.clips) {
+            double clip_end = clip.start_time + clip.duration;
+            if (clip_end > timeline_duration_) {
+                timeline_duration_ = clip_end;
+            }
+        }
+    }
+
+    // Update flattener with new tracks
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("Imported timeline: " + timeline_name_ +
+               " (" + std::to_string(GetVideoTrackCount()) + " video, " +
+               std::to_string(GetAudioTrackCount()) + " audio tracks)");
+
+    return true;
+#else
+    Debug::Log("OTIO library not available - cannot parse timeline JSON");
+    return false;
+#endif
 }
 
 void TimelineView::InitializeForScratch(const std::string& name, double duration, double fps,
@@ -1450,7 +2042,7 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
     // Create one empty video track and one empty audio track
     OTIOTrack video_track;
     video_track.id = "V1";
-    video_track.name = "Video 1";
+    video_track.name = "V1";
     video_track.is_video = true;
     video_track.visible = true;
     video_track.muted = false;
@@ -1459,7 +2051,7 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
 
     OTIOTrack audio_track;
     audio_track.id = "A1";
-    audio_track.name = "Audio 1";
+    audio_track.name = "A1";
     audio_track.is_video = false;
     audio_track.visible = true;
     audio_track.muted = false;
@@ -1556,25 +2148,29 @@ void TimelineView::ExtractTracksFromOTIO(otio::Timeline* timeline) {
         if (!track) continue;
 
         OTIOTrack our_track;
-        our_track.id = track->name().empty() ?
-            ("track_" + std::to_string(video_track_num + audio_track_num)) : track->name();
+        std::string otio_track_name = track->name();
 
         // Determine track type
         std::string kind = track->kind();
         our_track.is_video = (kind == otio::Track::Kind::video);
 
-        // Set track name
+        // Set track name - use OTIO name only if it's meaningful
+        // AAF often exports generic names like "sequence" - ignore those
+        // Always use V1/V2/A1/A2 naming for consistency across all import formats
         if (our_track.is_video) {
             video_track_num++;
-            our_track.name = our_track.id.empty() ?
-                ("V" + std::to_string(video_track_num)) : our_track.id;
+            our_track.name = "V" + std::to_string(video_track_num);
+            our_track.id = "V" + std::to_string(video_track_num) + "_" + std::to_string(std::time(nullptr));
             our_track.z_index = video_track_num;
         } else {
             audio_track_num++;
-            our_track.name = our_track.id.empty() ?
-                ("A" + std::to_string(audio_track_num)) : our_track.id;
+            our_track.name = "A" + std::to_string(audio_track_num);
+            our_track.id = "A" + std::to_string(audio_track_num) + "_" + std::to_string(std::time(nullptr));
             our_track.z_index = 0;
         }
+
+        Debug::Log("Track from OTIO: otio_name='" + otio_track_name + "' -> name='" +
+                   our_track.name + "' kind=" + kind);
 
         our_track.visible = true;
         our_track.muted = false;
@@ -1582,12 +2178,48 @@ void TimelineView::ExtractTracksFromOTIO(otio::Timeline* timeline) {
         // Track timeline position as we process clips
         double track_position = 0.0;
 
-        // Process track children (clips, gaps, transitions)
+        // Process track children (clips, gaps, transitions, nested stacks)
         for (auto& item : track->children()) {
             if (auto* clip = dynamic_cast<otio::Clip*>(item.value)) {
                 OTIOClip our_clip = ConvertOTIOClip(clip, track_position);
                 our_track.clips.push_back(our_clip);
                 track_position += our_clip.duration;
+            }
+            else if (auto* nested_stack = dynamic_cast<otio::Stack*>(item.value)) {
+                // Nested composition (AAF sub-master, XML compound clip, OTIO nested stack)
+                OTIOClip nest_clip;
+                nest_clip.id = "nested_" + std::to_string(our_track.clips.size()) + "_" +
+                               std::to_string(reinterpret_cast<uintptr_t>(nested_stack));
+                nest_clip.is_nested = true;
+                nest_clip.nested_name = nested_stack->name().empty() ?
+                                        "Nested Sequence" : nested_stack->name();
+                nest_clip.name = nest_clip.nested_name;
+                nest_clip.start_time = track_position;
+                nest_clip.is_gap = false;
+
+                // Get nested stack duration
+                otio::ErrorStatus nest_err;
+                auto nest_dur = nested_stack->duration(&nest_err);
+                if (!otio::is_error(nest_err)) {
+                    nest_clip.duration = nest_dur.to_seconds();
+                    nest_clip.nested_fps = nest_dur.rate();
+                } else {
+                    nest_clip.duration = 1.0;  // Fallback
+                }
+
+                nest_clip.source_in = 0.0;
+                nest_clip.source_out = nest_clip.duration;
+
+                // Parse nested stack eagerly (not lazily) - this links all media upfront
+                std::string source_dir = GetSourceDirectory();
+                ParseNestedStack(nest_clip, nested_stack, source_dir);
+
+                Debug::Log("Found nested composition: " + nest_clip.name +
+                           " (duration: " + std::to_string(nest_clip.duration) + "s, " +
+                           std::to_string(nest_clip.nested_tracks.size()) + " tracks)");
+
+                our_track.clips.push_back(nest_clip);
+                track_position += nest_clip.duration;
             }
             else if (auto* gap = dynamic_cast<otio::Gap*>(item.value)) {
                 // Create a gap clip
@@ -1632,6 +2264,30 @@ void TimelineView::ExtractTracksFromOTIO(otio::Timeline* timeline) {
         tracks_.push_back(our_track);
     }
 
+    // Reorder tracks for NLE-style display: video tracks reversed (V5, V4, V3, V2, V1),
+    // then audio tracks in order (A1, A2, A3...)
+    // This puts V1 at the bottom of video section, closest to audio
+    std::vector<OTIOTrack> video_tracks, audio_tracks;
+    for (auto& track : tracks_) {
+        if (track.is_video) {
+            video_tracks.push_back(std::move(track));
+        } else {
+            audio_tracks.push_back(std::move(track));
+        }
+    }
+
+    // Reverse video tracks so highest number is first (top of display)
+    std::reverse(video_tracks.begin(), video_tracks.end());
+
+    // Rebuild tracks: video (reversed) then audio
+    tracks_.clear();
+    for (auto& track : video_tracks) {
+        tracks_.push_back(std::move(track));
+    }
+    for (auto& track : audio_tracks) {
+        tracks_.push_back(std::move(track));
+    }
+
     Debug::Log("Extracted " + std::to_string(video_track_num) + " video and " +
                std::to_string(audio_track_num) + " audio tracks");
 }
@@ -1639,11 +2295,34 @@ void TimelineView::ExtractTracksFromOTIO(otio::Timeline* timeline) {
 OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offset) {
     OTIOClip clip;
 
-    clip.id = otio_clip->name().empty() ?
-        ("clip_" + std::to_string(global_offset)) : otio_clip->name();
+    // Generate unique ID using clip pointer address to ensure uniqueness
+    // even when multiple clips have the same name (e.g., linked video+audio from same source)
+    clip.id = "clip_" + std::to_string(reinterpret_cast<uintptr_t>(otio_clip)) + "_" +
+              std::to_string(global_offset);
     clip.name = otio_clip->name();
     clip.start_time = global_offset;
     clip.is_gap = false;
+
+    // Extract AAF metadata from clip (needed for MXF file matching)
+    auto& clip_metadata = otio_clip->metadata();
+    if (clip_metadata.has_key("AAF")) {
+        try {
+            auto aaf_any = clip_metadata["AAF"];
+            if (aaf_any.type() == typeid(otio::AnyDictionary)) {
+                auto aaf_dict = std::any_cast<otio::AnyDictionary>(aaf_any);
+                for (auto ait = aaf_dict.begin(); ait != aaf_dict.end(); ++ait) {
+                    // Log ALL string AAF fields for debugging
+                    if (ait->second.type() == typeid(std::string)) {
+                        std::string val = std::any_cast<std::string>(ait->second);
+                        Debug::Log("  Clip AAF." + ait->first + " = " + val);
+                        if (ait->first == "MobID") {
+                            clip.aaf_mob_id = val;
+                        }
+                    }
+                }
+            }
+        } catch (...) {}
+    }
 
     // Get clip duration
     otio::ErrorStatus err;
@@ -1676,22 +2355,66 @@ OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offs
     // Get media reference for file path
     auto* media_ref = otio_clip->media_reference();
     if (media_ref) {
-        if (auto* ext_ref = dynamic_cast<otio::ExternalReference*>(media_ref)) {
-            clip.file_path = ext_ref->target_url();
-
-            // If name was empty, use filename from path
-            if (clip.name.empty()) {
-                size_t last_slash = clip.file_path.find_last_of("/\\");
-                if (last_slash != std::string::npos) {
-                    clip.name = clip.file_path.substr(last_slash + 1);
-                } else {
-                    clip.name = clip.file_path;
-                }
+        // Log all metadata on the media reference (AAF stores source info here)
+        auto& ref_metadata = media_ref->metadata();
+        for (auto it = ref_metadata.begin(); it != ref_metadata.end(); ++it) {
+            Debug::Log("  MediaRef metadata key: " + it->first);
+            // Try to log string values
+            if (it->second.type() == typeid(std::string)) {
+                try {
+                    Debug::Log("    = " + std::any_cast<std::string>(it->second));
+                } catch (...) {}
             }
+        }
+
+        if (auto* ext_ref = dynamic_cast<otio::ExternalReference*>(media_ref)) {
+            // Get the raw URL and normalize it (handle file:/// prefix, URL encoding)
+            std::string raw_url = ext_ref->target_url();
+            clip.file_path = NormalizeMediaPath(raw_url);
+
+            // Extract just the filename for matching purposes
+            std::string filename = ExtractFilename(clip.file_path);
+
+            // Check for AAF source clip name in metadata
+            // AAF adapter often stores original source info in metadata
+            if (ref_metadata.has_key("AAF")) {
+                try {
+                    auto aaf_any = ref_metadata["AAF"];
+                    if (aaf_any.type() == typeid(otio::AnyDictionary)) {
+                        auto aaf_dict = std::any_cast<otio::AnyDictionary>(aaf_any);
+                        for (auto it = aaf_dict.begin(); it != aaf_dict.end(); ++it) {
+                            // Log ALL AAF fields for debugging
+                            if (it->second.type() == typeid(std::string)) {
+                                std::string val = std::any_cast<std::string>(it->second);
+                                Debug::Log("  MediaRef AAF." + it->first + " = " + val);
+                                // Capture MobID for linking
+                                if (it->first == "MobID") {
+                                    clip.aaf_mob_id = val;
+                                }
+                            }
+                        }
+                    }
+                } catch (...) {}
+            }
+
+            // If name was empty or looks like a full path, use extracted filename
+            // This helps AAF/XML imports where clip names may be paths
+            if (clip.name.empty()) {
+                clip.name = filename;
+            } else if (clip.name.find('/') != std::string::npos ||
+                       clip.name.find('\\') != std::string::npos ||
+                       clip.name.find("file:") == 0) {
+                // Name looks like a path, normalize it too
+                clip.name = ExtractFilename(NormalizeMediaPath(clip.name));
+            }
+
+            Debug::Log("ConvertOTIOClip: name='" + clip.name +
+                       "' file_path='" + clip.file_path + "'");
         }
         else if (auto* img_seq = dynamic_cast<otio::ImageSequenceReference*>(media_ref)) {
             // Image sequence - construct pattern
-            clip.file_path = img_seq->target_url_base() + "/" +
+            std::string base = NormalizeMediaPath(img_seq->target_url_base());
+            clip.file_path = base + "/" +
                             img_seq->name_prefix() + "####" + img_seq->name_suffix();
 
             if (clip.name.empty()) {
@@ -1701,6 +2424,142 @@ OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offs
     }
 
     return clip;
+}
+
+// Recursively parse nested stack into nested_tracks and link media
+// This is called eagerly during import so all nested clips are linked upfront
+void TimelineView::ParseNestedStack(OTIOClip& nest_clip, otio::Stack* nested_stack, const std::string& source_dir) {
+    if (!nested_stack) return;
+
+    Debug::Log("ParseNestedStack: Parsing '" + nest_clip.name + "' eagerly");
+
+    int video_idx = 0, audio_idx = 0;
+
+    for (auto& child : nested_stack->children()) {
+        auto* track = dynamic_cast<otio::Track*>(child.value);
+        if (!track) continue;
+
+        OTIOTrack our_track;
+        std::string kind = track->kind();
+        our_track.is_video = (kind == otio::Track::Kind::video);
+
+        if (our_track.is_video) {
+            video_idx++;
+            our_track.name = "V" + std::to_string(video_idx);
+            our_track.id = "nested_" + nest_clip.id + "_V" + std::to_string(video_idx);
+            our_track.z_index = video_idx;
+        } else {
+            audio_idx++;
+            our_track.name = "A" + std::to_string(audio_idx);
+            our_track.id = "nested_" + nest_clip.id + "_A" + std::to_string(audio_idx);
+            our_track.z_index = 0;
+        }
+
+        our_track.visible = true;
+        our_track.muted = false;
+
+        // Process track clips
+        double track_position = 0.0;
+        for (auto& item : track->children()) {
+            if (auto* otio_clip = dynamic_cast<otio::Clip*>(item.value)) {
+                OTIOClip our_clip = ConvertOTIOClip(otio_clip, track_position);
+                our_track.clips.push_back(our_clip);
+                track_position += our_clip.duration;
+            }
+            else if (auto* inner_stack = dynamic_cast<otio::Stack*>(item.value)) {
+                // Nested within nested! Create clip and parse recursively
+                OTIOClip inner_nest;
+                inner_nest.id = "nested_" + std::to_string(our_track.clips.size()) + "_" +
+                               std::to_string(reinterpret_cast<uintptr_t>(inner_stack));
+                inner_nest.is_nested = true;
+                inner_nest.nested_name = inner_stack->name().empty() ?
+                                        "Nested Sequence" : inner_stack->name();
+                inner_nest.name = inner_nest.nested_name;
+                inner_nest.start_time = track_position;
+                inner_nest.is_gap = false;
+
+                otio::ErrorStatus nest_err;
+                auto nest_dur = inner_stack->duration(&nest_err);
+                if (!otio::is_error(nest_err)) {
+                    inner_nest.duration = nest_dur.to_seconds();
+                    inner_nest.nested_fps = nest_dur.rate();
+                } else {
+                    inner_nest.duration = 1.0;
+                }
+
+                inner_nest.source_in = 0.0;
+                inner_nest.source_out = inner_nest.duration;
+
+                // Recursively parse this inner nested stack
+                ParseNestedStack(inner_nest, inner_stack, source_dir);
+
+                our_track.clips.push_back(inner_nest);
+                track_position += inner_nest.duration;
+
+                Debug::Log("ParseNestedStack: Found nested-within-nested: " + inner_nest.name);
+            }
+            else if (auto* gap = dynamic_cast<otio::Gap*>(item.value)) {
+                OTIOClip gap_clip;
+                gap_clip.is_gap = true;
+                gap_clip.name = "Gap";
+                gap_clip.start_time = track_position;
+
+                otio::ErrorStatus gap_err;
+                auto gap_dur = gap->duration(&gap_err);
+                if (!otio::is_error(gap_err)) {
+                    gap_clip.duration = gap_dur.to_seconds();
+                }
+
+                our_track.clips.push_back(gap_clip);
+                track_position += gap_clip.duration;
+            }
+        }
+
+        nest_clip.nested_tracks.push_back(our_track);
+    }
+
+    // Reorder: reverse video tracks for NLE-style display
+    std::vector<OTIOTrack> video_tracks, audio_tracks;
+    for (auto& t : nest_clip.nested_tracks) {
+        if (t.is_video) video_tracks.push_back(std::move(t));
+        else audio_tracks.push_back(std::move(t));
+    }
+    std::reverse(video_tracks.begin(), video_tracks.end());
+
+    nest_clip.nested_tracks.clear();
+    for (auto& t : video_tracks) nest_clip.nested_tracks.push_back(std::move(t));
+    for (auto& t : audio_tracks) nest_clip.nested_tracks.push_back(std::move(t));
+
+    // Get frame rate from nested clips if available
+    for (const auto& track : nest_clip.nested_tracks) {
+        for (const auto& clip : track.clips) {
+            if (!clip.is_gap && clip.source_fps > 0) {
+                nest_clip.nested_fps = clip.source_fps;
+                break;
+            }
+        }
+        if (nest_clip.nested_fps > 0) break;
+    }
+
+    // Link media in the nested clips using MediaLinker
+    if (!source_dir.empty()) {
+        ump::MediaLinker linker;
+        ump::LinkOptions options;
+        options.recursive = true;
+        options.fuzzy_match = true;
+        options.max_depth = 10;
+
+        auto summary = linker.LinkMediaInDirectory(nest_clip.nested_tracks, source_dir, options);
+        Debug::Log("ParseNestedStack '" + nest_clip.name + "': Linked " +
+                   std::to_string(summary.linked_count) + "/" +
+                   std::to_string(summary.total_clips) + " clips");
+    }
+
+    nest_clip.nested_loaded = true;
+
+    Debug::Log("ParseNestedStack: '" + nest_clip.name + "' complete - " +
+               std::to_string(video_idx) + " video, " + std::to_string(audio_idx) +
+               " audio tracks, fps=" + std::to_string(nest_clip.nested_fps));
 }
 #endif
 
@@ -1891,6 +2750,160 @@ void TimelineView::SetTracks(const std::vector<OTIOTrack>& tracks,
     Debug::Log("TimelineView::SetTracks: Restored " + std::to_string(tracks_.size()) +
                " tracks, fps=" + std::to_string(frame_rate_) +
                ", duration=" + std::to_string(timeline_duration_) + "s");
+}
+
+// ============================================================================
+// Nested Timeline Navigation
+// ============================================================================
+
+bool TimelineView::EnterNestedClip(const std::string& clip_id) {
+    if (!nested_manager_) {
+        Debug::Log("EnterNestedClip: No nested timeline manager");
+        return false;
+    }
+
+    // Find the clip
+    OTIOClip* clip = FindClipById(clip_id);
+    if (!clip) {
+        Debug::Log("EnterNestedClip: Clip not found: " + clip_id);
+        return false;
+    }
+
+    if (!clip->is_nested) {
+        Debug::Log("EnterNestedClip: Clip is not a nested composition: " + clip_id);
+        return false;
+    }
+
+    // Nested tracks should already be parsed and linked during import (eager loading)
+    // This fallback handles legacy data that might have JSON but no parsed tracks
+    if (!clip->nested_loaded && !clip->nested_timeline_json.empty()) {
+#ifdef USE_OPENTIMELINEIO
+        Debug::Log("EnterNestedClip: Fallback parsing for " + clip->name +
+                   " (should have been parsed during import)");
+
+        otio::ErrorStatus err;
+        auto* obj = otio::SerializableObject::from_json_string(clip->nested_timeline_json, &err);
+        if (obj && !otio::is_error(err)) {
+            if (auto* nested_stack = dynamic_cast<otio::Stack*>(obj)) {
+                std::string source_dir = GetSourceDirectory();
+                ParseNestedStack(*clip, nested_stack, source_dir);
+            }
+        } else {
+            Debug::Log("Failed to parse nested JSON: " + std::string(err.details.c_str()));
+        }
+#endif
+    }
+
+    // Verify we have nested tracks to enter
+    if (clip->nested_tracks.empty()) {
+        Debug::Log("EnterNestedClip: No nested tracks in " + clip->name);
+        return false;
+    }
+
+    // Save current context and enter nest
+    bool success = nested_manager_->EnterNest(
+        *clip,
+        tracks_,
+        timeline_name_,
+        frame_rate_,
+        current_time_,
+        zoom_level_,
+        scroll_offset_x_
+    );
+
+    if (!success) {
+        return false;
+    }
+
+    // Replace current tracks with nested tracks
+    tracks_ = clip->nested_tracks;
+    timeline_name_ = clip->nested_name.empty() ? clip->name : clip->nested_name;
+    if (clip->nested_fps > 0) {
+        frame_rate_ = clip->nested_fps;
+    }
+
+    // Reset view state for nested timeline
+    current_time_ = 0.0;
+    zoom_level_ = 50.0f;
+    scroll_offset_x_ = 0.0f;
+
+    // Recalculate duration and sync flattener
+    RecalculateDuration();
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("Entered nested timeline: " + timeline_name_ +
+               " (depth: " + std::to_string(GetNestedDepth()) + ")");
+
+    return true;
+}
+
+bool TimelineView::ExitNestedTimeline() {
+    if (!nested_manager_ || !nested_manager_->IsNested()) {
+        Debug::Log("ExitNestedTimeline: Not in a nested timeline");
+        return false;
+    }
+
+    std::vector<OTIOTrack> parent_tracks;
+    std::string parent_name;
+    double parent_fps;
+    double parent_playhead;
+    float parent_zoom;
+    float parent_scroll;
+
+    bool success = nested_manager_->ExitNest(
+        parent_tracks,
+        parent_name,
+        parent_fps,
+        parent_playhead,
+        parent_zoom,
+        parent_scroll
+    );
+
+    if (!success) {
+        return false;
+    }
+
+    // Restore parent context
+    tracks_ = std::move(parent_tracks);
+    timeline_name_ = parent_name;
+    frame_rate_ = parent_fps;
+    current_time_ = parent_playhead;
+    zoom_level_ = parent_zoom;
+    scroll_offset_x_ = parent_scroll;
+
+    // Recalculate duration and sync flattener
+    RecalculateDuration();
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("Exited to timeline: " + timeline_name_ +
+               " (depth: " + std::to_string(GetNestedDepth()) +
+               ", tracks: " + std::to_string(tracks_.size()) +
+               ", duration: " + std::to_string(timeline_duration_) + "s)");
+
+    return true;
+}
+
+bool TimelineView::IsViewingNestedTimeline() const {
+    return nested_manager_ && nested_manager_->IsNested();
+}
+
+int TimelineView::GetNestedDepth() const {
+    return nested_manager_ ? nested_manager_->GetDepth() : 0;
+}
+
+std::vector<std::string> TimelineView::GetBreadcrumbPath() const {
+    if (!nested_manager_) {
+        return {timeline_name_};
+    }
+
+    auto path = nested_manager_->GetBreadcrumbPath();
+
+    // If at root, return just the timeline name
+    if (path.empty()) {
+        return {timeline_name_};
+    }
+
+    return path;
 }
 
 void TimelineView::CreateMockTimeline() {

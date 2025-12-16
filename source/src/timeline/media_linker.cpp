@@ -59,6 +59,10 @@ ump::VideoProbeResult ump::MediaLinker::ProbeVideoFile(const std::string& path) 
         result.valid = true;
     }
 
+    // Check for audio stream
+    int audio_stream_idx = av_find_best_stream(fmt_ctx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    result.has_audio = (audio_stream_idx >= 0);
+
     avformat_close_input(&fmt_ctx);
     return result;
 }
@@ -220,6 +224,15 @@ std::map<std::string, std::string> MediaLinker::BuildFileIndex(
 
     Debug::Log("MediaLinker: Indexed " + std::to_string(index.size()) + " files in " + directory +
                " (max depth: " + std::to_string(options.max_depth) + ")");
+
+    // Log first 10 indexed files for debugging
+    int logged = 0;
+    for (const auto& [norm_name, full_path] : index) {
+        if (logged++ < 10) {
+            Debug::Log("MediaLinker: Indexed file: '" + norm_name + "' -> " + full_path);
+        }
+    }
+
     return index;
 }
 
@@ -259,6 +272,26 @@ std::pair<std::string, float> MediaLinker::FindBestMatch(
 // Main Linking Functions
 // ============================================================================
 
+// Helper to recursively count clips in tracks (including nested)
+static void CountClipsRecursive(const std::vector<OTIOTrack>& tracks, int& total, int& already_linked) {
+    for (const auto& track : tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.is_gap) continue;
+
+            if (clip.is_nested && clip.nested_loaded && !clip.nested_tracks.empty()) {
+                // Recurse into nested tracks
+                CountClipsRecursive(clip.nested_tracks, total, already_linked);
+            } else if (!clip.is_nested) {
+                // Regular clip - count it
+                total++;
+                if (clip.is_linked) {
+                    already_linked++;
+                }
+            }
+        }
+    }
+}
+
 LinkSummary MediaLinker::LinkMediaInDirectory(
     std::vector<OTIOTrack>& tracks,
     const std::string& search_directory,
@@ -266,19 +299,17 @@ LinkSummary MediaLinker::LinkMediaInDirectory(
 ) {
     LinkSummary summary;
 
-    // Count total clips
-    for (const auto& track : tracks) {
-        for (const auto& clip : track.clips) {
-            if (!clip.is_gap) {
-                summary.total_clips++;
-            }
-        }
-    }
+    // Count total clips (including nested, excluding already-linked from Python resolution)
+    int already_linked = 0;
+    CountClipsRecursive(tracks, summary.total_clips, already_linked);
 
     if (summary.total_clips == 0) {
         Debug::Log("MediaLinker: No clips to link");
         return summary;
     }
+
+    Debug::Log("MediaLinker: " + std::to_string(already_linked) + " clips already linked (from Python resolution)");
+    summary.linked_count = already_linked;  // Start with already-linked count
 
     Debug::Log("MediaLinker: Attempting to link " + std::to_string(summary.total_clips) +
                " clips from " + search_directory);
@@ -295,56 +326,148 @@ LinkSummary MediaLinker::LinkMediaInDirectory(
         return summary;
     }
 
-    // Link each clip
-    int processed = 0;
-    for (auto& track : tracks) {
-        for (auto& clip : track.clips) {
-            if (clip.is_gap) continue;
-
-            processed++;
-            if (progress_callback_) {
-                progress_callback_(processed, summary.total_clips,
-                                  "Linking: " + clip.name);
-            }
-
+    // Helper lambda to link a single clip (returns true if newly linked)
+    auto link_single_clip = [&](OTIOClip& clip) -> bool {
+        // Skip already-linked clips (e.g., from Python resolution)
+        if (clip.is_linked) {
             LinkResult result;
             result.clip_id = clip.id;
             result.clip_name = clip.name;
+            result.matched_path = clip.linked_path;
+            result.success = true;
+            result.match_score = 1.0f;
+            summary.results.push_back(result);
+            return false;  // Not newly linked
+        }
 
-            // Try to find match
-            auto [matched_path, score] = FindBestMatch(clip.name, file_index, options);
+        LinkResult result;
+        result.clip_id = clip.id;
+        result.clip_name = clip.name;
 
-            if (!matched_path.empty() && score >= 0.7f) {
-                clip.linked_path = matched_path;
-                clip.is_linked = true;
-                result.matched_path = matched_path;
-                result.success = true;
-                result.match_score = score;
-                summary.linked_count++;
+        std::string matched_path;
+        float score = 0.0f;
 
-                // Probe video files to get source metadata
-                if (IsVideoFile(matched_path)) {
-                    VideoProbeResult probe = ProbeVideoFile(matched_path);
-                    if (probe.valid) {
-                        clip.source_fps = probe.fps;
-                        clip.source_width = probe.width;
-                        clip.source_height = probe.height;
-                        clip.source_duration = probe.duration;
+        // Strategy 1: Try direct file_path if it exists (for AAF with local media)
+        if (!clip.file_path.empty()) {
+            if (fs::exists(clip.file_path)) {
+                matched_path = clip.file_path;
+                score = 1.0f;
+                Debug::Log("MediaLinker: Direct path match: " + clip.file_path);
+            } else {
+                std::string filename = fs::path(clip.file_path).filename().string();
+                std::string norm_filename = NormalizeClipName(filename, options.fuzzy_match);
+                auto it = file_index.find(norm_filename);
+                if (it != file_index.end()) {
+                    matched_path = it->second;
+                    score = 1.0f;
+                    Debug::Log("MediaLinker: Found by original filename '" + filename + "' -> " + matched_path);
+                }
+            }
+        }
+
+        // Strategy 2: Try AAF MobID matching (for Avid MXF files)
+        if (matched_path.empty() && !clip.aaf_mob_id.empty()) {
+            std::string mob_id = clip.aaf_mob_id;
+            size_t last_dot = mob_id.rfind('.');
+            if (last_dot != std::string::npos && last_dot > 0) {
+                size_t second_last = mob_id.rfind('.', last_dot - 1);
+                if (second_last != std::string::npos) {
+                    std::string hex_segment = mob_id.substr(second_last + 1, last_dot - second_last - 1);
+                    std::transform(hex_segment.begin(), hex_segment.end(), hex_segment.begin(), ::tolower);
+
+                    for (const auto& [norm_filename, full_path] : file_index) {
+                        if (norm_filename.find(hex_segment) != std::string::npos) {
+                            matched_path = full_path;
+                            score = 1.0f;
+                            Debug::Log("MediaLinker: MobID match! '" + hex_segment + "' found in '" + norm_filename + "'");
+                            break;
+                        }
                     }
                 }
-            } else {
-                clip.is_linked = false;
-                clip.linked_path.clear();
-                result.success = false;
-                summary.unlinked_count++;
+            }
+        }
+
+        // Strategy 2b: For graphics/stills, try searching by clip name
+        if (matched_path.empty() && !clip.name.empty()) {
+            std::string search_name = NormalizeClipName(clip.name, true);
+            for (const auto& [norm_filename, full_path] : file_index) {
+                if (norm_filename.find(search_name) != std::string::npos) {
+                    matched_path = full_path;
+                    score = 0.85f;
+                    Debug::Log("MediaLinker: Name-in-file match: '" + search_name + "' in '" + norm_filename + "'");
+                    break;
+                }
+            }
+        }
+
+        // Strategy 3: Fall back to fuzzy name matching
+        if (matched_path.empty()) {
+            auto [name_match, name_score] = FindBestMatch(clip.name, file_index, options);
+            matched_path = name_match;
+            score = name_score;
+        }
+
+        if (!matched_path.empty() && score >= 0.7f) {
+            clip.linked_path = matched_path;
+            clip.is_linked = true;
+            result.matched_path = matched_path;
+            result.success = true;
+            result.match_score = score;
+
+            // Probe video files to get source metadata
+            if (IsVideoFile(matched_path)) {
+                VideoProbeResult probe = ProbeVideoFile(matched_path);
+                if (probe.valid) {
+                    clip.source_fps = probe.fps;
+                    clip.source_width = probe.width;
+                    clip.source_height = probe.height;
+                    clip.source_duration = probe.duration;
+                    clip.has_audio = probe.has_audio;
+                }
             }
 
             summary.results.push_back(result);
+            return true;  // Newly linked
+        } else {
+            result.success = false;
+            summary.results.push_back(result);
+            return false;  // Not linked
         }
-    }
+    };
+
+    // Recursive function to process clips in tracks (including nested)
+    int processed = 0;
+    std::function<void(std::vector<OTIOTrack>&)> process_tracks = [&](std::vector<OTIOTrack>& track_list) {
+        for (auto& track : track_list) {
+            for (auto& clip : track.clips) {
+                if (clip.is_gap) continue;
+
+                if (clip.is_nested && clip.nested_loaded && !clip.nested_tracks.empty()) {
+                    // Recurse into nested tracks
+                    process_tracks(clip.nested_tracks);
+                } else if (!clip.is_nested) {
+                    // Regular clip - try to link it
+                    processed++;
+                    if (progress_callback_) {
+                        progress_callback_(processed, summary.total_clips, "Linking: " + clip.name);
+                    }
+
+                    if (link_single_clip(clip)) {
+                        summary.linked_count++;
+                    } else if (!clip.is_linked) {
+                        summary.unlinked_count++;
+                    }
+                    // Note: already-linked clips were counted in summary.linked_count at start
+                }
+            }
+        }
+    };
+
+    process_tracks(tracks);
 
     Debug::Log("MediaLinker: Linked " + std::to_string(summary.linked_count) + "/" +
-               std::to_string(summary.total_clips) + " clips");
+               std::to_string(summary.total_clips) + " clips (including " +
+               std::to_string(already_linked) + " pre-linked from Python resolution)");
 
     return summary;
 }
@@ -366,9 +489,10 @@ bool MediaLinker::LinkClip(OTIOClip& clip, const std::string& media_path) {
             clip.source_width = probe.width;
             clip.source_height = probe.height;
             clip.source_duration = probe.duration;
+            clip.has_audio = probe.has_audio;
             Debug::Log("MediaLinker: Probed video - " + std::to_string(probe.width) + "x" +
                        std::to_string(probe.height) + " @ " + std::to_string(probe.fps) + " fps, " +
-                       std::to_string(probe.duration) + "s");
+                       std::to_string(probe.duration) + "s, has_audio=" + (probe.has_audio ? "yes" : "no"));
         }
     }
 
@@ -395,25 +519,38 @@ std::vector<OTIOClip*> MediaLinker::GetUnlinkedClips(std::vector<OTIOTrack>& tra
 
 LinkSummary MediaLinker::GetLinkStatus(const std::vector<OTIOTrack>& tracks) {
     LinkSummary summary;
-    for (const auto& track : tracks) {
-        for (const auto& clip : track.clips) {
-            if (clip.is_gap) continue;
 
-            summary.total_clips++;
-            if (clip.is_linked) {
-                summary.linked_count++;
-            } else {
-                summary.unlinked_count++;
+    // Recursive helper to process clips including nested
+    std::function<void(const std::vector<OTIOTrack>&)> process_tracks;
+    process_tracks = [&](const std::vector<OTIOTrack>& track_list) {
+        for (const auto& track : track_list) {
+            for (const auto& clip : track.clips) {
+                if (clip.is_gap) continue;
+
+                if (clip.is_nested && clip.nested_loaded && !clip.nested_tracks.empty()) {
+                    // Recurse into nested tracks
+                    process_tracks(clip.nested_tracks);
+                } else if (!clip.is_nested) {
+                    // Regular clip - count it
+                    summary.total_clips++;
+                    if (clip.is_linked) {
+                        summary.linked_count++;
+                    } else {
+                        summary.unlinked_count++;
+                    }
+
+                    LinkResult result;
+                    result.clip_id = clip.id;
+                    result.clip_name = clip.name;
+                    result.matched_path = clip.linked_path;
+                    result.success = clip.is_linked;
+                    summary.results.push_back(result);
+                }
             }
-
-            LinkResult result;
-            result.clip_id = clip.id;
-            result.clip_name = clip.name;
-            result.matched_path = clip.linked_path;
-            result.success = clip.is_linked;
-            summary.results.push_back(result);
         }
-    }
+    };
+
+    process_tracks(tracks);
     return summary;
 }
 

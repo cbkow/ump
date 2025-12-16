@@ -46,6 +46,8 @@ D:\z_DevTemp\UnionPlayer\src\project\project_manager.cpp;D:\z_DevTemp\UnionPlaye
 D:\z_DevTemp\UnionPlayer\src\project\project_manager_transcode.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\project_manager_transcode.obj
 D:\z_DevTemp\UnionPlayer\src\timeline\edl_parser.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\edl_parser.obj
 D:\z_DevTemp\UnionPlayer\src\timeline\media_linker.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\media_linker.obj
+D:\z_DevTemp\UnionPlayer\src\timeline\nested_timeline_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\nested_timeline_manager.obj
+D:\z_DevTemp\UnionPlayer\src\timeline\python_adapter_bridge.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\python_adapter_bridge.obj
 D:\z_DevTemp\UnionPlayer\src\timeline\timeline_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\timeline_cache.obj
 D:\z_DevTemp\UnionPlayer\src\timeline\timeline_commands.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\timeline_commands.obj
 D:\z_DevTemp\UnionPlayer\src\timeline\timeline_playback_controller.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\timeline_playback_controller.obj

@@ -161,7 +161,7 @@ TimecodeState timecode_state = NOT_CHECKED;
 // ============================================================================
 // CACHE CONTROL VARIABLES
 // ============================================================================
-bool cache_enabled = true;
+bool cache_enabled = false;  // Off by default - user can enable in settings
 bool show_cache_settings = false;
 
 // Pipeline-aware cache settings
@@ -333,6 +333,8 @@ struct CachedClipLink {
     int source_width = 0;
     int source_height = 0;
     double source_duration = 0.0;
+    bool has_audio = false;
+    bool audio_muted = false;  // Per-clip audio mute state
 };
 static std::map<std::string, std::vector<CachedClipLink>> timeline_link_cache;  // timeline_path -> clip links
 static std::string current_timeline_path;  // Track which timeline is currently loaded (file path for EDL/OTIO)
@@ -356,6 +358,8 @@ static void SaveLinksToCache(const std::string& timeline_id = "") {
                 cached.source_width = clip.source_width;
                 cached.source_height = clip.source_height;
                 cached.source_duration = clip.source_duration;
+                cached.has_audio = clip.has_audio;
+                cached.audio_muted = clip.audio_muted;
                 links.push_back(cached);
             }
         }
@@ -379,6 +383,8 @@ static void SaveLinksToCache(const std::string& timeline_id = "") {
                 pl.source_width = link.source_width;
                 pl.source_height = link.source_height;
                 pl.source_duration = link.source_duration;
+                pl.has_audio = link.has_audio;
+                pl.audio_muted = link.audio_muted;
                 project_links.push_back(pl);
             }
             g_project_manager->UpdateTimelineClipLinks(timeline_id, project_links);
@@ -408,6 +414,8 @@ static int RestoreLinksFromCache(const std::string& timeline_id = "") {
                         clip.source_width = cached.source_width;
                         clip.source_height = cached.source_height;
                         clip.source_duration = cached.source_duration;
+                        clip.has_audio = cached.has_audio;
+                        clip.audio_muted = cached.audio_muted;
                         restored_count++;
                         break;
                     }
@@ -438,6 +446,8 @@ static int RestoreLinksFromCache(const std::string& timeline_id = "") {
                             clip.source_width = cached.source_width;
                             clip.source_height = cached.source_height;
                             clip.source_duration = cached.source_duration;
+                            clip.has_audio = cached.has_audio;
+                            clip.audio_muted = cached.audio_muted;
                             restored_count++;
                             break;
                         }
@@ -459,6 +469,8 @@ static int RestoreLinksFromCache(const std::string& timeline_id = "") {
                     cl.source_width = pl.source_width;
                     cl.source_height = pl.source_height;
                     cl.source_duration = pl.source_duration;
+                    cl.has_audio = pl.has_audio;
+                    cl.audio_muted = pl.audio_muted;
                     session_links.push_back(cl);
                 }
                 timeline_link_cache[current_timeline_path] = std::move(session_links);
@@ -576,8 +588,8 @@ namespace OTIOTimeline {
     constexpr float TRACK_LANE_HEIGHT = 32.0f;
     constexpr float TIMELINE_RULER_HEIGHT = 48.0f;  // Taller for better scrubbing usability
     constexpr float TRACK_SEPARATOR_HEIGHT = 4.0f;
-    constexpr float MIN_PIXELS_PER_SECOND = 10.0f;
-    constexpr float MAX_PIXELS_PER_SECOND = 500.0f;
+    constexpr float MIN_PIXELS_PER_SECOND = 2.5f;    // Minimum zoom (zoomed out)
+    constexpr float MAX_PIXELS_PER_SECOND = 1400.0f; // Maximum zoom (zoomed in, ~140x vs min)
     constexpr float DEFAULT_PIXELS_PER_SECOND = 50.0f;
 }
 
@@ -623,6 +635,10 @@ static bool goto_use_frame_input = false;  // false = timecode, true = frame num
 static float g_font_scale = 1.0f;  // Global font scale (0.5x - 2.0x)
 static bool show_font_settings_window = false;
 static float font_settings_temp_scale = 1.0f;  // Temporary scale while editing
+
+// KEYBOARD SHORTCUTS POPUP
+// ============================================================================
+static bool show_shortcuts_popup = false;
 
 // Font scale presets
 static constexpr float FONT_SCALE_SMALL = 0.75f;
@@ -676,7 +692,6 @@ int g_timeline_io_threads = 8;              // Background I/O threads
 // Global disk cache settings
 std::string g_custom_cache_path = "";  // Empty = use default %LOCALAPPDATA%
 int g_cache_retention_days = 7;  // Auto-cleanup files older than N days
-int g_dummy_cache_max_gb = 1;  // Dummy video cache size limit
 int g_transcode_cache_max_gb = 10;  // EXR transcode cache size limit
 bool g_clear_cache_on_exit = false;  // Clear all cache on app exit
 
@@ -803,8 +818,9 @@ ump::ThumbnailConfig GetCurrentThumbnailConfig() {
 
 
 class Application {
-    // Friend declaration for global wrapper function
+    // Friend declarations for global wrapper functions
     friend void SaveSettings();
+    friend void ScheduleImport(const std::string& path, const std::string& message);
 
 public:
     // ------------------------------------------------------------------------
@@ -1017,9 +1033,42 @@ public:
         project_manager->SetTimelineEditorCallback([this](const std::string& path_or_id) {
             Debug::Log("Opening timeline in editor: " + path_or_id);
 
+            // ========================================================================
+            // RESOURCE CLEANUP - Stop other playback modes before entering timeline
+            // ========================================================================
+
+            // 1. Stop video playback and release resources
+            if (video_player) {
+                if (video_player->IsPlaying()) {
+                    video_player->Pause();
+                    Debug::Log("Timeline entry: Paused video playback");
+                }
+
+                // 2. Disable dual view/comparison mode if active
+                if (video_player->IsComparisonModeEnabled()) {
+                    video_player->EnableComparisonMode(false);
+                    Debug::Log("Timeline entry: Disabled dual view mode");
+                }
+            }
+
+            // 3. Exit playlist/sequence mode if active
+            if (project_manager && project_manager->IsInSequenceMode()) {
+                project_manager->ClearSequenceMode();
+                Debug::Log("Timeline entry: Exited playlist/sequence mode");
+            }
+
+            // 4. Clear current file path (timeline uses its own playback system)
+            if (!current_file_path.empty()) {
+                Debug::Log("Timeline entry: Clearing current file path: " + current_file_path);
+                current_file_path.clear();
+            }
+
+            // ========================================================================
+
             // IMPORTANT: Store edits from current timeline BEFORE switching to new one
             // This preserves edits when switching between timelines
-            if (timeline_view) {
+            // BUT: Skip caching if we're viewing a nested timeline - that's transient state
+            if (timeline_view && !timeline_view->IsViewingNestedTimeline()) {
                 // Try to find current timeline by path first, then by ID (for scratch timelines)
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
@@ -1034,6 +1083,8 @@ public:
                                    " (duration=" + std::to_string(current_item->duration) + "s)");
                     }
                 }
+            } else if (timeline_view && timeline_view->IsViewingNestedTimeline()) {
+                Debug::Log("Skipping cache - currently viewing nested timeline");
             }
 
             // Create/update TimelineView if needed
@@ -1184,9 +1235,11 @@ public:
                                         clip.source_fps = probe.fps;
                                         clip.source_width = probe.width;
                                         clip.source_height = probe.height;
+                                        clip.has_audio = probe.has_audio;
                                         needs_sync = true;
                                         Debug::Log("Re-probed clip '" + clip.name + "': duration=" +
-                                                   std::to_string(probe.duration) + "s");
+                                                   std::to_string(probe.duration) + "s, has_audio=" +
+                                                   (probe.has_audio ? "yes" : "no"));
                                     }
                                 }
                             }
@@ -1205,6 +1258,10 @@ public:
                         loaded = timeline_view->LoadOTIOFile(file_path);
                     } else if (ext == ".edl") {
                         loaded = timeline_view->LoadEDLFile(file_path);
+                    } else if (ext == ".aaf") {
+                        loaded = timeline_view->LoadAAFFile(file_path);
+                    } else if (ext == ".xml") {
+                        loaded = timeline_view->LoadXMLFile(file_path);
                     }
                 }
 
@@ -1291,8 +1348,6 @@ public:
                                 auto_relink_status = status;
                             });
 
-                            // Show progress dialog
-                            show_auto_relink_progress = true;
                             auto_relink_in_progress = true;
 
                             // Perform linking with depth limit of 6
@@ -1319,6 +1374,10 @@ public:
 
                             Debug::Log("Auto-relink complete: " + std::to_string(last_link_summary.linked_count) +
                                        "/" + std::to_string(last_link_summary.total_clips) + " clips linked");
+
+                            // Auto-mute video clips with embedded audio on fresh import
+                            // Imported timelines typically have their own audio track layout
+                            timeline_view->AutoMuteVideoClipsWithAudio();
                         }
                     }
 
@@ -1354,10 +1413,32 @@ public:
                             video_player->SetTimelineMode(true, timeline_view->GetPlaybackController());
                         }
                     } else if (timeline_view && video_player) {
-                        // No links restored but still in timeline mode
-                        // Enable timeline mode for UI (gap texture will be created on demand)
-                        Debug::Log("No links restored - enabling timeline mode for UI");
-                        video_player->SetTimelineMode(true, nullptr);
+                        // No links restored - but imported AAF/XML/OTIO may have valid file_path values
+                        // Try to initialize playback anyway (InitializePlayback checks for valid paths)
+                        Debug::Log("No links restored - attempting playback init with imported paths");
+
+                        // Auto-mute video clips with embedded audio on fresh import
+                        // Imported timelines typically have their own audio track layout
+                        timeline_view->AutoMuteVideoClipsWithAudio();
+
+                        if (!timeline_view->HasPlaybackController()) {
+                            if (timeline_view->InitializePlayback()) {
+                                Debug::Log("Timeline playback initialized from imported file paths");
+                                video_player->SetTimelineMode(true, timeline_view->GetPlaybackController());
+
+                                double duration = timeline_view->GetDuration();
+                                timeline_view->GetPlaybackController()->UpdateDuration(duration);
+                                if (timeline_view->GetPlaybackController()->GetCache()) {
+                                    timeline_view->GetPlaybackController()->GetCache()->UpdateDuration(duration);
+                                }
+                            } else {
+                                // No valid paths found - enable timeline mode for UI only
+                                Debug::Log("No usable media paths - enabling timeline mode for UI only");
+                                video_player->SetTimelineMode(true, nullptr);
+                            }
+                        } else {
+                            video_player->SetTimelineMode(true, timeline_view->GetPlaybackController());
+                        }
                     }
                 } else {
                     Debug::Log("Failed to load timeline file");
@@ -1372,7 +1453,8 @@ public:
 
             // Store edited tracks and view state to MediaItem before exiting
             // This preserves edits and view position when user switches away from timeline
-            if (timeline_view) {
+            // Skip if viewing nested timeline - that's transient state
+            if (timeline_view && !timeline_view->IsViewingNestedTimeline()) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
                     ump::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
@@ -1409,8 +1491,14 @@ public:
             if (video_player) {
                 video_player->SetTimelineMode(false);
             }
-            // Clear external controller reference when exiting timeline mode
+            // Stop timeline audio mixer and clear external controller reference
             if (timeline_view) {
+                // Stop audio mixer to prevent audio from previous timeline continuing
+                if (auto* ctrl = timeline_view->GetPlaybackController()) {
+                    if (auto* mixer = ctrl->GetAudioMixer()) {
+                        mixer->Stop();
+                    }
+                }
                 timeline_view->SetExternalPlaybackController(nullptr);
             }
             // Defer timeline thumbnail cache clear when exiting timeline mode
@@ -1422,7 +1510,8 @@ public:
         project_manager->SetFlushTimelineEditsCallback([this]() {
             // Store edited tracks to MediaItem before saving
             // This ensures slip/trim/cut edits are captured even without switching timelines
-            if (timeline_view && otio_timeline_mode) {
+            // Skip if viewing nested timeline - that's transient state
+            if (timeline_view && otio_timeline_mode && !timeline_view->IsViewingNestedTimeline()) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
                     ump::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
@@ -2095,6 +2184,41 @@ public:
             }
 
             glfwSwapBuffers(window);
+
+            // Handle pending import AFTER frame is fully rendered
+            if (HasPendingImport()) {
+                if (pending_import_frames_ == 0) {
+                    // Just scheduled - wait one frame for overlay to show
+                    pending_import_frames_ = 1;
+                } else {
+                    pending_import_frames_--;
+                    if (pending_import_frames_ == 0) {
+                        // Overlay has been shown - execute the import
+                        ExecutePendingImport();
+                    }
+                }
+            }
+        }
+    }
+
+    // Schedule an import to happen after the current frame completes
+    // This allows the overlay to render before the blocking import
+    void ScheduleImport(const std::string& path, const std::string& message) {
+        pending_import_path_ = path;
+        pending_import_message_ = message;
+    }
+
+    bool HasPendingImport() const { return !pending_import_path_.empty(); }
+    const std::string& GetPendingImportMessage() const { return pending_import_message_; }
+
+    void ExecutePendingImport() {
+        if (pending_import_path_.empty()) return;
+        std::string path = pending_import_path_;
+        pending_import_path_.clear();
+        pending_import_message_.clear();
+
+        if (project_manager) {
+            project_manager->ImportTimeline(path);
         }
     }
 
@@ -2258,6 +2382,11 @@ private:
     // Shutdown state
     bool is_shutting_down_ = false;
     float shutdown_animation_time_ = 0.0f;
+
+    // Pending import state (deferred to allow overlay to render)
+    std::string pending_import_path_;
+    std::string pending_import_message_;
+    int pending_import_frames_ = 0;  // Countdown frames before executing
 
     enum class VideoBackgroundType {
         DEFAULT,
@@ -3110,19 +3239,21 @@ private:
             }
         }
 
-        // Ctrl+S - Save Project
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && io.KeyCtrl && !io.KeyShift) {
-            if (project_manager) {
-                project_manager->SaveProject();
-                Debug::Log("Save project");
-            }
-        }
-
-        // Ctrl+Shift+S - Save Project As
-        if (ImGui::IsKeyPressed(ImGuiKey_S) && io.KeyCtrl && io.KeyShift) {
-            if (project_manager) {
-                project_manager->SaveProjectAs();
-                Debug::Log("Save project as");
+        // Ctrl+S / Ctrl+Shift+S - Save Project / Save As
+        // Use if-else to prevent both firing in same frame
+        if (ImGui::IsKeyPressed(ImGuiKey_S) && io.KeyCtrl) {
+            if (io.KeyShift) {
+                // Ctrl+Shift+S - Save Project As
+                if (project_manager) {
+                    project_manager->SaveProjectAs();
+                    Debug::Log("Save project as");
+                }
+            } else {
+                // Ctrl+S - Save Project
+                if (project_manager) {
+                    project_manager->SaveProject();
+                    Debug::Log("Save project");
+                }
             }
         }
 
@@ -3330,6 +3461,7 @@ private:
             CreateAudioDiagnosticsWindow(); // Add audio monitoring window (Ctrl+Shift+A)
             CreateCacheSettingsWindow(); // Add cache settings popup
             CreateFontSettingsWindow(); // Add font settings popup
+            CreateKeyboardShortcutsPopup(); // Add keyboard shortcuts popup
         }
         RenderBackgroundSelectionPanel(video_background_type, show_background_panel);
         RenderSafetyOverlayPanel(show_safety_overlay_panel);
@@ -3340,6 +3472,16 @@ private:
         if (project_manager) {
             project_manager->HandleProjectDialogs();
             project_manager->RenderTranscodeQueueWindow();
+
+            // Handle pending dialog requests from context menus
+            if (project_manager->IsPendingOpenMediaDialog()) {
+                project_manager->ClearPendingOpenMediaDialog();
+                OpenFileDialog();
+            }
+            if (project_manager->IsPendingOpenProjectDialog()) {
+                project_manager->ClearPendingOpenProjectDialog();
+                project_manager->LoadProject();  // Empty path triggers file dialog
+            }
         }
 
         // Render top-level dialogs (outside any parent modal context for proper centering)
@@ -3356,6 +3498,37 @@ private:
 
         // Render shutdown modal if shutting down
         RenderShutdownModal();
+
+        // Render import overlay if pending
+        if (HasPendingImport()) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImVec2 display_size = viewport->Size;
+            ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
+
+            // Fullscreen dim
+            draw_list->AddRectFilled(
+                viewport->Pos,
+                ImVec2(viewport->Pos.x + display_size.x, viewport->Pos.y + display_size.y),
+                IM_COL32(0, 0, 0, 160)
+            );
+
+            // Modal box
+            const float modal_width = 320.0f;
+            const float modal_height = 80.0f;
+            ImVec2 modal_pos = ImVec2(center.x - modal_width * 0.5f, center.y - modal_height * 0.5f);
+            ImVec2 modal_end = ImVec2(modal_pos.x + modal_width, modal_pos.y + modal_height);
+
+            draw_list->AddRectFilled(modal_pos, modal_end, IM_COL32(33, 33, 33, 240), 4.0f);
+            draw_list->AddRect(modal_pos, modal_end, IM_COL32(77, 77, 89, 255), 4.0f, 0, 1.0f);
+
+            // Message
+            const char* msg = pending_import_message_.empty() ? "Importing..." : pending_import_message_.c_str();
+            ImVec2 msg_size = ImGui::CalcTextSize(msg);
+            float msg_x = modal_pos.x + (modal_width - msg_size.x) * 0.5f;
+            float msg_y = modal_pos.y + (modal_height - msg_size.y) * 0.5f;
+            draw_list->AddText(ImVec2(msg_x, msg_y), IM_COL32(255, 255, 255, 255), msg);
+        }
 
         // Render Go To Timecode/Frame modal
         RenderGotoTimecodeModal();
@@ -4064,17 +4237,7 @@ private:
                     Debug::Log(cache_enabled ? "Video seek cache enabled" : "Video seek cache disabled");
                 }
 
-                if (ImGui::MenuItem("Clear Video Seek Cache")) {
-                    if (project_manager) {
-                        project_manager->ClearAllCaches();
-                    }
-                }
-
-                if (ImGui::MenuItem("Restart Video Seek Cache")) {
-                    if (project_manager) {
-                        project_manager->RestartCache();
-                    }
-                }
+                // Note: Clear/Restart removed - disable auto-clears, enable auto-initializes
 
                 if (is_exr_mode) ImGui::EndDisabled();
 
@@ -4250,7 +4413,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.6");
+                ImGui::TextDisabled("About u.m.p. v0.4.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4262,6 +4425,12 @@ private:
 
                 if (ImGui::MenuItem("Check for Updates")) {
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/releases/", NULL, NULL, SW_SHOWNORMAL);
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Keyboard Shortcuts...")) {
+                    show_shortcuts_popup = true;
                 }
 
                 ImGui::Separator();
@@ -4645,7 +4814,7 @@ private:
         if (ImGui::BeginPopupModal("Cannot Clear EXR Cache", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
             ImGui::Text("Cannot clear image sequence cache while sequences are loaded.");
             ImGui::Spacing();
-            ImGui::TextWrapped("Dummy videos and transcodes are used by loaded image sequences.\nClearing them would corrupt playback.");
+            ImGui::TextWrapped("Ttranscodes are used by loaded image sequences.\nClearing them would corrupt playback.");
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Please remove all EXR sequences from the project first.");
             ImGui::Spacing();
@@ -4668,7 +4837,7 @@ private:
 
             ImGui::TextColored(Bright(GetWindowsAccentColor()), "%.2f MB deleted", mb_cleared);
             ImGui::Spacing();
-            ImGui::TextWrapped("Cleared from dummies and EXR transcodes (all locations)");
+            ImGui::TextWrapped("Cleared EXR transcodes (all locations)");
 
             ImGui::Spacing();
             if (ImGui::Button("OK", ImVec2(120, 0))) {
@@ -5015,87 +5184,6 @@ private:
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Maximum duration of video cached around current position");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames beyond this window are automatically evicted");
 
-            // Memory Estimates Section
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Memory Usage Estimates:");
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Estimated RAM usage for %d seconds @ 24fps", cache_settings.max_cache_seconds);
-
-            ImGui::Spacing();
-
-            // Create table with pipeline modes and resolutions
-            if (ImGui::BeginTable("MemoryEstimates", 3, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
-                ImGui::TableSetupColumn("Pipeline Mode", ImGuiTableColumnFlags_WidthFixed, 180.0f);
-                ImGui::TableSetupColumn("HD (1920x1080)", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-                ImGui::TableSetupColumn("UHD (3840x2160)", ImGuiTableColumnFlags_WidthFixed, 110.0f);
-                ImGui::TableHeadersRow();
-
-                // Calculate frames for 24fps
-                int frames_24fps = cache_settings.max_cache_seconds * 24;
-
-                // HD and UHD resolutions
-                size_t hd_pixels = 1920 * 1080;
-                size_t uhd_pixels = 3840 * 2160;
-
-                // Enumerate all pipeline modes
-                const struct {
-                    PipelineMode mode;
-                    const char* name;
-                    int bytes_per_pixel;
-                } pipeline_info[] = {
-                    {PipelineMode::NORMAL, "Normal (8-bit)", 4},
-                    {PipelineMode::HIGH_RES, "High-Res (12-bit/16-bit)", 8},  // AV_PIX_FMT_RGBA64LE = 8 bytes
-                    {PipelineMode::ULTRA_HIGH_RES, "Ultra-High-Res (Float)", 16}  // EXR only: AV_PIX_FMT_RGBAF32LE = 16 bytes
-                    // {PipelineMode::HDR_RES, "HDR-Res (HDR Display)", 8}  // Hidden: Not yet supported with OpenGL output
-                };
-
-                for (const auto& info : pipeline_info) {
-                    ImGui::TableNextRow();
-
-                    // Pipeline mode name (highlight current mode)
-                    ImGui::TableNextColumn();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    if (info.mode == cache_settings.current_pipeline_mode) {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", info.name);
-                    } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        ImGui::Text("%s", info.name);
-                    }
-                    if (font_mono) ImGui::PopFont();
-
-                    // HD memory usage
-                    ImGui::TableNextColumn();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    float hd_mb = (frames_24fps * hd_pixels * info.bytes_per_pixel) / (1024.0f * 1024.0f);
-                    if (hd_mb < 1000) {
-                        ImGui::Text("%.0f MB", hd_mb);
-                    } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        ImGui::Text("%.1f GB", hd_mb / 1024.0f);
-                    }
-                    if (font_mono) ImGui::PopFont();
-
-                    // UHD memory usage
-                    ImGui::TableNextColumn();
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    float uhd_mb = (frames_24fps * uhd_pixels * info.bytes_per_pixel) / (1024.0f * 1024.0f);
-                    if (uhd_mb < 1000) {
-                        ImGui::Text("%.0f MB", uhd_mb);
-                    } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        ImGui::Text("%.1f GB", uhd_mb / 1024.0f);
-                    }
-                    if (font_mono) ImGui::PopFont();
-                }
-
-                ImGui::EndTable();
-            }
-
-            ImGui::Spacing();
-            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Memory usage automatically managed per video");
-
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
@@ -5215,6 +5303,152 @@ private:
                         "Thread Pool: std::async (reuses threads efficiently)");
                     if (font_mono) ImGui::PopFont();
 
+                    // === I/O Threading Settings ===
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "I/O Threading");
+                    ImGui::Spacing();
+
+                    // Image Sequence Thread Count
+                    ImGui::Text("Parallel I/O Threads:");
+                    if (ImGui::SliderInt("##ImageSeqThreadCountIS", &g_exr_thread_count, 1, 32)) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Number of parallel threads for image sequence loading.\n\n"
+                            "More threads = faster cache filling\n"
+                            "Works for all formats: EXR, TIFF, PNG, JPEG\n\n"
+                            "Recommended:\n"
+                            "  - 8-16 threads for fast SSDs\n"
+                            "  - 4-8 threads for HDDs\n"
+                            "  - 16-32 threads for network storage\n\n"
+                            "Note: EXR files also use OpenEXR's internal multi-threading\n"
+                            "for DWAB/ZIP decompression automatically");
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                        "Current: %d parallel loaders", g_exr_thread_count);
+
+                    // === Transcode Threading Settings ===
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Transcode Threading");
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Parallel transcoding for EXR single-layer conversion");
+                    ImGui::Spacing();
+
+                    // Transcode Thread Count
+                    ImGui::Text("Parallel Transcode Threads:");
+                    if (ImGui::SliderInt("##TranscodeThreadCountIS", &g_exr_transcode_threads, 1, 16)) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Number of frames transcoded in parallel.\n\n"
+                            "When converting multilayer EXR to single-layer:\n"
+                            "  - Read EXR: Parallel\n"
+                            "  - Resize (if enabled): Parallel using stb_image_resize2\n"
+                            "  - Write EXR: Parallel\n\n"
+                            "More threads = faster transcode but more RAM usage\n"
+                            "Each thread holds one frame in memory during transcode\n\n"
+                            "Recommended: 4-8 threads for balanced performance");
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                        "Current: %d parallel transcoders", g_exr_transcode_threads);
+
+                    // === Transcode Disk Cache Settings ===
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
+                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Transcode Disk Cache");
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Storage settings for EXR transcode files");
+                    ImGui::Spacing();
+
+                    // Custom Cache Path
+                    ImGui::Text("Cache Location:");
+                    ImGui::PushItemWidth(-1);
+                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (g_custom_cache_path.empty()) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\ump\\");
+                    } else {
+                        ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", g_custom_cache_path.c_str());
+                    }
+                    if (font_mono) ImGui::PopFont();
+                    ImGui::PopItemWidth();
+
+                    if (ImGui::Button("Change Cache Folder...##IS", ImVec2(-1, 0))) {
+                        nfdchar_t* out_path = nullptr;
+                        nfdresult_t result = NFD_PickFolder(&out_path, nullptr);
+                        if (result == NFD_OKAY) {
+                            g_custom_cache_path = out_path;
+                            settings_changed = true;
+                            NFD_FreePath(out_path);
+                        }
+                    }
+                    if (ImGui::Button("Reset to Default##IS", ImVec2(-1, 0))) {
+                        g_custom_cache_path = "";
+                        settings_changed = true;
+                    }
+
+                    ImGui::Spacing();
+
+                    // Cache Retention Days
+                    ImGui::Text("Cache Retention:");
+                    if (ImGui::SliderInt("##CacheRetentionDaysIS", &g_cache_retention_days, 1, 30, "%d days")) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Auto-delete cache files older than N days on startup.\n\n"
+                            "Files are only deleted when app launches.\n"
+                            "Default: 7 days");
+                    }
+
+                    // Transcode Cache Size Limit
+                    ImGui::Spacing();
+                    ImGui::Text("Transcode Cache Limit:");
+                    if (ImGui::SliderInt("##TranscodeCacheMaxGBIS", &g_transcode_cache_max_gb, 5, 100, "%d GB")) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Maximum disk space for EXR transcode cache.\n\n"
+                            "When exceeded on startup, oldest 50%% of transcodes are deleted.\n"
+                            "Transcodes are converted single-layer EXR sequences.\n"
+                            "Default: 10 GB");
+                    }
+
+                    // Clear Cache on Exit
+                    ImGui::Spacing();
+                    if (ImGui::Checkbox("Clear transcode cache on exit##IS", &g_clear_cache_on_exit)) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Delete all EXR transcodes on app close.\n\n"
+                            "WARNING: This will block app shutdown until cleanup completes.\n"
+                            "May take several seconds if you have large caches.\n\n"
+                            "Default: OFF (lazy cleanup on next launch is recommended)");
+                    }
+
                         ImGui::EndTabItem();
                     } // End Image Sequence tab
 
@@ -5302,96 +5536,26 @@ private:
                         ImGui::EndTabItem();
                     } // End Thumbnails tab
 
-                    // === TAB 4: Performance ===
-                    if (ImGui::BeginTabItem("Performance")) {
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Threading and parallel processing settings");
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Image Sequence I/O Threading Settings
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Sequence I/O Threading");
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Parallel loading for image sequences (EXR/TIFF/PNG/JPEG)");
-                    ImGui::Spacing();
-
-                    // Image Sequence Thread Count
-                    ImGui::Text("Parallel I/O Threads:");
-                    if (ImGui::SliderInt("##ImageSeqThreadCount", &g_exr_thread_count, 1, 32)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Number of parallel threads for image sequence loading.\n\n"
-                            "More threads = faster cache filling\n"
-                            "Works for all formats: EXR, TIFF, PNG, JPEG\n\n"
-                            "Recommended:\n"
-                            "  - 8-16 threads for fast SSDs\n"
-                            "  - 4-8 threads for HDDs\n"
-                            "  - 16-32 threads for network storage\n\n"
-                            "Note: EXR files also use OpenEXR's internal multi-threading\n"
-                            "for DWAB/ZIP decompression automatically");
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                        "Current: %d parallel loaders", g_exr_thread_count);
-
-                    // Image Sequence Transcode Threading Settings
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Sequence Transcode Threading");
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Parallel transcoding for EXR single-layer conversion");
-                    ImGui::Spacing();
-
-                    // Transcode Thread Count
-                    ImGui::Text("Parallel Transcode Threads:");
-                    if (ImGui::SliderInt("##TranscodeThreadCount", &g_exr_transcode_threads, 1, 16)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Number of frames transcoded in parallel.\n\n"
-                            "When converting multilayer EXR to single-layer:\n"
-                            "  - Read EXR: Parallel\n"
-                            "  - Resize (if enabled): Parallel using stb_image_resize2\n"
-                            "  - Write EXR: Parallel\n\n"
-                            "More threads = faster transcode but more RAM usage\n"
-                            "Each thread holds one frame in memory during transcode\n\n"
-                            "Recommended: 4-8 threads for balanced performance");
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                        "Current: %d parallel transcoders", g_exr_transcode_threads);
-
-                    // === Timeline Cache Settings (always visible) ===
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline Cache");
+                    // === TAB 4: Timeline ===
+                    if (ImGui::BeginTabItem("Timeline")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cache settings for EDL/OTIO timeline playback");
+                    ImGui::Spacing();
+                    ImGui::Separator();
                     ImGui::Spacing();
 
                     // Get active cache if exists (for applying changes and showing stats)
-                    ump::TimelineCache* active_cache = nullptr;
+                    ump::TimelineCache* active_cache_tl = nullptr;
                     if (timeline_view && timeline_view->HasPlaybackController()) {
-                        active_cache = timeline_view->GetEffectivePlaybackController()->GetCache();
+                        active_cache_tl = timeline_view->GetEffectivePlaybackController()->GetCache();
                     }
 
                     // Read-Ahead Frames
                     ImGui::Text("Read-Ahead Frames:");
-                    if (ImGui::SliderInt("##TimelineReadAhead", &g_timeline_read_ahead_frames, 12, 180)) {
-                        if (active_cache) {
-                            auto config = active_cache->GetConfig();
+                    if (ImGui::SliderInt("##TimelineReadAheadTL", &g_timeline_read_ahead_frames, 12, 180)) {
+                        if (active_cache_tl) {
+                            auto config = active_cache_tl->GetConfig();
                             config.readAheadFrames = g_timeline_read_ahead_frames;
-                            active_cache->SetConfig(config);
+                            active_cache_tl->SetConfig(config);
                         }
                         settings_changed = true;
                     }
@@ -5409,11 +5573,11 @@ private:
                     // Read-Behind Seconds
                     ImGui::Spacing();
                     ImGui::Text("Read-Behind (seconds):");
-                    if (ImGui::SliderFloat("##TimelineReadBehind", &g_timeline_read_behind_seconds, 0.0f, 2.0f, "%.1f s")) {
-                        if (active_cache) {
-                            auto config = active_cache->GetConfig();
+                    if (ImGui::SliderFloat("##TimelineReadBehindTL", &g_timeline_read_behind_seconds, 0.0f, 2.0f, "%.1f s")) {
+                        if (active_cache_tl) {
+                            auto config = active_cache_tl->GetConfig();
                             config.readBehindSeconds = g_timeline_read_behind_seconds;
-                            active_cache->SetConfig(config);
+                            active_cache_tl->SetConfig(config);
                         }
                         settings_changed = true;
                     }
@@ -5429,7 +5593,7 @@ private:
                     // I/O Threads
                     ImGui::Spacing();
                     ImGui::Text("I/O Threads:");
-                    if (ImGui::SliderInt("##TimelineIOThreads", &g_timeline_io_threads, 1, 16)) {
+                    if (ImGui::SliderInt("##TimelineIOThreadsTL", &g_timeline_io_threads, 1, 16)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
@@ -5444,14 +5608,14 @@ private:
                     // Max Textures (safety cap)
                     ImGui::Spacing();
                     ImGui::Text("Max Cached Textures:");
-                    int window_size = g_timeline_read_ahead_frames +
+                    int window_size_tl = g_timeline_read_ahead_frames +
                         static_cast<int>(g_timeline_read_behind_seconds * 24.0f);  // Approximate
-                    int min_textures = std::max(window_size, 32);
-                    if (ImGui::SliderInt("##TimelineMaxTextures", &g_timeline_max_textures, min_textures, 300)) {
-                        if (active_cache) {
-                            auto config = active_cache->GetConfig();
+                    int min_textures_tl = std::max(window_size_tl, 32);
+                    if (ImGui::SliderInt("##TimelineMaxTexturesTL", &g_timeline_max_textures, min_textures_tl, 300)) {
+                        if (active_cache_tl) {
+                            auto config = active_cache_tl->GetConfig();
                             config.max_textures = g_timeline_max_textures;
-                            active_cache->SetConfig(config);
+                            active_cache_tl->SetConfig(config);
                         }
                         settings_changed = true;
                     }
@@ -5464,20 +5628,20 @@ private:
                             "Estimated window: ~%d frames\n\n"
                             "Higher = more memory usage but smoother scrubbing\n"
                             "Lower = less VRAM but may evict needed frames",
-                            window_size);
+                            window_size_tl);
                     }
-                    if (g_timeline_max_textures < window_size) {
+                    if (g_timeline_max_textures < window_size_tl) {
                         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
                             "Warning: Max textures (%d) < window size (%d)",
-                            g_timeline_max_textures, window_size);
+                            g_timeline_max_textures, window_size_tl);
                     }
 
                     // Stats display (only if cache active)
-                    if (active_cache) {
+                    if (active_cache_tl) {
                         ImGui::Spacing();
                         ImGui::Separator();
                         ImGui::Spacing();
-                        auto stats = active_cache->GetStats();
+                        auto stats = active_cache_tl->GetStats();
                         if (font_mono) ImGui::PushFont(font_mono);
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                             "Cached: %d frames (%.1f MB)",
@@ -5509,138 +5673,25 @@ private:
 
                         // Texture leak detection
                         ImGui::Spacing();
-                        bool tex_leak = (stats.texture_balance > stats.cached_frames + 10);
-                        ImGui::TextColored(tex_leak ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
+                        bool tex_leak_tl = (stats.texture_balance > stats.cached_frames + 10);
+                        ImGui::TextColored(tex_leak_tl ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
                             "GPU Tex: %d alive (created=%d del=%d)",
                             stats.texture_balance, stats.textures_created, stats.textures_deleted);
                         if (font_mono) ImGui::PopFont();
 
                         // Clear button
                         ImGui::Spacing();
-                        if (ImGui::Button("Clear Timeline Cache", ImVec2(-1, 0))) {
-                            active_cache->ClearCache();
+                        if (ImGui::Button("Clear Timeline Cache##TL", ImVec2(-1, 0))) {
+                            active_cache_tl->ClearCache();
                         }
                     } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
                         ImGui::Spacing();
                         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
                             "No timeline loaded. Settings will apply when a timeline is opened.");
                     }
 
                         ImGui::EndTabItem();
-                    } // End Performance tab
-
-                    // === TAB 5: Disk Cache ===
-                    if (ImGui::BeginTabItem("Disk Cache")) {
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Auto-cleanup and storage management for cached files");
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Custom Cache Path
-                    ImGui::Text("Cache Location:");
-                    ImGui::PushItemWidth(-1);
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    if (g_custom_cache_path.empty()) {
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\ump\\");
-                    } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", g_custom_cache_path.c_str());
-                    }
-                    if (font_mono) ImGui::PopFont();
-                    ImGui::PopItemWidth();
-
-                    if (ImGui::Button("Change Cache Folder...", ImVec2(-1, 0))) {
-                        nfdchar_t* out_path = nullptr;
-                        nfdresult_t result = NFD_PickFolder(&out_path, nullptr);
-                        if (result == NFD_OKAY) {
-                            g_custom_cache_path = out_path;
-                            settings_changed = true;
-                            NFD_FreePath(out_path);
-                        }
-                    }
-                    if (ImGui::Button("Reset to Default", ImVec2(-1, 0))) {
-                        g_custom_cache_path = "";
-                        settings_changed = true;
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Cache Retention Days
-                    ImGui::Text("Cache Retention:");
-                    if (ImGui::SliderInt("##CacheRetentionDays", &g_cache_retention_days, 1, 30, "%d days")) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Auto-delete cache files older than N days on startup.\n\n"
-                            "Files are only deleted when app launches.\n"
-                            "Default: 7 days");
-                    }
-
-                    // Dummy Cache Size Limit
-                    ImGui::Spacing();
-                    ImGui::Text("Dummy Video Cache Limit:");
-                    if (ImGui::SliderInt("##DummyCacheMaxGB", &g_dummy_cache_max_gb, 1, 10, "%d GB")) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Maximum disk space for dummy video cache.\n\n"
-                            "When exceeded on startup, all dummy videos are deleted.\n"
-                            "Dummy videos are small black videos used as placeholders.\n"
-                            "Default: 1 GB");
-                    }
-
-                    // Transcode Cache Size Limit
-                    ImGui::Spacing();
-                    ImGui::Text("EXR Transcode Cache Limit:");
-                    if (ImGui::SliderInt("##TranscodeCacheMaxGB", &g_transcode_cache_max_gb, 5, 100, "%d GB")) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Maximum disk space for EXR transcode cache.\n\n"
-                            "When exceeded on startup, oldest 50%% of transcodes are deleted.\n"
-                            "Transcodes are converted single-layer EXR sequences.\n"
-                            "Default: 10 GB");
-                    }
-
-                    // Clear Cache on Exit
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    if (ImGui::Checkbox("Clear all cache on exit", &g_clear_cache_on_exit)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Delete all dummy videos and EXR transcodes on app close.\n\n"
-                            "WARNING: This will block app shutdown until cleanup completes.\n"
-                            "May take several seconds if you have large caches.\n\n"
-                            "Default: OFF (lazy cleanup on next launch is recommended)");
-                    }
-
-                    // Note about cache clearing
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Manual Cache Clearing:");
-                    ImGui::Spacing();
-                    ImGui::TextWrapped("To clear image sequence cache (dummies + transcodes), use Cache > Clear Image Sequence Disk Cache from the main menu.");
-
-                        ImGui::EndTabItem();
-                    } // End Disk Cache tab
+                    } // End Timeline tab
 
                     ImGui::EndTabBar();
                 } // End tab bar
@@ -5780,7 +5831,6 @@ private:
                 // Disk cache settings
                 g_custom_cache_path = "";
                 g_cache_retention_days = 7;
-                g_dummy_cache_max_gb = 1;
                 g_transcode_cache_max_gb = 10;
                 g_clear_cache_on_exit = false;
 
@@ -5957,6 +6007,300 @@ private:
         }
     }
 
+    // ============================================================================
+    // KEYBOARD SHORTCUTS POPUP
+    // ============================================================================
+    void CreateKeyboardShortcutsPopup() {
+        // Open modal popup when flag is set
+        if (show_shortcuts_popup) {
+            ImGui::OpenPopup("Keyboard Shortcuts");
+            show_shortcuts_popup = false;
+        }
+
+        // Center popup on screen
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(750, 650), ImGuiCond_Always);
+
+        bool open = true;
+        if (ImGui::BeginPopupModal("Keyboard Shortcuts", &open, ImGuiWindowFlags_NoResize)) {
+
+            // Get accent color once for all shortcut rows
+            ImVec4 accent_color = Bright(GetWindowsAccentColor());
+
+            // Helper lambda for shortcut rows (uses system accent color)
+            auto ShortcutRow = [accent_color](const char* shortcut, const char* description) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextColored(accent_color, "%s", shortcut);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextWrapped("%s", description);
+            };
+
+            // Tabbed sections
+            if (ImGui::BeginTabBar("ShortcutTabs")) {
+
+                // ========================================================================
+                // PLAYBACK TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Playback")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("PlaybackShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Space / W", "Play / Pause");
+                        ShortcutRow("Q", "Step back one frame");
+                        ShortcutRow("E", "Step forward one frame");
+                        ShortcutRow("A (hold)", "Rewind");
+                        ShortcutRow("D (hold)", "Fast forward");
+                        ShortcutRow("L", "Toggle loop");
+                        ShortcutRow("M", "Toggle mute");
+                        ShortcutRow("Up Arrow", "Volume up");
+                        ShortcutRow("Down Arrow", "Volume down");
+                        ShortcutRow("I", "Set In point (toggle)");
+                        ShortcutRow("O", "Set Out point (toggle)");
+                        ShortcutRow("B", "Cycle background (Black/None/Checkerboard)");
+                        ShortcutRow("F", "Toggle fullscreen");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // FILE/PROJECT TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("File / Project")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("FileShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Ctrl+O", "Open file");
+                        ShortcutRow("Ctrl+Shift+O", "Open project");
+                        ShortcutRow("Ctrl+W", "Close current file");
+                        ShortcutRow("Ctrl+S", "Save project");
+                        ShortcutRow("Ctrl+Shift+S", "Save project as");
+                        ShortcutRow("Ctrl+[", "Screenshot to clipboard");
+                        ShortcutRow("Ctrl+]", "Screenshot to desktop");
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Project Panel:");
+                    if (ImGui::BeginTable("ProjectShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+
+                        ShortcutRow("Delete", "Remove selected items");
+                        ShortcutRow("F2", "Rename selected item");
+                        ShortcutRow("Ctrl+P", "Create playlist from selection");
+                        ShortcutRow("Ctrl+Shift+Q", "Add selected to transcode queue");
+                        ShortcutRow("Ctrl+Shift+T", "Toggle transcode queue window");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // VIEW/PANELS TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("View / Panels")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("ViewShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Ctrl+1", "Toggle Project panel");
+                        ShortcutRow("Ctrl+2", "Toggle Inspector panel");
+                        ShortcutRow("Ctrl+3", "Toggle Timeline panel");
+                        ShortcutRow("Ctrl+4", "Toggle Color Panels");
+                        ShortcutRow("Ctrl+5", "Toggle Annotations panel");
+                        ShortcutRow("Ctrl+6", "Toggle Annotation toolbar");
+                        ShortcutRow("Ctrl+0", "Default view");
+                        ShortcutRow("Ctrl+9", "Show all panels");
+                        ShortcutRow("Ctrl+-", "Toggle minimal view");
+                        ShortcutRow("Ctrl+C", "Toggle colorspace presets panel");
+                        ShortcutRow("Ctrl+/", "Toggle safety overlay panel");
+                        ShortcutRow("Ctrl+Shift+B", "Toggle background panel");
+                        ShortcutRow("Ctrl+R", "Reset layout");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // TIMELINE TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Timeline")) {
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Standard Timeline (Video/Image Sequence):");
+                    if (ImGui::BeginTable("StdTimelineShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+
+                        ShortcutRow("+ / =", "Zoom in");
+                        ShortcutRow("- / _", "Zoom out");
+                        ShortcutRow("\\", "Fit to view / Reset zoom");
+                        ShortcutRow("Scroll", "Pan timeline");
+                        ShortcutRow("Ctrl+Scroll", "Zoom centered on playhead");
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("OTIO Timeline (Multi-track editing):");
+                    if (ImGui::BeginTable("OTIOTimelineShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+
+                        ShortcutRow("X / Ctrl+K", "Cut clips at playhead");
+                        ShortcutRow("Delete / Backspace", "Delete selected clips");
+                        ShortcutRow("Ctrl+Z", "Undo");
+                        ShortcutRow("Ctrl+Y / Ctrl+Shift+Z", "Redo");
+                        ShortcutRow("Escape", "Deselect all");
+                        ShortcutRow("I", "Set timeline In point");
+                        ShortcutRow("O", "Set timeline Out point");
+                        ShortcutRow("L", "Toggle timeline loop");
+                        ShortcutRow("F", "Toggle follow playhead");
+                        ShortcutRow("+ / =", "Zoom in");
+                        ShortcutRow("- / _", "Zoom out");
+                        ShortcutRow("Left / Right", "Pan timeline");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // PLAYLIST TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Playlist")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("PlaylistShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Left Arrow", "Previous clip in playlist");
+                        ShortcutRow("Right Arrow", "Next clip in playlist");
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Note: Playlist shortcuts active when in Sequence/Playlist mode.");
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // ANNOTATIONS TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Annotations")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("AnnotationShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Ctrl+Shift+A", "Toggle annotation mode");
+                        ShortcutRow("Escape", "Cancel annotation (discard changes)");
+                        ShortcutRow("Enter", "Save annotation and exit mode");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // COLOR PANELS TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Color Panels")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("ColorShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Delete / X", "Delete selected nodes or connections");
+                        ShortcutRow("Ctrl+Z", "Undo");
+                        ShortcutRow("Ctrl+Y", "Redo");
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Node Editor Mouse Controls:");
+                    if (ImGui::BeginTable("NodeMouseControls", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+
+                        ShortcutRow("Click + Drag", "Move selected nodes");
+                        ShortcutRow("Click Pin + Drag", "Create connection");
+                        ShortcutRow("Middle Mouse Drag", "Pan node editor");
+                        ShortcutRow("Scroll", "Zoom node editor");
+                        ShortcutRow("Box Select", "Select multiple nodes");
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                // ========================================================================
+                // COMPARISON TAB
+                // ========================================================================
+                if (ImGui::BeginTabItem("Comparison")) {
+                    ImGui::Spacing();
+                    if (ImGui::BeginTable("ComparisonShortcuts", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+                        ImGui::TableSetupColumn("Shortcut", ImGuiTableColumnFlags_WidthFixed, 150.0f);
+                        ImGui::TableSetupColumn("Description", ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableHeadersRow();
+
+                        ShortcutRow("Ctrl+Shift+C", "Toggle comparison mode");
+                        ShortcutRow("+ / =", "Zoom in (timeline)");
+                        ShortcutRow("- / _", "Zoom out (timeline)");
+                        ShortcutRow("\\", "Reset pan (scroll to playhead)");
+                        ShortcutRow("L", "Toggle loop");
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::Spacing();
+                    ImGui::TextDisabled("Drop a second video onto the viewport to enter comparison mode.");
+                    ImGui::EndTabItem();
+                }
+
+                ImGui::EndTabBar();
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Close button centered at bottom
+            float buttonWidth = 120.0f;
+            float offsetX = (ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+
+            if (ImGui::Button("Close", ImVec2(buttonWidth, 0))) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            if (!open) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
@@ -5982,10 +6326,13 @@ private:
                     // 5 tracks * 32px + separator + ruler + transport + padding
                     float track_count = timeline_view ?
                         (float)(timeline_view->GetVideoTrackCount() + timeline_view->GetAudioTrackCount()) : 5.0f;
+                    // Add breadcrumb height when viewing nested timeline
+                    float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? 58.0f : 0.0f;
                     timeline_height = 60.0f +  // Transport controls
                                      track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
                                      OTIOTimeline::TRACK_SEPARATOR_HEIGHT +
                                      OTIOTimeline::TIMELINE_RULER_HEIGHT +
+                                     breadcrumb_height +
                                      52.0f;  // Volume/loop row + bottom padding
                 } else {
                     timeline_height = 180.0f;  // Base timeline height
@@ -6626,9 +6973,11 @@ private:
                 // Match the OTIO timeline height calculation from RenderVideoWindow
                 float track_count = timeline_view ?
                     (float)(timeline_view->GetVideoTrackCount() + timeline_view->GetAudioTrackCount()) : 5.0f;
+                // Add breadcrumb height when viewing nested timeline
+                float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? 58.0f : 0.0f;
                 timeline_height = 60.0f + track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
                                  OTIOTimeline::TRACK_SEPARATOR_HEIGHT +
-                                 OTIOTimeline::TIMELINE_RULER_HEIGHT + 52.0f;
+                                 OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_height + 52.0f;
             } else {
                 timeline_height = 170.0f;
                 if (project_manager && project_manager->IsInSequenceMode()) {
@@ -9266,8 +9615,11 @@ private:
 
                     // Draw cache segments in the unified cache bar (below ruler)
                     // Use cache_bar_y defined earlier when drawing cache bar background
+                    // Skip drawing when in overrun mode (cache is not meaningful during frame-by-frame playback)
+                    bool in_overrun_mode = video_player && video_player->GetEXRCache() &&
+                                           video_player->GetEXRCache()->IsInOverrunMode();
 
-                    for (const auto& segment : cached_segments) {
+                    for (const auto& segment : (in_overrun_mode ? std::vector<FrameCache::CacheSegment>{} : cached_segments)) {
                         // Convert timestamps to frame numbers and then to pixel positions (with zoom/pan)
                         int start_frame, end_frame;
 
@@ -12632,6 +12984,12 @@ private:
         float tracks_height = track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
                              OTIOTimeline::TRACK_SEPARATOR_HEIGHT;
 
+        // Add breadcrumb bar height when viewing nested timeline
+        float breadcrumb_bar_height = 0.0f;
+        if (timeline_view && timeline_view->IsViewingNestedTimeline()) {
+            breadcrumb_bar_height = 58.0f;  // Match breadcrumb_height in panel calculations
+        }
+
         // =====================================================================
         // ROW 1: Transport Controls (matching standard timeline style)
         // =====================================================================
@@ -13056,6 +13414,87 @@ private:
         ImGui::Spacing();
 
         // =====================================================================
+        // NESTED TIMELINE BREADCRUMB NAVIGATION
+        // =====================================================================
+        if (timeline_view && timeline_view->IsViewingNestedTimeline()) {
+            // Draw breadcrumb bar for nested timeline navigation
+            ImVec2 breadcrumb_pos = ImGui::GetCursorScreenPos();
+            float breadcrumb_height = 24.0f;  // Actual breadcrumb bar height (panel adds 52px total for this + spacing)
+            ImDrawList* bc_draw = ImGui::GetWindowDrawList();
+
+            // Breadcrumb background
+            bc_draw->AddRectFilled(
+                breadcrumb_pos,
+                ImVec2(breadcrumb_pos.x + content_region.x, breadcrumb_pos.y + breadcrumb_height),
+                IM_COL32(35, 35, 35, 255)
+            );
+
+            // Draw breadcrumb path: Root > Nested1 > Nested2 > [Current]
+            auto path = timeline_view->GetBreadcrumbPath();
+            float bc_x = breadcrumb_pos.x + 8.0f;
+            float bc_y = breadcrumb_pos.y + 3.0f;
+
+            if (font_mono) ImGui::PushFont(font_mono);
+
+            // Back button to exit current nested timeline
+            if (font_icons) {
+                ImGui::SetCursorScreenPos(ImVec2(bc_x, bc_y));
+                ImGui::PushFont(font_icons);
+                if (ImGui::SmallButton(ICON_BACK "##exit_nest")) {
+                    timeline_view->ExitNestedTimeline();
+                }
+                ImGui::PopFont();
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Exit to parent timeline");
+                }
+                bc_x += 28.0f;
+            }
+
+            // Draw path segments
+            for (size_t pi = 0; pi < path.size(); pi++) {
+                if (pi > 0) {
+                    bc_draw->AddText(ImVec2(bc_x, bc_y), IM_COL32(100, 100, 100, 255), ">");
+                    bc_x += 12.0f;
+                }
+
+                bool is_current = (pi == path.size() - 1);
+                ImU32 text_color = is_current ?
+                    IM_COL32(255, 255, 255, 255) : IM_COL32(160, 160, 255, 255);
+
+                if (!is_current) {
+                    // Clickable - navigate to this level
+                    ImGui::SetCursorScreenPos(ImVec2(bc_x, bc_y));
+                    std::string btn_id = "##bc_" + std::to_string(pi);
+                    if (ImGui::SmallButton((path[pi] + btn_id).c_str())) {
+                        // Navigate back to this level
+                        int levels_to_exit = static_cast<int>(path.size() - 1 - pi);
+                        for (int lv = 0; lv < levels_to_exit; lv++) {
+                            timeline_view->ExitNestedTimeline();
+                        }
+                    }
+                    bc_x += ImGui::GetItemRectSize().x + 4.0f;
+                } else {
+                    // Current level - not clickable
+                    bc_draw->AddText(ImVec2(bc_x, bc_y), text_color, path[pi].c_str());
+                    bc_x += ImGui::CalcTextSize(path[pi].c_str()).x + 4.0f;
+                }
+            }
+
+            // Show depth indicator
+            int depth = timeline_view->GetNestedDepth();
+            if (depth > 0) {
+                std::string depth_str = "(Depth: " + std::to_string(depth) + ")";
+                float depth_x = breadcrumb_pos.x + content_region.x - ImGui::CalcTextSize(depth_str.c_str()).x - 8.0f;
+                bc_draw->AddText(ImVec2(depth_x, bc_y), IM_COL32(100, 100, 100, 255), depth_str.c_str());
+            }
+
+            if (font_mono) ImGui::PopFont();
+
+            // Advance cursor past breadcrumb bar
+            ImGui::Dummy(ImVec2(content_region.x, breadcrumb_height));
+        }
+
+        // =====================================================================
         // ROW 2: Track Headers + Track Lanes
         // =====================================================================
         ImVec2 tracks_start_pos = ImGui::GetCursorScreenPos();
@@ -13084,21 +13523,32 @@ private:
 
         // Track colors - matching playlist style (grey base)
         // Linked clips get accent-tinted colors, unlinked get plain grey
-        auto GetTrackColor = [this](bool is_video, int index, bool is_linked) -> ImU32 {
+        // Video clips with audio get a slight hue shift to distinguish them
+        auto GetTrackColor = [this](bool is_video, int index, bool is_linked, bool has_audio) -> ImU32 {
             if (is_linked) {
                 // Linked clips: subtle accent-tinted colors
                 ImVec4 accent = GetWindowsAccentColor();
                 if (is_video) {
-                    return IM_COL32(
-                        (int)(accent.x * 80 + 40),
-                        (int)(accent.y * 80 + 40),
-                        (int)(accent.z * 80 + 40), 255);
+                    if (has_audio) {
+                        // Video WITH audio: shift hue slightly towards green/teal
+                        // This visually indicates the clip carries embedded audio
+                        return IM_COL32(
+                            (int)(accent.x * 60 + 30),   // Less red
+                            (int)(accent.y * 90 + 50),   // More green
+                            (int)(accent.z * 80 + 45), 255);  // Slightly more blue
+                    } else {
+                        // Video WITHOUT audio: standard accent color
+                        return IM_COL32(
+                            (int)(accent.x * 80 + 40),
+                            (int)(accent.y * 80 + 40),
+                            (int)(accent.z * 80 + 40), 255);
+                    }
                 } else {
-                    // Audio: slightly different tint
+                    // Audio track clips: warmer/orange tint to distinguish from video
                     return IM_COL32(
-                        (int)(accent.x * 60 + 50),
-                        (int)(accent.y * 60 + 50),
-                        (int)(accent.z * 60 + 50), 255);
+                        (int)(accent.x * 70 + 55),   // More warm/orange
+                        (int)(accent.y * 55 + 40),   // Less green
+                        (int)(accent.z * 50 + 35), 255);  // Less blue
                 }
             } else {
                 // Unlinked clips: dark grey like playlist non-current clips
@@ -13275,8 +13725,8 @@ private:
                             bool is_selected = timeline_view && timeline_view->GetSelection().IsSelected(clip.id);
                             ImVec4 accent = GetWindowsAccentColor();
 
-                            // Get clip color based on link status (matching playlist style)
-                            ImU32 fill_color = GetTrackColor(track.is_video, i, clip.is_linked);
+                            // Get clip color based on link status and audio presence
+                            ImU32 fill_color = GetTrackColor(track.is_video, i, clip.is_linked, clip.has_audio);
 
                             // Apply fade for hidden tracks
                             if (!track.visible) {
@@ -13303,13 +13753,30 @@ private:
                             float clip_height = clip_bottom - clip_top;
                             float clip_render_width = render_right - render_left;
 
-                            // Selection highlight - accent color fill tint for selected clips
+                            // Selection highlight - brighter version of clip type color
                             if (is_selected && track.visible) {
-                                // Brighter accent-tinted fill for selection
-                                fill_color = IM_COL32(
-                                    (int)(accent.x * 180 + 40),
-                                    (int)(accent.y * 180 + 40),
-                                    (int)(accent.z * 180 + 40), 255);
+                                // Maintain clip type color differentiation while making it brighter
+                                if (track.is_video) {
+                                    if (clip.has_audio) {
+                                        // Video WITH audio: brighter green/teal tint
+                                        fill_color = IM_COL32(
+                                            (int)(accent.x * 120 + 60),
+                                            (int)(accent.y * 180 + 60),
+                                            (int)(accent.z * 160 + 70), 255);
+                                    } else {
+                                        // Video WITHOUT audio: brighter standard accent
+                                        fill_color = IM_COL32(
+                                            (int)(accent.x * 180 + 40),
+                                            (int)(accent.y * 180 + 40),
+                                            (int)(accent.z * 180 + 40), 255);
+                                    }
+                                } else {
+                                    // Audio track clips: brighter warm/orange tint
+                                    fill_color = IM_COL32(
+                                        (int)(accent.x * 160 + 80),
+                                        (int)(accent.y * 130 + 60),
+                                        (int)(accent.z * 100 + 50), 255);
+                                }
                                 border_color = IM_COL32(
                                     (int)(accent.x * 255),
                                     (int)(accent.y * 255),
@@ -13376,9 +13843,26 @@ private:
                                 ImGui::PopFont();
                             }
 
+                            // Nested composition indicator (top-left corner)
+                            if (clip.is_nested && clip_render_width > 30.0f && font_icons) {
+                                const float nest_icon_size = 16.0f;
+                                const float nest_padding = 3.0f;
+                                ImVec2 nest_icon_pos(render_left + nest_padding, clip_top + nest_padding);
+
+                                // Draw layers icon to indicate nested composition
+                                ImU32 nest_icon_color = IM_COL32(255, 255, 255, 220);
+                                draw_list->AddText(font_icons, nest_icon_size,
+                                    ImVec2(nest_icon_pos.x + 1, nest_icon_pos.y + 1),
+                                    IM_COL32(0, 0, 0, 180), ICON_LAYERS);
+                                draw_list->AddText(font_icons, nest_icon_size,
+                                    nest_icon_pos, nest_icon_color, ICON_LAYERS);
+                            }
+
                             // Clip-level speaker/mute icon (bottom-right corner)
-                            // Only show if clip is wide enough and linked (has audio)
-                            if (clip_render_width > 50.0f && clip.is_linked) {
+                            // Only show on VIDEO tracks for clips that have embedded audio
+                            // Audio tracks don't need this - they have track-level mute
+                            bool show_clip_audio_control = track.is_video && clip.has_audio && clip.is_linked;
+                            if (clip_render_width > 50.0f && show_clip_audio_control) {
                                 const float mute_icon_size = 22.0f;  // Significantly larger
                                 const float mute_padding = 4.0f;
                                 ImVec2 mute_btn_pos(render_right - mute_icon_size - mute_padding, clip_bottom - mute_icon_size - mute_padding - 2.0f);  // Moved up 2px
@@ -13546,6 +14030,14 @@ private:
                                     // Also select the right-clicked clip if not already selected
                                     if (timeline_view && !timeline_view->GetSelection().IsSelected(clip.id)) {
                                         timeline_view->GetSelection().SelectClip(clip.id, i, false);
+                                    }
+                                }
+
+                                // Double-click on nested clip = enter nested timeline
+                                if (ImGui::IsMouseDoubleClicked(0) && clip.is_nested && timeline_view) {
+                                    Debug::Log("Double-click on nested clip: " + clip.name);
+                                    if (timeline_view->EnterNestedClip(clip.id)) {
+                                        Debug::Log("Entered nested timeline: " + clip.name);
                                     }
                                 }
                                 // Note: Clip info is now shown in Inspector panel when selected
@@ -14559,9 +15051,9 @@ private:
             }
         }
 
-        // Advance cursor past the drawn content
+        // Advance cursor past the drawn content (include breadcrumb height when nested)
         ImGui::Dummy(ImVec2(content_region.x,
-                           tracks_height + OTIOTimeline::TIMELINE_RULER_HEIGHT + 10));
+                           tracks_height + OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_bar_height + 10));
 
         // =====================================================================
         // INTERACTION ZONE 1: RULER - Scrubbing/Seeking Only
@@ -14701,6 +15193,14 @@ private:
                         clip.source_height = (item->sequence_height > 0) ? item->sequence_height : item->timeline_height;
                         clip.source_duration = item->duration;
 
+                        // Probe for audio presence (for UI indicator on video clips)
+                        if (ump::MediaLinker::IsVideoFile(clip.file_path)) {
+                            ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
+                            if (probe.valid) {
+                                clip.has_audio = probe.has_audio;
+                            }
+                        }
+
                         Debug::Log("Clip drop: item->frame_rate=" + std::to_string(item->frame_rate) +
                                    ", clip.source_fps=" + std::to_string(clip.source_fps) +
                                    ", timeline_fps=" + std::to_string(timeline_view->GetFrameRate()));
@@ -14755,6 +15255,14 @@ private:
                             clip.source_width = (item->sequence_width > 0) ? item->sequence_width : item->timeline_width;
                             clip.source_height = (item->sequence_height > 0) ? item->sequence_height : item->timeline_height;
                             clip.source_duration = item->duration;
+
+                            // Probe for audio presence (for UI indicator on video clips)
+                            if (ump::MediaLinker::IsVideoFile(clip.file_path)) {
+                                ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
+                                if (probe.valid) {
+                                    clip.has_audio = probe.has_audio;
+                                }
+                            }
 
                             auto cmd = std::make_unique<ump::InsertClipCommand>(
                                 timeline_view.get(), hover_track_index, clip);
@@ -15455,13 +15963,17 @@ private:
 
             float tl_zoom = timeline_view->GetZoomLevel();
             ImGui::SetNextItemWidth(240.0f);
-            if (ImGui::SliderFloat("##tl_zoom_slider", &tl_zoom, 0.5f, 100.0f, "%.1fx")) {
-                // Zoom around current playhead position
-                double current_time = timeline_view->GetCurrentTime();
-                timeline_view->SetZoomLevelAroundTime(tl_zoom, current_time);
+            if (ImGui::SliderFloat("##tl_zoom_slider", &tl_zoom,
+                                   OTIOTimeline::MIN_PIXELS_PER_SECOND,
+                                   OTIOTimeline::MAX_PIXELS_PER_SECOND,
+                                   "%.1f px/s", ImGuiSliderFlags_Logarithmic)) {
+                // Zoom around current playhead position (use timeline_manager for accurate position)
+                double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
+                timeline_view->SetZoomLevelAroundTime(tl_zoom, playhead_time);
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Timeline Zoom (Ctrl+Scroll)");
+                ImGui::SetTooltip("Timeline Zoom (Ctrl+Scroll)\nMin: %.1f  Max: %.1f px/s",
+                                  OTIOTimeline::MIN_PIXELS_PER_SECOND, OTIOTimeline::MAX_PIXELS_PER_SECOND);
             }
 
             ImGui::SameLine();
@@ -15731,6 +16243,7 @@ private:
             ImGui::EndPopup();
         }
         ImGui::PopStyleVar();  // WindowPadding
+
 
         // =====================================================================
         // AUTO-RELINK RESULTS POPUP (shown after automatic relink on timeline load)
@@ -19214,9 +19727,6 @@ private:
                 if (j["disk_cache"].contains("retention_days")) {
                     g_cache_retention_days = j["disk_cache"]["retention_days"].get<int>();
                 }
-                if (j["disk_cache"].contains("dummy_cache_max_gb")) {
-                    g_dummy_cache_max_gb = j["disk_cache"]["dummy_cache_max_gb"].get<int>();
-                }
                 if (j["disk_cache"].contains("transcode_cache_max_gb")) {
                     g_transcode_cache_max_gb = j["disk_cache"]["transcode_cache_max_gb"].get<int>();
                 }
@@ -19425,7 +19935,6 @@ private:
             // Disk cache settings
             j["disk_cache"]["custom_path"] = g_custom_cache_path;
             j["disk_cache"]["retention_days"] = g_cache_retention_days;
-            j["disk_cache"]["dummy_cache_max_gb"] = g_dummy_cache_max_gb;
             j["disk_cache"]["transcode_cache_max_gb"] = g_transcode_cache_max_gb;
             j["disk_cache"]["clear_on_exit"] = g_clear_cache_on_exit;
 
@@ -20486,7 +20995,7 @@ private:
     // FILE OPERATIONS
     // ------------------------------------------------------------------------
     void OpenFileDialog() {
-        nfdchar_t* outPath;
+        const nfdpathset_t* outPaths = nullptr;
 
         // Supported formats: Video (MP4/AVI/MKV/MOV/etc), Audio (WAV/MP3/etc), Images (JPEG/PNG/TIFF/EXR)
         // Removed unsupported: DPX, TGA, BMP, JPEG2000
@@ -20506,7 +21015,8 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(retry_delay_ms));
             }
 
-            result = NFD_OpenDialog(&outPath, filterItem, 1, nullptr);
+            // Use multi-select dialog
+            result = NFD_OpenDialogMultiple(&outPaths, filterItem, 1, nullptr);
 
             if (result == NFD_OKAY || result == NFD_CANCEL) {
                 break;  // Success or user cancelled - stop retrying
@@ -20516,22 +21026,48 @@ private:
             Debug::Log("OpenFileDialog: NFD error on attempt " + std::to_string(attempt) + ": " + std::string(NFD_GetError()));
         }
 
-        if (result == NFD_OKAY) {
-            std::string selected_file = std::string(outPath);
-            Debug::Log("*** Opening file dialog result: " + selected_file);
+        if (result == NFD_OKAY && outPaths) {
+            // Get number of selected files
+            nfdpathsetsize_t count = 0;
+            NFD_PathSet_GetCount(outPaths, &count);
 
-            // Route through project manager for sequence detection
-            if (project_manager) {
-                project_manager->LoadSingleFileFromDrop(selected_file);
-            } else {
-                // Fallback to direct loading
-                current_file_path = selected_file;
-                if (video_player) {
-                    video_player->LoadFile(selected_file);
+            Debug::Log("OpenFileDialog: " + std::to_string(count) + " file(s) selected");
+
+            if (count == 1) {
+                // Single file - load and select it (like before)
+                nfdchar_t* path = nullptr;
+                if (NFD_PathSet_GetPath(outPaths, 0, &path) == NFD_OKAY && path) {
+                    std::string selected_file = std::string(path);
+                    Debug::Log("*** Opening single file: " + selected_file);
+
+                    if (project_manager) {
+                        project_manager->LoadSingleFileFromDrop(selected_file);
+                    } else {
+                        current_file_path = selected_file;
+                        if (video_player) {
+                            video_player->LoadFile(selected_file);
+                        }
+                    }
+                    NFD_PathSet_FreePath(path);
+                }
+            } else if (count > 1) {
+                // Multiple files - add to project manager without loading any
+                std::vector<std::string> filePaths;
+                for (nfdpathsetsize_t i = 0; i < count; i++) {
+                    nfdchar_t* path = nullptr;
+                    if (NFD_PathSet_GetPath(outPaths, i, &path) == NFD_OKAY && path) {
+                        filePaths.push_back(std::string(path));
+                        NFD_PathSet_FreePath(path);
+                    }
+                }
+
+                Debug::Log("*** Opening multiple files (" + std::to_string(filePaths.size()) + ") - adding to project");
+                if (project_manager && !filePaths.empty()) {
+                    project_manager->LoadMultipleFilesFromDrop(filePaths);
                 }
             }
 
-            NFD_FreePath(outPath);
+            NFD_PathSet_Free(outPaths);
         }
         else if (result == NFD_CANCEL) {
             Debug::Log("OpenFileDialog: User cancelled");
@@ -21530,41 +22066,53 @@ private:
                     Debug::Log("HasAnyTimecode result: " + std::string(cached_meta->adobe_meta->HasAnyTimecode() ? "TRUE" : "FALSE"));
                     Debug::Log("qt_start_timecode: '" + cached_meta->adobe_meta->qt_start_timecode + "'");
 
+                    // Helper to validate timecode format - rejects "0 s", "0", empty, and non-timecode values
+                    // Valid timecodes must contain ':' (e.g., "01:15:53:03" or "00:00:00:00")
+                    auto isValidTimecode = [](const std::string& tc) -> bool {
+                        if (tc.empty()) return false;
+                        // Reject "0 s", "0s", "0" - these are placeholder/invalid values from ExifTool
+                        if (tc == "0 s" || tc == "0s" || tc == "0" || tc == "00:00:00:00") return false;
+                        // Must contain at least one colon to be a valid HH:MM:SS:FF timecode
+                        return tc.find(':') != std::string::npos;
+                    };
+
                     if (cached_meta->adobe_meta->HasAnyTimecode()) {
                         // Get the first available timecode as our reference
-                        if (!cached_meta->adobe_meta->qt_start_timecode.empty()) {
+                        // Use isValidTimecode() to reject placeholder values like "0 s"
+                        if (isValidTimecode(cached_meta->adobe_meta->qt_start_timecode)) {
                             cached_start_timecode = cached_meta->adobe_meta->qt_start_timecode;
                             timecode_state = AVAILABLE;
                             Debug::Log("SUCCESS: Found QT StartTimecode in cache: " + cached_start_timecode);
                         }
-                        else if (!cached_meta->adobe_meta->qt_timecode.empty()) {
+                        else if (isValidTimecode(cached_meta->adobe_meta->qt_timecode)) {
                             cached_start_timecode = cached_meta->adobe_meta->qt_timecode;
                             timecode_state = AVAILABLE;
                             Debug::Log("SUCCESS: Found QT TimeCode in cache: " + cached_start_timecode);
                         }
-                        else if (!cached_meta->adobe_meta->xmp_alt_timecode_time_value.empty()) {
+                        else if (isValidTimecode(cached_meta->adobe_meta->xmp_alt_timecode_time_value)) {
                             cached_start_timecode = cached_meta->adobe_meta->xmp_alt_timecode_time_value;
                             timecode_state = AVAILABLE;
                             Debug::Log("SUCCESS: Found XMP AltTimecodeTimeValue in cache: " + cached_start_timecode);
                         }
-                        else if (!cached_meta->adobe_meta->xmp_alt_timecode.empty()) {
+                        else if (isValidTimecode(cached_meta->adobe_meta->xmp_alt_timecode)) {
                             cached_start_timecode = cached_meta->adobe_meta->xmp_alt_timecode;
                             timecode_state = AVAILABLE;
                             Debug::Log("SUCCESS: Found XMP AltTimecode in cache: " + cached_start_timecode);
                         }
-                        else if (!cached_meta->adobe_meta->mxf_start_timecode.empty()) {
+                        else if (isValidTimecode(cached_meta->adobe_meta->mxf_start_timecode)) {
                             cached_start_timecode = cached_meta->adobe_meta->mxf_start_timecode;
                             timecode_state = AVAILABLE;
                             Debug::Log("SUCCESS: Found MXF StartTimecode in cache: " + cached_start_timecode);
                         }
                         else {
-                            timecode_state = NOT_AVAILABLE;
-                            Debug::Log("Has timecode fields but all are empty");
+                            // All timecode fields are either empty or invalid (like "0 s")
+                            Debug::Log("Has timecode fields but all are empty or invalid (e.g., '0 s')");
+                            // Don't set NOT_AVAILABLE yet - let FFmpeg fallback try
                         }
                     }
                     else {
-                        timecode_state = NOT_AVAILABLE;
-                        Debug::Log("No timecode found in metadata");
+                        Debug::Log("No timecode found in Adobe metadata");
+                        // Don't set NOT_AVAILABLE yet - let FFmpeg fallback try
                     }
                     start_timecode_checked = true;
                 }
@@ -21573,9 +22121,40 @@ private:
                     timecode_state = CHECKING;
                 }
             }
-            else {
-                Debug::Log("Cached metadata exists but adobe_meta is NULL");
-                timecode_state = CHECKING;
+
+            // Fallback: Check FFmpeg-extracted timecode (video_meta) if Adobe metadata didn't have it
+            // This handles MXF files where exiftool shows "0 s" but FFmpeg finds the real timecode
+            if (timecode_state != AVAILABLE && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
+                if (cached_meta->video_meta->has_embedded_timecode &&
+                    !cached_meta->video_meta->timecode_format.empty()) {
+                    cached_start_timecode = cached_meta->video_meta->timecode_format;
+                    timecode_state = AVAILABLE;
+                    start_timecode_checked = true;
+                    Debug::Log("SUCCESS: Found FFmpeg stream timecode: " + cached_start_timecode);
+                }
+            }
+
+            // If still not found and no adobe_meta, try FFmpeg one more time
+            if (timecode_state != AVAILABLE && !cached_meta->adobe_meta) {
+                Debug::Log("Cached metadata exists but adobe_meta is NULL, checking FFmpeg");
+                if (cached_meta->video_meta && cached_meta->video_meta->has_embedded_timecode &&
+                    !cached_meta->video_meta->timecode_format.empty()) {
+                    cached_start_timecode = cached_meta->video_meta->timecode_format;
+                    timecode_state = AVAILABLE;
+                    start_timecode_checked = true;
+                    Debug::Log("SUCCESS: Found FFmpeg stream timecode (no adobe_meta): " + cached_start_timecode);
+                }
+            }
+
+            // Final check: If we've checked everything and still no valid timecode, mark as not available
+            if (timecode_state != AVAILABLE && start_timecode_checked) {
+                // Both metadata sources loaded, neither has valid timecode
+                bool adobe_loaded = cached_meta->adobe_meta && cached_meta->adobe_meta->is_loaded;
+                bool video_loaded = cached_meta->video_meta && cached_meta->video_meta->is_loaded;
+                if (adobe_loaded || video_loaded) {
+                    timecode_state = NOT_AVAILABLE;
+                    Debug::Log("No valid timecode found in any source (Adobe or FFmpeg)");
+                }
             }
         }
         else {
@@ -21770,6 +22349,14 @@ Application* Application::app_instance = nullptr;
 void SaveSettings() {
     if (Application::app_instance) {
         Application::app_instance->SaveSettings();
+    }
+}
+
+// Global function to schedule an import with overlay
+// Called from ProjectManager for AAF/XML imports
+void ScheduleImport(const std::string& path, const std::string& message) {
+    if (Application::app_instance) {
+        Application::app_instance->ScheduleImport(path, message);
     }
 }
 

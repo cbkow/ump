@@ -22,6 +22,9 @@
 #pragma comment(lib, "dwmapi.lib")
 #endif
 
+// External function from main.cpp to schedule import with overlay
+extern void ScheduleImport(const std::string& path, const std::string& message);
+
 #define ICON_MOVIE                  u8"\uE02C"
 #define ICON_AUDIO_TRACK           u8"\uE3A1"
 #define ICON_IMAGE                 u8"\uE1A6"
@@ -41,7 +44,6 @@ extern int g_exr_transcode_threads;
 // Disk cache settings globals from main.cpp
 extern std::string g_custom_cache_path;
 extern int g_cache_retention_days;
-extern int g_dummy_cache_max_gb;
 extern int g_transcode_cache_max_gb;
 extern bool g_clear_cache_on_exit;
 
@@ -361,6 +363,29 @@ namespace ump {
                 item_obj["exr_layer"] = item.exr_layer;
                 item_obj["exr_layer_display"] = item.exr_layer_display;
 
+                // NEW: Save ImageSequenceData for reliable reload
+                if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
+                    item.image_seq.IsValid()) {
+                    json image_seq_obj;
+                    image_seq_obj["pattern"] = item.image_seq.pattern;
+                    image_seq_obj["ffmpeg_pattern"] = item.image_seq.ffmpeg_pattern;
+                    image_seq_obj["directory"] = item.image_seq.directory;
+                    image_seq_obj["frame_count"] = item.image_seq.frame_count;
+                    image_seq_obj["start_frame"] = item.image_seq.start_frame;
+                    image_seq_obj["end_frame"] = item.image_seq.end_frame;
+                    image_seq_obj["frame_rate"] = item.image_seq.frame_rate;
+                    image_seq_obj["duration"] = item.image_seq.duration;
+                    image_seq_obj["width"] = item.image_seq.width;
+                    image_seq_obj["height"] = item.image_seq.height;
+                    image_seq_obj["pipeline_mode"] = PipelineModeToString(item.image_seq.pipeline_mode);
+                    image_seq_obj["format"] = item.image_seq.format;
+                    image_seq_obj["layer"] = item.image_seq.layer;
+                    image_seq_obj["layer_display"] = item.image_seq.layer_display;
+                    item_obj["image_seq"] = image_seq_obj;
+                    Debug::Log("SaveProject: Saved ImageSequenceData for " + item.name +
+                               " (duration=" + std::to_string(item.image_seq.duration) + "s)");
+                }
+
                 // In/Out points (per-video range markers)
                 item_obj["in_point"] = item.in_point;
                 item_obj["out_point"] = item.out_point;
@@ -397,6 +422,8 @@ namespace ump {
                             link_obj["source_width"] = link.source_width;
                             link_obj["source_height"] = link.source_height;
                             link_obj["source_duration"] = link.source_duration;
+                            link_obj["has_audio"] = link.has_audio;
+                            link_obj["audio_muted"] = link.audio_muted;
                             clip_links_array.push_back(link_obj);
                         }
                         item_obj["clip_links"] = clip_links_array;
@@ -453,11 +480,62 @@ namespace ump {
                                 clip_obj["source_width"] = clip.source_width;
                                 clip_obj["source_height"] = clip.source_height;
                                 clip_obj["source_duration"] = clip.source_duration;
+                                clip_obj["has_audio"] = clip.has_audio;
                                 clip_obj["has_fade_in"] = clip.has_fade_in;
                                 clip_obj["has_fade_out"] = clip.has_fade_out;
                                 clip_obj["fade_in_duration"] = clip.fade_in_duration;
                                 clip_obj["fade_out_duration"] = clip.fade_out_duration;
                                 clip_obj["audio_muted"] = clip.audio_muted;
+                                // AAF-specific fields
+                                if (!clip.aaf_mob_id.empty()) {
+                                    clip_obj["aaf_mob_id"] = clip.aaf_mob_id;
+                                }
+                                // Nested timeline support
+                                if (clip.is_nested) {
+                                    clip_obj["is_nested"] = clip.is_nested;
+                                    clip_obj["nested_fps"] = clip.nested_fps;
+                                    clip_obj["nested_name"] = clip.nested_name;
+                                    clip_obj["nested_loaded"] = clip.nested_loaded;
+                                    if (!clip.nested_timeline_json.empty()) {
+                                        clip_obj["nested_timeline_json"] = clip.nested_timeline_json;
+                                    }
+                                    // Recursively save nested tracks if loaded
+                                    if (clip.nested_loaded && !clip.nested_tracks.empty()) {
+                                        json nested_tracks_array = json::array();
+                                        for (const auto& nested_track : clip.nested_tracks) {
+                                            json nested_track_obj;
+                                            nested_track_obj["id"] = nested_track.id;
+                                            nested_track_obj["name"] = nested_track.name;
+                                            nested_track_obj["is_video"] = nested_track.is_video;
+                                            nested_track_obj["visible"] = nested_track.visible;
+                                            nested_track_obj["muted"] = nested_track.muted;
+                                            nested_track_obj["audio_muted"] = nested_track.audio_muted;
+                                            nested_track_obj["z_index"] = nested_track.z_index;
+                                            // Note: Nested clips serialization is simplified - nested_timeline_json provides recovery
+                                            json nested_clips_array = json::array();
+                                            for (const auto& nested_clip : nested_track.clips) {
+                                                json nested_clip_obj;
+                                                nested_clip_obj["id"] = nested_clip.id;
+                                                nested_clip_obj["name"] = nested_clip.name;
+                                                nested_clip_obj["file_path"] = nested_clip.file_path;
+                                                nested_clip_obj["start_time"] = nested_clip.start_time;
+                                                nested_clip_obj["duration"] = nested_clip.duration;
+                                                nested_clip_obj["source_in"] = nested_clip.source_in;
+                                                nested_clip_obj["source_out"] = nested_clip.source_out;
+                                                nested_clip_obj["is_gap"] = nested_clip.is_gap;
+                                                nested_clip_obj["linked_path"] = nested_clip.linked_path;
+                                                nested_clip_obj["is_linked"] = nested_clip.is_linked;
+                                                if (!nested_clip.aaf_mob_id.empty()) {
+                                                    nested_clip_obj["aaf_mob_id"] = nested_clip.aaf_mob_id;
+                                                }
+                                                nested_clips_array.push_back(nested_clip_obj);
+                                            }
+                                            nested_track_obj["clips"] = nested_clips_array;
+                                            nested_tracks_array.push_back(nested_track_obj);
+                                        }
+                                        clip_obj["nested_tracks"] = nested_tracks_array;
+                                    }
+                                }
                                 clips_array.push_back(clip_obj);
                             }
                             track_obj["clips"] = clips_array;
@@ -716,6 +794,45 @@ namespace ump {
                     item.exr_layer = item_json.value("exr_layer", "");
                     item.exr_layer_display = item_json.value("exr_layer_display", "");
 
+                    // NEW: Restore ImageSequenceData for reliable reload
+                    if (item_json.contains("image_seq")) {
+                        const auto& seq_json = item_json["image_seq"];
+                        item.image_seq.pattern = seq_json.value("pattern", "");
+                        item.image_seq.ffmpeg_pattern = seq_json.value("ffmpeg_pattern", "");
+                        item.image_seq.directory = seq_json.value("directory", "");
+                        item.image_seq.frame_count = seq_json.value("frame_count", 0);
+                        item.image_seq.start_frame = seq_json.value("start_frame", 1);
+                        item.image_seq.end_frame = seq_json.value("end_frame", 1);
+                        item.image_seq.frame_rate = seq_json.value("frame_rate", 24.0);
+                        item.image_seq.duration = seq_json.value("duration", 0.0);
+                        item.image_seq.width = seq_json.value("width", 0);
+                        item.image_seq.height = seq_json.value("height", 0);
+                        item.image_seq.pipeline_mode = StringToPipelineMode(seq_json.value("pipeline_mode", "Normal"));
+                        item.image_seq.format = seq_json.value("format", "");
+                        item.image_seq.layer = seq_json.value("layer", "");
+                        item.image_seq.layer_display = seq_json.value("layer_display", "");
+
+                        Debug::Log("LoadProject: Restored ImageSequenceData for " + item.name +
+                                   " (duration=" + std::to_string(item.image_seq.duration) + "s, " +
+                                   std::to_string(item.image_seq.frame_count) + " frames)");
+                    } else if (item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) {
+                        // Fallback: Populate image_seq from legacy fields for backward compatibility
+                        item.image_seq.pattern = item.sequence_pattern;
+                        item.image_seq.ffmpeg_pattern = item.ffmpeg_pattern;
+                        item.image_seq.frame_count = item.frame_count;
+                        item.image_seq.start_frame = item.start_frame;
+                        item.image_seq.end_frame = item.end_frame;
+                        item.image_seq.frame_rate = item.frame_rate;
+                        item.image_seq.duration = item.duration;
+                        item.image_seq.width = item.sequence_width;
+                        item.image_seq.height = item.sequence_height;
+                        item.image_seq.pipeline_mode = item.pipeline_mode;
+                        item.image_seq.layer = item.exr_layer;
+                        item.image_seq.layer_display = item.exr_layer_display;
+
+                        Debug::Log("LoadProject: Populated ImageSequenceData from legacy fields for " + item.name);
+                    }
+
                     // In/Out points (per-video range markers)
                     item.in_point = item_json.value("in_point", -1.0);
                     item.out_point = item_json.value("out_point", -1.0);
@@ -751,6 +868,8 @@ namespace ump {
                                 link.source_width = link_json.value("source_width", 0);
                                 link.source_height = link_json.value("source_height", 0);
                                 link.source_duration = link_json.value("source_duration", 0.0);
+                                link.has_audio = link_json.value("has_audio", false);
+                                link.audio_muted = link_json.value("audio_muted", false);
                                 item.clip_links.push_back(link);
                             }
                             Debug::Log("LoadProject: Restored " + std::to_string(item.clip_links.size()) +
@@ -805,11 +924,51 @@ namespace ump {
                                         clip.source_width = clip_json.value("source_width", 0);
                                         clip.source_height = clip_json.value("source_height", 0);
                                         clip.source_duration = clip_json.value("source_duration", 0.0);
+                                        clip.has_audio = clip_json.value("has_audio", false);
                                         clip.has_fade_in = clip_json.value("has_fade_in", false);
                                         clip.has_fade_out = clip_json.value("has_fade_out", false);
                                         clip.fade_in_duration = clip_json.value("fade_in_duration", 0.0);
                                         clip.fade_out_duration = clip_json.value("fade_out_duration", 0.0);
                                         clip.audio_muted = clip_json.value("audio_muted", false);
+                                        // AAF-specific fields
+                                        clip.aaf_mob_id = clip_json.value("aaf_mob_id", "");
+                                        // Nested timeline support
+                                        clip.is_nested = clip_json.value("is_nested", false);
+                                        clip.nested_fps = clip_json.value("nested_fps", 0.0);
+                                        clip.nested_name = clip_json.value("nested_name", "");
+                                        clip.nested_loaded = clip_json.value("nested_loaded", false);
+                                        clip.nested_timeline_json = clip_json.value("nested_timeline_json", "");
+                                        // Load nested tracks if present
+                                        if (clip_json.contains("nested_tracks")) {
+                                            for (const auto& nested_track_json : clip_json["nested_tracks"]) {
+                                                OTIOTrack nested_track;
+                                                nested_track.id = nested_track_json.value("id", "");
+                                                nested_track.name = nested_track_json.value("name", "");
+                                                nested_track.is_video = nested_track_json.value("is_video", true);
+                                                nested_track.visible = nested_track_json.value("visible", true);
+                                                nested_track.muted = nested_track_json.value("muted", false);
+                                                nested_track.audio_muted = nested_track_json.value("audio_muted", false);
+                                                nested_track.z_index = nested_track_json.value("z_index", 0);
+                                                if (nested_track_json.contains("clips")) {
+                                                    for (const auto& nested_clip_json : nested_track_json["clips"]) {
+                                                        OTIOClip nested_clip;
+                                                        nested_clip.id = nested_clip_json.value("id", "");
+                                                        nested_clip.name = nested_clip_json.value("name", "");
+                                                        nested_clip.file_path = nested_clip_json.value("file_path", "");
+                                                        nested_clip.start_time = nested_clip_json.value("start_time", 0.0);
+                                                        nested_clip.duration = nested_clip_json.value("duration", 0.0);
+                                                        nested_clip.source_in = nested_clip_json.value("source_in", 0.0);
+                                                        nested_clip.source_out = nested_clip_json.value("source_out", 0.0);
+                                                        nested_clip.is_gap = nested_clip_json.value("is_gap", false);
+                                                        nested_clip.linked_path = nested_clip_json.value("linked_path", "");
+                                                        nested_clip.is_linked = nested_clip_json.value("is_linked", false);
+                                                        nested_clip.aaf_mob_id = nested_clip_json.value("aaf_mob_id", "");
+                                                        nested_track.clips.push_back(nested_clip);
+                                                    }
+                                                }
+                                                clip.nested_tracks.push_back(nested_track);
+                                            }
+                                        }
                                         track.clips.push_back(clip);
                                     }
                                 }
@@ -1149,18 +1308,32 @@ namespace ump {
     }
 
     void ProjectManager::ImportTimelineFromMenu() {
-        // Open file dialog for OTIO/EDL files
+        // Open file dialog for timeline files (OTIO, EDL, AAF, XML)
         nfdu8char_t* out_path = nullptr;
         nfdfilteritem_t filters[2] = {
-            { "Timeline Files", "otio,edl" },
+            { "Timeline Files", "otio,edl,aaf,xml" },
             { "All Files", "*" }
         };
         nfdresult_t result = NFD_OpenDialogU8(&out_path, filters, 2, nullptr);
 
         if (result == NFD_OKAY && out_path) {
             std::string file_path(reinterpret_cast<char*>(out_path));
-            ImportTimeline(file_path);
             NFD_FreePathU8(out_path);
+
+            // Schedule import with overlay for all timeline formats
+            std::filesystem::path path(file_path);
+            std::string ext = path.extension().string();
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+            // Build descriptive message based on format
+            std::string msg = "Importing Timeline...";
+            if (ext == ".aaf") msg = "Importing AAF...";
+            else if (ext == ".xml") msg = "Importing XML...";
+            else if (ext == ".otio") msg = "Importing OTIO...";
+            else if (ext == ".edl") msg = "Importing EDL...";
+
+            // Schedule import - overlay will show, then import executes next frame
+            ScheduleImport(file_path, msg);
         }
     }
 
@@ -1186,6 +1359,41 @@ namespace ump {
                 CreateBinUI(bin);
                 // Inline toolbars removed - use menu bar instead
             }
+
+            // Context menu for empty space below the tree
+            // Use remaining space as an invisible button for right-click detection
+            ImVec2 avail = ImGui::GetContentRegionAvail();
+            if (avail.y > 10.0f) {  // Only if there's meaningful empty space
+                ImGui::InvisibleButton("##EmptySpaceContextArea", ImVec2(avail.x, avail.y));
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    ImGui::OpenPopup("##EmptySpaceContextMenu");
+                }
+            }
+
+            // Context menu popup
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
+            if (ImGui::BeginPopup("##EmptySpaceContextMenu")) {
+                if (ImGui::MenuItem("Open Media...")) {
+                    // Trigger file open dialog (will be handled by main.cpp)
+                    pending_open_media_dialog = true;
+                }
+                if (ImGui::MenuItem("Open Project...")) {
+                    pending_open_project_dialog = true;
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("Import Timeline...")) {
+                    ImportTimelineFromMenu();
+                }
+                ImGui::Separator();
+                if (ImGui::MenuItem("New Timeline")) {
+                    show_new_timeline_dialog = true;
+                }
+                if (ImGui::MenuItem("New Playlist")) {
+                    show_new_sequence_dialog = true;
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleColor();
         }
         ImGui::EndChild();
         ImGui::PopStyleColor();
@@ -2448,13 +2656,26 @@ namespace ump {
 
                 // Load through DirectEXRCache with universal loader
                 Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
-                // NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                // Pass cached dimensions and duration from ImageSequenceData for reliable reload
+                double cached_dur = item.image_seq.IsValid() ? item.image_seq.duration : item.duration;
+                // Get playhead position to initialize cache at correct position
+                // Look up fresh item from media_pool because bin copies may not have updated view_state
+                double initial_playhead = 0.0;
+                MediaItem* fresh_item = GetMediaItem(item.id);
+                if (fresh_item) {
+                    initial_playhead = fresh_item->view_state.playhead_position;
+                } else {
+                    initial_playhead = item.view_state.playhead_position;
+                }
+                Debug::Log("LoadSingleMediaItem: Using cached duration: " + std::to_string(cached_dur) + "s, initial playhead: " + std::to_string(initial_playhead) + "s");
                 bool success = video_player->LoadImageSequenceWithCache(
                     sequence_files,
                     item.frame_rate,
                     pipeline_mode,
-                    item.sequence_width,   // NEW: Cached dimensions
-                    item.sequence_height   // NEW: Cached dimensions
+                    item.sequence_width,
+                    item.sequence_height,
+                    cached_dur,  // Use stored duration for reliable reload
+                    initial_playhead  // Start cache from stored playhead position
                 );
                 Debug::Log("LoadSingleMediaItem: LoadImageSequenceWithCache() returned: " + std::string(success ? "TRUE (success)" : "FALSE (failed)"));
 
@@ -2514,13 +2735,26 @@ namespace ump {
                     // Rebuild the file list from the sequence path
                     std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
                     if (!sequence_files.empty()) {
-                        // NEW: Pass cached dimensions from MediaItem (instant loading - no I/O!)
+                        // Pass cached dimensions and duration from ImageSequenceData for reliable reload
+                        double cached_dur = item.image_seq.IsValid() ? item.image_seq.duration : item.duration;
+                        // Get playhead position to initialize cache at correct position
+                        // Look up fresh item from media_pool because bin copies may not have updated view_state
+                        double initial_playhead = 0.0;
+                        MediaItem* fresh_item_exr = GetMediaItem(item.id);
+                        if (fresh_item_exr) {
+                            initial_playhead = fresh_item_exr->view_state.playhead_position;
+                        } else {
+                            initial_playhead = item.view_state.playhead_position;
+                        }
+                        Debug::Log("LoadSingleMediaItem: EXR using cached duration: " + std::to_string(cached_dur) + "s, initial playhead: " + std::to_string(initial_playhead) + "s");
                         if (video_player->LoadEXRSequenceWithDummy(
                             sequence_files,
                             layer_name,
                             item.frame_rate,
-                            item.sequence_width,   // NEW: Cached dimensions
-                            item.sequence_height   // NEW: Cached dimensions
+                            item.sequence_width,
+                            item.sequence_height,
+                            cached_dur,  // Use stored duration for reliable reload
+                            initial_playhead  // Start cache from stored playhead position
                         )) {
                             *current_file_path = item.path;
                             Debug::Log("LoadSingleMediaItem: Successfully loaded EXR sequence");
@@ -3206,6 +3440,10 @@ namespace ump {
             return ImportOTIOFile(file_path);
         } else if (ext == ".edl") {
             return ImportEDLFile(file_path);
+        } else if (ext == ".aaf") {
+            return ImportAAFFile(file_path);
+        } else if (ext == ".xml") {
+            return ImportXMLFile(file_path);
         } else {
             Debug::Log("ImportTimeline: Unsupported format: " + ext);
             return false;
@@ -3337,6 +3575,86 @@ namespace ump {
 
         // Auto-open the timeline in the editor (like videos and image sequences)
         OpenTimelineInEditor(timeline_id);
+
+        return true;
+    }
+
+    bool ProjectManager::ImportAAFFile(const std::string& file_path) {
+        Debug::Log("ImportAAFFile: " + file_path);
+
+        // Create a temporary TimelineView to parse the file via Python adapter
+        TimelineView temp_view(nullptr);
+        if (!temp_view.LoadAAFFile(file_path)) {
+            Debug::Log("ImportAAFFile: Failed to load AAF file");
+            return false;
+        }
+
+        // Create MediaItem for the timeline
+        MediaItem item;
+        item.id = GenerateUniqueID();
+        item.name = temp_view.GetTimelineName();
+        item.path = file_path;
+        item.type = MediaType::TIMELINE;
+        item.duration = temp_view.GetDuration();
+        item.frame_rate = temp_view.GetFrameRate();
+        item.timeline_id = item.id;
+        item.timeline_format = "aaf";
+        item.video_track_count = temp_view.GetVideoTrackCount();
+        item.audio_track_count = temp_view.GetAudioTrackCount();
+
+        // Add to project
+        media_pool.push_back(item);
+        int bin_index = GetBinIndexForMediaType(item.type);
+        if (bins.size() > static_cast<size_t>(bin_index)) {
+            bins[bin_index].items.push_back(item);
+        }
+
+        Debug::Log("ImportAAFFile: Added timeline '" + item.name + "' with " +
+                   std::to_string(item.video_track_count) + " video and " +
+                   std::to_string(item.audio_track_count) + " audio tracks");
+
+        // Auto-open the timeline in the editor
+        OpenTimelineInEditor(item.timeline_id);
+
+        return true;
+    }
+
+    bool ProjectManager::ImportXMLFile(const std::string& file_path) {
+        Debug::Log("ImportXMLFile: " + file_path);
+
+        // Create a temporary TimelineView to parse the file via Python adapter
+        TimelineView temp_view(nullptr);
+        if (!temp_view.LoadXMLFile(file_path)) {
+            Debug::Log("ImportXMLFile: Failed to load XML file");
+            return false;
+        }
+
+        // Create MediaItem for the timeline
+        MediaItem item;
+        item.id = GenerateUniqueID();
+        item.name = temp_view.GetTimelineName();
+        item.path = file_path;
+        item.type = MediaType::TIMELINE;
+        item.duration = temp_view.GetDuration();
+        item.frame_rate = temp_view.GetFrameRate();
+        item.timeline_id = item.id;
+        item.timeline_format = "xml";
+        item.video_track_count = temp_view.GetVideoTrackCount();
+        item.audio_track_count = temp_view.GetAudioTrackCount();
+
+        // Add to project
+        media_pool.push_back(item);
+        int bin_index = GetBinIndexForMediaType(item.type);
+        if (bins.size() > static_cast<size_t>(bin_index)) {
+            bins[bin_index].items.push_back(item);
+        }
+
+        Debug::Log("ImportXMLFile: Added timeline '" + item.name + "' with " +
+                   std::to_string(item.video_track_count) + " video and " +
+                   std::to_string(item.audio_track_count) + " audio tracks");
+
+        // Auto-open the timeline in the editor
+        OpenTimelineInEditor(item.timeline_id);
 
         return true;
     }
@@ -6063,6 +6381,7 @@ namespace ump {
     }
 
     void ProjectManager::SetCacheEnabled(bool enabled) {
+        bool was_enabled = cache_enabled;
         cache_enabled = enabled;
 
         // EXR PATTERN: Just set the flag, threads keep running
@@ -6073,7 +6392,28 @@ namespace ump {
         // Control EXR cache
         if (video_player) {
             video_player->SetEXRCacheEnabled(enabled);
-            Debug::Log("ProjectManager: Cache " + std::string(enabled ? "enabled" : "disabled") + " (EXR pattern - threads still running)");
+        }
+
+        // === AUTO-CLEAR WHEN DISABLING ===
+        // User expects cache to be cleared when they disable it
+        if (!enabled && was_enabled) {
+            ClearAllCaches();
+            Debug::Log("ProjectManager: Cache disabled and cleared");
+        }
+
+        // === AUTO-RELOAD WHEN ENABLING ===
+        // Explicitly reload current video to properly initialize cache
+        // NotifyVideoChanged alone doesn't work - need full reload
+        if (enabled && !was_enabled && current_file_path && !current_file_path->empty()) {
+            MediaItem* item = GetMediaItemFromCurrentPath();
+            if (item) {
+                Debug::Log("ProjectManager: Cache enabled, reloading video: " + item->name);
+                LoadSingleMediaItem(*item);
+            } else {
+                // Fallback: just reinitialize cache without reload
+                Debug::Log("ProjectManager: Cache enabled, no MediaItem found, using NotifyVideoChanged");
+                NotifyVideoChanged(*current_file_path);
+            }
         }
     }
 
@@ -6871,19 +7211,44 @@ namespace ump {
             item.type = MediaType::IMAGE_SEQUENCE;
         }
 
-        item.frame_count = static_cast<int>(sequence_files.size());
-        item.start_frame = start_frame;
-        item.end_frame = end_frame;
-        item.frame_rate = frame_rate;
-        item.duration = static_cast<double>(sequence_files.size()) / frame_rate;
-        item.sequence_pattern = mf_pattern;
+        // === POPULATE ImageSequenceData (primary source of truth) ===
+        item.image_seq.frame_count = static_cast<int>(sequence_files.size());
+        item.image_seq.start_frame = start_frame;
+        item.image_seq.end_frame = end_frame;
+        item.image_seq.frame_rate = frame_rate;
+        item.image_seq.duration = static_cast<double>(sequence_files.size()) / frame_rate;
+        item.image_seq.pattern = mf_pattern;
+        item.image_seq.directory = directory;
 
-        // NEW: Assign cached EXR dimensions (if extracted above)
-        if (item.type == MediaType::EXR_SEQUENCE && exr_width > 0 && exr_height > 0) {
-            item.sequence_width = exr_width;
-            item.sequence_height = exr_height;
+        // Set format based on extension
+        std::string format_ext = extension;
+        std::transform(format_ext.begin(), format_ext.end(), format_ext.begin(), ::toupper);
+        if (format_ext.length() > 0 && format_ext[0] == '.') {
+            format_ext = format_ext.substr(1);  // Remove leading dot
         }
-        // For IMAGE_SEQUENCE, dimensions assigned below from img_info
+        item.image_seq.format = format_ext;
+
+        // EXR layer info
+        if (is_exr) {
+            item.image_seq.layer = item.exr_layer;
+            item.image_seq.layer_display = item.exr_layer_display;
+        }
+
+        // Assign cached EXR dimensions (if extracted above)
+        if (item.type == MediaType::EXR_SEQUENCE && exr_width > 0 && exr_height > 0) {
+            item.image_seq.width = exr_width;
+            item.image_seq.height = exr_height;
+        }
+
+        // LEGACY FIELDS (keep in sync for backward compatibility)
+        item.frame_count = item.image_seq.frame_count;
+        item.start_frame = item.image_seq.start_frame;
+        item.end_frame = item.image_seq.end_frame;
+        item.frame_rate = item.image_seq.frame_rate;
+        item.duration = item.image_seq.duration;
+        item.sequence_pattern = item.image_seq.pattern;
+        item.sequence_width = item.image_seq.width;
+        item.sequence_height = item.image_seq.height;
 
         // Auto-detect pipeline mode from first image file (for all image sequences)
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Default
@@ -6894,9 +7259,11 @@ namespace ump {
             if (ump::GetImageInfo(sequence_files[0], img_info)) {
                 pipeline_mode = img_info.recommended_pipeline;
 
-                // NEW: Cache dimensions from first frame (for instant loading later)
-                item.sequence_width = img_info.width;
-                item.sequence_height = img_info.height;
+                // Cache dimensions from first frame (for instant loading later)
+                item.image_seq.width = img_info.width;
+                item.image_seq.height = img_info.height;
+                item.sequence_width = img_info.width;  // Legacy
+                item.sequence_height = img_info.height;  // Legacy
 
                 Debug::Log("ProcessImageSequence: Auto-detected pipeline mode: " +
                           std::string(PipelineModeToString(pipeline_mode)) +
@@ -6911,6 +7278,10 @@ namespace ump {
             }
         }
 
+        // Store pipeline mode in both places
+        item.image_seq.pipeline_mode = pipeline_mode;
+        item.pipeline_mode = pipeline_mode;  // Legacy
+
         // Parse sequence for FFMPEG pattern (for both IMAGE_SEQUENCE and EXR_SEQUENCE)
         // This is needed for transcode functionality
         ump::ImageSequenceConfig ffmpeg_config =
@@ -6921,10 +7292,21 @@ namespace ump {
             Debug::Log("ProcessImageSequence: Pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
 
             // Store the full FFmpeg pattern in MediaItem for transcode support
-            item.ffmpeg_pattern = ffmpeg_config.ffmpeg_pattern;
-            item.pipeline_mode = pipeline_mode;  // Store auto-detected pipeline mode
+            item.image_seq.ffmpeg_pattern = ffmpeg_config.ffmpeg_pattern;
+            item.ffmpeg_pattern = ffmpeg_config.ffmpeg_pattern;  // Legacy
         } else {
             Debug::Log("ProcessImageSequence: Warning - FFMPEG pattern parsing failed");
+        }
+
+        // Log the complete ImageSequenceData for debugging
+        Debug::Log("ProcessImageSequence: ImageSequenceData populated:");
+        Debug::Log("  - frame_count: " + std::to_string(item.image_seq.frame_count));
+        Debug::Log("  - frame_rate: " + std::to_string(item.image_seq.frame_rate));
+        Debug::Log("  - duration: " + std::to_string(item.image_seq.duration));
+        Debug::Log("  - dimensions: " + std::to_string(item.image_seq.width) + "x" + std::to_string(item.image_seq.height));
+        Debug::Log("  - format: " + item.image_seq.format);
+        if (!item.image_seq.layer.empty()) {
+            Debug::Log("  - layer: " + item.image_seq.layer);
         }
 
         // === BRANCH A: FFMPEG CACHE PATH ===

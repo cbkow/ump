@@ -1,14 +1,7 @@
 ﻿  audio_mixer.cpp
   main.cpp
-  project_manager.cpp
-  edl_parser.cpp
-  media_linker.cpp
-  timeline_cache.cpp
-  timeline_commands.cpp
-  timeline_playback_controller.cpp
-  timeline_view.cpp
-  Generating Code...
-  ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe
-  'pwsh.exe' is not recognized as an internal or external command,
-  operable program or batch file.
-  Copying assets to output directory		Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll
+  conversion_strategy.cpp
+  direct_exr_cache.cpp
+  exr_transcoder.cpp
+  frame_cache.cpp
+  image_loaders.cpp

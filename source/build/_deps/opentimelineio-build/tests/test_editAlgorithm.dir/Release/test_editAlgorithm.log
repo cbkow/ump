@@ -1,1 +1,8 @@
-﻿
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/tests/CMakeLists.txt
+C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8065: Custom build for item "D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\tests\CMakeLists.txt" succeeded, but specified output "d:\z_devtemp\unionplayer\build\_deps\opentimelineio-build\tests\cmakefiles\generate.stamp" has not been created. This may cause incremental build to work incorrectly.
+  utils.cpp
+  test_editAlgorithm.cpp
+  Generating Code...
+  test_editAlgorithm.vcxproj -> D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\Release\test_editAlgorithm.exe
+  'pwsh.exe' is not recognized as an internal or external command,
+  operable program or batch file.

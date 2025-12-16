@@ -104,12 +104,18 @@ public:
     bool ProcessAndFeedEXRFrame(int frame_index);
 
     // Image sequence loading (uses PlaybackTimer virtual timeline, no dummy videos)
+    // cached_duration: If > 0, use this duration instead of calculating from file count (for reliable reload)
+    // initial_playhead: If >= 0, start cache from this position instead of beginning
     bool LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files, const std::string& layer_name, double fps,
-                                 int cached_width = 0, int cached_height = 0);  // Note: Name kept for compatibility, uses virtual timeline
+                                 int cached_width = 0, int cached_height = 0, double cached_duration = 0.0,
+                                 double initial_playhead = 0.0);
 
     // Universal image sequence loading (TIFF/PNG/JPEG with DirectEXRCache)
+    // cached_duration: If > 0, use this duration instead of calculating from file count (for reliable reload)
+    // initial_playhead: If >= 0, start cache from this position instead of beginning
     bool LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode,
-                                   int cached_width = 0, int cached_height = 0);
+                                   int cached_width = 0, int cached_height = 0, double cached_duration = 0.0,
+                                   double initial_playhead = 0.0);
 
     // Image sequence timer initialization (virtual timeline mode)
     bool InitializeImageSequenceTimer(double duration, double fps);
@@ -308,8 +314,10 @@ public:
 
 
     // EXR Cache functionality (NEW: Using DirectEXRCache)
+    // initial_position: If >= 0, start caching from this position; if < 0, use current playhead
     void InitializeEXRCache(const std::vector<std::string>& sequence_files,
-                           const std::string& layer_name, double fps);
+                           const std::string& layer_name, double fps,
+                           double initial_position = -1.0);
     void SetEXRCacheWindow(double seconds);
     void SetEXRCacheConfig(const ump::DirectEXRCacheConfig& config);
     void SetEXRCacheEnabled(bool enabled);

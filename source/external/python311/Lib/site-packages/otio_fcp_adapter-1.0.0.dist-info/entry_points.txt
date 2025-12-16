@@ -1,0 +1,2 @@
+[opentimelineio.plugins]
+otio_fcp_adapter = otio_fcp_adapter

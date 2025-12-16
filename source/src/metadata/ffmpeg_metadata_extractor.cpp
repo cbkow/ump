@@ -9,6 +9,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
+#include <libavutil/dict.h>
 }
 
 namespace fs = std::filesystem;
@@ -50,6 +51,9 @@ VideoMetadata FFmpegMetadataExtractor::Extract(const std::string& file_path) {
     Debug::Log("  Codec: " + metadata.video_codec);
     Debug::Log("  Audio Codec: " + metadata.audio_codec);
     Debug::Log("  Audio Channels: " + std::to_string(metadata.audio_channels));
+    if (metadata.has_embedded_timecode) {
+        Debug::Log("  Timecode: " + metadata.timecode_format);
+    }
 
     return metadata;
 }
@@ -124,6 +128,75 @@ void FFmpegMetadataExtractor::ExtractVideoStream(AVFormatContext* format_ctx, Vi
 
     AVStream* video_stream = format_ctx->streams[video_stream_index];
     AVCodecParameters* codecpar = video_stream->codecpar;
+
+    // Extract timecode from stream metadata (MXF, MOV, etc.)
+    // FFmpeg stores timecode in stream metadata as "timecode" key
+    Debug::Log("FFmpegMetadataExtractor: Checking video stream " + std::to_string(video_stream_index) + " for timecode");
+    Debug::Log("FFmpegMetadataExtractor: Video stream metadata ptr: " + std::to_string((uintptr_t)video_stream->metadata));
+
+    // Debug: dump all metadata keys in video stream
+    if (video_stream->metadata) {
+        AVDictionaryEntry* tag = nullptr;
+        while ((tag = av_dict_get(video_stream->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+            Debug::Log("FFmpegMetadataExtractor: Stream metadata key='" + std::string(tag->key) +
+                       "' value='" + std::string(tag->value) + "'");
+        }
+    }
+
+    AVDictionaryEntry* tc_entry = av_dict_get(video_stream->metadata, "timecode", nullptr, 0);
+    if (tc_entry && tc_entry->value) {
+        metadata.timecode_format = tc_entry->value;
+        metadata.has_embedded_timecode = true;
+        Debug::Log("FFmpegMetadataExtractor: Found stream timecode: " + metadata.timecode_format);
+    } else {
+        Debug::Log("FFmpegMetadataExtractor: No timecode in video stream metadata");
+    }
+
+    // Also check format-level metadata (some containers store it there)
+    if (!metadata.has_embedded_timecode) {
+        Debug::Log("FFmpegMetadataExtractor: Checking format-level metadata");
+        tc_entry = av_dict_get(format_ctx->metadata, "timecode", nullptr, 0);
+        if (tc_entry && tc_entry->value) {
+            metadata.timecode_format = tc_entry->value;
+            metadata.has_embedded_timecode = true;
+            Debug::Log("FFmpegMetadataExtractor: Found format timecode: " + metadata.timecode_format);
+        }
+    }
+
+    // Check for timecode in all streams (some files have dedicated timecode tracks)
+    if (!metadata.has_embedded_timecode) {
+        Debug::Log("FFmpegMetadataExtractor: Checking all " + std::to_string(format_ctx->nb_streams) + " streams for timecode");
+        for (unsigned int i = 0; i < format_ctx->nb_streams; i++) {
+            AVStream* stream = format_ctx->streams[i];
+
+            // Debug: show stream type
+            const char* stream_type = "unknown";
+            if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) stream_type = "video";
+            else if (stream->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) stream_type = "audio";
+            else if (stream->codecpar->codec_type == AVMEDIA_TYPE_DATA) stream_type = "data";
+            else if (stream->codecpar->codec_type == AVMEDIA_TYPE_SUBTITLE) stream_type = "subtitle";
+
+            Debug::Log("FFmpegMetadataExtractor: Stream " + std::to_string(i) + " type=" + stream_type);
+
+            // Dump all metadata for this stream
+            if (stream->metadata) {
+                AVDictionaryEntry* tag = nullptr;
+                while ((tag = av_dict_get(stream->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+                    Debug::Log("FFmpegMetadataExtractor:   Stream " + std::to_string(i) +
+                               " key='" + std::string(tag->key) + "' value='" + std::string(tag->value) + "'");
+                }
+            }
+
+            tc_entry = av_dict_get(stream->metadata, "timecode", nullptr, 0);
+            if (tc_entry && tc_entry->value) {
+                metadata.timecode_format = tc_entry->value;
+                metadata.has_embedded_timecode = true;
+                Debug::Log("FFmpegMetadataExtractor: Found timecode in stream " +
+                           std::to_string(i) + ": " + metadata.timecode_format);
+                break;
+            }
+        }
+    }
 
     // Dimensions
     metadata.width = codecpar->width;

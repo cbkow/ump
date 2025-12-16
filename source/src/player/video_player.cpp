@@ -1117,8 +1117,9 @@ void VideoPlayer::Stop() {
 void VideoPlayer::Seek(double pos) {
     // Image sequence virtual timeline mode
     if (is_exr_mode && image_sequence_timer_) {
+        double timer_duration = image_sequence_timer_->GetDuration();
         if (pos < 0) pos = 0.0;
-        if (pos > cached_duration) pos = cached_duration;
+        if (pos > timer_duration) pos = timer_duration;
         image_sequence_timer_->Seek(pos);
         cached_position = pos;
         return;
@@ -1663,11 +1664,30 @@ double VideoPlayer::GetFrameRate() const {
 }
 
 int VideoPlayer::GetTotalFrames() const {
+    // For EXR/image sequence mode, use the timer duration (authoritative source)
+    // This ensures correct frame count when switching between media items
+    if (is_exr_mode && image_sequence_timer_) {
+        double timer_duration = image_sequence_timer_->GetDuration();
+        if (timer_duration > 0) {
+            return static_cast<int>(std::round(timer_duration * GetFrameRate()));
+        }
+    }
+
+    // For regular video, use cached_duration
     if (cached_duration <= 0) return 0;
     return static_cast<int>(std::round(cached_duration * GetFrameRate()));
 }
 
 int VideoPlayer::GetCurrentFrame() const {
+    // For EXR/image sequence mode, use the timer position (authoritative source)
+    if (is_exr_mode && image_sequence_timer_) {
+        double timer_position = image_sequence_timer_->GetPosition();
+        if (timer_position >= 0) {
+            return static_cast<int>(std::round(timer_position * GetFrameRate()));
+        }
+    }
+
+    // For regular video, use cached_position
     if (cached_position <= 0) return 0;
     return static_cast<int>(std::round(cached_position * GetFrameRate()));
 }
@@ -1861,6 +1881,36 @@ void VideoPlayer::RenderVideoTexture() {
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
 
+    // Overrun mode overlay - shows when EXR cache can't keep up with playback
+    if (exr_cache_ && exr_cache_->IsInOverrunMode() && font_mono) {
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        const char* overrun_text = "Not Realtime Playback: File too large";
+        float font_size = 14.0f;
+
+        // Calculate text size and position (bottom-left corner with padding)
+        ImVec2 text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, overrun_text);
+        float padding = 10.0f;
+        ImVec2 text_pos(
+            image_screen_pos.x + padding,
+            image_screen_pos.y + image_size.y - text_size.y - padding
+        );
+
+        // Background rectangle for readability
+        ImVec2 bg_min(text_pos.x - 4.0f, text_pos.y - 2.0f);
+        ImVec2 bg_max(text_pos.x + text_size.x + 4.0f, text_pos.y + text_size.y + 2.0f);
+        draw_list->AddRectFilled(bg_min, bg_max, IM_COL32(20, 20, 20, 200), 3.0f);
+
+        // Draw text in system accent color
+        ImVec4 accent = GetWindowsAccentColor();
+        ImU32 text_color = IM_COL32(
+            (int)(accent.x * 255),
+            (int)(accent.y * 255),
+            (int)(accent.z * 255),
+            255
+        );
+        draw_list->AddText(font_mono, font_size, text_pos, text_color, overrun_text);
+    }
+
     // Add drop target over the image
     ImGui::SetCursorPos(image_start_pos);
     ImGui::InvisibleButton("##ViewportDropTarget", image_size);
@@ -1924,7 +1974,9 @@ void VideoPlayer::RenderControls() {
     }
 
     // EXR Cache Progress and Statistics (when in EXR mode)
-    if (is_exr_mode && HasEXRCache()) {
+    // Hide when in overrun mode - cache progress is not meaningful during frame-by-frame playback
+    bool in_overrun = exr_cache_ && exr_cache_->IsInOverrunMode();
+    if (is_exr_mode && HasEXRCache() && !in_overrun) {
         ImGui::Separator();
         ImGui::Text("EXR Cache Status:");
 
@@ -1985,25 +2037,11 @@ void VideoPlayer::UpdateVideoTexture() {
 
     video_gpu_scheduler.BeginFrame();
 
-    int needs_render = mpv_render_context_update(mpv_gl);
-
-    // Check if we need to force render for color pipeline when paused
-    // Only force render when NOT playing to avoid impacting playback performance
-    bool force_render_for_color = (needs_render <= 0) && !is_playing &&
-                                  color_pipeline && color_pipeline->IsValid() &&
-                                  color_fbo != 0 && color_texture != 0;
-
-    // Force render for EXR mode to ensure frame updates regardless of dummy video state
-    bool force_render_for_exr = (needs_render <= 0) && is_exr_mode && !exr_sequence_files.empty();
-
-    // Force render for timeline mode (virtual timeline has no MPV dummy, so needs_render may be 0)
-    // Timeline controller drives playback via PlaybackTimer, not MPV
-    bool force_render_for_timeline = (needs_render <= 0) && is_timeline_mode_ && timeline_controller_;
-
-    if (needs_render <= 0 && !force_render_for_color && !force_render_for_exr && !force_render_for_timeline) {
-        // No new frame to render and no special mode needing current frame
-        return;
-    }
+    // CRITICAL: For vo=libmpv, we must render continuously at display rate,
+    // NOT gated on mpv_render_context_update(). This keeps the GPU pipeline warm
+    // and prevents 4K playback stutter. The update() call is only used to
+    // track if content changed, not to decide whether to render.
+    mpv_render_context_update(mpv_gl);
 
     video_gpu_scheduler.CooperativeYield();
 
@@ -2047,14 +2085,44 @@ void VideoPlayer::UpdateVideoTexture() {
     video_gpu_scheduler.CooperativeYield();
 
     // 🔧 IMAGE SEQUENCE TIMER UPDATE: Advance timer if playing (virtual timeline mode)
-    if (is_exr_mode && image_sequence_timer_ && image_sequence_timer_->IsPlaying()) {
-        image_sequence_timer_->Update();
+    if (is_exr_mode && image_sequence_timer_) {
+        bool in_overrun = exr_cache_ && exr_cache_->IsInOverrunMode();
+
+        if (in_overrun) {
+            // OVERRUN MODE: Pause timer - we'll step frame-by-frame in InjectCurrentEXRFrame()
+            // This prevents the playhead from running ahead while we load frames synchronously
+            if (image_sequence_timer_->IsPlaying()) {
+                image_sequence_timer_->Pause();
+                Debug::Log("VideoPlayer: Timer paused for overrun mode");
+            }
+        } else {
+            // Normal mode or exiting overrun
+            // Resume timer if we were in overrun mode (is_playing is true but timer paused)
+            if (is_playing && !image_sequence_timer_->IsPlaying()) {
+                image_sequence_timer_->Play();
+                Debug::Log("VideoPlayer: Timer resumed after overrun mode");
+            }
+            if (image_sequence_timer_->IsPlaying()) {
+                image_sequence_timer_->Update();
+            }
+        }
         cached_position = image_sequence_timer_->GetPosition();
     }
 
     // 🔧 EXR INJECTION POINT: Replace dummy video with current EXR frame
     if (is_exr_mode && !exr_sequence_files.empty()) {
         InjectCurrentEXRFrame();
+
+        // 🔧 IMMEDIATE OVERRUN CHECK: Pause timer right after overrun is detected
+        // This is critical because overrun mode is set INSIDE GetFrameOrLoad(),
+        // which is called from InjectCurrentEXRFrame(). Without this check,
+        // there's a one-frame delay before the timer is paused.
+        if (image_sequence_timer_ && exr_cache_ && exr_cache_->IsInOverrunMode()) {
+            if (image_sequence_timer_->IsPlaying()) {
+                image_sequence_timer_->Pause();
+                Debug::Log("VideoPlayer: Timer paused immediately after overrun detected");
+            }
+        }
 
         // 🔧 REMOVED: TriggerEXRFrameCaching() - FFmpeg cache system not used for EXR
         // DirectEXRCache handles all EXR caching with native OpenEXR + memory-mapping
@@ -4093,8 +4161,10 @@ bool VideoPlayer::InitializeImageSequenceTimer(double duration, double fps) {
 bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& sequence_files,
                                            const std::string& layer_name,
                                            double fps,
-                                           int cached_width,      // NEW
-                                           int cached_height) {   // NEW
+                                           int cached_width,
+                                           int cached_height,
+                                           double cached_duration,
+                                           double initial_playhead) {
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -4161,9 +4231,15 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
         thumbnail_cache_.reset();  // Destroy old thumbnail cache
     }
 
-    // Calculate actual sequence duration
-    double duration = static_cast<double>(sequence_files.size()) / fps;
-    Debug::Log("EXR sequence duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames)");
+    // Calculate actual sequence duration (prefer cached duration if provided)
+    double duration;
+    if (cached_duration > 0.0) {
+        duration = cached_duration;
+        Debug::Log("EXR sequence using cached duration: " + std::to_string(duration) + " seconds");
+    } else {
+        duration = static_cast<double>(sequence_files.size()) / fps;
+        Debug::Log("EXR sequence calculated duration: " + std::to_string(duration) + " seconds (" + std::to_string(sequence_files.size()) + " frames)");
+    }
 
     // Initialize virtual timeline (no dummy video needed)
     if (!InitializeImageSequenceTimer(duration, fps)) {
@@ -4196,7 +4272,9 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     Debug::Log("EXR sequence data stored: " + std::to_string(exr_frame_count) + " frames, start frame: " + std::to_string(start_frame));
 
     // NEW: Initialize EXR background cache (non-blocking)
-    InitializeEXRCache(sequence_files, layer_name, fps);
+    // Pass initial_playhead so cache starts from correct position when reloading
+    Debug::Log("LoadEXRSequenceWithDummy: Initializing cache at playhead position " + std::to_string(initial_playhead) + "s");
+    InitializeEXRCache(sequence_files, layer_name, fps, initial_playhead);
 
     // NEW: Initialize ThumbnailCache for EXR sequences
     ump::ThumbnailConfig thumb_config = GetCurrentThumbnailConfig();
@@ -4224,17 +4302,23 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
     // Metadata extraction deferred - will be extracted lazily when inspector is opened
     // This avoids blocking UI on EXR file I/O during load
 
-    // Synchronously wait for first frame to be loaded and uploaded
+    // Synchronously wait for initial frame to be loaded and uploaded
     // This ensures the EXR sequence displays immediately instead of showing placeholder
-    Debug::Log("Waiting for initial EXR frame to load...");
+    // Use initial_playhead to determine which frame to wait for
+    int initial_frame_index = static_cast<int>(initial_playhead * fps);
+    if (initial_frame_index < 0) initial_frame_index = 0;
+    if (initial_frame_index >= static_cast<int>(sequence_files.size())) {
+        initial_frame_index = static_cast<int>(sequence_files.size()) - 1;
+    }
+    Debug::Log("Waiting for initial EXR frame " + std::to_string(initial_frame_index) + " to load (playhead " + std::to_string(initial_playhead) + "s)...");
 
     if (exr_cache_) {
         const int MAX_WAIT_ITERATIONS = 100;  // ~2 seconds max (20ms * 100)
         bool first_frame_ready = false;
 
         for (int i = 0; i < MAX_WAIT_ITERATIONS && !first_frame_ready; i++) {
-            // Request frame 0 if not already requested
-            exr_cache_->RequestFrame(0);
+            // Request frame at initial playhead position
+            exr_cache_->RequestFrame(initial_frame_index);
 
             // Give background thread time to load
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -4242,13 +4326,13 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
             // Process any ready textures (uploads to GPU)
             exr_cache_->ProcessReadyTextures();
 
-            // Check if frame 0 is now available
+            // Check if frame is now available
             GLuint texture = 0;
             int tex_width = 0, tex_height = 0;
-            texture = exr_cache_->GetTexture(0, tex_width, tex_height);
+            texture = exr_cache_->GetTexture(initial_frame_index, tex_width, tex_height);
 
             if (texture != 0) {
-                // First frame is ready - update video_texture
+                // Initial frame is ready - update video_texture
                 video_texture = texture;
                 video_width = tex_width;
                 video_height = tex_height;
@@ -4256,13 +4340,13 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
                 exr_texture_width = tex_width;
                 exr_texture_height = tex_height;
                 first_frame_ready = true;
-                Debug::Log("Initial EXR frame ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
+                Debug::Log("Initial EXR frame " + std::to_string(initial_frame_index) + " ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
                            std::to_string(texture) + ", " + std::to_string(tex_width) + "x" + std::to_string(tex_height) + ")");
             }
         }
 
         if (!first_frame_ready) {
-            Debug::Log("WARNING: First EXR frame not ready after timeout - will show placeholder until cached");
+            Debug::Log("WARNING: Initial EXR frame " + std::to_string(initial_frame_index) + " not ready after timeout - will show placeholder until cached");
         }
     }
 
@@ -4274,8 +4358,10 @@ bool VideoPlayer::LoadEXRSequenceWithDummy(const std::vector<std::string>& seque
 bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& sequence_files,
                                              double fps,
                                              PipelineMode pipeline_mode,
-                                             int cached_width,      // NEW
-                                             int cached_height) {   // NEW
+                                             int cached_width,
+                                             int cached_height,
+                                             double cached_duration,
+                                             double initial_playhead) {
     if (sequence_files.empty()) {
         Debug::Log("ERROR: Empty sequence files list");
         return false;
@@ -4389,9 +4475,15 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         thumbnail_cache_.reset();  // Destroy old thumbnail cache
     }
 
-    // Calculate actual sequence duration
-    double sequence_duration = static_cast<double>(sequence_files.size()) / fps;
-    Debug::Log("Image sequence duration: " + std::to_string(sequence_duration) + "s (" + std::to_string(sequence_files.size()) + " frames)");
+    // Calculate actual sequence duration (prefer cached duration if provided)
+    double sequence_duration;
+    if (cached_duration > 0.0) {
+        sequence_duration = cached_duration;
+        Debug::Log("Image sequence using cached duration: " + std::to_string(sequence_duration) + "s");
+    } else {
+        sequence_duration = static_cast<double>(sequence_files.size()) / fps;
+        Debug::Log("Image sequence calculated duration: " + std::to_string(sequence_duration) + "s (" + std::to_string(sequence_files.size()) + " frames)");
+    }
 
     // Initialize virtual timeline (no dummy video needed)
     if (!InitializeImageSequenceTimer(sequence_duration, fps)) {
@@ -4427,7 +4519,9 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
     }
 
     // Use new Initialize overload with IImageLoader
-    if (exr_cache_->Initialize(std::move(loader), sequence_files, "", fps, pipeline_mode, start_frame)) {
+    // Pass initial_playhead so cache starts from correct position when reloading
+    Debug::Log("LoadImageSequenceWithCache: Initializing cache at playhead position " + std::to_string(initial_playhead) + "s");
+    if (exr_cache_->Initialize(std::move(loader), sequence_files, "", fps, pipeline_mode, start_frame, initial_playhead)) {
         // Update current pipeline mode to match what we just initialized
         current_pipeline_mode = pipeline_mode;
 
@@ -4489,16 +4583,22 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         thumbnail_cache_.reset();
     }
 
-    // Synchronously wait for first frame to be loaded and uploaded
+    // Synchronously wait for initial frame to be loaded and uploaded
     // This ensures the image sequence displays immediately instead of showing placeholder
-    Debug::Log("Waiting for initial frame to load...");
+    // Use initial_playhead to determine which frame to wait for
+    int initial_frame_index = static_cast<int>(initial_playhead * fps);
+    if (initial_frame_index < 0) initial_frame_index = 0;
+    if (initial_frame_index >= static_cast<int>(sequence_files.size())) {
+        initial_frame_index = static_cast<int>(sequence_files.size()) - 1;
+    }
+    Debug::Log("Waiting for initial frame " + std::to_string(initial_frame_index) + " to load (playhead " + std::to_string(initial_playhead) + "s)...");
 
     const int MAX_WAIT_ITERATIONS = 100;  // ~2 seconds max (20ms * 100)
     bool first_frame_ready = false;
 
     for (int i = 0; i < MAX_WAIT_ITERATIONS && !first_frame_ready; i++) {
-        // Request frame 0 if not already requested
-        exr_cache_->RequestFrame(0);
+        // Request frame at initial playhead position
+        exr_cache_->RequestFrame(initial_frame_index);
 
         // Give background thread time to load
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
@@ -4506,13 +4606,13 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         // Process any ready textures (uploads to GPU)
         exr_cache_->ProcessReadyTextures();
 
-        // Check if frame 0 is now available
+        // Check if frame is now available
         GLuint texture = 0;
         int tex_width = 0, tex_height = 0;
-        texture = exr_cache_->GetTexture(0, tex_width, tex_height);
+        texture = exr_cache_->GetTexture(initial_frame_index, tex_width, tex_height);
 
         if (texture != 0) {
-            // First frame is ready - update video_texture
+            // Initial frame is ready - update video_texture
             video_texture = texture;
             video_width = tex_width;
             video_height = tex_height;
@@ -4520,13 +4620,13 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
             exr_texture_width = tex_width;
             exr_texture_height = tex_height;
             first_frame_ready = true;
-            Debug::Log("Initial frame ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
+            Debug::Log("Initial frame " + std::to_string(initial_frame_index) + " ready after " + std::to_string((i + 1) * 20) + "ms (texture " +
                        std::to_string(texture) + ", " + std::to_string(tex_width) + "x" + std::to_string(tex_height) + ")");
         }
     }
 
     if (!first_frame_ready) {
-        Debug::Log("WARNING: First frame not ready after timeout - will show placeholder until cached");
+        Debug::Log("WARNING: Initial frame " + std::to_string(initial_frame_index) + " not ready after timeout - will show placeholder until cached");
     }
 
     Debug::Log("Image sequence loaded successfully with DirectEXRCache");
@@ -4651,24 +4751,51 @@ void VideoPlayer::InjectCurrentEXRFrame() {
             double frame_timestamp = target_frame / exr_frame_rate;
             cached_position = frame_timestamp;
 
-            // Less verbose - only log on frame change
-            if (target_frame != last_injected_frame) {
-              /*  Debug::Log("EXR frame " + std::to_string(target_frame) +
-                          " displayed (texture " + std::to_string(cached_texture) + ")");*/
-                last_injected_frame = target_frame;
+            // OVERRUN MODE: Play one frame at a time at decode speed
+            // Timer is paused, we step forward ONLY after displaying a NEW frame
+            // This ensures we don't skip frames or step multiple times per frame
+            bool already_updated_position = false;
+            if (exr_cache_->IsInOverrunMode() && image_sequence_timer_) {
+                // Throttle overrun playback to ~1fps minimum to avoid "catchup" bursts
+                // when cached frames are available faster than decode speed
+                static auto last_overrun_step = std::chrono::steady_clock::now();
+                static constexpr auto MIN_OVERRUN_INTERVAL = std::chrono::milliseconds(500); // ~2fps max
+
+                auto now = std::chrono::steady_clock::now();
+                bool throttle_ok = (now - last_overrun_step) >= MIN_OVERRUN_INTERVAL;
+
+                // Only step when displaying a NEW frame (not same frame repeated)
+                if (target_frame != last_injected_frame && throttle_ok) {
+                    last_injected_frame = target_frame;
+                    last_overrun_step = now;
+
+                    int total_frames = static_cast<int>(exr_sequence_files.size());
+                    bool at_end = (target_frame >= total_frames - 1);
+
+                    // Step forward after displaying this new frame
+                    if (!at_end) {
+                        image_sequence_timer_->StepForward(1);
+                        cached_position = image_sequence_timer_->GetPosition();
+
+                        // CRITICAL: Immediately request next frame so it starts loading NOW
+                        // Without this, we wait until next render cycle to request it
+                        exr_cache_->UpdateCurrentPosition(cached_position);
+                        already_updated_position = true;
+                    }
+                }
+            } else {
+                // Normal mode - just track frame display
+                if (target_frame != last_injected_frame) {
+                    last_injected_frame = target_frame;
+                }
             }
 
             // Update cache position for background processing (throttled - only on frame change)
-            // This is now handled by static tracking above (last_injected_frame)
-            // No need to spam UpdateCurrentPosition() 60 times per second
-            if (target_frame != last_cache_update_frame) {
+            // Skip if we already updated in overrun mode stepping above
+            if (!already_updated_position && target_frame != last_cache_update_frame) {
                 exr_cache_->UpdateCurrentPosition(GetPosition());
                 last_cache_update_frame = target_frame;
             }
-
-            // REMOVED: Old manual pre-cache logic
-            // Wrap-around caching in DirectEXRCache now handles this automatically
-            // When looping is enabled, cache naturally wraps from frame N-1 to frame 0
 
             return;
         }
@@ -4677,6 +4804,16 @@ void VideoPlayer::InjectCurrentEXRFrame() {
         if (target_frame != last_miss_frame) {
             exr_cache_->UpdateCurrentPosition(GetPosition());
             last_miss_frame = target_frame;
+        }
+
+        // OVERRUN MODE: Display last good frame while waiting (keeps UI responsive)
+        // GetFrameOrLoad sets cached_texture to last_good_texture on miss
+        if (exr_cache_->IsInOverrunMode() && cached_texture != 0) {
+            video_texture = cached_texture;
+            video_width = cached_width;
+            video_height = cached_height;
+            has_video = true;
+            // Don't step - we haven't displayed the NEW frame yet
         }
     }
 }
@@ -5416,7 +5553,8 @@ bool VideoPlayer::SetupOpenGLForMode(PipelineMode mode) {
 // EXR Cache Implementation (NEW: Using DirectEXRCache)
 
 void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_files,
-                                     const std::string& layer_name, double fps) {
+                                     const std::string& layer_name, double fps,
+                                     double initial_position) {
     Debug::Log("VideoPlayer::InitializeEXRCache - " + std::to_string(sequence_files.size()) +
                " files, layer: " + layer_name);
 
@@ -5427,10 +5565,24 @@ void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_fi
         exr_cache_ = std::make_shared<ump::DirectEXRCache>();
     }
 
+    // Determine starting position for cache
+    // If initial_position < 0, use current playhead position from timer
+    double cache_start_position = initial_position;
+    if (cache_start_position < 0.0) {
+        if (image_sequence_timer_) {
+            cache_start_position = image_sequence_timer_->GetPosition();
+            Debug::Log("VideoPlayer::InitializeEXRCache - Using current playhead position: " +
+                       std::to_string(cache_start_position) + "s");
+        } else {
+            cache_start_position = 0.0;
+            Debug::Log("VideoPlayer::InitializeEXRCache - No timer, starting from 0");
+        }
+    }
+
     // Load new sequence (threads keep running, just swap data)
     // Create EXR loader for universal pipeline (ensures consistent path with other image loaders)
     auto exr_loader = std::make_unique<ump::EXRImageLoader>();
-    if (exr_cache_->Initialize(std::move(exr_loader), sequence_files, layer_name, fps, PipelineMode::HDR_RES, exr_sequence_start_frame)) {
+    if (exr_cache_->Initialize(std::move(exr_loader), sequence_files, layer_name, fps, PipelineMode::HDR_RES, exr_sequence_start_frame, cache_start_position)) {
         // Apply current configuration
         ump::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
         exr_cache_->SetConfig(config);

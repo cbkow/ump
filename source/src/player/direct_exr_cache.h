@@ -328,18 +328,22 @@ public:
     ~DirectEXRCache();
 
     // Initialize with sequence (original EXR method - preserved for compatibility)
+    // initial_position: Start caching from this position (seconds) instead of 0
     bool Initialize(const std::vector<std::string>& files,
                    const std::string& layer,
                    double fps,
-                   int start_frame = 0);
+                   int start_frame = 0,
+                   double initial_position = 0.0);
 
     // Initialize with universal loader (NEW - supports TIFF/PNG/JPEG/EXR)
+    // initial_position: Start caching from this position (seconds) instead of 0
     bool Initialize(std::unique_ptr<IImageLoader> loader,
                    const std::vector<std::string>& files,
                    const std::string& layer,
                    double fps,
                    PipelineMode pipeline_mode,
-                   int start_frame = 0);
+                   int start_frame = 0,
+                   double initial_position = 0.0);
 
     void Shutdown();
 
@@ -375,6 +379,13 @@ public:
     // Loop control for seamless wrap-around caching
     void SetLooping(bool enabled);
     bool IsLooping() const { return is_looping_; }
+
+    // Overrun failsafe control
+    // When cache can't keep up during playback, switches to synchronous frame loading
+    void ResetOverrunMode();  // Call on seek, pause, or file reload
+    bool IsInOverrunMode() const { return overrun_mode_.load(); }
+    bool IsFrameCached(int frame) const;  // Check if frame is in cache (for lookahead)
+    bool WasLastFrameSyncLoad() const { return last_was_sync_load_.load(); }  // True if last GetFrameOrLoad was sync load
 
     // Configuration
     void SetConfig(const EXRCacheConfig& config);
@@ -507,6 +518,17 @@ private:
     CacheDirection cacheDirection_ = CacheDirection::Forward;
     bool isPlaying_ = false;
     bool is_looping_ = false;  // Wrap-around caching enabled
+
+    //=========================================================================
+    // Overrun Failsafe (sync fallback when cache can't keep up)
+    //=========================================================================
+    // When playback overruns cache, switch to synchronous single-frame loading
+    // This ensures the user always sees their work, even if playback is slower
+    std::atomic<bool> overrun_mode_{false};      // Currently in overrun fallback mode
+    std::atomic<int> consecutive_misses_{0};      // Track cache misses while playing
+    std::atomic<bool> last_was_sync_load_{false}; // True if last GetFrameOrLoad required sync load
+    static constexpr int OVERRUN_THRESHOLD = 1;   // Activate overrun on first miss (immediate)
+    std::atomic<uint64_t> request_generation_{0}; // Incremented on seek - stale results discarded
 
     // Pre-calculated frame size (from actual file, not estimated)
     size_t actualFrameSize_ = 0;  // Calculated from first loaded frame

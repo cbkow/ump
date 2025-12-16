@@ -92,11 +92,12 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
                 audio_mixer_->SetTimer(timeline_timer_.get());
             }
 
-            // Collect all linked clips for preloading
+            // Collect all clips with media paths for preloading
+            // Don't filter by is_linked - PreloadClips handles path resolution
             std::vector<OTIOClip> all_clips;
             for (const auto& track : tracks) {
                 for (const auto& clip : track.clips) {
-                    if (clip.is_linked && !clip.is_gap) {
+                    if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
                         all_clips.push_back(clip);
                     }
                 }
@@ -118,7 +119,7 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
         std::vector<OTIOClip> all_clips;
         for (const auto& track : tracks) {
             for (const auto& clip : track.clips) {
-                if (clip.is_linked && !clip.is_gap) {
+                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
                     all_clips.push_back(clip);
                 }
             }
@@ -279,7 +280,7 @@ void TimelinePlaybackController::NotifyTracksEdited() {
         std::vector<OTIOClip> all_clips;
         for (const auto& track : tracks) {
             for (const auto& clip : track.clips) {
-                if (clip.is_linked && !clip.is_gap) {
+                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
                     all_clips.push_back(clip);
                 }
             }
@@ -489,10 +490,11 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
         audio_mixer_->SetTimer(timeline_timer_.get());  // Direct timer access for sync
 
+        // Collect all clips with media paths for preloading
         std::vector<OTIOClip> all_clips;
         for (const auto& track : tracks) {
             for (const auto& clip : track.clips) {
-                if (clip.is_linked && !clip.is_gap) {
+                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
                     all_clips.push_back(clip);
                 }
             }

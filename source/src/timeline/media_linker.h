@@ -15,6 +15,7 @@ struct VideoProbeResult {
     double duration = 0.0;
     int width = 0;
     int height = 0;
+    bool has_audio = false;  // True if file contains audio stream
 };
 
 // Result of a link attempt for a single clip
@@ -53,6 +54,10 @@ public:
     // Static utility methods for video file handling
     static bool IsVideoFile(const std::string& path);
     static VideoProbeResult ProbeVideoFile(const std::string& path);
+
+    // Extract UMID/MobID hex from MXF file (for Avid media matching)
+    // Returns the hex portion of the file_package_umid (e.g., "6915199d")
+    static std::string ExtractMXFUmidHex(const std::string& mxf_path);
 
     // Main linking function - searches directory and links clips
     LinkSummary LinkMediaInDirectory(

@@ -85,12 +85,16 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/image_sequence_config.cpp"
     "src/player/direct_exr_cache.h"
     "src/player/direct_exr_cache.cpp"
+    "src/player/shared_memory_pool.h"
+    "src/player/shared_memory_pool.cpp"
     "src/player/exr_transcoder.h"
     "src/player/exr_transcoder.cpp"
     "src/gpu/texture_pool.h"
     "src/gpu/texture_pool.cpp"
     "src/player/image_loaders.h"
     "src/player/image_loaders.cpp"
+    "src/player/streaming_video_decoder.h"
+    "src/player/streaming_video_decoder.cpp"
     "src/player/thumbnail_cache.h"
     "src/player/thumbnail_cache.cpp"
     "src/player/comparison_video_player.h"
@@ -99,6 +103,8 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/difference_cache.cpp"
     "src/player/lavfi_filter_generator.h"
     "src/player/lavfi_filter_generator.cpp"
+    "src/player/playback_timer.h"
+    "src/player/playback_timer.cpp"
     "src/annotations/annotation_note.h"
     "src/annotations/annotation_manager.h"
     "src/annotations/annotation_manager.cpp"
@@ -146,6 +152,8 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/ui/transcode_queue_window.h"
     "src/ui/transcode_queue_window.cpp"
     "src/project/project_manager_transcode.cpp"
+    # Windows application icon
+    "resources/ump.rc"
 )
 
 # Include directories
@@ -169,8 +177,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/png/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/nlohmann
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/miniaudio
     ${CMAKE_BINARY_DIR}/_deps/libharu-src/include
     ${CMAKE_BINARY_DIR}/_deps/libharu-build/include
+    # OpenTimelineIO headers
+    ${CMAKE_BINARY_DIR}/_deps/opentimelineio-src/src
 )
 
 # Link directories for Windows
@@ -185,6 +196,16 @@ if(WIN32)
     )
 endif()
 
+# Enable OpenTimelineIO support
+target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
+
+# Enable Python adapters for AAF/XML import (if available)
+if(UMP_PYTHON_ADAPTERS_AVAILABLE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_PYTHON_ADAPTERS)
+    target_link_libraries(${PROJECT_NAME} python_embed)
+    message(STATUS "Python adapters enabled for AAF/XML import")
+endif()
+
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
     OpenGL::GL
@@ -193,6 +214,7 @@ target_link_libraries(${PROJECT_NAME}
     imgui
     implot
     nfd
+    opentimelineio                                                      # OpenTimelineIO
     "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/lib/OpenColorIO.lib"    # OpenColorIO 2.5
     # FFmpeg libraries
     avcodec
@@ -336,5 +358,29 @@ if(WIN32)
     endforeach()
 
     # OIIO removed - using direct OpenEXR API only
+
+    # Copy Python distribution for AAF/XML import (if available)
+    if(UMP_PYTHON_ADAPTERS_AVAILABLE)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/python311"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311"
+            COMMENT "Copying embedded Python distribution for AAF/XML import"
+        )
+        # Also copy python311.dll to main exe directory for runtime linking
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/external/python311/python311.dll"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311.dll"
+            COMMENT "Copying python311.dll to executable directory"
+        )
+        # Copy our custom AAF mob resolver script (overwrites any bundled version)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/resolve_aaf_mobs.py"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311/Lib/site-packages/resolve_aaf_mobs.py"
+            COMMENT "Copying resolve_aaf_mobs.py script"
+        )
+    endif()
 
 endif()

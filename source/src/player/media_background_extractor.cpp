@@ -1449,9 +1449,14 @@ void MediaBackgroundExtractor::PauseExtraction() {
 
 void MediaBackgroundExtractor::ResumeExtraction() {
     ExtractorState current = current_state.load();
-    if (current == ExtractorState::PAUSED_MANUAL) {
-        SetState(ExtractorState::EXTRACTING);
-        Debug::Log("MediaBackgroundExtractor: Extraction resumed");
+
+    // Resume from ANY paused state (not just PAUSED_MANUAL)
+    // This is essential for restart cache functionality
+    if (current == ExtractorState::PAUSED_MANUAL ||
+        current == ExtractorState::PAUSED_PLAYBACK ||
+        current == ExtractorState::PAUSED_REPOSITION) {
+        SetState(ExtractorState::EXTRACTING);  // SetState notifies worker_cv
+        Debug::Log("MediaBackgroundExtractor: Extraction resumed from paused state");
     }
 }
 

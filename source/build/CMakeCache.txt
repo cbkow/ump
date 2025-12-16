@@ -532,6 +532,9 @@ PYTHON:BOOL=OFF
 //Name of the computer/site where compile is being run
 SITE:STRING=Rhombus-w880
 
+//Enable Python-based OTIO adapters for AAF/XML import
+UMP_ENABLE_PYTHON_ADAPTERS:BOOL=ON
+
 //Use MSVC runtime library DLL
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
 
@@ -786,6 +789,8 @@ OPENGL_glu_LIBRARY-ADVANCED:INTERNAL=1
 PNG_PNG_INCLUDE_DIR-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: SITE
 SITE-ADVANCED:INTERNAL=1
+//Python adapters are available
+UMP_PYTHON_ADAPTERS_AVAILABLE:INTERNAL=TRUE
 //ADVANCED property for variable: ZLIB_INCLUDE_DIR
 ZLIB_INCLUDE_DIR-ADVANCED:INTERNAL=1
 //CMAKE_INSTALL_PREFIX during last run

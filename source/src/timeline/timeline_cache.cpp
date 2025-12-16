@@ -1389,6 +1389,11 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
         if (source_frame > max_source_frame) {
             source_frame = max_source_frame;
         }
+    } else if (clip->source_duration == 0 && clip->source_fps == 0) {
+        // No source metadata available (e.g., MXF-wrapped stills from Avid)
+        // Treat as single-frame still image - always use frame 0
+        // The decoder will cache this single frame for the clip's duration
+        source_frame = 0;
     }
 
     // Debug: Log mapping (only first time per clip ID, reset after edit)

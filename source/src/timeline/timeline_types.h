@@ -26,15 +26,25 @@ struct OTIOClip {
     // Media linking
     std::string linked_path;      // Resolved full path to media file
     bool is_linked = false;       // True if media file found and linked
+    std::string aaf_mob_id;       // AAF MobID for MXF matching (Avid media)
 
     // Source media metadata (populated when linked/probed)
     double source_fps = 0.0;      // Native frame rate of source media
     int source_width = 0;         // Source dimensions
     int source_height = 0;
     double source_duration = 0.0; // Full duration of source media (for trim limits)
+    bool has_audio = false;       // True if source media contains audio track
 
     // Clip-level audio control
     bool audio_muted = false;     // Per-clip audio mute (speaker icon on clip)
+
+    // Nested timeline support (for AAF/XML nested sequences, compound clips)
+    bool is_nested = false;                    // True if this clip is a nested composition
+    std::string nested_timeline_json;          // Stored OTIO JSON for lazy parsing
+    std::vector<struct OTIOTrack> nested_tracks; // Parsed tracks (populated on enter)
+    double nested_fps = 0.0;                   // Frame rate of nested composition
+    std::string nested_name;                   // Display name for breadcrumb navigation
+    bool nested_loaded = false;                // True if nested_tracks has been parsed
 };
 
 // Represents a single video or audio track

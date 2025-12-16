@@ -201,7 +201,8 @@ DirectEXRCache::~DirectEXRCache() {
 bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
                                 const std::string& layer,
                                 double fps,
-                                int start_frame) {
+                                int start_frame,
+                                double initial_position) {
     auto init_start = std::chrono::steady_clock::now();
 
     if (files.empty()) {
@@ -252,9 +253,9 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     //           std::to_string(clear_ms) + "ms) - " + std::to_string(files.size()) +
     //           " frames, cache=" + std::to_string(config_.cacheGB) + "GB");
 
-    // Start preloading from frame 0 (fill cache on load)
-    //Debug::Log("DirectEXRCache: [INIT] Starting initial cache fill from frame 0");
-    UpdateCurrentPosition(0.0);
+    // Start preloading from initial position (fill cache around playhead)
+    Debug::Log("DirectEXRCache: [INIT] Starting cache fill from position " + std::to_string(initial_position) + "s");
+    UpdateCurrentPosition(initial_position);
 
     return true;
 }
@@ -264,13 +265,14 @@ bool DirectEXRCache::Initialize(std::unique_ptr<IImageLoader> loader,
                                 const std::string& layer,
                                 double fps,
                                 PipelineMode pipeline_mode,
-                                int start_frame) {
+                                int start_frame,
+                                double initial_position) {
     // Store the loader and pipeline mode
     loader_ = std::move(loader);
     pipelineMode_ = pipeline_mode;
 
     // Delegate to the original Initialize for the rest
-    return Initialize(files, layer, fps, start_frame);
+    return Initialize(files, layer, fps, start_frame, initial_position);
 }
 
 void DirectEXRCache::Shutdown() {
@@ -424,17 +426,73 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
     return texId;
 }
 
+bool DirectEXRCache::IsFrameCached(int frame) const {
+    // Check if frame exists in pixel cache (CPU-side)
+    return pixelCache_.Contains(frame);
+}
+
 bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int& height) {
-    // Get from cache if available
+    // CRITICAL: Check pixel cache directly to detect true cache hits vs fallback textures
+    // GetTexture() returns last_good_texture_ on miss, which masks the actual cache state
+    bool is_actually_cached = pixelCache_.Contains(frame);
+
+    // Get texture (may return fallback if not cached)
     texture = GetTexture(frame, width, height);
 
-    // If not cached, request it
-    if (texture == 0) {
+    // If frame is actually in pixel cache, it's a true cache hit
+    if (is_actually_cached && texture != 0) {
+        consecutive_misses_.store(0);
+        last_was_sync_load_.store(false);  // Cache hit - not a sync load
+        return true;
+    }
+
+    // === CACHE MISS (frame not in pixel cache) ===
+
+    // Track consecutive misses while playing
+    if (isPlaying_) {
+        int misses = consecutive_misses_.fetch_add(1) + 1;
+
+        // Check if we should enter overrun mode
+        if (misses >= OVERRUN_THRESHOLD && !overrun_mode_.load()) {
+            overrun_mode_.store(true);
+            Debug::Log("DirectEXRCache: OVERRUN MODE - cache can't keep up, switching to frame-by-frame sync loading");
+        }
+    }
+
+    // In overrun mode, use non-blocking approach to keep UI responsive
+    // Background thread loads frames with 2-frame lookahead, main thread just waits
+    // Note: Timer should be paused externally when overrun_mode_ is detected
+    if (overrun_mode_.load()) {
+        // Mark as waiting for sync (background is loading)
+        last_was_sync_load_.store(true);
+
+        // Request frame via background thread (non-blocking)
         RequestFrame(frame);
+
+        // Also request next frame for lookahead (speeds up sequential playback)
+        if (frame + 1 < (int)sequenceFiles_.size()) {
+            RequestFrame(frame + 1);
+        }
+
+        // Wake up IO thread immediately for fast response
+        cv_.notify_one();
+
+        // Return last good frame while waiting - keeps UI responsive
+        if (last_good_texture_ != 0) {
+            texture = last_good_texture_;
+            width = last_good_width_;
+            height = last_good_height_;
+            // Return false to indicate this is NOT the requested frame
+            // Stepping logic will wait until we actually get frame N before stepping to N+1
+            return false;
+        }
+
         return false;
     }
 
-    return true;
+    // Normal mode: request frame and return false (background thread will load it)
+    RequestFrame(frame);
+    return false;
 }
 
 void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
@@ -442,12 +500,24 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
 
     // Detect seeks and cancel in-flight requests
     bool isSeek = false;
+    bool isOverrunSeek = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
         // Detect seek: jump > 20 frames
         if (previousFrame_ >= 0 && std::abs(current_frame - previousFrame_) > 20) {
             isSeek = true;
+        }
+
+        // In overrun mode, ANY position change (even 1 frame jump from user seek) should clear queue
+        // This ensures immediate response when user scrubs during overrun playback
+        if (overrun_mode_.load() && previousFrame_ >= 0 && current_frame != previousFrame_) {
+            // Check if this is a user-initiated seek (not our own stepping)
+            // Stepping increments by 1, seeks typically jump more or go backwards
+            int delta = current_frame - previousFrame_;
+            if (delta != 1) {  // Not a forward step - must be user seek
+                isOverrunSeek = true;
+            }
         }
 
         previousFrame_ = current_frame;
@@ -459,6 +529,14 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
     if (isSeek) {
         //Debug::Log("DirectEXRCache: [SEEK DETECTED] Canceling all in-flight requests");
         ClearRequests();
+
+        // Reset overrun mode on seek - user is repositioning, give cache a fresh start
+        ResetOverrunMode();
+    } else if (isOverrunSeek) {
+        // In overrun mode, clear queue on any user seek to prioritize new position
+        // Don't reset overrun mode - we're still in slow playback, just repositioned
+        Debug::Log("DirectEXRCache: [OVERRUN SEEK] Clearing queue for immediate response");
+        ClearRequests();
     }
 
     // Wake up cache thread immediately (don't wait for next tick)
@@ -469,7 +547,21 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
 void DirectEXRCache::UpdatePlaybackState(bool is_playing) {
     std::lock_guard<std::mutex> lock(mutex_);
     isPlaying_ = is_playing;
-    //Debug::Log("DirectEXRCache: Playback state updated - " + std::string(is_playing ? "PLAYING" : "PAUSED"));
+
+    // Reset overrun mode when paused - user interaction resets state
+    if (!is_playing) {
+        ResetOverrunMode();
+    }
+}
+
+void DirectEXRCache::ResetOverrunMode() {
+    bool was_in_overrun = overrun_mode_.exchange(false);
+    consecutive_misses_.store(0);
+    last_was_sync_load_.store(false);  // Reset sync load tracking
+
+    if (was_in_overrun) {
+        Debug::Log("DirectEXRCache: Overrun mode RESET - returning to normal cache-ahead");
+    }
 }
 
 void DirectEXRCache::SetLooping(bool enabled) {
@@ -563,8 +655,9 @@ void DirectEXRCache::ClearRequests() {
 
         videoRequests_.clear();
 
-        // Clear the map and let the futures destruct naturally
-        requestsInProgress_.clear();
+        // DON'T clear requestsInProgress_ - that blocks waiting for futures!
+        // Let in-progress tasks finish naturally - their results just add to cache
+        // which is fine (extra cached frames don't hurt)
 
         // Set flag to reset fill counters on next cache update
         // This makes cache fill restart from new seek position
@@ -578,6 +671,9 @@ void DirectEXRCache::ClearRequests() {
 void DirectEXRCache::ClearCache() {
     // Clear both requests AND cache (for config changes)
     ClearRequests();
+
+    // Reset overrun mode when cache is cleared (file reload, config change, etc.)
+    ResetOverrunMode();
 
     // Clear pixel cache
     auto pixel_keys = pixelCache_.GetKeys();
@@ -738,6 +834,12 @@ void DirectEXRCache::CacheThread() {
         // If no sequence loaded, just sleep and check again
         if (!initialized_ || sequenceFiles_.empty()) {
             continue;
+        }
+
+        // OVERRUN MODE: Pause background caching to prevent batch-loading spurts
+        // When in overrun mode, we only sync load one frame at a time for consistent playback
+        if (overrun_mode_.load()) {
+            continue;  // Skip cache work, let sync loading handle frames one at a time
         }
 
         iteration++;
@@ -1124,7 +1226,12 @@ void DirectEXRCache::IOWorkerThread() {
 
         if (!ioRunning_) break;
 
-        // Spawn async tasks (up to threadCount concurrent)
+        // OVERRUN MODE: Allow limited lookahead (1-2 frames) for better performance
+        // Instead of completely stopping, we allow a small buffer to be loaded ahead
+        const bool in_overrun = overrun_mode_.load();
+        const size_t max_concurrent = in_overrun ? 2 : config_.threadCount;  // 2 in overrun, 16 normal
+
+        // Spawn async tasks (up to max_concurrent)
         {
             std::lock_guard<std::mutex> lock(mutex_);
 
@@ -1136,7 +1243,7 @@ void DirectEXRCache::IOWorkerThread() {
 
             int spawned = 0;
             while (!videoRequests_.empty() &&
-                   requestsInProgress_.size() < config_.threadCount) {
+                   requestsInProgress_.size() < max_concurrent) {
 
                 int frame = videoRequests_.front();
                 videoRequests_.pop_front();
