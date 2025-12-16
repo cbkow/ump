@@ -18,3 +18,7 @@
 .nav-list-child-link.active {
   color: #d4aa72;
 }
+
+.nav-list .nav-list-item .nav-list-link:hover, .nav-list .nav-list-item .nav-list-link.active {
+    background-image: linear-gradient(-90deg, #d4aa72 0%, rgba(212, 170, 115,0.8) 80%, rgba(212, 170, 115,0) 100%);
+}
