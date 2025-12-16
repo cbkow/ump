@@ -141,4 +141,4 @@ The keyboard command `I` and `O`, as well as the two buttons in this section, wi
 
 In addition to your middle mouse button, you can use these sliders to zoom and pan a timeline.
 
-![window](images/ump_loXCSy9iUw.png)
+![window](images/ump_loXCSy9iUw.png) 
