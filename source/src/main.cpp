@@ -2098,6 +2098,22 @@ public:
                             video_player->SeekToFrame(in_frame);
                             Debug::Log("In/Out loop: Before In frame, jumped to frame " + std::to_string(in_frame));
                         }
+
+                        // Sync loop range to EXR cache for intelligent pre-caching within loop zone
+                        // Check IsInEXRMode() for EXR sequences (has its own flag separate from IsImageSequence)
+                        if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
+                            auto* exr_cache = video_player->GetEXRCache();
+                            if (exr_cache) {
+                                exr_cache->SetLoopRange(in_frame, out_frame);
+                            }
+                        }
+                    }
+                }
+                // Clear loop range when not in loop zone mode
+                else if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
+                    auto* exr_cache = video_player->GetEXRCache();
+                    if (exr_cache) {
+                        exr_cache->ClearLoopRange();
                     }
                 }
 
@@ -3627,7 +3643,9 @@ private:
                         if (!dual_mode_enabled) {  // About to enable
                             if (project_manager) {
                                 project_manager->SetUserCachePreference(false);  // Disable cache for dual mode
+                                project_manager->ClearInOutPoints();  // Never use loop mode settings from media item in dual view
                                 Debug::Log("Seek cache disabled for dual video mode");
+                                Debug::Log("In/Out points cleared for dual view mode");
                             }
                         } else {  // About to disable
                             if (project_manager) {
@@ -4413,7 +4431,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.9");
+                ImGui::TextDisabled("About u.m.p. v0.5.0");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -8866,7 +8884,9 @@ private:
                     if (!dual_view_enabled) {  // About to enable
                         if (project_manager) {
                             project_manager->SetUserCachePreference(false);  // Disable cache for dual mode
+                            project_manager->ClearInOutPoints();  // Never use loop mode settings from media item in dual view
                             Debug::Log("Seek cache disabled for dual video mode");
+                            Debug::Log("In/Out points cleared for dual view mode");
                         }
                     } else {  // About to disable
                         if (project_manager) {
@@ -9559,25 +9579,10 @@ private:
                     loop_start_x = std::max(loop_start_x, canvas_pos.x);
                     loop_end_x = std::min(loop_end_x, canvas_pos.x + canvas_size.x);
 
-                    // Choose color based on mode:
-                    // - Trim mode: Amber/yellow tint (180, 120, 30, 80)
-                    // - Loop mode: Semi-transparent accent (matching timeline panel style)
-                    ImU32 region_bg_color;
-                    if (trim_mode_left || trim_mode_right) {
-                        // Amber/yellow for trim mode
-                        region_bg_color = IM_COL32(180, 120, 30, 80);
-                    } else {
-                        // Semi-transparent accent color for loop mode (matching timeline panel)
-                        ImVec4 loop_accent = GetWindowsAccentColor();
-                        region_bg_color = IM_COL32(
-                            static_cast<int>(loop_accent.x * 80),
-                            static_cast<int>(loop_accent.y * 80),
-                            static_cast<int>(loop_accent.z * 80),
-                            60  // Semi-transparent, matching timeline panel
-                        );
-                    }
+                    // White highlight matching dual view trim mode style
+                    ImU32 region_bg_color = IM_COL32(255, 255, 255, 30);
 
-                    // Draw filled rectangle covering full ruler region
+                    // Draw filled rectangle covering ruler area
                     draw_list->AddRectFilled(
                         ImVec2(loop_start_x, ruler_y),
                         ImVec2(loop_end_x, ruler_y + RULER_HEIGHT),
@@ -9695,16 +9700,11 @@ private:
                     }
                 }
 
-                // Draw In/Out point markers (vertical lines matching timeline panel style)
-                ImVec4 io_accent = GetWindowsAccentColor();
-                ImU32 io_marker_color = IM_COL32(
-                    static_cast<int>(io_accent.x * 200),
-                    static_cast<int>(io_accent.y * 200),
-                    static_cast<int>(io_accent.z * 200),
-                    200
-                );
+                // Draw In/Out point markers using Bright accent color
+                ImVec4 io_accent = Bright(GetWindowsAccentColor());
+                ImU32 io_marker_color = ToImU32(io_accent);
 
-                // In/Out markers - full ruler height (with zoom/pan)
+                // In marker (accent color line with triangle)
                 if (project_manager && project_manager->HasInPoint() && duration > 0 && fps > 0) {
                     double in_pt = project_manager->GetInPoint();
                     int in_frame = static_cast<int>(std::round(in_pt * fps));
@@ -9719,9 +9719,17 @@ private:
                             ImVec2(in_x, ruler_y + RULER_HEIGHT),
                             io_marker_color, 2.0f
                         );
+                        // Triangle pointing right (In point)
+                        draw_list->AddTriangleFilled(
+                            ImVec2(in_x, ruler_y),
+                            ImVec2(in_x + 8, ruler_y + 8),
+                            ImVec2(in_x, ruler_y + 8),
+                            io_marker_color
+                        );
                     }
                 }
 
+                // Out marker (accent color line with triangle)
                 if (project_manager && project_manager->HasOutPoint() && duration > 0 && fps > 0) {
                     double out_pt = project_manager->GetOutPoint();
                     int out_frame = static_cast<int>(std::round(out_pt * fps));
@@ -9735,6 +9743,13 @@ private:
                             ImVec2(out_x, ruler_y),
                             ImVec2(out_x, ruler_y + RULER_HEIGHT),
                             io_marker_color, 2.0f
+                        );
+                        // Triangle pointing left (Out point)
+                        draw_list->AddTriangleFilled(
+                            ImVec2(out_x, ruler_y),
+                            ImVec2(out_x - 8, ruler_y + 8),
+                            ImVec2(out_x, ruler_y + 8),
+                            io_marker_color
                         );
                     }
                 }
@@ -11164,9 +11179,12 @@ private:
             if (ImGui::Button(ICON_SPLIT_SCENE "##dv_toggle", ImVec2(small_button, button_size))) {
                 // Manage seek cache: disable when entering dual mode, restore when exiting
                 if (!dual_view_enabled) {
+                    // Entering dual view - clear loop/in-out settings from media item
                     if (project_manager) {
                         project_manager->SetUserCachePreference(false);
+                        project_manager->ClearInOutPoints();  // Never use loop mode settings from media item in dual view
                         Debug::Log("Seek cache disabled for dual video mode");
+                        Debug::Log("In/Out points cleared for dual view mode");
                     }
                 } else {
                     if (project_manager) {
@@ -11670,15 +11688,22 @@ private:
                 float track_y = tracks_start_pos.y + TIMELINE_RULER_HEIGHT +
                     (g_dv_trim_mode.is_left_track ? 0 : (TRACK_LANE_HEIGHT + OTIOTimeline::TRACK_SEPARATOR_HEIGHT));
 
-                // Trim Mode Panel - position above the clip being edited
+                // Trim Mode Panel - position at bottom right of main viewport, above transport row
                 float panel_w = 420.0f;
                 float panel_h = 280.0f;  // Increased to fit all content
-                // Center panel above the clip, but keep it on screen
-                float clip_center_x = clip_screen_x + clip_screen_w * 0.5f;
-                float panel_x = clip_center_x - panel_w * 0.5f;
-                panel_x = std::clamp(panel_x, 10.0f, screen_size.x - panel_w - 10.0f);
-                float panel_y = tracks_start_pos.y - panel_h - 10.0f;
-                if (panel_y < 10) panel_y = 10;
+                float transport_row_height = 50.0f;  // Transport controls height + padding
+
+                // Use main viewport for window-relative positioning
+                ImGuiViewport* main_vp = ImGui::GetMainViewport();
+
+                // Position at bottom right of the main viewport, above transport row and timeline
+                // tracks_start_pos.y is already in screen coordinates
+                float panel_x = main_vp->Pos.x + main_vp->Size.x - panel_w - 20.0f;
+                float panel_y = tracks_start_pos.y - panel_h - transport_row_height - 10.0f;  // Above transport row
+
+                // Clamp to stay within the main viewport
+                panel_x = std::clamp(panel_x, main_vp->Pos.x + 10.0f, main_vp->Pos.x + main_vp->Size.x - panel_w - 10.0f);
+                panel_y = std::clamp(panel_y, main_vp->Pos.y + 10.0f, main_vp->Pos.y + main_vp->Size.y - panel_h - 10.0f);
 
                 // Use system accent color
                 ImVec4 accent = GetWindowsAccentColor();
@@ -11689,6 +11714,7 @@ private:
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(15, 15));
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
                 ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 2.0f);
+                ImGui::PushStyleVar(ImGuiStyleVar_ScrollbarSize, 0.0f);  // Prevent scrollbar space reservation
                 ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.16f, 0.16f, 0.16f, 0.98f));
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(accent.x, accent.y, accent.z, 1.0f));
 
@@ -11696,10 +11722,13 @@ private:
                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoSavedSettings)) {
 
+                    // Get actual content width for proper centering (accounts for window padding)
+                    float content_w = ImGui::GetContentRegionAvail().x;
+
                     // Title - centered
                     const char* title = g_dv_trim_mode.is_left_track ? "Trim Mode - Left Video" : "Trim Mode - Right Video";
                     ImVec2 title_size = ImGui::CalcTextSize(title);
-                    ImGui::SetCursorPosX((panel_w - title_size.x) * 0.5f);
+                    ImGui::SetCursorPosX((content_w - title_size.x) * 0.5f);
                     ImGui::TextColored(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), "%s", title);
                     ImGui::Spacing();
 
@@ -11741,7 +11770,7 @@ private:
 
                         if (preview_texture != 0 && frame_width > 0 && frame_height > 0) {
                             thumb_w = thumb_h * (float)frame_width / frame_height;
-                            float thumb_offset = (panel_w - thumb_w - 20) * 0.5f;
+                            float thumb_offset = (content_w - thumb_w) * 0.5f;
                             ImGui::SetCursorPosX(thumb_offset);
                             ImGui::Image((ImTextureID)(intptr_t)preview_texture, ImVec2(thumb_w, thumb_h));
                             thumbnail_shown = true;
@@ -11749,7 +11778,7 @@ private:
                     }
 
                     if (!thumbnail_shown) {
-                        float thumb_offset = (panel_w - thumb_w - 20) * 0.5f;
+                        float thumb_offset = (content_w - thumb_w) * 0.5f;
                         ImGui::SetCursorPosX(thumb_offset);
                         ImVec2 p = ImGui::GetCursorScreenPos();
                         ImGui::GetWindowDrawList()->AddRectFilled(p, ImVec2(p.x + thumb_w, p.y + thumb_h),
@@ -11772,7 +11801,7 @@ private:
                     double pos_secs = current_pos - pos_mins * 60;
                     snprintf(pos_tc, sizeof(pos_tc), "Current: %d:%05.2f (Frame %d)", pos_mins, pos_secs, preview_frame);
                     ImVec2 pos_size = ImGui::CalcTextSize(pos_tc);
-                    ImGui::SetCursorPosX((panel_w - pos_size.x - 20) * 0.5f);
+                    ImGui::SetCursorPosX((content_w - pos_size.x) * 0.5f);
                     ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "%s", pos_tc);
 
                     // In/Out display - with accent color when set
@@ -11788,7 +11817,7 @@ private:
                     ImVec4 out_color = g_dv_trim_mode.out_set ? Bright(accent) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f);
 
                     ImGui::TextColored(in_color, "%s", in_tc);
-                    ImGui::SameLine(panel_w - 150);
+                    ImGui::SameLine(content_w - 130);
                     ImGui::TextColored(out_color, "%s", out_tc);
 
                     ImGui::Spacing();
@@ -11800,7 +11829,7 @@ private:
                     float button_h = 28.0f;
                     float spacing = 10.0f;
                     float total_row_w = button_w * 2 + spacing;
-                    float center_offset = (panel_w - total_row_w - 30) * 0.5f;
+                    float center_offset = (content_w - total_row_w) * 0.5f;
 
                     // Button text should stay white/light on hover
                     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -11897,7 +11926,7 @@ private:
                 }
                 ImGui::End();
                 ImGui::PopStyleColor(2);
-                ImGui::PopStyleVar(3);  // WindowPadding, WindowRounding, WindowBorderSize
+                ImGui::PopStyleVar(4);  // WindowPadding, WindowRounding, WindowBorderSize, ScrollbarSize
 
                 // Keyboard shortcuts for trim mode
                 // Convert playhead to source position for this clip (same logic as above)
@@ -11953,7 +11982,7 @@ private:
                 // Get foreground draw list for markers (these should be drawn on top)
                 ImDrawList* fg_draw = ImGui::GetForegroundDrawList();
 
-                // Draw In/Out markers on the clip
+                // Draw In/Out markers on the clip using Bright accent color
                 // Calculate marker positions relative to the FULL source, not current trim
                 float source_start_x = clip_screen_x - trim_clip.source_in * g_dv_pixels_per_second;
                 float in_x = source_start_x + g_dv_trim_mode.pending_in * g_dv_pixels_per_second;
@@ -11961,22 +11990,25 @@ private:
                 float clip_top = track_y + 2;
                 float clip_bottom = track_y + TRACK_LANE_HEIGHT - 4;
 
-                // In marker (green line)
+                ImVec4 dv_io_accent = Bright(GetWindowsAccentColor());
+                ImU32 dv_io_marker_color = ToImU32(dv_io_accent);
+
+                // In marker (accent color)
                 if (g_dv_trim_mode.in_set) {
                     fg_draw->AddLine(ImVec2(in_x, clip_top), ImVec2(in_x, clip_bottom),
-                        IM_COL32(100, 255, 100, 255), 2.0f);
+                        dv_io_marker_color, 2.0f);
                     fg_draw->AddTriangleFilled(
                         ImVec2(in_x, clip_top), ImVec2(in_x + 8, clip_top + 8), ImVec2(in_x, clip_top + 8),
-                        IM_COL32(100, 255, 100, 255));
+                        dv_io_marker_color);
                 }
 
-                // Out marker (red line)
+                // Out marker (accent color)
                 if (g_dv_trim_mode.out_set) {
                     fg_draw->AddLine(ImVec2(out_x, clip_top), ImVec2(out_x, clip_bottom),
-                        IM_COL32(255, 100, 100, 255), 2.0f);
+                        dv_io_marker_color, 2.0f);
                     fg_draw->AddTriangleFilled(
                         ImVec2(out_x, clip_top), ImVec2(out_x - 8, clip_top + 8), ImVec2(out_x, clip_top + 8),
-                        IM_COL32(255, 100, 100, 255));
+                        dv_io_marker_color);
                 }
 
                 // Highlight the region being kept
@@ -14100,18 +14132,11 @@ private:
         );
 
         // Loop region highlight - draw colored background between In/Out points
-        // Also draw independent borders when only In or Out is set
+        // Using Bright accent color for markers
         if (timeline_view && (timeline_view->HasTimelineInPoint() || timeline_view->HasTimelineOutPoint())) {
-            ImVec4 accent = GetWindowsAccentColor();
             float track_lane_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
-
-            // Marker line color (bright accent)
-            ImU32 marker_color = IM_COL32(
-                static_cast<int>(accent.x * 200),
-                static_cast<int>(accent.y * 200),
-                static_cast<int>(accent.z * 200),
-                200
-            );
+            ImVec4 io_accent = Bright(GetWindowsAccentColor());
+            ImU32 io_marker_color = ToImU32(io_accent);
 
             // Calculate In point position if set
             float loop_start_x = -1;
@@ -14120,12 +14145,19 @@ private:
                 loop_start_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
                               static_cast<float>(tl_in) * pixels_per_second - scroll_offset_x;
 
-                // Draw In point vertical line (if in visible area)
+                // Draw In point (accent color line with triangle) - if in visible area
                 if (loop_start_x >= track_lane_left && loop_start_x <= ruler_right) {
                     draw_list->AddLine(
                         ImVec2(loop_start_x, ruler_y),
                         ImVec2(loop_start_x, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-                        marker_color, 2.0f
+                        io_marker_color, 2.0f
+                    );
+                    // Triangle pointing right (In point)
+                    draw_list->AddTriangleFilled(
+                        ImVec2(loop_start_x, ruler_y),
+                        ImVec2(loop_start_x + 8, ruler_y + 8),
+                        ImVec2(loop_start_x, ruler_y + 8),
+                        io_marker_color
                     );
                 }
             }
@@ -14137,12 +14169,19 @@ private:
                 loop_end_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
                             static_cast<float>(tl_out) * pixels_per_second - scroll_offset_x;
 
-                // Draw Out point vertical line (if in visible area)
+                // Draw Out point (accent color line with triangle) - if in visible area
                 if (loop_end_x >= track_lane_left && loop_end_x <= ruler_right) {
                     draw_list->AddLine(
                         ImVec2(loop_end_x, ruler_y),
                         ImVec2(loop_end_x, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-                        marker_color, 2.0f
+                        io_marker_color, 2.0f
+                    );
+                    // Triangle pointing left (Out point)
+                    draw_list->AddTriangleFilled(
+                        ImVec2(loop_end_x, ruler_y),
+                        ImVec2(loop_end_x - 8, ruler_y + 8),
+                        ImVec2(loop_end_x, ruler_y + 8),
+                        io_marker_color
                     );
                 }
             }
@@ -14154,13 +14193,8 @@ private:
                 float clamped_end = std::min(loop_end_x, ruler_right);
 
                 if (clamped_start < clamped_end) {
-                    // MutedDark = dimmed, desaturated version
-                    ImU32 loop_region_color = IM_COL32(
-                        static_cast<int>(accent.x * 80),
-                        static_cast<int>(accent.y * 80),
-                        static_cast<int>(accent.z * 80),
-                        60  // Semi-transparent
-                    );
+                    // White highlight matching dual view trim mode style
+                    ImU32 loop_region_color = IM_COL32(255, 255, 255, 30);
 
                     // Draw on ruler area
                     draw_list->AddRectFilled(

@@ -373,6 +373,11 @@ public:
     void SetLooping(bool enabled);
     bool IsLooping() const { return is_looping_; }
 
+    // Loop range for In/Out point constrained playback
+    // When set, wrap-around caching stays within [in_frame, out_frame]
+    void SetLoopRange(int in_frame, int out_frame);
+    void ClearLoopRange();
+
     // Overrun failsafe control
     // When cache can't keep up during playback, switches to synchronous frame loading
     void ResetOverrunMode();  // Call on seek, pause, or file reload
@@ -511,6 +516,11 @@ private:
     CacheDirection cacheDirection_ = CacheDirection::Forward;
     bool isPlaying_ = false;
     bool is_looping_ = false;  // Wrap-around caching enabled
+
+    // Loop range for In/Out point constrained playback
+    int loop_in_frame_ = -1;   // -1 = use start of sequence (frame 0)
+    int loop_out_frame_ = -1;  // -1 = use end of sequence
+    bool has_loop_range_ = false;  // True when valid In/Out range is set
 
     //=========================================================================
     // Overrun Failsafe (sync fallback when cache can't keep up)

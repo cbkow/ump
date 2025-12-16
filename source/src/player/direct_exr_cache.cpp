@@ -507,9 +507,14 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
 
-        // Detect seek: jump > 20 frames
-        if (previousFrame_ >= 0 && std::abs(current_frame - previousFrame_) > 20) {
-            isSeek = true;
+        // Detect seek: forward jump > 20 frames, OR backward jump > 2 frames
+        // Backward seeks (loops, user scrub) should always reset overrun mode
+        // Forward threshold is higher to avoid false positives from playback jitter
+        if (previousFrame_ >= 0) {
+            int delta = current_frame - previousFrame_;
+            if (delta < -2 || delta > 20) {
+                isSeek = true;
+            }
         }
 
         // In overrun mode, ANY position change (even 1 frame jump from user seek) should clear queue
@@ -572,6 +577,27 @@ void DirectEXRCache::SetLooping(bool enabled) {
     is_looping_ = enabled;
     Debug::Log("DirectEXRCache: Looping " + std::string(enabled ? "ENABLED" : "DISABLED") +
                " - wrap-around caching " + std::string(enabled ? "active" : "inactive"));
+}
+
+void DirectEXRCache::SetLoopRange(int in_frame, int out_frame) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    loop_in_frame_ = in_frame;
+    loop_out_frame_ = out_frame;
+    has_loop_range_ = (in_frame >= 0 && out_frame >= 0 && out_frame > in_frame);
+    if (has_loop_range_) {
+        Debug::Log("DirectEXRCache: Loop range set to [" + std::to_string(in_frame) +
+                   ", " + std::to_string(out_frame) + "]");
+    }
+}
+
+void DirectEXRCache::ClearLoopRange() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (has_loop_range_) {
+        Debug::Log("DirectEXRCache: Loop range cleared");
+    }
+    loop_in_frame_ = -1;
+    loop_out_frame_ = -1;
+    has_loop_range_ = false;
 }
 
 bool DirectEXRCache::GetFrameDimensions(int& width, int& height) const {
@@ -973,7 +999,28 @@ void DirectEXRCache::CacheThread() {
             for (int frame : cached_frames) {
                 bool should_evict = false;
 
-                if (is_looping_) {
+                if (is_looping_ && has_loop_range_) {
+                    // LOOP ZONE EVICTION: Evict frames outside the loop range
+                    // and use wrap-around distance within the loop zone
+                    if (frame < loop_in_frame_ || frame > loop_out_frame_) {
+                        // Outside loop zone - evict
+                        should_evict = true;
+                    } else {
+                        // Within loop zone - use wrap-around distance
+                        int loop_size = loop_out_frame_ - loop_in_frame_ + 1;
+                        int frame_in_loop = frame - loop_in_frame_;
+                        int current_in_loop = current_frame - loop_in_frame_;
+                        if (current_in_loop < 0) current_in_loop = 0;
+                        if (current_in_loop >= loop_size) current_in_loop = loop_size - 1;
+
+                        int forward_distance = (frame_in_loop - current_in_loop + loop_size) % loop_size;
+                        int backward_distance = (current_in_loop - frame_in_loop + loop_size) % loop_size;
+
+                        if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                            should_evict = true;
+                        }
+                    }
+                } else if (is_looping_) {
                     // WRAP-AROUND EVICTION: Calculate shortest distance considering loop
                     // Example: frame 5 is 15 frames "ahead" of frame 90 in a 100-frame sequence
                     int forward_distance = (frame - current_frame + sequence_size) % sequence_size;
@@ -1079,18 +1126,89 @@ void DirectEXRCache::CacheThread() {
                 int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
 
                 // Fill read-ahead frames (priority for forward playback)
-                // Iterate through FULL read-ahead window, but limit NEW requests per iteration
-                for (int i = 1; i <= config_.readAheadFrames && requested_count < max_to_request; i++) {
-                    int frame = current_frame + i;
+                // When loop range is active, cache ONLY frames within the loop zone
+                if (is_looping_ && has_loop_range_) {
+                    // LOOP ZONE MODE: Cache frames within [loop_in_frame_, loop_out_frame_]
+                    // Iterate from current position forward, wrapping at Out→In
+                    int loop_size = loop_out_frame_ - loop_in_frame_ + 1;
 
-                    // Wrap or clamp based on looping mode
-                    if (is_looping_) {
-                        // Wrap around to beginning
-                        frame = frame % sequence_size;
-                    } else {
-                        // Stop at end
-                        if (frame >= sequence_size) break;
+                    // Start from current frame (or loop_in if current is outside zone)
+                    int base = current_frame;
+                    if (base < loop_in_frame_) base = loop_in_frame_;
+                    if (base > loop_out_frame_) base = loop_in_frame_;
+
+                    for (int i = 0; i < loop_size && requested_count < max_to_request; i++) {
+                        // Calculate frame with wrap-around within loop zone
+                        int frame = loop_in_frame_ + ((base - loop_in_frame_ + i) % loop_size);
+
+                        // Skip if already cached
+                        if (pixelCache_.Contains(frame)) continue;
+
+                        // Skip if already in progress
+                        if (requestsInProgress_.find(frame) != requestsInProgress_.end()) continue;
+
+                        // Skip if already pending
+                        bool already_pending = false;
+                        for (int pending : videoRequests_) {
+                            if (pending == frame) {
+                                already_pending = true;
+                                break;
+                            }
+                        }
+                        if (already_pending) continue;
+
+                        // Add to request queue
+                        videoRequests_.push_back(frame);
+                        requested_count++;
                     }
+                } else {
+                    // NORMAL MODE: Read-ahead from current position
+                    for (int i = 1; i <= config_.readAheadFrames && requested_count < max_to_request; i++) {
+                        int frame = current_frame + i;
+
+                        // Wrap or clamp based on looping mode
+                        if (is_looping_) {
+                            // No loop zone: wrap to beginning of sequence
+                            frame = frame % sequence_size;
+                        } else {
+                            // Stop at end
+                            if (frame >= sequence_size) break;
+                        }
+
+                        // Skip if already cached
+                        if (pixelCache_.Contains(frame)) continue;
+
+                        // Skip if already in progress
+                        if (requestsInProgress_.find(frame) != requestsInProgress_.end()) continue;
+
+                        // Skip if already pending
+                        bool already_pending = false;
+                        for (int pending : videoRequests_) {
+                            if (pending == frame) {
+                                already_pending = true;
+                                break;
+                            }
+                        }
+                        if (already_pending) continue;
+
+                        // Add to request queue
+                        videoRequests_.push_back(frame);
+                        requested_count++;
+                    }
+
+                    // Fill read-behind frames (for backward scrubbing responsiveness)
+                    // Only fill if we have remaining capacity (skip in loop zone mode - handled above)
+                    for (int i = 1; requested_count < max_to_request && i <= readBehindFrames; i++) {
+                        int frame = current_frame - i;
+
+                        // Wrap or clamp based on looping mode
+                        if (is_looping_) {
+                            // No loop zone: wrap to end of sequence
+                            frame = ((frame % sequence_size) + sequence_size) % sequence_size;
+                        } else {
+                            // Stop at beginning
+                            if (frame < 0) break;
+                        }
 
                     // Skip if already cached
                     if (pixelCache_.Contains(frame)) continue;
@@ -1111,41 +1229,7 @@ void DirectEXRCache::CacheThread() {
                     // Add to request queue
                     videoRequests_.push_back(frame);
                     requested_count++;
-                }
-
-                // Fill read-behind frames (for backward scrubbing responsiveness)
-                // Only fill if we have remaining capacity
-                for (int i = 1; requested_count < max_to_request && i <= readBehindFrames; i++) {
-                    int frame = current_frame - i;
-
-                    // Wrap or clamp based on looping mode
-                    if (is_looping_) {
-                        // Wrap around to end
-                        frame = ((frame % sequence_size) + sequence_size) % sequence_size;
-                    } else {
-                        // Stop at beginning
-                        if (frame < 0) break;
                     }
-
-                    // Skip if already cached
-                    if (pixelCache_.Contains(frame)) continue;
-
-                    // Skip if already in progress
-                    if (requestsInProgress_.find(frame) != requestsInProgress_.end()) continue;
-
-                    // Skip if already pending
-                    bool already_pending = false;
-                    for (int pending : videoRequests_) {
-                        if (pending == frame) {
-                            already_pending = true;
-                            break;
-                        }
-                    }
-                    if (already_pending) continue;
-
-                    // Add to request queue
-                    videoRequests_.push_back(frame);
-                    requested_count++;
                 }
 
                 // Post-fill cache prioritization (reverse touch)
