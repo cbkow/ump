@@ -58,7 +58,7 @@ This will bring up a pop-up window where you can set In `I` and Out `O` points a
 
 ### Letting mpv do the work
 
-Up until this point, we had been opening two videos in two separate video players and loosely syncing them. For a tighter sync between the two sources, we can load them into a lavfi combo in mpv. This allows for a perfect frame sync between the two. We have a few choices here: Side-by-Side Modes, Top-Bottom vertical stacks, 50/50 split screens, or a Difference mode view. Select one of these options to load these two videos together.
+Up until this point, we had been opening two videos in two separate video players and loosely syncing them. For a tighter sync between the two sources, we can load them into a lavfi combo in mpv. This allows for a perfect frame sync between the two. We have a few choices here: **Side-by-Side** Modes, **Top-Bottom** vertical stacks, **50/50 Split Screens**, or a **Difference Mode** view. Select one of these options to load these two videos together.
 
 ![Window](images/explorer_mZ0dCXHhwn.png)
 
