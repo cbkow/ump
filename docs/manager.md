@@ -15,3 +15,19 @@ When you double-click on a file, it will be loaded into the viewport and timelin
 All media items are draggable. You can drag them to the **Viewer** to load them, or drag them into the **Playlist Manager** or directly into **Timeline** layers.
 
 ![Window](images/ump_lEMde7LxSn.png)
+
+---
+
+## Save/Load Projects
+
+Saving a project will keep all Media, Playlists, and Timelines in a `.umproj` file so you can return to it later.
+
+![Window](images/ump_rhiW1zQJ5k.png)
+
+---
+
+## Project Links
+
+If you selected the u.m.p. custom URI option during app installation, you can send and receive direct links to saved projects. For example: In Slack, press `Ctrl + Shift + L` to make a link. Paste the copied link in and send it as a message. If the message recipient has u.m.p. installed, they can click on the link to automatically open up the project (assuming they have access to the same file system as you do).
+
+![Window](images/ump_nsrkLepXLf.png)
