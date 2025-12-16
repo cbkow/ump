@@ -1,4 +1,9 @@
 /* Sidebar link hover */
+
+.nav-list-link {
+  color: #efefef;      
+}
+
 .nav-list-link:hover {
   background-color: rgba(255,255,255, 1);  /* subtle highlight */
   color: #171717;                               /* optional hover text color */
@@ -21,8 +26,4 @@
 
 .nav-list .nav-list-item .nav-list-link:hover, .nav-list .nav-list-item .nav-list-link.active {
     background-image: linear-gradient(-90deg, #ffffff 0%, rgba(255, 255, 225, 0.8) 80%, rgba(255, 255, 255, 0) 100%);
-}
-
-.nav-list-link {
-  color: #efefef;      
 }
