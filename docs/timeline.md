@@ -1,5 +1,5 @@
 ---
-title: Timeline and Transport
+title: Timeline Controls
 permalink: /timeline-transport/
 nav_order: 5
 ---
