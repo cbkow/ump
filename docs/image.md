@@ -45,6 +45,12 @@ If you choose to transcode a sequence for better playback, this is where the tem
 
 ![Window](images/ump_TsbN7YkAd9.png)
 
+#### Manually Deleting Disk Cache
+
+You can manually trigger a Disk Cache purge.
+
+![Window](images/ump_S3DBZClsjI.png)
+
 ---
 
 *Note: Because the playback cache is RAM-based, it is affected by our Memory Safety system. If the Memory Safety system has detected full system RAM, Images will not play back. See the Memory Safety page for details.*
