@@ -1,10 +1,10 @@
 /* Sidebar link hover */
 .nav-list-link:hover {
-  background-color: rgba(241, 236, 231, 0.5);  /* subtle highlight */
+  background-color: rgba(26,26,26, 0.5);  /* subtle highlight */
   color: #171717;                               /* optional hover text color */
 }
 .nav-list-link.active {
-  background-color: #d4aa72;  /* selected page bg */
+  background-color: #1a1a1a;  /* selected page bg */
   color: #171717;             /* selected text */
   font-weight: 500;           /* optional emphasis */
 }
