@@ -9,15 +9,15 @@ nav_order: 3
 
 ### Video
 
-The basic app flow places the mpv and image-sequence FBO between the interface and a separate OCIO FBO. This flow allows for real-time background color/pattern swapping (try toggling `B` on the keyboard) and real-time OCIO shader generation on top of all videos and image sequences. 
+The basic app flow places a media FBO between the interface and a separate OCIO FBO. This flow allows real-time background color/pattern swapping (try toggling `B` on the keyboard) and real-time OCIO shader generation across all videos and image sequences. Videos are controlled by libmpv and use its OpenGL API to push frames to our media FBO.
 
-![app flow 1](images/appflow1.png)
+![app flow 1](images/ump_IxDkF0dn30.png)
 
 ### Image Sequences
 
-Image sequences use mpv for control and playback indirectly. When loading an image sequence, u.m.p. will create a dummy video for mpv to use for control, but instead directly extract images to memory straight to the OpenGL FBO. This process bypasses mpv for playback and provides a faster image sequence flipbook for review. It also allows for layer extraction from multi-layer EXRs. It includes the option to transcode larger (think 4k EXRs at DWAB and uncompressed TIFFs) to lower resolution/compression for smoother playback. See the Images page for more info on best practices and IO/decompression limitations with these formats.
+Image sequences use OTIO for control in place of mpv. When loading an image sequence, u.m.p. creates a virtual timeline to contain the sequence and directly loads images into memory—straight to the OpenGL FBO. This process bypasses mpv for playback and provides a faster image sequence flipbook for review. It also allows for layer extraction from multi-layer EXRs. It includes the option to transcode larger (think 4k EXRs at DWAB and uncompressed TIFFs) to lower resolution/compression for smoother playback. See the Images page for more info on best practices and io/decompression limitations with these formats.
 
-![app flow 1](images/appflow2.png)
+![app flow 1](images/ump_cpr8NUmjMg.png)
 
 ---
 
