@@ -6,6 +6,8 @@ nav_order: 5
 
 # Timeline and Transport Controls
 
+## The Controls
+
 The bottom of the **Viewport** panel contains controls for media playback and app state shortcuts. It dynamically shifts based on the loaded media and presents appropriate options. 
 
 ![window](images/ump_5PKciehAgY.png)
