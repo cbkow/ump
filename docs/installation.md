@@ -13,7 +13,7 @@ To install, download the latest `.exe` installer from [releases.](https://github
 *The installer has a few extras:*
  - Registry entries for common media files
  - Adds a `ump:///XXX` custom URI scheme to share file paths with colleagues.
-
+ - Registry entries and icons for `.umproject` files.
 
 ![ump image](images/chrome_6kt4eaw0I2.png)
 
