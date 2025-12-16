@@ -4552,8 +4552,8 @@ bool VideoPlayer::LoadImageSequenceWithCache(const std::vector<std::string>& seq
         ump::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
         exr_cache_->SetConfig(config);
         Debug::Log("VideoPlayer: Applied cache config: " +
-                   std::to_string(config.video_cache_gb) + "GB cache, " +
-                   std::to_string(config.read_behind_seconds) + "s read behind");
+                   std::to_string(config.readAheadFrames) + " frames ahead, " +
+                   std::to_string(config.readBehindSeconds) + "s behind");
 
         // Sync looping state for seamless wrap-around caching
         exr_cache_->SetLooping(loop_enabled);
@@ -5604,8 +5604,8 @@ void VideoPlayer::InitializeEXRCache(const std::vector<std::string>& sequence_fi
         ump::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
         exr_cache_->SetConfig(config);
         Debug::Log("VideoPlayer: Applied cache config: " +
-                   std::to_string(config.video_cache_gb) + "GB cache, " +
-                   std::to_string(config.read_behind_seconds) + "s read behind");
+                   std::to_string(config.readAheadFrames) + " frames ahead, " +
+                   std::to_string(config.readBehindSeconds) + "s behind");
 
         // Sync looping state for seamless wrap-around caching
         exr_cache_->SetLooping(loop_enabled);

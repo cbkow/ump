@@ -241,8 +241,11 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     fps_ = fps;
     startFrame_ = start_frame;
 
-    // Set cache size
-    pixelCache_.SetMaxSize(static_cast<size_t>(config_.cacheGB * 1024 * 1024 * 1024));
+    // Set cache size as safety cap (frame-based eviction is the primary limiter)
+    // Estimate: (readAhead + readBehind) frames * ~64MB per 4K frame * 1.5 buffer
+    int totalWindowFrames = config_.readAheadFrames + static_cast<int>(config_.readBehindSeconds * fps_) + 50;
+    size_t estimatedMaxBytes = static_cast<size_t>(totalWindowFrames) * 64 * 1024 * 1024;
+    pixelCache_.SetMaxSize(estimatedMaxBytes);
 
     initialized_ = true;
 
@@ -719,15 +722,20 @@ void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
         return;
     }
 
-    // Check if cache size changed - if so, clear cache 
-    bool cacheSizeChanged = (config.cacheGB != config_.cacheGB);
+    // Check if window size changed
+    bool windowChanged = (config.readAheadFrames != config_.readAheadFrames ||
+                          config.readBehindSeconds != config_.readBehindSeconds);
 
     config_ = config;
-    pixelCache_.SetMaxSize(static_cast<size_t>(config_.cacheGB * 1024 * 1024 * 1024));
 
-    if (cacheSizeChanged) {
-      /*  Debug::Log("DirectEXRCache: Cache size changed - clearing cache");
-        ClearCache();*/
+    // Update cache size as safety cap (frame-based eviction is primary limiter)
+    int totalWindowFrames = config_.readAheadFrames + static_cast<int>(config_.readBehindSeconds * fps_) + 50;
+    size_t estimatedMaxBytes = static_cast<size_t>(totalWindowFrames) * 64 * 1024 * 1024;
+    pixelCache_.SetMaxSize(estimatedMaxBytes);
+
+    if (windowChanged) {
+        // Mark segments dirty so UI updates
+        segmentsDirty_ = true;
     }
 
     //Debug::Log("DirectEXRCache: Config updated - threads=" +
@@ -905,7 +913,7 @@ void DirectEXRCache::CacheThread() {
                 // Immediately evict stale frames on major seek
                 // This prevents memory tracking issues where old frames consume budget
                 int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
-                int readAheadFrames = 72;  // Smaller immediate window ~3s @ 24fps
+                int readAheadFrames = std::min(config_.readAheadFrames, 72);  // Smaller immediate window for seek
 
                 auto cached_frames_pre = pixelCache_.GetKeys();
                 int immediate_evicted = 0;
@@ -954,9 +962,8 @@ void DirectEXRCache::CacheThread() {
             // Evict old frames with read-behind + read-ahead window
             // Calculate read-behind/read-ahead in frames
             int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
-            //  Also define a read-ahead window for eviction
-            // After a major seek, frames FAR ahead of the playhead should be evicted too
-            int readAheadFrames = 180;  // Keep ~7.5 seconds ahead @ 24fps (was infinite before!)
+            // Use configured read-ahead window for eviction
+            int readAheadFrames = config_.readAheadFrames;
 
             auto cached_frames = pixelCache_.GetKeys();
             int evicted_count = 0;
@@ -1053,12 +1060,12 @@ void DirectEXRCache::CacheThread() {
 
                 size_t available = max_bytes - total_committed;
 
-                // Conservative batching - limit batch size
+                // Conservative batching - limit how many NEW requests per iteration
                 int batch_limit;
                 if (iteration == 1) {
                     batch_limit = config_.threadCount * 4;  // Deep initial saturation
                 } else {
-                    batch_limit = 72;  // 3 seconds @ 24fps - need DEEP buffer since we're slow at GL texture creation
+                    batch_limit = std::min(72, config_.readAheadFrames);  // Rate limit per iteration
                 }
 
                 // Use 80% of available space as safety margin
@@ -1069,13 +1076,11 @@ void DirectEXRCache::CacheThread() {
                 int requested_count = 0;
 
                 // Calculate frame ranges for both directions
-                int readAheadStart = current_frame + 1;
-                int readBehindStart = current_frame - 1;
                 int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
-                int readBehindEnd = current_frame - readBehindFrames;
 
                 // Fill read-ahead frames (priority for forward playback)
-                for (int i = 1; i <= max_to_request; i++) {
+                // Iterate through FULL read-ahead window, but limit NEW requests per iteration
+                for (int i = 1; i <= config_.readAheadFrames && requested_count < max_to_request; i++) {
                     int frame = current_frame + i;
 
                     // Wrap or clamp based on looping mode

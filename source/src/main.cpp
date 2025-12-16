@@ -676,12 +676,12 @@ void AutoConfigureEXRThreading(decltype(cache_settings)& settings) {
            settings.exr_oiio_threads);
 }
 
-// Create DirectEXRCacheConfig from current cache_settings (NEW: Simplified config)
+// Create DirectEXRCacheConfig from current cache_settings
 // Global EXR cache settings (visible to project_manager)
-double g_exr_cache_gb = 18.0;
-float g_read_behind_seconds = 0.5f;
-int g_exr_thread_count = 16;  // DirectEXRCache parallel I/O threads
-int g_exr_transcode_threads = 8;  // EXRTranscoder parallel transcode threads
+int g_exr_read_ahead_frames = 72;     // Frames to cache ahead (~3s @ 24fps)
+float g_read_behind_seconds = 0.5f;   // Seconds to keep behind playhead
+int g_exr_thread_count = 16;          // DirectEXRCache parallel I/O threads
+int g_exr_transcode_threads = 8;      // EXRTranscoder parallel transcode threads
 
 // Global timeline cache settings (EDL/OTIO playback)
 int g_timeline_read_ahead_frames = 72;      // ~3 seconds @ 24fps
@@ -699,7 +699,7 @@ ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
     ump::DirectEXRCacheConfig config;
 
     // Use UI-configured values
-    config.cacheGB = g_exr_cache_gb;
+    config.readAheadFrames = g_exr_read_ahead_frames;
     config.readBehindSeconds = g_read_behind_seconds;
     config.threadCount = static_cast<size_t>(g_exr_thread_count);
 
@@ -4413,7 +4413,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.4.8");
+                ImGui::TextDisabled("About u.m.p. v0.4.9");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -5236,37 +5236,36 @@ private:
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Image sequence cache (EXR/TIFF/PNG/JPEG) with background loading");
                     ImGui::Spacing();
 
-                    // Image Sequence Cache Size (RAM)
-                    ImGui::Text("Image Sequence Cache Size:");
-                    float exr_cache_gb_float = static_cast<float>(g_exr_cache_gb);
-                    if (ImGui::SliderFloat("##ImageSeqCacheSize", &exr_cache_gb_float, 2.0f, 96.0f, "%.1f GB")) {
-                        g_exr_cache_gb = static_cast<double>(exr_cache_gb_float);
+                    // Read-Ahead Frames
+                    ImGui::Text("Read-Ahead Frames:");
+                    if (ImGui::SliderInt("##ImageSeqReadAhead", &g_exr_read_ahead_frames, 24, 600)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
-                            "RAM cache for image sequence frames (EXR/TIFF/PNG/JPEG).\n\n"
-                            "Higher = more frames cached = smoother scrubbing\n\n"
-                            "Memory per frame (4K):\n"
-                            "  - EXR (half-float): ~63 MB\n"
-                            "  - TIFF 16-bit: ~33 MB\n"
-                            "  - PNG 8-bit: ~17 MB\n\n"
-                            "Example (4K EXR):\n"
-                            "  - 18GB = ~290 frames (~12 seconds @ 24fps)\n"
-                            "  - 36GB = ~580 frames (~24 seconds @ 24fps)\n\n"
-                            "Recommended: 18-36GB for 4K EXR work");
+                            "Number of frames to cache ahead of playhead.\n\n"
+                            "More frames = smoother playback, higher RAM usage\n"
+                            "Fewer frames = lower RAM usage, may stutter on slow storage\n\n"
+                            "Examples @ 24fps:\n"
+                            "  - 72 frames = 3 seconds (default)\n"
+                            "  - 180 frames = 7.5 seconds\n"
+                            "  - 360 frames = 15 seconds\n"
+                            "  - 600 frames = 25 seconds\n\n"
+                            "RAM usage depends on resolution:\n"
+                            "  - 4K EXR: ~63 MB/frame\n"
+                            "  - 4K TIFF 16-bit: ~33 MB/frame");
                     }
 
-                    // Calculate and display frame count
-                    int estimated_4k_frames = static_cast<int>((g_exr_cache_gb * 1024.0) / 63.0);
-                    double estimated_4k_seconds = estimated_4k_frames / 24.0;
+                    // Calculate and display time/RAM estimate
+                    double estimated_seconds = g_exr_read_ahead_frames / 24.0;
+                    double estimated_ram_gb = (g_exr_read_ahead_frames * 63.0) / 1024.0;  // 4K EXR estimate
                     ImGui::Spacing();
                     if (font_mono) ImGui::PushFont(font_mono);
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                        "4K Cache: ~%d frames (~%.1f seconds @ 24fps)",
-                        estimated_4k_frames, estimated_4k_seconds);
+                        "Cache: %.1f seconds @ 24fps (~%.1f GB for 4K EXR)",
+                        estimated_seconds, estimated_ram_gb);
                     if (font_mono) ImGui::PopFont();
 
                     // Read-Behind Time
@@ -5776,11 +5775,10 @@ private:
                         video_player->SetEXRCacheConfig(exr_config);
 
                         Debug::Log("Applied image sequence cache settings: " +
-                                   std::to_string(exr_config.video_cache_gb) + "GB cache, " +
-                                   std::to_string(exr_config.read_behind_seconds) + "s read behind, " +
-                                   std::to_string(exr_config.gpu_memory_pool_mb) + "MB GPU pool");
+                                   std::to_string(exr_config.readAheadFrames) + " frames ahead, " +
+                                   std::to_string(exr_config.readBehindSeconds) + "s behind, " +
+                                   std::to_string(exr_config.threadCount) + " threads");
                     } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
                         Debug::Log("Image sequence cache settings configured (will apply when sequence is loaded)");
                     }
 
@@ -5818,9 +5816,8 @@ private:
 
                 // EXR settings - Auto-configure based on CPU
                 AutoConfigureEXRThreading(cache_settings);
-
-                // GPU memory settings
-                cache_settings.gpu_memory_pool_mb = 2048;
+                g_exr_read_ahead_frames = 72;   // ~3s @ 24fps
+                g_read_behind_seconds = 0.5f;   // 0.5s behind playhead
 
                 // Thumbnail settings
                 cache_settings.enable_thumbnails = true;
@@ -19685,8 +19682,8 @@ private:
 
             // Image sequence cache settings (applies to EXR/TIFF/PNG/JPEG sequences)
             if (j.contains("exr_cache")) {
-                if (j["exr_cache"].contains("cache_gb")) {
-                    g_exr_cache_gb = j["exr_cache"]["cache_gb"].get<double>();
+                if (j["exr_cache"].contains("read_ahead_frames")) {
+                    g_exr_read_ahead_frames = j["exr_cache"]["read_ahead_frames"].get<int>();
                 }
                 if (j["exr_cache"].contains("read_behind_seconds")) {
                     g_read_behind_seconds = j["exr_cache"]["read_behind_seconds"].get<float>();
@@ -19919,7 +19916,7 @@ private:
             j["video_cache"]["pipeline_mode"] = PipelineModeToString(cache_settings.current_pipeline_mode);
 
             // Image sequence cache settings (EXR/TIFF/PNG/JPEG)
-            j["exr_cache"]["cache_gb"] = g_exr_cache_gb;
+            j["exr_cache"]["read_ahead_frames"] = g_exr_read_ahead_frames;
             j["exr_cache"]["read_behind_seconds"] = g_read_behind_seconds;
 
             // Timeline cache settings (EDL/OTIO playback)

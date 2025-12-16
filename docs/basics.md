@@ -82,7 +82,7 @@ If you click the tiny triangle in the top-left corner, you can reveal the panel 
 
 ### System Accent Colors
 
-Toggleing System Accent Color will use your Windows Accent Color.
+Toggleing **System Accent Color** will use your Windows Accent Color.
 
 ![ump image](images/ump_ZXYIJ3A0K5.png)
 

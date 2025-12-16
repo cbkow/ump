@@ -62,27 +62,20 @@ private:
 
 // Configuration
 struct EXRCacheConfig {
-    // 16 I/O threads for sequences (SequenceOptions.threadCount = 16)
-    // This helps with slow multilayer EXRs (31 channels, DWAB compression ~900ms/frame)
-    size_t threadCount = 16;            // Parallel EXR loads
-    double cacheGB = 18.0;             // LRU cache size (ignored if use_shared_pool=true)
+    // Parallel I/O threads for sequences
+    // Helps with slow multilayer EXRs (31 channels, DWAB compression ~900ms/frame)
+    size_t threadCount = 16;
 
-    // Read-behind for instant backward scrubbing
-    double readBehindSeconds = 0.5;    // Keep frames BEHIND playhead (0.5s default like )
+    // Frame-based cache window (replaces GB-based sizing)
+    int readAheadFrames = 72;          // Frames to cache ahead of playhead (~3s @ 24fps)
+    double readBehindSeconds = 0.5;    // Seconds to keep behind playhead for backward scrubbing
 
-    // SharedMemoryPool integration (NEW)
-    bool use_shared_pool = false;       // Use global SharedMemoryPool instead of local LRU
-
-    // Compatibility fields (unused in clean version)
-    double video_cache_gb = 18.0;      // Alias for cacheGB
-    double read_behind_seconds = 0.5;  // Alias for readBehindSeconds
-    size_t gpu_memory_pool_mb = 8192;  // Unused
-    size_t gpu_max_textures = 512;     // Unused
-    double gpu_texture_ttl_seconds = 5.0;  // Unused
+    // SharedMemoryPool integration
+    bool use_shared_pool = false;      // Use global SharedMemoryPool instead of local LRU
 
     bool IsValid() const {
         return threadCount >= 1 && threadCount <= 32 &&
-               cacheGB >= 1.0 && cacheGB <= 128.0 &&
+               readAheadFrames >= 12 && readAheadFrames <= 600 &&
                readBehindSeconds >= 0.0 && readBehindSeconds <= 5.0;
     }
 };
