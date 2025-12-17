@@ -1,5 +1,5 @@
 ---
-title: Duel Video Review
+title: Dual Video Review
 permalink: /dual-view/
 nav_order: 13
 ---
