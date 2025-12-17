@@ -12,13 +12,13 @@ nav_order: 4
 
 There are a few ways to load files. You can simply drag one more file into the app. Or you can use the File menu to **Open Media** `Ctrl + O`,  **Open Project** `Ctrl + Shift + O`, or **Import a Timeline**. In this menu, you can also create a **New Project** (this will wipe out your current project), a **New Playlist**, or a **New Timeline**.
 
-![ump image](images/explorer_J0CeMdk9Sn.png)
+![ump image](images/ump_93dckQHz8W.png)
 
 ### Drag and Drop
 
 To load files you have already opened, you can double-click on them in the Project Manager or drag them into the Viewer. The Viewer's border will be highlighted with your theme’s accent color if a drop is detected.
 
-![ump image](images/ump_0EnpFnK3Vs.png)
+![ump image](images/ump_JQQdYZCIAX.png)
 
 ---
 
@@ -40,19 +40,19 @@ You also have a few helpful shortcuts for layout management:
 * **Minimal View** `Ctrl + -` simplifies the layout to just the Viewport and timeline—-the more traditional video player layout. This is a toggle state. You can click it again to return to your previous layout. 
 * **Full Screen** `F` will present the Viewer in full-screen mode without the timeline. You can escape by pressing `F` again or by clicking the close button in the top right of the screen.
 
-![ump image](images/ump_8FmMFpwnZA.png)
+![ump image](images/ump_dEt3zioW6h.png)
 
 ### Resizing the Layout
 
 You can resize panels by simply dragging the borders.
 
-![ump image](images/ump_ygYGsinVaF.png)
+![ump image](images/ump_uIaUcsUKkk.png)
 
 If you click the tiny triangle in the top-left corner, you can reveal the panel as a movable object. You can then drag and drop the panel elsewhere. This arrangement will be saved in your personal settings and remembered the next time you open the app. Reset Layiout `Ctrl + R` will reset the panels if you change your mind.
 
-![ump image](images/ump_nit0IMJdsF.png)
+![ump image](images/ump_yuRO26TvAb.png)
 
-![ump image](images/ump_Foz7VUi8Ba.png)
+![ump image](images/ump_scZlQcKSb8.png)
 
 ---
 
@@ -62,32 +62,27 @@ If you click the tiny triangle in the top-left corner, you can reveal the panel 
 
 `Ctrl + Shift + B` opens the **Video Background** panel and lets you select one of four background colors. Alpha channels in any media will pass through to the background, so you can use them for alpha review. Pressing `B` will cycle through the options without using the panel for selection.
 
-![ump image](images/ump_y0nqlpnrQi.png)
+![ump image](images/ump_OB1hz0b9bM.png)
 
 ### Safety Guides
 
 `Ctrl + /` opens the **Title Safety** panel, where you can select various title safety options to overlay your Viewer with. You can select a color with the color picker, and this color will be saved in your personal settings. 
 
-![ump image](images/ump_zEoahVW9Ei.png)
+![ump image](images/ump_X6lqZyu3UM.png)
 
 ### OCIO Presets
 
 `Ctrl + C` opens the **OCIO Color Preset** panel. Enabling one of these options applies an OCIO node-tree preset to your **Viewer**, and everything in the **Viewer** will have this color correction applied. See the **OCIO Nodes** page for more details on how these presets work.
 
-![ump image](images/ump_rPpfu7V3vk.png)
+![ump image](images/ump_2ugcED8kuh.png)
 
 ---
 
 ## Themes
 
-### System Accent Colors
-
-Toggleing **System Accent Color** will use your Windows Accent Color.
-
-![ump image](images/ump_ZXYIJ3A0K5.png)
-
 ### Color Theme Options
 
+Toggleing **System Accent Color** will use your Windows Accent Color.
 You can also select a color theme from one of these options.
 
-![ump image](images/ump_Z3Nz0uYukp.png)
+![ump image](images/ump_YHOVjmzo45.png)

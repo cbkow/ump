@@ -10,7 +10,7 @@ nav_order: 9
 
 u.m.p.'s annotation panel curates a list of all notes and illustrated annotations for loaded media. Notes and screenshots are saved in a `.ump` folder next to the loaded media, making them accessible to coworkers as well. They will load with the media, if available.
 
-![Window](images/ump_n5IQAgCEEU.png)
+![Window](images/ump_qXZDJGhu5W.png)
 
 ## Notes
 
@@ -39,4 +39,4 @@ To import from Frame.io, you will need a Developer API token. These are availabl
 - Add the URL for the webpage of the video you want to import. Note: This is the actual URL of the video, and not Frame.io's shortened client URL.
 - Press `Import`.
 
-![Window](images/ump_Tvs32YDrwM.png)
+![Window](images/ump_cRbhSIVMWY.png)

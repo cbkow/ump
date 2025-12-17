@@ -17,7 +17,7 @@ When video and audio files are loaded, we provide a file path to the media up to
 
 In the Adobe Projects tree, we are searching the file's metadata for source projects. If u.m.p. finds the metadata, it will provide the option to open the source project in Windows Explorer. Click `Open` to open the After Effects or Premiere file. 
 
-![Window](images/ump_UW00gP6o5k.png)
+![Window](images/ump_U4qFMCPXeh.png)
 
 
 ---
@@ -26,11 +26,11 @@ In the Adobe Projects tree, we are searching the file's metadata for source proj
 
 If an image sequence is loaded, we provide basic file information. If an EXR is loaded, additional compression, and channel information is available. 
 
-![Window](images/ump_KXLSZdQNJT.png)
+![Window](images/ump_KLBGMIpVfz.png)
 
 The layer field is a dropdown that you can use to change the EXR layer loaded in the viewport.
 
-![Window](images/ump_S9vSG9JZMb.png)
+![Window](images/ump_YYoH7s2BS0.png)
 
 ---
 
@@ -38,7 +38,7 @@ The layer field is a dropdown that you can use to change the EXR layer loaded in
 
 Playlists will use the Inspector panel for playlist management. You can drag files from the **Project Manager** into the **Playlist Contents** panel. You can drag to reorder media loaded in this panel. There are `Clear All` and `Remove Duplicate` buttons to help manage the playlist contents.
 
-![Window](images/ump_fFqC4DXRBy.png)
+![Window](images/ump_X2LbSWABqq.png)
 
 ---
 
@@ -46,4 +46,4 @@ Playlists will use the Inspector panel for playlist management. You can drag fil
 
 Timelines have an additional field called Source Directory. If this timeline was imported from an EDL, AAF, or XML, it will display the source directory for that file here.
 
-![Window](images/ump_oG42C96aLQ.png)
+![Window](images/explorer_2Ceobtn2HM.png)

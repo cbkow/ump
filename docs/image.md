@@ -10,7 +10,7 @@ nav_order: 10
 
 Basic image sequence usage is straightforward: Open or drag in a single image from a sequence, and u.m.p. will detect the sequence. Select a framerate, and if a multi-layer EXR, select the layer you want to load.
 
-![Window](images/ump_jdQzSqgWYu.png)
+![Window](images/ump_Zesvu6ssPl.png)
 
 There are some considerations to smooth playback, though:
 
@@ -21,35 +21,35 @@ There are some considerations to smooth playback, though:
 
 ## Transcoding
 
-![Window](images/ump_3JmTnN3A1R.png)
+![Window](images/ump_pUupEDcsEq.png)
 
 With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. `DWAA/DWAB` because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.
 
-![Window](images/ump_ZcRwqCFNPK.png)
+![Window](images/ump_NYGTBB4l8c.png)
 
 ## Playback Cache
 
 Image sequences use a custom OTIO-based timeline to playback. Behind the hood, they are extracting textures to RAM and uploading them to the GPU as you traverse the timeline. This is the cache progress bar, which shows how much read-ahead and read-behind you have cached at any given time.
 
-![Window](images/ump_Oa75EQ7J51.png)
+![Window](images/explorer_vb1410KKZo.png)
 
 ### Cache Settings
 
 You can adjust these values in the Pipeline & Cache Settings panel.
 
-![Window](images/ump_uEYd5PzzdV.png)
+![Window](images/ump_Gumzf7YqIw.png)
 
 ### Disk Cache for Transcodes
 
 If you choose to transcode a sequence for better playback, this is where the temp cache file will be stored. I would recommend changing this setting to a fast NVME drive, not your system drive. 
 
-![Window](images/ump_TsbN7YkAd9.png)
+![Window](images/ump_0ICCmDWyWl.png)
 
 ### Manually Deleting Disk Cache
 
 You can manually trigger a Disk Cache purge.
 
-![Window](images/ump_S3DBZClsjI.png)
+![Window](images/ump_S1HJudlAvz.png)
 
 ---
 
