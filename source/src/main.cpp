@@ -841,10 +841,10 @@ public:
         annotation_toolbar = std::make_unique<ump::Annotations::AnnotationToolbar>();
         annotation_renderer = std::make_unique<ump::Annotations::AnnotationRenderer>();
 
-        //node_manager->on_connections_changed = [this]() {
-        //    Debug::Log("Connections changed - updating color pipeline");
-        //    UpdateColorPipeline();
-        //    };
+        node_manager->on_connections_changed = [this]() {
+            Debug::Log("Connections changed - updating color pipeline");
+            UpdateColorPipeline();
+        };
 
         ImNodesEditorContext* nodes_editor_context = nullptr;
 
@@ -4431,7 +4431,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.3");
+                ImGui::TextDisabled("About u.m.p. v0.5.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -20203,6 +20203,28 @@ private:
         // If export dimensions provided, use native resolution rendering
         if (export_width > 0 && export_height > 0) {
             pending_capture.use_native_resolution = true;
+
+            // Scale export dimensions to fit within window framebuffer
+            // This works around OpenGL context limitations that can clip offscreen FBOs
+            int fb_width, fb_height;
+            glfwGetFramebufferSize(window, &fb_width, &fb_height);
+
+            if (export_width > fb_width || export_height > fb_height) {
+                float scale_x = static_cast<float>(fb_width) / export_width;
+                float scale_y = static_cast<float>(fb_height) / export_height;
+                float scale = std::min(scale_x, scale_y);
+
+                int scaled_width = static_cast<int>(export_width * scale);
+                int scaled_height = static_cast<int>(export_height * scale);
+
+                Debug::Log("Scaling export from " + std::to_string(export_width) + "x" + std::to_string(export_height) +
+                          " to " + std::to_string(scaled_width) + "x" + std::to_string(scaled_height) +
+                          " (window: " + std::to_string(fb_width) + "x" + std::to_string(fb_height) + ")");
+
+                export_width = scaled_width;
+                export_height = scaled_height;
+            }
+
             pending_capture.export_width = export_width;
             pending_capture.export_height = export_height;
         } else {
@@ -20435,6 +20457,10 @@ private:
             } else {
                 // Set viewport to native resolution
                 glViewport(0, 0, capture_width, capture_height);
+
+                // CRITICAL: Disable scissor test - ImGui enables it with window-based rect
+                // which would clip our offscreen rendering for tall portrait videos
+                glDisable(GL_SCISSOR_TEST);
 
                 // Clear framebuffer
                 glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -20791,6 +20817,9 @@ private:
                     }
                 }
 
+                // Re-enable scissor test for ImGui
+                glEnable(GL_SCISSOR_TEST);
+
                 // Cleanup framebuffer
                 glBindFramebuffer(GL_FRAMEBUFFER, 0);
                 glDeleteTextures(1, &render_texture);
@@ -20803,14 +20832,20 @@ private:
             }
 
         } else {
-            // Get the video display area (cropped to exclude menu bar and letterboxing)
-            capture_x = static_cast<int>(pending_capture.display_pos.x);
-            capture_width = static_cast<int>(pending_capture.display_size.x);
-            capture_height = static_cast<int>(pending_capture.display_size.y);
-
-            // Get viewport dimensions
+            // Get viewport dimensions (framebuffer size in physical pixels)
             GLint viewport[4];
             glGetIntegerv(GL_VIEWPORT, viewport);
+
+            // Calculate DPI scale factor (ImGui uses logical pixels, OpenGL uses physical pixels)
+            int win_w, win_h;
+            glfwGetWindowSize(window, &win_w, &win_h);
+            float scale_x = (win_w > 0) ? static_cast<float>(viewport[2]) / win_w : 1.0f;
+            float scale_y = (win_h > 0) ? static_cast<float>(viewport[3]) / win_h : 1.0f;
+
+            // Get the video display area and convert from ImGui logical coords to physical framebuffer coords
+            capture_x = static_cast<int>(pending_capture.display_pos.x * scale_x);
+            capture_width = static_cast<int>(pending_capture.display_size.x * scale_x);
+            capture_height = static_cast<int>(pending_capture.display_size.y * scale_y);
 
             // Fallback: if display area not set yet (viewport not calculated), use full framebuffer
             if (capture_width <= 0 || capture_height <= 0) {
@@ -20820,14 +20855,15 @@ private:
                 capture_height = viewport[3];
                 Debug::Log("Display area not set, using full viewport: " + std::to_string(capture_width) + "x" + std::to_string(capture_height));
             } else {
-                // Use ImGui coordinates directly - they already account for the menu bar
-                // No offset needed since display_pos is already in screen coordinates
-                int imgui_y = static_cast<int>(pending_capture.display_pos.y);
-                capture_y = imgui_y;
+                // Convert ImGui Y coordinate (top-down, logical) to OpenGL Y coordinate (bottom-up, physical)
+                // OpenGL Y = framebuffer_height - (imgui_y * scale) - capture_height
+                int imgui_y_physical = static_cast<int>(pending_capture.display_pos.y * scale_y);
+                capture_y = viewport[3] - imgui_y_physical - capture_height;
 
                 Debug::Log("Capture area: x=" + std::to_string(capture_x) +
                           " y=" + std::to_string(capture_y) +
-                          " width=" + std::to_string(capture_width) + " height=" + std::to_string(capture_height));
+                          " width=" + std::to_string(capture_width) + " height=" + std::to_string(capture_height) +
+                          " (scale: " + std::to_string(scale_x) + "x" + std::to_string(scale_y) + ")");
             }
 
             // Only do screen capture if we didn't use offscreen rendering

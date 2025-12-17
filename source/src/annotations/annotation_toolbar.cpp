@@ -104,16 +104,19 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
 }
 
 void AnnotationToolbar::RenderDrawingProperties() {
-    // Color picker
+    // Color picker with extra padding around popup to prevent accidental drawing
     ImGui::Text("Color:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(200.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 12.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
     if (ImGui::ColorEdit4("##Color", &selected_color_.x,
         ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel)) {
         if (callbacks_.on_color_changed) {
             callbacks_.on_color_changed(selected_color_);
         }
     }
+    ImGui::PopStyleVar(2);
 
     // Stroke width
     ImGui::SameLine();

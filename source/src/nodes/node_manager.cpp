@@ -81,6 +81,16 @@ namespace ump {
     }
 
     int NodeManager::CreateOutputDisplayNode(const std::string& display_name, ImVec2 position) {
+        // Enforce single output node policy - remove any existing output nodes
+        std::vector<int> output_nodes_to_remove;
+        for (const auto& [id, node] : nodes) {
+            if (node->GetType() == NodeType::OUTPUT_DISPLAY) {
+                output_nodes_to_remove.push_back(id);
+            }
+        }
+        for (int id : output_nodes_to_remove) {
+            DeleteNode(id);
+        }
 
         int node_id = next_node_id++;
         auto node = std::make_unique<OutputDisplayNode>(node_id, display_name);
@@ -197,6 +207,26 @@ namespace ump {
             bool valid_connection = true;
 
             if (valid_connection) {
+                // Remove any existing connection to this input pin (end_pin)
+                // This ensures only one connection per input
+                connections.erase(
+                    std::remove_if(connections.begin(), connections.end(),
+                        [end_pin](const NodeConnection& conn) {
+                            return conn.to_pin == end_pin;
+                        }),
+                    connections.end()
+                );
+
+                // Remove any existing connection from this output pin (start_pin)
+                // This ensures only one connection per output (no fan-out)
+                connections.erase(
+                    std::remove_if(connections.begin(), connections.end(),
+                        [start_pin](const NodeConnection& conn) {
+                            return conn.from_pin == start_pin;
+                        }),
+                    connections.end()
+                );
+
                 NodeConnection new_connection;
                 new_connection.from_pin = start_pin;
                 new_connection.to_pin = end_pin;
@@ -447,33 +477,62 @@ namespace ump {
     }
 
     NodeBase* NodeManager::FindStartNode() {
-        // Find a node with no incoming connections to its input pins
+        // Strategy: Find the OUTPUT_DISPLAY node, trace backwards to find the connected INPUT_COLORSPACE
+        // This ensures we find the Input that's actually part of a complete chain, ignoring orphaned nodes
+
+        // First, find the output node
+        NodeBase* output_node = nullptr;
         for (auto& [id, node] : nodes) {
-            // Only consider input colorspace nodes as potential start nodes
-            if (node->GetType() != NodeType::INPUT_COLORSPACE) {
-                continue;
-            }
-
-            bool has_incoming = false;
-
-            // Check all input pins of this node
-            for (const auto& input_pin : node->GetInputPins()) {
-                // Check if any connection ends at this input pin
-                for (const auto& conn : connections) {
-                    if (conn.to_pin == input_pin.id) {
-                        has_incoming = true;
-                        break;
-                    }
-                }
-                if (has_incoming) break;
-            }
-
-            if (!has_incoming) {
-                return node.get();
+            if (node->GetType() == NodeType::OUTPUT_DISPLAY) {
+                output_node = node.get();
+                break;
             }
         }
 
-        // If no pure input node found, just return first input colorspace node
+        if (!output_node) {
+            // No output node, fall back to finding any input node
+            for (auto& [id, node] : nodes) {
+                if (node->GetType() == NodeType::INPUT_COLORSPACE) {
+                    return node.get();
+                }
+            }
+            return nullptr;
+        }
+
+        // Trace backwards from output to find the connected input
+        std::set<NodeBase*> visited;
+        NodeBase* current = output_node;
+
+        while (current && visited.find(current) == visited.end()) {
+            visited.insert(current);
+
+            // If this is an input colorspace node, we found our start
+            if (current->GetType() == NodeType::INPUT_COLORSPACE) {
+                return current;
+            }
+
+            // Find the node connected to this node's input
+            const auto& input_pins = current->GetInputPins();
+            if (input_pins.empty()) {
+                break;  // No input pins, can't trace further back
+            }
+
+            int input_pin_id = input_pins[0].id;  // Assume single input
+            NodeBase* prev = nullptr;
+
+            // Look for a connection TO this input pin
+            for (const auto& conn : connections) {
+                if (conn.to_pin == input_pin_id) {
+                    // Find the node that owns the source pin
+                    prev = FindNodeByPinId(conn.from_pin);
+                    if (prev) break;
+                }
+            }
+
+            current = prev;
+        }
+
+        // If no connected input found, fall back to any input node
         for (auto& [id, node] : nodes) {
             if (node->GetType() == NodeType::INPUT_COLORSPACE) {
                 return node.get();

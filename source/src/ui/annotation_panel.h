@@ -71,6 +71,10 @@ public:
     // Annotations enabled/disabled state
     void SetAnnotationsEnabled(bool* enabled_ptr) { annotations_enabled_ptr_ = enabled_ptr; }
 
+    // Video aspect ratio for proper thumbnail display
+    void SetVideoAspectRatio(float aspect_ratio) { video_aspect_ratio_ = aspect_ratio; }
+    float GetVideoAspectRatio() const { return video_aspect_ratio_; }
+
     // Selection state
     void SetSelectedNote(const std::string& timecode);
     const std::string& GetSelectedNote() const { return selected_timecode_; }
@@ -91,6 +95,7 @@ private:
     std::string edit_buffer_;
     bool is_editing_;
     bool* annotations_enabled_ptr_;
+    float video_aspect_ratio_ = 16.0f / 9.0f;  // Default to 16:9, updated when media loads
 
     // UI helpers
     void RenderHeader();
@@ -107,6 +112,8 @@ private:
 
     // Thumbnail cache: image_path -> texture_id
     std::map<std::string, GLuint> thumbnail_cache_;
+    // Thumbnail aspect ratio cache: image_path -> aspect_ratio (width/height)
+    std::map<std::string, float> thumbnail_aspect_cache_;
 };
 
 } // namespace ump

@@ -151,10 +151,16 @@ void AnnotationPanel::RenderNotesList() {
         return;
     }
 
+    int note_index = 0;
     for (auto& note : annotation_manager_->GetNotes()) {
+        // Use index-based ID to handle multiple notes at same timecode
+        ImGui::PushID(note_index++);
+
         // Note: This is casting away const, which is necessary for editing
         // In production, we'd want a better pattern here
         RenderNote(const_cast<AnnotationNote&>(note));
+
+        ImGui::PopID();
 
         // Add spacing between notes (no separator needed since each note has its own border)
         ImGui::Spacing();
@@ -189,7 +195,7 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
 }
 
 void AnnotationPanel::RenderNote(AnnotationNote& note) {
-    ImGui::PushID(note.timecode.c_str());
+    // Note: Unique ID is pushed by caller (RenderNotesList) using index
 
     // Padding and styling
     const float padding = 8.0f;
@@ -220,13 +226,22 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // === COLUMN 1: Thumbnail ===
     GLuint thumbnail_id = 0;
-    float thumbnail_height = thumbnail_width / (16.0f / 9.0f); // 16:9 aspect ratio
+    float thumbnail_aspect = video_aspect_ratio_;  // Default fallback
+    std::string full_image_path;
 
     if (annotation_manager_) {
         std::string images_folder = annotation_manager_->GetImagesFolder();
-        std::string full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+        full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
         thumbnail_id = LoadThumbnail(full_image_path);
+
+        // Use cached aspect ratio from actual image if available
+        auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
+        if (aspect_it != thumbnail_aspect_cache_.end()) {
+            thumbnail_aspect = aspect_it->second;
+        }
     }
+
+    float thumbnail_height = thumbnail_width / thumbnail_aspect;
 
     if (thumbnail_id != 0) {
         // No fade on thumbnail - keep fully visible
@@ -447,8 +462,6 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
             wash_color,
             rounding);
     }
-
-    ImGui::PopID();
 }
 
 void AnnotationPanel::HandleAddNote() {
@@ -628,8 +641,9 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data.data());
 
-    // Cache the texture
+    // Cache the texture and aspect ratio
     thumbnail_cache_[image_path] = texture_id;
+    thumbnail_aspect_cache_[image_path] = static_cast<float>(width) / static_cast<float>(height);
 
     Debug::Log("Loaded thumbnail: " + image_path + " (" + std::to_string(width) + "x" + std::to_string(height) + ")");
 
@@ -641,6 +655,7 @@ void AnnotationPanel::CleanupThumbnails() {
         glDeleteTextures(1, &pair.second);
     }
     thumbnail_cache_.clear();
+    thumbnail_aspect_cache_.clear();
 }
 
 } // namespace ump

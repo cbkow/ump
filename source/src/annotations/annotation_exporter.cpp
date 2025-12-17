@@ -153,7 +153,7 @@ std::string AnnotationExporter::ExportMarkdown(
         std::string img_filename = "note_" + SanitizeFilename(note.timecode) + ".png";
         md << "### " << FormatTimecode(note.timecode) << "\n\n";
         md << "**Frame:** " << note.frame << "\n\n";
-        md << "![" << note.timecode << "](images/" << img_filename << ")\n\n";
+        md << "<img src=\"images/" << img_filename << "\" alt=\"" << note.timecode << "\" style=\"display: block; max-width: 800px; max-height: 960px;\">\n\n";
         if (note.addressed) {
             md << "**[Addressed]**\n\n";
         }
@@ -248,9 +248,9 @@ std::string AnnotationExporter::ExportHTML(
     // Additional custom styles
     html << "        body { max-width: 1200px; margin: 0 auto; padding: 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }\n";
     html << "        .synopsis-grid { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; margin: 20px 0; }\n";
-    html << "        .synopsis-image { width: 100%; height: auto; }\n";
+    html << "        .synopsis-image { width: 100%; height: auto; max-height: 300px; object-fit: contain; }\n";
     html << "        .synopsis-info { display: flex; flex-direction: column; justify-content: center; }\n";
-    html << "        .full-image { width: 100%; max-width: 100%; height: auto; margin: 20px 0; }\n";
+    html << "        .full-image { display: block; max-width: 800px; max-height: 960px; height: auto; object-fit: contain; margin: 20px 0; }\n";
     html << "        .note-section { page-break-inside: avoid; margin: 40px 0; }\n";
     html << "        code { background: #f6f8fa; padding: 2px 6px; border-radius: 3px; }\n";
     html << "    </style>\n";
@@ -416,13 +416,14 @@ std::string AnnotationExporter::ExportPDF(
         float page_height = HPDF_Page_GetHeight(page);
         float margin = 50.0f;
         float y_pos = page_height - margin;
+        float video_aspect_ratio = (options.height > 0) ? static_cast<float>(options.width) / options.height : 16.0f / 9.0f;
 
-        // Title
-        HPDF_Page_SetFontAndSize(page, font_bold, 24);
+        // Title (smaller font to fit long filenames)
+        HPDF_Page_SetFontAndSize(page, font_bold, 14);
         HPDF_Page_BeginText(page);
         HPDF_Page_TextOut(page, margin, y_pos, options.media_name.c_str());
         HPDF_Page_EndText(page);
-        y_pos -= 40;
+        y_pos -= 24;
 
         // File path
         HPDF_Page_SetFontAndSize(page, font_mono, 10);
@@ -472,7 +473,14 @@ std::string AnnotationExporter::ExportPDF(
 
         // Synopsis grid (thumbnails + info)
         float thumbnail_width = 200.0f;
-        float thumbnail_height = thumbnail_width * 9.0f / 16.0f; // 16:9 aspect
+        float thumbnail_height = thumbnail_width / video_aspect_ratio;
+
+        // Cap thumbnail height for portrait videos to prevent overflow
+        float max_thumbnail_height = 200.0f;
+        if (thumbnail_height > max_thumbnail_height) {
+            thumbnail_height = max_thumbnail_height;
+            thumbnail_width = thumbnail_height * video_aspect_ratio;
+        }
 
         for (size_t i = 0; i < notes.size(); i++) {
             const auto& note = notes[i];
@@ -579,7 +587,14 @@ std::string AnnotationExporter::ExportPDF(
             HPDF_Image image = HPDF_LoadPngImageFromFile(pdf, temp_image_paths[i].c_str());
             if (image) {
                 float img_width = page_width - (margin * 2);
-                float img_height = img_width * 9.0f / 16.0f; // 16:9 aspect
+                float img_height = img_width / video_aspect_ratio;
+
+                // Cap image height to fit on page (leave room for header and text)
+                float max_img_height = page_height - (margin * 2) - 150;  // 150pt for header/text
+                if (img_height > max_img_height) {
+                    img_height = max_img_height;
+                    img_width = img_height * video_aspect_ratio;
+                }
 
                 HPDF_Page_DrawImage(page, image, margin, y_pos - img_height,
                                    img_width, img_height);

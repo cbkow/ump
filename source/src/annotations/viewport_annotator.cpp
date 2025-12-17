@@ -36,6 +36,11 @@ bool ViewportAnnotator::ProcessInput(const ImVec2& display_pos, const ImVec2& di
         return false;
     }
 
+    // Don't process drawing input if a popup is open (e.g., color picker)
+    if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+        return false;
+    }
+
     // No tool selected
     if (active_tool_ == DrawingTool::NONE) {
         return false;
