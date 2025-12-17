@@ -20304,8 +20304,10 @@ private:
         }
 
         // Generate output path (use filesystem::path to ensure correct separators)
+        // Include note index to handle multiple notes at same timecode (e.g., Frame.io imports)
         std::filesystem::path output_path = std::filesystem::path(export_state.temp_dir) /
-            ("note_" + ump::Annotations::AnnotationExporter::FormatTimecode(note.timestamp_seconds, export_state.options.frame_rate) + ".png");
+            ("note_" + std::to_string(export_state.current_note_index) + "_" +
+             ump::Annotations::AnnotationExporter::FormatTimecode(note.timestamp_seconds, export_state.options.frame_rate) + ".png");
 
         // Save capture data for after seek completes
         export_state.pending_output_path = output_path.string();
