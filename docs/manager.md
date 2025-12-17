@@ -28,6 +28,6 @@ Saving a project will keep all Media, Playlists, and Timelines in a `.umproj` fi
 
 ## Project Links
 
-If you selected the u.m.p. custom URI option during app installation, you can send and receive direct links to saved projects. For example: In Slack, press `Ctrl + Shift + L` to make a link. Paste the copied link in and send it as a message. If the message recipient has u.m.p. installed, they can click on the link to automatically open up the project (assuming they have access to the same file system as you do).
+If you selected the u.m.p. custom URI option during app installation, you can send and receive direct links to saved projects. For example: In Slack, press `Ctrl + Shift + U` to make a link. Paste the copied link in and send it as a message. If the message recipient has u.m.p. installed, they can click on the link to automatically open up the project (assuming they have access to the same file system as you do).
 
 ![Window](images/ump_4cUhS9z6hA.png)
