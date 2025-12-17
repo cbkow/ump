@@ -5955,22 +5955,22 @@ private:
             // Regular font preview
             if (font_regular) {
                 ImGui::PushFont(font_regular);
-                ImGui::Text("Regular Font: The quick brown fox jumps over the lazy dog");
+                ImGui::Text("The quick brown fox jumps over the lazy dog");
                 ImGui::PopFont();
             } else {
-                ImGui::Text("Regular Font: The quick brown fox jumps over the lazy dog");
+                ImGui::Text("The quick brown fox jumps over the lazy dog");
             }
 
             ImGui::Spacing();
 
             // Mono font preview
-            if (font_mono) {
+        /*    if (font_mono) {
                 ImGui::PushFont(font_mono);
                 ImGui::Text("Mono Font: function main() { return 0; }");
                 ImGui::PopFont();
             } else {
                 ImGui::Text("Mono Font: function main() { return 0; }");
-            }
+            }*/
 
             ImGui::Spacing();
             ImGui::TextDisabled("Scale: %.2fx", font_settings_temp_scale);
@@ -10484,7 +10484,7 @@ private:
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
 
-            ImGui::SetNextItemWidth(240.0f);
+            ImGui::SetNextItemWidth(160.0f);
             float old_zoom = std_timeline_zoom;
             if (ImGui::SliderFloat("##std_zoom_slider", &std_timeline_zoom, 1.0f, 10.0f, "%.1fx")) {
                 // Zoom around playhead position
@@ -10526,7 +10526,7 @@ private:
             ImGui::SameLine();
 
             float std_max_pan = StdTimelineGetMaxPan(std_timeline_visible_width, std_timeline_zoom);
-            ImGui::SetNextItemWidth(240.0f);
+            ImGui::SetNextItemWidth(160.0f);
             if (std_max_pan > 0) {
                 if (ImGui::SliderFloat("##std_pan_slider", &std_timeline_pan, 0.0f, std_max_pan, "%.0f")) {
                     // Pan changed via slider
@@ -12270,7 +12270,7 @@ private:
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
 
-        ImGui::SetNextItemWidth(240.0f);
+        ImGui::SetNextItemWidth(160.0f);
         float old_dv_pps = g_dv_pixels_per_second;
         if (ImGui::SliderFloat("##dv_zoom_slider", &g_dv_pixels_per_second, g_dv_zoom_min, g_dv_zoom_max, "%.1f px/s", ImGuiSliderFlags_Logarithmic)) {
             // Zoom around playhead position
@@ -12307,7 +12307,7 @@ private:
         ImGui::SameLine();
 
         float max_scroll = std::max(0.0f, static_cast<float>(duration) * g_dv_pixels_per_second - (content_region.x - TRACK_HEADER_WIDTH));
-        ImGui::SetNextItemWidth(240.0f);
+        ImGui::SetNextItemWidth(160.0f);
         if (max_scroll > 0) {
             if (ImGui::SliderFloat("##dv_pan_slider", &g_dv_scroll_offset_x, 0.0f, max_scroll, "%.0f")) {
                 // Pan changed via slider
@@ -15993,7 +15993,7 @@ private:
             ImGui::SameLine();
 
             float tl_zoom = timeline_view->GetZoomLevel();
-            ImGui::SetNextItemWidth(240.0f);
+            ImGui::SetNextItemWidth(160.0f);
             if (ImGui::SliderFloat("##tl_zoom_slider", &tl_zoom,
                                    OTIOTimeline::MIN_PIXELS_PER_SECOND,
                                    OTIOTimeline::MAX_PIXELS_PER_SECOND,
@@ -16019,7 +16019,7 @@ private:
 
             float tl_pan = timeline_view->GetScrollOffset();
             float tl_max_pan = timeline_view->GetMaxScrollOffset();
-            ImGui::SetNextItemWidth(240.0f);
+            ImGui::SetNextItemWidth(160.0f);
             if (tl_max_pan > 0) {
                 if (ImGui::SliderFloat("##tl_pan_slider", &tl_pan, 0.0f, tl_max_pan, "%.0f")) {
                     timeline_view->SetScrollOffset(tl_pan);
