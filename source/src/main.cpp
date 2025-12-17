@@ -4431,7 +4431,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.1");
+                ImGui::TextDisabled("About u.m.p. v0.5.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -20485,7 +20485,10 @@ private:
                             out vec4 FragColor;
                             uniform sampler2D uTexture;
                             void main() {
-                                FragColor = texture(uTexture, TexCoord);
+                                vec4 texColor = texture(uTexture, TexCoord);
+                                // Composite over dark gray (#191919) for images with alpha channels
+                                vec3 bgColor = vec3(0.098, 0.098, 0.098);
+                                FragColor = vec4(mix(bgColor, texColor.rgb, texColor.a), 1.0);
                             }
                         )";
 
