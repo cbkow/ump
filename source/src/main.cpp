@@ -2471,7 +2471,7 @@ private:
 
         io.Fonts->AddFontDefault();
         font_regular = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 17.0f);
-        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/JetBrainsMono-Regular.ttf", 17.0f);
+        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 17.0f);
 
         ImFontConfig icons_config;
         icons_config.MergeMode = false;
@@ -4431,7 +4431,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.2");
+                ImGui::TextDisabled("About u.m.p. v0.5.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
