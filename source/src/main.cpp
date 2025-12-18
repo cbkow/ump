@@ -4486,7 +4486,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.6");
+                ImGui::TextDisabled("About u.m.p. v0.5.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -16767,6 +16767,50 @@ private:
 
         ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Inspector", &show_inspector_panel)) {
+            // Header row with close button
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+                if (font_icons) {
+                    ImGui::PushFont(font_icons);
+                    ImGui::Text(ICON_ARTICLE);
+                    ImGui::PopFont();
+                    ImGui::SameLine();
+                }
+                ImGui::Text("Inspector");
+                ImGui::PopStyleColor();
+
+                // Close button on the right
+                float button_size = ImGui::GetFrameHeight();
+                float corner_radius = ImGui::GetStyle().FrameRounding;
+                ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
+                ImVec2 button_pos = ImGui::GetCursorScreenPos();
+                bool clicked = ImGui::InvisibleButton("##CloseInspector", ImVec2(button_size, button_size));
+                bool hovered = ImGui::IsItemHovered();
+                bool active = ImGui::IsItemActive();
+                // Draw button background on hover/active
+                if (hovered || active) {
+                    ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
+                                          : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+                    ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
+                }
+                // Draw icon centered with -1px vertical offset
+                if (font_icons) {
+                    ImGui::PushFont(font_icons);
+                    ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
+                    ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
+                                             button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+                    ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                    ImGui::PopFont();
+                }
+                if (clicked) {
+                    show_inspector_panel = false;
+                }
+                if (hovered) {
+                    ImGui::SetTooltip("Close Inspector (Ctrl+2)");
+                }
+            }
+            ImGui::Separator();
+
             // Timeline Mode - show timeline properties
             if (otio_timeline_mode && timeline_view) {
                 // === SELECTED CLIP INFO (shown when a clip is selected) ===
@@ -19305,6 +19349,50 @@ private:
             ImGui::PopStyleColor();  // kTransparentBorder
             return;
         }
+
+        // Header row with close button
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+                ImGui::Text(ICON_FLOWCHART);
+                ImGui::PopFont();
+                ImGui::SameLine();
+            }
+            ImGui::Text("Color");
+            ImGui::PopStyleColor();
+
+            // Close button on the right
+            float button_size = ImGui::GetFrameHeight();
+            float corner_radius = ImGui::GetStyle().FrameRounding;
+            ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
+            ImVec2 button_pos = ImGui::GetCursorScreenPos();
+            bool clicked = ImGui::InvisibleButton("##CloseColor", ImVec2(button_size, button_size));
+            bool hovered = ImGui::IsItemHovered();
+            bool active = ImGui::IsItemActive();
+            // Draw button background on hover/active
+            if (hovered || active) {
+                ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
+                                      : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+                ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
+            }
+            // Draw icon centered with -1px vertical offset
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+                ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
+                ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
+                                         button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+                ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                ImGui::PopFont();
+            }
+            if (clicked) {
+                show_color_panels = false;
+            }
+            if (hovered) {
+                ImGui::SetTooltip("Close Color (Ctrl+4)");
+            }
+        }
+        ImGui::Separator();
 
         static float left_panel_width = 350.0f;
         static float right_panel_width = 400.0f;

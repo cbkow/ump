@@ -99,7 +99,7 @@ private:
 
     // UI helpers
     void RenderHeader();
-    void RenderMenuBar();
+    void RenderMenuBar(bool* p_open);
     void RenderNotesList();
     void RenderFooter(ImVec4 accent_regular);
     void RenderNote(AnnotationNote& note);

@@ -35,6 +35,7 @@ extern void ScheduleImport(const std::string& path, const std::string& message);
 #define ICON_FOLDER_OPEN          u8"\uE2C8"
 #define ICON_CONTENT_COPY         u8"\xE14D"
 #define ICON_ARTICLE              u8"\uEF42"
+#define ICON_CLOSE                 u8"\uE5CD"
 
 extern ImFont* font_icons;
 
@@ -1319,6 +1320,36 @@ namespace ump {
             }
             ImGui::Text("Project Manager");
             ImGui::PopStyleColor();
+
+            // Close button on the right
+            float button_size = ImGui::GetFrameHeight();
+            float corner_radius = ImGui::GetStyle().FrameRounding;
+            ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
+            ImVec2 button_pos = ImGui::GetCursorScreenPos();
+            bool clicked = ImGui::InvisibleButton("##CloseProject", ImVec2(button_size, button_size));
+            bool hovered = ImGui::IsItemHovered();
+            bool active = ImGui::IsItemActive();
+            // Draw button background on hover/active
+            if (hovered || active) {
+                ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
+                                      : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+                ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
+            }
+            // Draw icon centered with -1px vertical offset
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+                ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
+                ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
+                                         button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+                ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                ImGui::PopFont();
+            }
+            if (clicked) {
+                *show_project_panel = false;
+            }
+            if (hovered) {
+                ImGui::SetTooltip("Close Project (Ctrl+1)");
+            }
 
             CreateProjectInfo();
             ImGui::Separator();

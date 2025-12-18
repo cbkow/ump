@@ -5,6 +5,10 @@
 #include <png.h>
 #include <vector>
 
+#define ICON_CLOSE u8"\uE5CD"
+
+extern ImFont* font_icons;
+
 namespace ump {
 
 AnnotationPanel::AnnotationPanel()
@@ -40,7 +44,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
     // Match main menu popup style
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
     if (ImGui::BeginMenuBar()) {
-        RenderMenuBar();
+        RenderMenuBar(p_open);
         ImGui::EndMenuBar();
     }
     ImGui::PopStyleColor();
@@ -94,7 +98,7 @@ void AnnotationPanel::RenderHeader() {
     }
 }
 
-void AnnotationPanel::RenderMenuBar() {
+void AnnotationPanel::RenderMenuBar(bool* p_open) {
     bool has_notes = annotation_manager_->GetNoteCount() > 0;
 
     // Export menu
@@ -139,6 +143,40 @@ void AnnotationPanel::RenderMenuBar() {
         }
 
         ImGui::EndMenu();
+    }
+
+    // Close button on the right side of menu bar
+    if (p_open) {
+        float button_size = ImGui::GetFrameHeight();
+        float avail_width = ImGui::GetContentRegionAvail().x;
+        float right_margin = 11.0f;
+        float corner_radius = ImGui::GetStyle().FrameRounding;
+        ImGui::SameLine(ImGui::GetCursorPosX() + avail_width - button_size - right_margin);
+        ImVec2 button_pos = ImGui::GetCursorScreenPos();
+        bool clicked = ImGui::InvisibleButton("##CloseAnnotations", ImVec2(button_size, button_size));
+        bool hovered = ImGui::IsItemHovered();
+        bool active = ImGui::IsItemActive();
+        // Draw button background on hover/active
+        if (hovered || active) {
+            ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
+                                  : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
+            ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
+        }
+        // Draw icon centered with -1px vertical offset
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
+            ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
+                                     button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+            ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+            ImGui::PopFont();
+        }
+        if (clicked) {
+            *p_open = false;
+        }
+        if (hovered) {
+            ImGui::SetTooltip("Close Annotations (Ctrl+5)");
+        }
     }
 }
 

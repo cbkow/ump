@@ -30,7 +30,7 @@ nav_order: 1
 
 ## Notes and Bugs:
 
-I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test for and possibly adjust the code to support Redshift and other render engines.
+I have only tested Octane, Arnold, and Blender Cycles EXRs. I still need to test for and make adjustements for Redshift and other render engines--each DLC/engine saves EXR channels differently.
 
 ---
 
