@@ -47,6 +47,16 @@ extern int g_cache_retention_days;
 extern int g_transcode_cache_max_gb;
 extern bool g_clear_cache_on_exit;
 
+// Shared EXRTranscoder instance for all transcode operations
+// This ensures consistent cache paths and proper cancellation support
+static ump::EXRTranscoder& GetSharedTranscoder() {
+    static ump::EXRTranscoder s_transcoder;
+    // Always apply current cache config (in case settings changed)
+    s_transcoder.SetCacheConfig(g_custom_cache_path, g_cache_retention_days,
+                                g_transcode_cache_max_gb, g_clear_cache_on_exit);
+    return s_transcoder;
+}
+
 extern ImFont* font_mono;
 
 // External variables from main.cpp
@@ -1916,6 +1926,25 @@ namespace ump {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
+        }
+
+        // Process pending transcode load (deferred from worker thread)
+        if (pending_transcode_load.load()) {
+            pending_transcode_load.store(false);
+
+            std::string first_file;
+            double frame_rate;
+            {
+                std::lock_guard<std::mutex> lock(pending_transcode_mutex);
+                first_file = pending_transcode_first_file;
+                frame_rate = pending_transcode_frame_rate;
+                pending_transcode_first_file.clear();
+            }
+
+            if (!first_file.empty()) {
+                Debug::Log("ProjectManager: Loading transcoded sequence from main thread: " + first_file);
+                ProcessImageSequence(first_file, frame_rate, "");  // Empty layer = transcoded single-layer
+            }
         }
 
         // Frame Rate Selection Dialog for Image Sequences
@@ -7445,11 +7474,8 @@ namespace ump {
 
         Debug::Log("ProcessImageSequenceWithTranscode: Found " + std::to_string(sequence_files.size()) + " source files");
 
-        // Create transcoder
-        static ump::EXRTranscoder transcoder;
-
-        // Apply disk cache settings to transcoder
-        transcoder.SetCacheConfig(g_custom_cache_path, g_cache_retention_days, g_transcode_cache_max_gb, g_clear_cache_on_exit);
+        // Use shared transcoder (ensures consistent cache path and cancellation support)
+        ump::EXRTranscoder& transcoder = GetSharedTranscoder();
 
         // Build transcode config
         ump::EXRTranscodeConfig config;
@@ -7517,18 +7543,23 @@ namespace ump {
                 if (success) {
                     Debug::Log("ProcessImageSequenceWithTranscode: Transcode complete!");
 
-                    // Get transcoded files
-                    static ump::EXRTranscoder local_transcoder;
+                    // Get transcoded files using shared transcoder
+                    ump::EXRTranscoder& transcoder = GetSharedTranscoder();
                     Imf::Compression comp = static_cast<Imf::Compression>(compression);
-                    std::vector<std::string> transcoded_files = local_transcoder.GetTranscodedFiles(
+                    std::vector<std::string> transcoded_files = transcoder.GetTranscodedFiles(
                         sequence_files, exr_layer, max_width, comp);
 
                     if (!transcoded_files.empty()) {
-                        Debug::Log("ProcessImageSequenceWithTranscode: Loading transcoded sequence (" +
+                        Debug::Log("ProcessImageSequenceWithTranscode: Queuing transcoded sequence for load (" +
                                   std::to_string(transcoded_files.size()) + " frames)");
 
-                        // Load transcoded sequence using EXR pipeline (empty layer = transcoded single-layer)
-                        ProcessImageSequence(transcoded_files[0], frame_rate, "");  // Will auto-detect as transcoded EXR
+                        // Queue the load for main thread (can't call ProcessImageSequence from worker thread)
+                        {
+                            std::lock_guard<std::mutex> lock(pending_transcode_mutex);
+                            pending_transcode_first_file = transcoded_files[0];
+                            pending_transcode_frame_rate = frame_rate;
+                        }
+                        pending_transcode_load.store(true);
                     } else {
                         Debug::Log("ProcessImageSequenceWithTranscode: ERROR - No transcoded files found after completion");
                         // TODO: Show error dialog
@@ -7544,8 +7575,8 @@ namespace ump {
     }
 
     void ProjectManager::CancelTranscode() {
-        // Access the static transcoder instance from ProcessImageSequenceWithTranscode
-        static ump::EXRTranscoder transcoder;
+        // Use shared transcoder for cancellation
+        ump::EXRTranscoder& transcoder = GetSharedTranscoder();
         transcoder.CancelTranscode();
         Debug::Log("ProjectManager: Transcode cancellation requested");
 

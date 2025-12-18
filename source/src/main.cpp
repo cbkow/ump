@@ -217,6 +217,12 @@ struct {
     // PREFETCH BUFFERS
     int prefetch_buffer_size = 32;        // Frame loader buffer size (16-128 frames)
     int prefetch_ahead_count = 16;        // How many frames to prefetch ahead (4-64)
+
+    // PARALLEL LOADING (for EXR sequences)
+    int concurrent_loads = 8;             // Parallel file loads (4-16, default 8)
+    int openexr_threads = 4;              // OpenEXR threads per file (1-8, default 4)
+                                          // Total threads = concurrent_loads * openexr_threads
+                                          // Default: 8 * 4 = 32 threads
 } transcode_settings;
 
 // ============================================================================
@@ -4431,7 +4437,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.4");
+                ImGui::TextDisabled("About u.m.p. v0.5.5");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -19858,6 +19864,12 @@ private:
                 if (j["transcode"].contains("prefetch_ahead")) {
                     transcode_settings.prefetch_ahead_count = j["transcode"]["prefetch_ahead"].get<int>();
                 }
+                if (j["transcode"].contains("concurrent_loads")) {
+                    transcode_settings.concurrent_loads = j["transcode"]["concurrent_loads"].get<int>();
+                }
+                if (j["transcode"].contains("openexr_threads")) {
+                    transcode_settings.openexr_threads = j["transcode"]["openexr_threads"].get<int>();
+                }
             }
 
             // Store ImGui layout to load after ImGui is initialized
@@ -20011,6 +20023,8 @@ private:
             j["transcode"]["max_workers"] = transcode_settings.max_worker_count;
             j["transcode"]["prefetch_buffer"] = transcode_settings.prefetch_buffer_size;
             j["transcode"]["prefetch_ahead"] = transcode_settings.prefetch_ahead_count;
+            j["transcode"]["concurrent_loads"] = transcode_settings.concurrent_loads;
+            j["transcode"]["openexr_threads"] = transcode_settings.openexr_threads;
 
             // Save ImGui layout to memory
             size_t ini_size = 0;

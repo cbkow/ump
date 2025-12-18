@@ -7,6 +7,9 @@
 #include <mutex>
 #include <condition_variable>
 #include <deque>
+#include <future>
+#include <map>
+#include <atomic>
 
 #include "../player/image_loader_interface.h"
 #include "../player/pipeline_mode.h"
@@ -17,13 +20,13 @@ namespace ump {
  * SequentialFrameLoader
  *
  * Optimized for sequential access during transcode operations.
- * Uses small buffer (4 frames default) with no LRU eviction - guarantees frame availability.
+ * Uses parallel file loading (like DirectEXRCache) for maximum throughput.
  *
- * Key Differences from DirectEXRCache:
- * - Sequential access pattern (not random)
- * - Small buffer (memory efficient for extreme resolutions like 8K+)
- * - No eviction (frames stay until consumed)
- * - Blocking API (waits until frame ready)
+ * Threading Strategy (learned from DirectEXRCache):
+ * - Multiple concurrent file loads via std::async (default 8)
+ * - OpenEXR threads per file (default 4, hybrid approach)
+ * - Total threads: 8 files × 4 OpenEXR threads = 32 threads
+ * - Condition variables for instant wakeup (no polling)
  */
 class SequentialFrameLoader {
 public:
@@ -32,16 +35,20 @@ public:
      *
      * @param loader Image loader implementation (EXR/TIFF/PNG/JPEG)
      * @param files Complete list of sequence files
-     * @param prefetch_count Number of frames to keep in buffer (default 4)
+     * @param prefetch_count Number of frames to keep in buffer (default 8)
      * @param pipeline_mode Precision level for loading (NORMAL=8-bit, HDR_RES=16-bit, ULTRA_HIGH_RES=32-bit)
      * @param exr_layer EXR layer name (empty for non-EXR or default layer)
+     * @param concurrent_loads Number of parallel file loads (default 8)
+     * @param openexr_threads OpenEXR decompression threads per file (default 4)
      */
     SequentialFrameLoader(
         std::unique_ptr<IImageLoader> loader,
         const std::vector<std::string>& files,
-        int prefetch_count = 4,
+        int prefetch_count = 8,
         PipelineMode pipeline_mode = PipelineMode::NORMAL,
-        const std::string& exr_layer = ""
+        const std::string& exr_layer = "",
+        int concurrent_loads = 8,
+        int openexr_threads = 4
     );
 
     ~SequentialFrameLoader();
@@ -91,19 +98,27 @@ private:
         std::shared_ptr<PixelData> pixel_data;
     };
 
-    // Background loader thread
-    void LoaderThread();
+    // Async load request (like DirectEXRCache pattern)
+    struct LoadRequest {
+        int frame_index;
+        std::future<std::shared_ptr<PixelData>> future;
+    };
 
-    // Load a single frame
-    std::shared_ptr<PixelData> LoadFrame(int frame_index);
+    // I/O worker thread (spawns and manages async load tasks)
+    void IOWorkerThread();
 
     // Check if frame is in buffer
     bool IsFrameInBuffer(int frame_index) const;
+
+    // Check if frame is already being loaded
+    bool IsFrameInProgress(int frame_index) const;
 
     // Remove old frames from buffer (keep only recent frames)
     void TrimBuffer(int current_frame);
 
     // Image loader (polymorphic - EXR, TIFF, PNG, JPEG)
+    // NOTE: Loaders are thread-safe for concurrent LoadFrame calls
+    // (each call creates its own file handles - like DirectEXRCache)
     std::unique_ptr<IImageLoader> loader_;
 
     // Sequence files
@@ -111,22 +126,33 @@ private:
 
     // Configuration
     int prefetch_count_;
+    int concurrent_loads_;   // Number of parallel file loads
+    int openexr_threads_;    // OpenEXR threads per file
     PipelineMode pipeline_mode_;
     std::string exr_layer_;
 
-    // Buffer (small, no eviction)
+    // Completed frames buffer
     std::deque<BufferEntry> buffer_;
     mutable std::mutex buffer_mutex_;
     std::condition_variable buffer_cv_;
 
-    // Prefetch hint (for loader thread)
-    int prefetch_start_frame_ = 0;
-    std::mutex prefetch_mutex_;
+    // Pending requests queue
+    std::deque<int> pending_frames_;
+    std::mutex pending_mutex_;
 
-    // Background loader thread
-    std::thread loader_thread_;
+    // In-progress async loads (like DirectEXRCache::requestsInProgress_)
+    std::map<int, LoadRequest> in_progress_;
+    std::mutex progress_mutex_;
+
+    // Prefetch hint (for worker thread)
+    std::atomic<int> prefetch_start_frame_{0};
+
+    // I/O worker thread
+    std::thread io_worker_thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> cancelled_{false};
+    std::condition_variable worker_cv_;
+    std::mutex worker_mutex_;
 };
 
 } // namespace ump

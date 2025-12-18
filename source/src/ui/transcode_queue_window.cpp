@@ -34,6 +34,8 @@ extern struct {
     int max_worker_count;
     int prefetch_buffer_size;
     int prefetch_ahead_count;
+    int concurrent_loads;
+    int openexr_threads;
 } transcode_settings;
 
 // Forward declare SaveSettings from main.cpp
@@ -1073,6 +1075,116 @@ void TranscodeQueueWindow::RenderSettingsTab() {
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                 "Hardware encoding will be automatically detected and used when available.");
+
+            ImGui::EndTabItem();
+        }
+
+        // ===================================================================
+        // TAB 4: EXR Loading (Parallel I/O)
+        // ===================================================================
+        if (ImGui::BeginTabItem("EXR Loading")) {
+            ImGui::Spacing();
+            ImGui::TextColored(Bright(accent), "Parallel EXR Loading");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                "Optimize EXR sequence loading for maximum throughput");
+            ImGui::Spacing();
+
+            // Total threads indicator
+            int total_threads = transcode_settings.concurrent_loads * transcode_settings.openexr_threads;
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f),
+                "Current: %d concurrent files x %d OpenEXR threads = %d total threads",
+                transcode_settings.concurrent_loads,
+                transcode_settings.openexr_threads,
+                total_threads);
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Concurrent Loads
+            ImGui::Text("Concurrent File Loads:");
+            if (ImGui::SliderInt("##ConcurrentLoads", &transcode_settings.concurrent_loads, 4, 16)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Number of EXR files loaded in parallel.\n\n"
+                    "Higher = better disk/SSD utilization\n"
+                    "Lower = less memory pressure\n\n"
+                    "Recommended: 6-10 for NVMe SSD, 4-6 for SATA SSD"
+                );
+            }
+
+            ImGui::Spacing();
+
+            // OpenEXR Threads
+            ImGui::Text("OpenEXR Threads per File:");
+            if (ImGui::SliderInt("##OpenEXRThreads", &transcode_settings.openexr_threads, 1, 8)) {
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(
+                    "Threads used by OpenEXR for decompression per file.\n\n"
+                    "Higher = faster decompression of compressed EXRs (PIZ, DWAA, ZIP)\n"
+                    "Lower = less CPU contention with concurrent loads\n\n"
+                    "Recommended: 2-4 threads per file"
+                );
+            }
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Presets
+            ImGui::TextColored(Bright(accent), "Quick Presets");
+            ImGui::Spacing();
+
+            if (ImGui::Button("Conservative (12 threads)", ImVec2(200, 0))) {
+                transcode_settings.concurrent_loads = 6;
+                transcode_settings.openexr_threads = 2;
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Laptop / background tasks");
+
+            if (ImGui::Button("Balanced (32 threads)", ImVec2(200, 0))) {
+                transcode_settings.concurrent_loads = 8;
+                transcode_settings.openexr_threads = 4;
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Desktop workstation (default)");
+
+            if (ImGui::Button("Aggressive (48 threads)", ImVec2(200, 0))) {
+                transcode_settings.concurrent_loads = 12;
+                transcode_settings.openexr_threads = 4;
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "High-end workstation");
+
+            if (ImGui::Button("Maximum (72 threads)", ImVec2(200, 0))) {
+                transcode_settings.concurrent_loads = 12;
+                transcode_settings.openexr_threads = 6;
+                settings_changed = true;
+            }
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Threadripper / HEDT");
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Tips
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Tips:");
+            ImGui::BulletText("Monitor CPU usage during transcode to find optimal settings");
+            ImGui::BulletText("NVMe SSDs benefit from higher concurrent loads (10-12)");
+            ImGui::BulletText("Heavily compressed EXRs (PIZ/DWAA) benefit from more OpenEXR threads");
+            ImGui::BulletText("Uncompressed EXRs are I/O-bound; use more concurrent loads, fewer threads");
 
             ImGui::EndTabItem();
         }

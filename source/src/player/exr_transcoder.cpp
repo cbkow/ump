@@ -7,8 +7,23 @@
 #include <OpenEXR/ImfOutputFile.h>
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfChannelList.h>
+#include <OpenEXR/ImfThreading.h>
 
 #include "direct_exr_cache.h"  // For MemoryMappedIStream
+
+// External transcode performance settings (defined in main.cpp)
+// Used for parallel loading settings (concurrent_loads, openexr_threads)
+extern struct {
+    int encoder_thread_count;
+    bool prefer_hardware_encoding;
+    std::string hardware_encoder;
+    int default_worker_count;
+    int max_worker_count;
+    int prefetch_buffer_size;
+    int prefetch_ahead_count;
+    int concurrent_loads;
+    int openexr_threads;
+} transcode_settings;
 
 #include <filesystem>
 #include <sstream>
@@ -317,7 +332,14 @@ bool EXRTranscoder::HasTranscodedSequence(const std::vector<std::string>& source
 
     std::string transcode_dir = GetTranscodePath(source_files[0], layer, max_width, compression);
 
-    if (!std::filesystem::exists(transcode_dir)) return false;
+    Debug::Log("EXRTranscoder::HasTranscodedSequence - Checking: " + transcode_dir);
+    Debug::Log("  Layer: '" + layer + "', MaxWidth: " + std::to_string(max_width) +
+               ", Compression: " + CompressionToString(compression));
+
+    if (!std::filesystem::exists(transcode_dir)) {
+        Debug::Log("  Result: Directory does not exist");
+        return false;
+    }
 
     // Count transcoded files
     int transcoded_count = 0;
@@ -327,8 +349,12 @@ bool EXRTranscoder::HasTranscodedSequence(const std::vector<std::string>& source
         }
     }
 
+    bool has_all = transcoded_count >= static_cast<int>(source_files.size());
+    Debug::Log("  Result: Found " + std::to_string(transcoded_count) + "/" +
+               std::to_string(source_files.size()) + " frames, has_all=" + (has_all ? "true" : "false"));
+
     // Check if we have all frames transcoded
-    return transcoded_count >= source_files.size();
+    return has_all;
 }
 
 std::vector<std::string> EXRTranscoder::GetTranscodedFiles(const std::vector<std::string>& source_files,
@@ -416,6 +442,20 @@ void EXRTranscoder::TranscodeWorker(
     std::function<void(bool, const std::string&)> completion_callback) {
 
     Debug::Log("EXRTranscoder: Starting transcode worker - " + std::to_string(source_files.size()) + " frames");
+
+    // Use global transcode settings for parallelism (same as SequentialFrameLoader)
+    // This allows tuning from the Settings UI
+    int concurrent_loads = transcode_settings.concurrent_loads;
+    int openexr_threads = transcode_settings.openexr_threads;
+
+    // Set OpenEXR thread count for compression/decompression
+    // Write-heavy operations benefit significantly from OpenEXR threading
+    Imf::setGlobalThreadCount(openexr_threads);
+
+    int total_threads = concurrent_loads * openexr_threads;
+    Debug::Log("EXRTranscoder: Using " + std::to_string(concurrent_loads) + " concurrent files x " +
+               std::to_string(openexr_threads) + " OpenEXR threads = " +
+               std::to_string(total_threads) + " total threads");
 
     std::string transcode_dir = GetTranscodePath(source_files[0], layer, config.max_width, config.compression);
 
@@ -505,7 +545,7 @@ void EXRTranscoder::TranscodeWorker(
     }
 
     // Parallel transcoding using async (similar to DirectEXRCache pattern)
-    Debug::Log("EXRTranscoder: Using " + std::to_string(config.threadCount) + " parallel threads");
+    // Note: concurrent_loads from transcode_settings used instead of config.threadCount
 
     completed_count_ = 0;
     failed_count_ = 0;
@@ -567,8 +607,8 @@ void EXRTranscoder::TranscodeWorker(
         return true;
     };
 
-    // Launch initial batch (up to threadCount tasks)
-    for (size_t i = 0; i < config.threadCount && next_frame_index < source_files.size(); i++) {
+    // Launch initial batch (up to concurrent_loads tasks)
+    for (size_t i = 0; i < static_cast<size_t>(concurrent_loads) && next_frame_index < source_files.size(); i++) {
         launch_task(next_frame_index++);
     }
 

@@ -24,6 +24,8 @@ extern struct {
     int max_worker_count;
     int prefetch_buffer_size;
     int prefetch_ahead_count;
+    int concurrent_loads;
+    int openexr_threads;
 } transcode_settings;
 
 namespace ump {
@@ -375,7 +377,9 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             frame_paths,
             transcode_settings.prefetch_buffer_size,  // Configurable buffer size
             config.pipeline_mode,
-            config.exr_layer
+            config.exr_layer,
+            transcode_settings.concurrent_loads,      // Parallel file loads
+            transcode_settings.openexr_threads        // OpenEXR threads per file
         );
 
         Debug::Log("VideoTranscoder: Frame loader initialized");

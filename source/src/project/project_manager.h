@@ -536,6 +536,12 @@ namespace ump {
         // Single image detection
         bool is_single_image = false;
 
+        // Pending transcode load (for deferred loading after async transcode completes)
+        std::atomic<bool> pending_transcode_load{false};
+        std::string pending_transcode_first_file;
+        double pending_transcode_frame_rate = 24.0;
+        std::mutex pending_transcode_mutex;
+
         // EXR transcode settings (also used for TIFF/PNG → EXR transcode)
         bool exr_transcode_enabled = false;
         int exr_transcode_max_width = 0;  // 0 = native
