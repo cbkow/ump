@@ -1927,12 +1927,40 @@ void VideoPlayer::RenderVideoTexture() {
 
 void VideoPlayer::RenderPlaceholder() {
     ImVec2 content_region = ImGui::GetContentRegionAvail();
-    ImVec2 center = ImVec2(content_region.x * 0.5f, content_region.y * 0.5f);
 
-    /*ImGui::SetCursorPos(ImVec2(center.x - 100, center.y - 10));
-    ImGui::TextDisabled("No video loaded");
-    ImGui::SetCursorPos(ImVec2(center.x - 155, center.y + 20));
-    ImGui::TextDisabled("Use File > Open Video (Ctrl + O)");*/
+    // Create invisible button covering the entire content region for drop target
+    ImGui::SetCursorPos(ImVec2(0, 0));
+    ImGui::InvisibleButton("##PlaceholderDropTarget", content_region);
+
+    // Check if we're being dragged over
+    bool is_drag_hovering = ImGui::BeginDragDropTarget();
+
+    if (is_drag_hovering) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            std::string media_id((const char*)payload->Data, payload->DataSize - 1);
+            Debug::Log("Viewport drop received (placeholder): " + media_id);
+            viewport_drop_pending_id_ = media_id;
+        }
+        ImGui::EndDragDropTarget();
+    }
+
+    // Draw subtle highlight when dragging over
+    if (is_drag_hovering) {
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+        ImVec2 window_pos = ImGui::GetWindowPos();
+        ImVec4 accent = GetWindowsAccentColor();
+        ImU32 highlight_color = IM_COL32(
+            (int)(accent.x * 255),
+            (int)(accent.y * 255),
+            (int)(accent.z * 255),
+            30
+        );
+        draw_list->AddRectFilled(
+            window_pos,
+            ImVec2(window_pos.x + content_region.x, window_pos.y + content_region.y),
+            highlight_color
+        );
+    }
 }
 
 void VideoPlayer::RenderControls() {

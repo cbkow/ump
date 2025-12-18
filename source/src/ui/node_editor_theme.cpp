@@ -9,6 +9,7 @@
 // External variable from main.cpp
 extern bool use_windows_accent_color;
 extern int custom_accent_color_index;
+extern ImVec4 custom_picker_color;
 extern const ImVec4 accent_color_palette[];
 extern const int accent_color_palette_count;
 
@@ -19,6 +20,9 @@ namespace NodeEditorTheme {
     }
 
     ImVec4 GetCustomAccentColor() {
+        if (custom_accent_color_index == -2) {
+            return custom_picker_color;
+        }
         if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
             return accent_color_palette[custom_accent_color_index];
         }

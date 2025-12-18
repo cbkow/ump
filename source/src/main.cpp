@@ -118,7 +118,8 @@ ImFont* font_icons = nullptr;
 
 // Windows accent color toggle state
 bool use_windows_accent_color = false;
-int custom_accent_color_index = -1;  // -1 = use default/system, 0+ = index into accent_color_palette
+int custom_accent_color_index = -1;  // -1 = use default/system, -2 = custom picker color, 0+ = index into accent_color_palette
+ImVec4 custom_picker_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // User-selected color from color picker
 
 // Accent color palette (hex colors converted to ImVec4)
 // Note: extern const to give external linkage for other translation units
@@ -1032,6 +1033,16 @@ public:
             }
         });
 
+        // Set up auto-play request callback - respects app-wide auto_play_on_load setting
+        project_manager->SetAutoPlayRequestCallback([this]() {
+            TriggerAutoPlay(ump::MediaType::VIDEO);  // Use VIDEO type for playlists (not image sequences)
+        });
+
+        // Set up loading modal callback - shows overlay before blocking operations
+        project_manager->SetLoadingModalCallback([this](const std::string& message, std::function<void()> callback) {
+            ScheduleLoadingOperation(message, callback);
+        });
+
         // Set up timeline editor callback - opens timeline in OTIO editor mode
         // Can receive either:
         // - A file path to an EDL/OTIO file (for imported timelines)
@@ -1055,15 +1066,21 @@ public:
                     video_player->EnableComparisonMode(false);
                     Debug::Log("Timeline entry: Disabled dual view mode");
                 }
+
+                // 3. Clean up EXR/image sequence state if active
+                if (video_player->IsInEXRMode()) {
+                    video_player->ResetState();
+                    Debug::Log("Timeline entry: Cleaned up EXR/image sequence state");
+                }
             }
 
-            // 3. Exit playlist/sequence mode if active
+            // 4. Exit playlist/sequence mode if active
             if (project_manager && project_manager->IsInSequenceMode()) {
                 project_manager->ClearSequenceMode();
                 Debug::Log("Timeline entry: Exited playlist/sequence mode");
             }
 
-            // 4. Clear current file path (timeline uses its own playback system)
+            // 5. Clear current file path (timeline uses its own playback system)
             if (!current_file_path.empty()) {
                 Debug::Log("Timeline entry: Clearing current file path: " + current_file_path);
                 current_file_path.clear();
@@ -2063,19 +2080,28 @@ public:
                 }
 
                 // Handle pending viewport drop (main video)
+                // Matches double-click behavior: handles videos, image sequences, timelines, playlists
                 std::string pending_viewport_drop = video_player->GetPendingViewportDrop();
                 if (!pending_viewport_drop.empty() && project_manager) {
                     auto* media_item = project_manager->GetMediaItem(pending_viewport_drop);
                     if (media_item) {
-                        // Block timelines from dual view mode (use timeline editor instead)
+                        // Block timelines and sequences from dual view mode
                         bool dual_view_active = video_player->IsComparisonModeEnabled();
-                        if (dual_view_active && media_item->type == ump::MediaType::TIMELINE) {
-                            video_player->ClearPendingViewportDrop();  // Silent block
+                        if (dual_view_active && (media_item->type == ump::MediaType::TIMELINE ||
+                                                  media_item->type == ump::MediaType::SEQUENCE)) {
+                            Debug::Log("Viewport drop blocked: Timelines/Playlists not supported in dual view mode");
+                        } else if (media_item->type == ump::MediaType::SEQUENCE) {
+                            // Load playlist (same as double-click)
+                            Debug::Log("Loading playlist from viewport drop: " + media_item->name);
+                            project_manager->LoadSequenceFromBin(media_item->id);
+                        } else if (media_item->type == ump::MediaType::TIMELINE) {
+                            // Open timeline in editor (same as double-click)
+                            Debug::Log("Opening timeline from viewport drop: " + media_item->name);
+                            project_manager->OpenTimelineInEditor(media_item->timeline_id);
                         } else {
-                            std::string media_path = media_item->path;
-                            Debug::Log("Loading media from viewport drop: " + media_path);
-                            // Load like a double-click - supports all media types
-                            project_manager->LoadSingleFileFromDrop(media_path);
+                            // Load single media item (videos, image sequences, etc.)
+                            Debug::Log("Loading media from viewport drop: " + media_item->name);
+                            project_manager->LoadSingleMediaItem(*media_item);
                         }
                     } else {
                         Debug::Log("ERROR: Could not find media item for viewport drop: " + pending_viewport_drop);
@@ -2207,41 +2233,48 @@ public:
 
             glfwSwapBuffers(window);
 
-            // Handle pending import AFTER frame is fully rendered
-            if (HasPendingImport()) {
-                if (pending_import_frames_ == 0) {
+            // Handle pending loading operation AFTER frame is fully rendered
+            if (IsLoadingMedia()) {
+                if (loading_frames_ == 0) {
                     // Just scheduled - wait one frame for overlay to show
-                    pending_import_frames_ = 1;
+                    loading_frames_ = 1;
                 } else {
-                    pending_import_frames_--;
-                    if (pending_import_frames_ == 0) {
-                        // Overlay has been shown - execute the import
-                        ExecutePendingImport();
+                    loading_frames_--;
+                    if (loading_frames_ == 0) {
+                        // Overlay has been shown - execute the callback
+                        ExecuteLoadingCallback();
                     }
                 }
             }
         }
     }
 
-    // Schedule an import to happen after the current frame completes
-    // This allows the overlay to render before the blocking import
-    void ScheduleImport(const std::string& path, const std::string& message) {
-        pending_import_path_ = path;
-        pending_import_message_ = message;
+    // Schedule a loading operation to happen after the current frame completes
+    // This allows the overlay to render before the blocking operation
+    void ScheduleLoadingOperation(const std::string& message, std::function<void()> callback) {
+        loading_message_ = message;
+        loading_callback_ = callback;
+        loading_frames_ = 0;  // Will be set to 1 in the update loop
     }
 
-    bool HasPendingImport() const { return !pending_import_path_.empty(); }
-    const std::string& GetPendingImportMessage() const { return pending_import_message_; }
+    bool IsLoadingMedia() const { return !loading_message_.empty(); }
+    const std::string& GetLoadingMessage() const { return loading_message_; }
 
-    void ExecutePendingImport() {
-        if (pending_import_path_.empty()) return;
-        std::string path = pending_import_path_;
-        pending_import_path_.clear();
-        pending_import_message_.clear();
+    void ExecuteLoadingCallback() {
+        if (!loading_callback_) return;
+        auto callback = std::move(loading_callback_);
+        loading_message_.clear();
+        loading_callback_ = nullptr;
+        callback();
+    }
 
-        if (project_manager) {
-            project_manager->ImportTimeline(path);
-        }
+    // Convenience wrapper for timeline imports (backwards compatibility)
+    void ScheduleImport(const std::string& path, const std::string& message) {
+        ScheduleLoadingOperation(message, [this, path]() {
+            if (project_manager) {
+                project_manager->ImportTimeline(path);
+            }
+        });
     }
 
     void Cleanup() {
@@ -2405,10 +2438,10 @@ private:
     bool is_shutting_down_ = false;
     float shutdown_animation_time_ = 0.0f;
 
-    // Pending import state (deferred to allow overlay to render)
-    std::string pending_import_path_;
-    std::string pending_import_message_;
-    int pending_import_frames_ = 0;  // Countdown frames before executing
+    // Loading modal state (deferred to allow overlay to render before blocking operations)
+    std::string loading_message_;
+    std::function<void()> loading_callback_;
+    int loading_frames_ = 0;  // Countdown frames before executing
 
     enum class VideoBackgroundType {
         DEFAULT,
@@ -2502,6 +2535,10 @@ private:
     }
 
     ImVec4 GetCustomAccentColor() {
+        // If custom picker color is selected
+        if (custom_accent_color_index == -2) {
+            return custom_picker_color;
+        }
         // If a custom color is selected from the palette, return it
         if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
             return accent_color_palette[custom_accent_color_index];
@@ -3253,14 +3290,6 @@ private:
             Debug::Log("Open file dialog");
         }
 
-        // Ctrl+W - Close Current File
-        if (ImGui::IsKeyPressed(ImGuiKey_W) && io.KeyCtrl) {
-            if (!current_file_path.empty()) {
-                CloseVideo();
-                Debug::Log("Close current file");
-            }
-        }
-
         // Ctrl+S / Ctrl+Shift+S - Save Project / Save As
         // Use if-else to prevent both firing in same frame
         if (ImGui::IsKeyPressed(ImGuiKey_S) && io.KeyCtrl) {
@@ -3521,8 +3550,8 @@ private:
         // Render shutdown modal if shutting down
         RenderShutdownModal();
 
-        // Render import overlay if pending
-        if (HasPendingImport()) {
+        // Render loading overlay if media is loading
+        if (IsLoadingMedia()) {
             ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImVec2 center = viewport->GetCenter();
             ImVec2 display_size = viewport->Size;
@@ -3545,7 +3574,7 @@ private:
             draw_list->AddRect(modal_pos, modal_end, IM_COL32(77, 77, 89, 255), 4.0f, 0, 1.0f);
 
             // Message
-            const char* msg = pending_import_message_.empty() ? "Importing..." : pending_import_message_.c_str();
+            const char* msg = loading_message_.empty() ? "Loading..." : loading_message_.c_str();
             ImVec2 msg_size = ImGui::CalcTextSize(msg);
             float msg_x = modal_pos.x + (modal_width - msg_size.x) * 0.5f;
             float msg_y = modal_pos.y + (modal_height - msg_size.y) * 0.5f;
@@ -3630,12 +3659,6 @@ private:
                 ImGui::TextDisabled("Media:");
                 if (ImGui::MenuItem("Open Media...", "Ctrl+O")) {
                     OpenFileDialog();
-                }
-
-                if (!current_file_path.empty()) {
-                    if (ImGui::MenuItem("Close Media", "Ctrl+W")) {
-                        CloseVideo();
-                    }
                 }
 
                 ImGui::Separator();
@@ -3972,6 +3995,32 @@ private:
                     }
 
                     ImGui::PopStyleVar(2);
+
+                    // Separator before custom color picker
+                    ImGui::Separator();
+
+                    // Custom color picker - single widget
+                    bool picker_selected = !use_windows_accent_color && custom_accent_color_index == -2;
+
+                    if (ImGui::ColorEdit3("Custom", (float*)&custom_picker_color, ImGuiColorEditFlags_NoInputs)) {
+                        // When picker changes, automatically select it
+                        custom_accent_color_index = -2;
+                        use_windows_accent_color = false;
+                        SaveSettings();
+                    }
+
+                    // Show checkmark indicator if custom color is active
+                    if (picker_selected) {
+                        ImGui::SameLine();
+                        if (font_icons) {
+                            ImGui::PushFont(font_icons);
+                            ImGui::TextUnformatted(u8"\uE5CA");
+                            ImGui::PopFont();
+                        } else {
+                            ImGui::TextUnformatted("*");
+                        }
+                    }
+
                     ImGui::EndMenu();
                 }
 
@@ -4437,7 +4486,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.5");
+                ImGui::TextDisabled("About u.m.p. v0.5.6");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -19646,10 +19695,20 @@ private:
                 }
                 if (j["appearance"].contains("custom_accent_color_index")) {
                     custom_accent_color_index = j["appearance"]["custom_accent_color_index"].get<int>();
-                    // Validate the index is within bounds
+                    // Validate the index is within bounds (-2 = custom picker, -1 = default, 0+ = palette)
                     if (custom_accent_color_index >= accent_color_palette_count) {
                         custom_accent_color_index = -1;
                     }
+                }
+                // Load custom picker color
+                if (j["appearance"].contains("custom_picker_color_r")) {
+                    custom_picker_color.x = j["appearance"]["custom_picker_color_r"].get<float>();
+                }
+                if (j["appearance"].contains("custom_picker_color_g")) {
+                    custom_picker_color.y = j["appearance"]["custom_picker_color_g"].get<float>();
+                }
+                if (j["appearance"].contains("custom_picker_color_b")) {
+                    custom_picker_color.z = j["appearance"]["custom_picker_color_b"].get<float>();
                 }
                 if (j["appearance"].contains("video_background")) {
                     std::string bg_str = j["appearance"]["video_background"].get<std::string>();
@@ -19918,6 +19977,9 @@ private:
             // Appearance settings
             j["appearance"]["use_windows_accent_color"] = use_windows_accent_color;
             j["appearance"]["custom_accent_color_index"] = custom_accent_color_index;
+            j["appearance"]["custom_picker_color_r"] = custom_picker_color.x;
+            j["appearance"]["custom_picker_color_g"] = custom_picker_color.y;
+            j["appearance"]["custom_picker_color_b"] = custom_picker_color.z;
 
             std::string bg_str = "BLACK";
             switch (video_background_type) {
@@ -21162,11 +21224,6 @@ private:
             Debug::Log("OpenFileDialog: Failed after " + std::to_string(max_attempts) + " attempts");
             std::cerr << "Error opening file dialog: " << NFD_GetError() << std::endl;
         }
-    }
-
-    void CloseVideo() {
-        video_player->Reset();
-        current_file_path.clear();
     }
 
     void TriggerAutoPlay(ump::MediaType media_type = ump::MediaType::VIDEO) {

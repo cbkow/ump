@@ -236,6 +236,18 @@ namespace ump {
             color_preset_callback = callback;
         }
 
+        // Auto-play request callback - called when media wants to auto-play
+        // Main.cpp handles this to respect the app-wide auto_play_on_load setting
+        void SetAutoPlayRequestCallback(std::function<void()> callback) {
+            auto_play_request_callback = callback;
+        }
+
+        // Loading modal callback - shows "Loading..." overlay before blocking operations
+        // Parameters: message to display, callback to execute after overlay is shown
+        void SetLoadingModalCallback(std::function<void(const std::string&, std::function<void()>)> callback) {
+            loading_modal_callback = callback;
+        }
+
         // ========================================================================
         // SEQUENCE MANAGEMENT
         // ========================================================================
@@ -243,6 +255,7 @@ namespace ump {
         void CreateNewSequence(const std::string& name = "");
         void AddSequenceToProject(const std::string& sequence_id);
         void LoadSequenceFromBin(const std::string& media_item_id);
+        void LoadSingleMediaItem(const MediaItem& item);  // Load any single media item (video, image sequence, etc.)
         void SwitchToSequence(const std::string& sequence_id);
         void ClearSequenceMode();
         bool IsSequenceMode() const;
@@ -594,7 +607,9 @@ namespace ump {
         void HandleMediaItemRightClick(const MediaItem& item);
         void HandleMediaItemDragDrop(const MediaItem& item, bool is_selected);
         void ShowMediaItemContextMenu(const MediaItem& item);
-        void LoadSingleMediaItem(const MediaItem& item);
+        void LoadSingleMediaItemInternal(const MediaItem& item);  // Internal: actual loading logic
+        void LoadSequenceFromBinInternal(const std::string& media_item_id);  // Internal: actual playlist loading
+        void OpenTimelineInEditorInternal(const std::string& timeline_id);  // Internal: actual timeline loading
 
         // ========================================================================
         // ITEM OPERATION HELPERS
@@ -680,6 +695,8 @@ namespace ump {
         std::function<void()> exit_timeline_mode_callback;  // Callback to exit timeline editor mode
         std::function<void()> flush_timeline_edits_callback;  // Callback to flush current timeline edits before save
         std::function<void()> exit_comparison_mode_callback;  // Callback to exit comparison/dual-view mode
+        std::function<void()> auto_play_request_callback;  // Callback to request auto-play (respects app settings)
+        std::function<void(const std::string&, std::function<void()>)> loading_modal_callback;  // Callback to show loading modal
 
         // Cloud sync helper - waits for file to become readable
         bool WaitForFileReadable(const std::string& file_path, int timeout_seconds = 30);

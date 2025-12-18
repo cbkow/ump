@@ -62,6 +62,7 @@ extern ImFont* font_mono;
 // External variables from main.cpp
 extern bool use_windows_accent_color;
 extern int custom_accent_color_index;
+extern ImVec4 custom_picker_color;
 extern const ImVec4 accent_color_palette[];
 extern const int accent_color_palette_count;
 
@@ -70,6 +71,9 @@ ImVec4 GetDefaultAccentColor() {
 }
 
 ImVec4 GetCustomAccentColor() {
+    if (custom_accent_color_index == -2) {
+        return custom_picker_color;
+    }
     if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
         return accent_color_palette[custom_accent_color_index];
     }
@@ -2406,10 +2410,7 @@ namespace ump {
                 OpenTimelineInEditor(item.timeline_id);
             }
             else {
-                // Exit timeline mode when loading non-timeline media
-                if (exit_timeline_mode_callback) {
-                    exit_timeline_mode_callback();
-                }
+                // LoadSingleMediaItem handles exit_timeline_mode_callback internally
                 LoadSingleMediaItem(item);
             }
         }
@@ -2631,6 +2632,34 @@ namespace ump {
     }
 
     void ProjectManager::LoadSingleMediaItem(const MediaItem& item) {
+        // Determine loading message based on media type
+        std::string loading_msg;
+        switch (item.type) {
+            case MediaType::IMAGE_SEQUENCE:
+            case MediaType::EXR_SEQUENCE:
+                loading_msg = "Loading Image Sequence...";
+                break;
+            case MediaType::AUDIO:
+                loading_msg = "Loading Audio...";
+                break;
+            default:
+                loading_msg = "Loading Video...";
+                break;
+        }
+
+        // Show loading modal and defer the actual loading
+        if (loading_modal_callback) {
+            MediaItem item_copy = item;  // Copy for lambda capture
+            loading_modal_callback(loading_msg, [this, item_copy]() {
+                LoadSingleMediaItemInternal(item_copy);
+            });
+        } else {
+            // Fallback: load directly if no callback set
+            LoadSingleMediaItemInternal(item);
+        }
+    }
+
+    void ProjectManager::LoadSingleMediaItemInternal(const MediaItem& item) {
         Debug::Log("=== LoadSingleMediaItem CALLED ===");
         Debug::Log("MediaItem details:");
         Debug::Log("  - ID: " + item.id);
@@ -2641,6 +2670,18 @@ namespace ump {
         Debug::Log("  - FFmpeg pattern: " + (item.ffmpeg_pattern.empty() ? "(empty)" : item.ffmpeg_pattern));
         Debug::Log("  - Sequence pattern: " + (item.sequence_pattern.empty() ? "(empty)" : item.sequence_pattern));
         Debug::Log("  - EXR layer: " + (item.exr_layer.empty() ? "(empty)" : item.exr_layer));
+
+        // Exit timeline mode when loading non-timeline media (same as double-click behavior)
+        if (exit_timeline_mode_callback) {
+            exit_timeline_mode_callback();
+        }
+
+        // Clean up EXR/image sequence state if active (video loading will also do this,
+        // but explicit cleanup ensures clean transitions even in edge cases)
+        if (video_player && video_player->IsInEXRMode()) {
+            video_player->ResetState();
+            Debug::Log("LoadSingleMediaItem: Cleaned up EXR/image sequence state");
+        }
 
         // Cache view state of current media BEFORE loading new media
         // This must happen before current_file_path is updated
@@ -3367,6 +3408,18 @@ namespace ump {
     }
 
     void ProjectManager::LoadSequenceFromBin(const std::string& media_item_id) {
+        // Show loading modal and defer the actual loading
+        if (loading_modal_callback) {
+            loading_modal_callback("Loading Playlist...", [this, media_item_id]() {
+                LoadSequenceFromBinInternal(media_item_id);
+            });
+        } else {
+            // Fallback: load directly if no callback set
+            LoadSequenceFromBinInternal(media_item_id);
+        }
+    }
+
+    void ProjectManager::LoadSequenceFromBinInternal(const std::string& media_item_id) {
         auto item_it = std::find_if(media_pool.begin(), media_pool.end(),
             [&media_item_id](const MediaItem& item) { return item.id == media_item_id; });
 
@@ -3379,6 +3432,11 @@ namespace ump {
             exit_timeline_mode_callback();
         }
 
+        // Clean up EXR/image sequence state if active
+        if (video_player && video_player->IsInEXRMode()) {
+            video_player->ResetState();
+            Debug::Log("LoadSequenceFromBin: Cleaned up EXR/image sequence state");
+        }
 
         if (show_inspector_panel) {
             *show_inspector_panel = true;
@@ -3417,9 +3475,10 @@ namespace ump {
             *current_file_path = sorted_clips[0].file_path;
         }
 
-        // Only auto-play if requested (user-initiated, not project loading)
-        if (auto_play) {
-            video_player->Play();
+        // Request auto-play through callback (respects app-wide settings)
+        // Only request if auto_play is true (user-initiated, not project loading)
+        if (auto_play && auto_play_request_callback) {
+            auto_play_request_callback();
         }
 
         // Queue Adobe metadata for first clip (timecode, project links)
@@ -3735,6 +3794,18 @@ namespace ump {
     }
 
     void ProjectManager::OpenTimelineInEditor(const std::string& timeline_id) {
+        // Show loading modal and defer the actual loading
+        if (loading_modal_callback) {
+            loading_modal_callback("Loading Timeline...", [this, timeline_id]() {
+                OpenTimelineInEditorInternal(timeline_id);
+            });
+        } else {
+            // Fallback: load directly if no callback set
+            OpenTimelineInEditorInternal(timeline_id);
+        }
+    }
+
+    void ProjectManager::OpenTimelineInEditorInternal(const std::string& timeline_id) {
         if (timeline_editor_callback) {
             // Find the timeline item to get the file path
             for (const auto& item : media_pool) {

@@ -43,6 +43,7 @@ extern void SaveSettings();
 
 // External variables from main.cpp
 extern int custom_accent_color_index;
+extern ImVec4 custom_picker_color;
 extern const ImVec4 accent_color_palette[];
 extern const int accent_color_palette_count;
 
@@ -51,6 +52,9 @@ static ImVec4 GetDefaultAccentColor() {
 }
 
 static ImVec4 GetCustomAccentColor() {
+    if (custom_accent_color_index == -2) {
+        return custom_picker_color;
+    }
     if (custom_accent_color_index >= 0 && custom_accent_color_index < accent_color_palette_count) {
         return accent_color_palette[custom_accent_color_index];
     }

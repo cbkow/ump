@@ -168,6 +168,7 @@ public:
     // Rendering
     void RenderVideoFrame();
     void RenderControls();
+    void RenderPlaceholder();  // Empty viewport with drop target
 
     // State queries
     bool IsPlaying() const { return is_playing; }
@@ -245,6 +246,7 @@ public:
         cached_duration = 0.0;
         cached_position = 0.0;
     }
+    void ResetState();  // Full state reset including EXR/cache cleanup
 
     void UpdateVideoTexture(); 
     void DebugTextureInfo();
@@ -526,7 +528,6 @@ private:
 
     // Rendering helpers
     void RenderVideoTexture();
-    void RenderPlaceholder();
     void UpdateProperties();  // Updates both static and dynamic properties (call once on load)
     void UpdatePlaybackState();  // Updates only dynamic properties (position, pause) - call every frame
 
@@ -535,7 +536,6 @@ private:
     void HandlePropertyChange(const std::string& prop_name, mpv_event_property* prop);
 
     // File loading helpers
-    void ResetState();
     void WaitForFileLoad(bool is_audio_file = false);
     void FinalizeLoad();
     std::vector<std::string> ParseEDLContent(const std::string& edl_content);
