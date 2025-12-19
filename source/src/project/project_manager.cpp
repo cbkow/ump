@@ -2801,6 +2801,9 @@ namespace ump {
                 Debug::Log("LoadSingleMediaItem: Loading " + std::to_string(sequence_files.size()) +
                            " files with stored pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
 
+                // Ensure paused state before loading to allow cache to build around playhead
+                video_player->Pause();
+
                 // Load through DirectEXRCache with universal loader
                 Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
                 // Pass cached dimensions and duration from ImageSequenceData for reliable reload
@@ -2894,6 +2897,10 @@ namespace ump {
                             initial_playhead = item.view_state.playhead_position;
                         }
                         Debug::Log("LoadSingleMediaItem: EXR using cached duration: " + std::to_string(cached_dur) + "s, initial playhead: " + std::to_string(initial_playhead) + "s");
+
+                        // Ensure paused state before loading to allow cache to build around playhead
+                        video_player->Pause();
+
                         if (video_player->LoadEXRSequenceWithDummy(
                             sequence_files,
                             layer_name,

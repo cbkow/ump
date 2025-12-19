@@ -1884,7 +1884,7 @@ void VideoPlayer::RenderVideoTexture() {
     // Overrun mode overlay - shows when EXR cache can't keep up with playback
     if (exr_cache_ && exr_cache_->IsInOverrunMode() && font_mono) {
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        const char* overrun_text = "Not Realtime Playback: File too large";
+        const char* overrun_text = "Not realtime playback: cache overrun";
         float font_size = 14.0f;
 
         // Calculate text size and position (bottom-left corner with padding)
