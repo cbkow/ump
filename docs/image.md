@@ -33,6 +33,10 @@ Image sequences use a custom OTIO-based timeline to playback. Behind the hood, t
 
 ![Window](images/explorer_vb1410KKZo.png)
 
+If playback overruns the cache, you will see a message in the corner of the screen that signals an FPS slowdown. What this means is that the CPU-bound OpenEXR extraction is not keeping up with playback (*a common scenario with 4k+ multilayer EXRs and the Achilles' heel of OpenEXR extraction*). If u.m.p. detects an overrun, it will slow down to 50% of the fps (*for instance, 24 fps will play at 12 fps*), then 25%, and then 12.5%, in an attempt to maintain playback.
+
+![Window](images/ump_C3HnJtQVRW.png)
+
 ### Cache Settings
 
 You can adjust these values in the Pipeline & Cache Settings panel.
