@@ -10,6 +10,7 @@
 #include <map>
 #include <deque>
 #include <functional>
+#include <chrono>
 
 #include <glad/gl.h>
 #include <half.h>
@@ -385,6 +386,11 @@ public:
     bool IsFrameCached(int frame) const;  // Check if frame is in cache (for lookahead)
     bool WasLastFrameSyncLoad() const { return last_was_sync_load_.load(); }  // True if last GetFrameOrLoad was sync load
 
+    // Adaptive playback speed control (replaces binary overrun for smoother degradation)
+    double GetPlaybackSpeedFactor() const { return playback_speed_factor_.load(); }
+    void ResetPlaybackSpeed();  // Reset to 1.0 (call on seek, pause)
+    bool NeedsSpeedAdjustment() const { return playback_speed_factor_.load() < 1.0; }
+
     // Configuration
     void SetConfig(const EXRCacheConfig& config);
     EXRCacheConfig GetConfig() const { return config_; }
@@ -435,6 +441,7 @@ private:
         int frame;
         std::future<std::shared_ptr<PixelData>> future;  // Changed from EXRPixelData
         size_t byteCount;
+        uint64_t generation;  // Generation when request was created (for stale detection)
     };
 
     //=========================================================================
@@ -532,6 +539,19 @@ private:
     std::atomic<bool> last_was_sync_load_{false}; // True if last GetFrameOrLoad required sync load
     static constexpr int OVERRUN_THRESHOLD = 1;   // Activate overrun on first miss (immediate)
     std::atomic<uint64_t> request_generation_{0}; // Incremented on seek - stale results discarded
+
+    // Adaptive speed control (rate-based)
+    std::atomic<double> playback_speed_factor_{1.0};  // Current playback speed multiplier
+    std::atomic<int> frames_ahead_count_{0};          // How many frames are cached ahead of playhead
+    std::chrono::steady_clock::time_point last_speed_change_time_{};  // Debounce speed changes
+    static constexpr int SPEED_RESTORE_DEBOUNCE_MS = 2000;  // Wait 2 seconds before stepping up
+
+    // Rate measurement for adaptive speed
+    mutable std::mutex rate_mutex_;
+    std::deque<std::chrono::steady_clock::time_point> frame_completion_times_;  // Rolling window
+    static constexpr double RATE_WINDOW_SECONDS = 2.0;  // Measure rate over 2 second window
+    static constexpr double RATE_SAFETY_MARGIN = 0.85;  // Target 85% of measured rate for safety
+    std::atomic<double> measured_fill_rate_{0.0};       // Frames per second (cached for UI)
 
     // Pre-calculated frame size (from actual file, not estimated)
     size_t actualFrameSize_ = 0;  // Calculated from first loaded frame

@@ -1881,10 +1881,15 @@ void VideoPlayer::RenderVideoTexture() {
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
 
-    // Overrun mode overlay - shows when EXR cache can't keep up with playback
-    if (exr_cache_ && exr_cache_->IsInOverrunMode() && font_mono) {
+    // Reduced speed overlay - shows when EXR cache can't keep up with playback
+    if (exr_cache_ && exr_cache_->NeedsSpeedAdjustment() && font_mono) {
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        const char* overrun_text = "Not realtime playback: cache overrun";
+
+        // Format speed as percentage
+        double speed = exr_cache_->GetPlaybackSpeedFactor();
+        char overrun_text[64];
+        snprintf(overrun_text, sizeof(overrun_text), "Reduced playback: %.0f%% speed", speed * 100.0);
+
         float font_size = 14.0f;
 
         // Calculate text size and position (bottom-left corner with padding)
@@ -2002,9 +2007,7 @@ void VideoPlayer::RenderControls() {
     }
 
     // EXR Cache Progress and Statistics (when in EXR mode)
-    // Hide when in overrun mode - cache progress is not meaningful during frame-by-frame playback
-    bool in_overrun = exr_cache_ && exr_cache_->IsInOverrunMode();
-    if (is_exr_mode && HasEXRCache() && !in_overrun) {
+    if (is_exr_mode && HasEXRCache()) {
         ImGui::Separator();
         ImGui::Text("EXR Cache Status:");
 
@@ -2114,25 +2117,26 @@ void VideoPlayer::UpdateVideoTexture() {
 
     // 🔧 IMAGE SEQUENCE TIMER UPDATE: Advance timer if playing (virtual timeline mode)
     if (is_exr_mode && image_sequence_timer_) {
-        bool in_overrun = exr_cache_ && exr_cache_->IsInOverrunMode();
+        // Adaptive speed: adjust timer speed based on cache health
+        if (exr_cache_) {
+            double speed_factor = exr_cache_->GetPlaybackSpeedFactor();
+            double current_speed = image_sequence_timer_->GetPlaybackSpeed();
 
-        if (in_overrun) {
-            // OVERRUN MODE: Pause timer - we'll step frame-by-frame in InjectCurrentEXRFrame()
-            // This prevents the playhead from running ahead while we load frames synchronously
-            if (image_sequence_timer_->IsPlaying()) {
-                image_sequence_timer_->Pause();
-                Debug::Log("VideoPlayer: Timer paused for overrun mode");
+            // Only update if changed significantly (avoid constant calls)
+            if (std::abs(speed_factor - current_speed) > 0.001) {
+                image_sequence_timer_->SetPlaybackSpeed(speed_factor);
+                if (speed_factor < 1.0) {
+                    Debug::Log("VideoPlayer: Timer speed set to " + std::to_string(speed_factor));
+                }
             }
-        } else {
-            // Normal mode or exiting overrun
-            // Resume timer if we were in overrun mode (is_playing is true but timer paused)
-            if (is_playing && !image_sequence_timer_->IsPlaying()) {
-                image_sequence_timer_->Play();
-                Debug::Log("VideoPlayer: Timer resumed after overrun mode");
-            }
-            if (image_sequence_timer_->IsPlaying()) {
-                image_sequence_timer_->Update();
-            }
+        }
+
+        // Always keep timer running (speed controls effective playback rate)
+        if (is_playing && !image_sequence_timer_->IsPlaying()) {
+            image_sequence_timer_->Play();
+        }
+        if (image_sequence_timer_->IsPlaying()) {
+            image_sequence_timer_->Update();
         }
         cached_position = image_sequence_timer_->GetPosition();
     }
@@ -2141,16 +2145,8 @@ void VideoPlayer::UpdateVideoTexture() {
     if (is_exr_mode && !exr_sequence_files.empty()) {
         InjectCurrentEXRFrame();
 
-        // 🔧 IMMEDIATE OVERRUN CHECK: Pause timer right after overrun is detected
-        // This is critical because overrun mode is set INSIDE GetFrameOrLoad(),
-        // which is called from InjectCurrentEXRFrame(). Without this check,
-        // there's a one-frame delay before the timer is paused.
-        if (image_sequence_timer_ && exr_cache_ && exr_cache_->IsInOverrunMode()) {
-            if (image_sequence_timer_->IsPlaying()) {
-                image_sequence_timer_->Pause();
-                Debug::Log("VideoPlayer: Timer paused immediately after overrun detected");
-            }
-        }
+        // NOTE: With adaptive speed control, we no longer pause the timer on overrun.
+        // Instead, SetPlaybackSpeed() is used above to slow down playback smoothly.
 
         // 🔧 REMOVED: TriggerEXRFrameCaching() - FFmpeg cache system not used for EXR
         // DirectEXRCache handles all EXR caching with native OpenEXR + memory-mapping
@@ -4796,48 +4792,13 @@ void VideoPlayer::InjectCurrentEXRFrame() {
             double frame_timestamp = target_frame / exr_frame_rate;
             cached_position = frame_timestamp;
 
-            // OVERRUN MODE: Play one frame at a time at decode speed
-            // Timer is paused, we step forward ONLY after displaying a NEW frame
-            // This ensures we don't skip frames or step multiple times per frame
-            bool already_updated_position = false;
-            if (exr_cache_->IsInOverrunMode() && image_sequence_timer_) {
-                // Throttle overrun playback to ~1fps minimum to avoid "catchup" bursts
-                // when cached frames are available faster than decode speed
-                static auto last_overrun_step = std::chrono::steady_clock::now();
-                static constexpr auto MIN_OVERRUN_INTERVAL = std::chrono::milliseconds(500); // ~2fps max
-
-                auto now = std::chrono::steady_clock::now();
-                bool throttle_ok = (now - last_overrun_step) >= MIN_OVERRUN_INTERVAL;
-
-                // Only step when displaying a NEW frame (not same frame repeated)
-                if (target_frame != last_injected_frame && throttle_ok) {
-                    last_injected_frame = target_frame;
-                    last_overrun_step = now;
-
-                    int total_frames = static_cast<int>(exr_sequence_files.size());
-                    bool at_end = (target_frame >= total_frames - 1);
-
-                    // Step forward after displaying this new frame
-                    if (!at_end) {
-                        image_sequence_timer_->StepForward(1);
-                        cached_position = image_sequence_timer_->GetPosition();
-
-                        // CRITICAL: Immediately request next frame so it starts loading NOW
-                        // Without this, we wait until next render cycle to request it
-                        exr_cache_->UpdateCurrentPosition(cached_position);
-                        already_updated_position = true;
-                    }
-                }
-            } else {
-                // Normal mode - just track frame display
-                if (target_frame != last_injected_frame) {
-                    last_injected_frame = target_frame;
-                }
+            // Track frame display (adaptive speed handles timing via SetPlaybackSpeed)
+            if (target_frame != last_injected_frame) {
+                last_injected_frame = target_frame;
             }
 
             // Update cache position for background processing (throttled - only on frame change)
-            // Skip if we already updated in overrun mode stepping above
-            if (!already_updated_position && target_frame != last_cache_update_frame) {
+            if (target_frame != last_cache_update_frame) {
                 exr_cache_->UpdateCurrentPosition(GetPosition());
                 last_cache_update_frame = target_frame;
             }

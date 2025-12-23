@@ -442,59 +442,131 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
     // Get texture (may return fallback if not cached)
     texture = GetTexture(frame, width, height);
 
+    // Calculate frames ahead (for adaptive speed decisions)
+    int frames_ahead = 0;
+    {
+        auto keys = pixelCache_.GetKeys();
+        for (int cached_frame : keys) {
+            if (cached_frame > frame && cached_frame <= frame + config_.readAheadFrames) {
+                frames_ahead++;
+            }
+        }
+        frames_ahead_count_.store(frames_ahead);
+    }
+
     // If frame is actually in pixel cache, it's a true cache hit
     if (is_actually_cached && texture != 0) {
         consecutive_misses_.store(0);
         last_was_sync_load_.store(false);  // Cache hit - not a sync load
+
+        // Hybrid adaptive speed control:
+        // - Buffer healthy → full speed (don't check rate)
+        // - Buffer low → use rate to determine sustainable speed
+        // - Already slowed → use rate to decide when to speed up
+        if (isPlaying_ && fps_ > 0) {
+            double current_speed = playback_speed_factor_.load();
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - last_speed_change_time_).count();
+
+            constexpr int BUFFER_HEALTHY_THRESHOLD = 70; // Frames ahead = safe, can restore speed
+            constexpr int BUFFER_LOW_THRESHOLD = 38;     // Frames ahead = getting risky, check rate
+
+            if (frames_ahead >= BUFFER_HEALTHY_THRESHOLD) {
+                // BUFFER HEALTHY: Stay at full speed, ignore rate
+                if (current_speed < 1.0 && elapsed_ms >= SPEED_RESTORE_DEBOUNCE_MS) {
+                    playback_speed_factor_.store(1.0);
+                    last_speed_change_time_ = now;
+                    overrun_mode_.store(false);
+                    Debug::Log("DirectEXRCache: Buffer healthy (" + std::to_string(frames_ahead) +
+                               " ahead) - restored to full speed");
+                }
+            } else if (frames_ahead < BUFFER_LOW_THRESHOLD) {
+                // BUFFER LOW: Use rate to determine sustainable speed
+                double fill_rate = measured_fill_rate_.load();
+                if (fill_rate > 0.1) {
+                    double sustainable_speed = (fill_rate * RATE_SAFETY_MARGIN) / fps_;
+
+                    // Quantize to nice steps
+                    double new_speed;
+                    if (sustainable_speed >= 0.75) {
+                        new_speed = 1.0;
+                    } else if (sustainable_speed >= 0.375) {
+                        new_speed = 0.5;
+                    } else if (sustainable_speed >= 0.1875) {
+                        new_speed = 0.25;
+                    } else {
+                        new_speed = 0.125;
+                    }
+
+                    if (new_speed < current_speed) {
+                        playback_speed_factor_.store(new_speed);
+                        last_speed_change_time_ = now;
+                        overrun_mode_.store(new_speed < 1.0);
+                        Debug::Log("DirectEXRCache: Buffer low (" + std::to_string(frames_ahead) +
+                                   " ahead) - rate-based slowdown to " + std::to_string(new_speed) +
+                                   " (fill=" + std::to_string(fill_rate) + "fps)");
+                    }
+                }
+            }
+            // else: BUFFER MEDIUM (3-7 frames) - maintain current speed, wait and see
+        }
         return true;
     }
 
     // === CACHE MISS (frame not in pixel cache) ===
+    last_was_sync_load_.store(true);
 
-    // Track consecutive misses while playing
-    if (isPlaying_) {
-        int misses = consecutive_misses_.fetch_add(1) + 1;
+    if (isPlaying_ && fps_ > 0) {
+        consecutive_misses_.fetch_add(1);
+        double current_speed = playback_speed_factor_.load();
+        double fill_rate = measured_fill_rate_.load();
 
-        // Check if we should enter overrun mode
-        if (misses >= OVERRUN_THRESHOLD && !overrun_mode_.load()) {
+        // Cache miss = we're consuming faster than filling
+        // Drop to sustainable speed immediately
+        double sustainable_speed = (fill_rate > 0.1)
+            ? (fill_rate * RATE_SAFETY_MARGIN) / fps_
+            : 0.125;  // Fallback if no rate data yet
+
+        // Quantize to nice steps
+        double new_speed;
+        if (sustainable_speed >= 0.75) {
+            new_speed = 1.0;
+        } else if (sustainable_speed >= 0.375) {
+            new_speed = 0.5;
+        } else if (sustainable_speed >= 0.1875) {
+            new_speed = 0.25;
+        } else {
+            new_speed = 0.125;
+        }
+
+        if (new_speed < current_speed) {
+            playback_speed_factor_.store(new_speed);
+            last_speed_change_time_ = std::chrono::steady_clock::now();
             overrun_mode_.store(true);
-            Debug::Log("DirectEXRCache: OVERRUN MODE - cache can't keep up, switching to frame-by-frame sync loading");
+            Debug::Log("DirectEXRCache: Cache miss - drop to " + std::to_string(new_speed) +
+                       " (fill=" + std::to_string(fill_rate) + "fps, target=" +
+                       std::to_string(fps_) + "fps)");
         }
     }
 
-    // In overrun mode, use non-blocking approach to keep UI responsive
-    // Background thread loads frames with 2-frame lookahead, main thread just waits
-    // Note: Timer should be paused externally when overrun_mode_ is detected
-    if (overrun_mode_.load()) {
-        // Mark as waiting for sync (background is loading)
-        last_was_sync_load_.store(true);
-
-        // Request frame via background thread (non-blocking)
-        RequestFrame(frame);
-
-        // Also request next frame for lookahead (speeds up sequential playback)
-        if (frame + 1 < (int)sequenceFiles_.size()) {
-            RequestFrame(frame + 1);
-        }
-
-        // Wake up IO thread immediately for fast response
-        cv_.notify_one();
-
-        // Return last good frame while waiting - keeps UI responsive
-        if (last_good_texture_ != 0) {
-            texture = last_good_texture_;
-            width = last_good_width_;
-            height = last_good_height_;
-            // Return false to indicate this is NOT the requested frame
-            // Stepping logic will wait until we actually get frame N before stepping to N+1
-            return false;
-        }
-
-        return false;
-    }
-
-    // Normal mode: request frame and return false (background thread will load it)
+    // Request frame via background thread (always keep prefetching!)
     RequestFrame(frame);
+
+    // Also request next frame for lookahead
+    if (frame + 1 < (int)sequenceFiles_.size()) {
+        RequestFrame(frame + 1);
+    }
+
+    // Wake up IO thread immediately
+    cv_.notify_one();
+
+    // Return last good frame for display continuity
+    if (last_good_texture_ != 0) {
+        texture = last_good_texture_;
+        width = last_good_width_;
+        height = last_good_height_;
+    }
     return false;
 }
 
@@ -567,8 +639,21 @@ void DirectEXRCache::ResetOverrunMode() {
     consecutive_misses_.store(0);
     last_was_sync_load_.store(false);  // Reset sync load tracking
 
+    // Also reset playback speed
+    ResetPlaybackSpeed();
+
     if (was_in_overrun) {
         Debug::Log("DirectEXRCache: Overrun mode RESET - returning to normal cache-ahead");
+    }
+}
+
+void DirectEXRCache::ResetPlaybackSpeed() {
+    double old_speed = playback_speed_factor_.exchange(1.0);
+    consecutive_misses_.store(0);
+    last_was_sync_load_.store(false);
+
+    if (old_speed < 1.0) {
+        Debug::Log("DirectEXRCache: Playback speed reset to 1.0");
     }
 }
 
@@ -685,12 +770,22 @@ void DirectEXRCache::ClearRequests() {
         videoRequests_.clear();
 
         // DON'T clear requestsInProgress_ - that blocks waiting for futures!
-        // Let in-progress tasks finish naturally - their results just add to cache
-        // which is fine (extra cached frames don't hurt)
+        // Let in-progress tasks finish naturally - but we increment generation
+        // so their stale results get discarded instead of cached
+
+        // Increment generation so in-progress tasks know their results are stale
+        request_generation_.fetch_add(1);
 
         // Set flag to reset fill counters on next cache update
         // This makes cache fill restart from new seek position
         needsFillReset_ = true;
+    }
+
+    // Reset rate tracking - old rate data is invalid after seek
+    {
+        std::lock_guard<std::mutex> rate_lock(rate_mutex_);
+        frame_completion_times_.clear();
+        measured_fill_rate_.store(0.0);
     }
 
     /*Debug::Log("DirectEXRCache: Cleared " + std::to_string(pending) +
@@ -870,11 +965,9 @@ void DirectEXRCache::CacheThread() {
             continue;
         }
 
-        // OVERRUN MODE: Pause background caching to prevent batch-loading spurts
-        // When in overrun mode, we only sync load one frame at a time for consistent playback
-        if (overrun_mode_.load()) {
-            continue;  // Skip cache work, let sync loading handle frames one at a time
-        }
+        // NOTE: With adaptive speed control, cache thread keeps running even during reduced playback
+        // This allows the cache to fill ahead and recover to full speed faster
+        // (Previously paused here in overrun mode, now we keep prefetching)
 
         iteration++;
 
@@ -1163,6 +1256,21 @@ void DirectEXRCache::CacheThread() {
                     }
                 } else {
                     // NORMAL MODE: Read-ahead from current position
+
+                    // PRIORITY: Always request current frame FIRST (fixes first-frame delay on high-res files)
+                    if (requested_count < max_to_request &&
+                        !pixelCache_.Contains(current_frame) &&
+                        requestsInProgress_.find(current_frame) == requestsInProgress_.end()) {
+                        bool already_pending = false;
+                        for (int pending : videoRequests_) {
+                            if (pending == current_frame) { already_pending = true; break; }
+                        }
+                        if (!already_pending) {
+                            videoRequests_.push_back(current_frame);
+                            requested_count++;
+                        }
+                    }
+
                     for (int i = 1; i <= config_.readAheadFrames && requested_count < max_to_request; i++) {
                         int frame = current_frame + i;
 
@@ -1315,10 +1423,9 @@ void DirectEXRCache::IOWorkerThread() {
 
         if (!ioRunning_) break;
 
-        // OVERRUN MODE: Allow limited lookahead (1-2 frames) for better performance
-        // Instead of completely stopping, we allow a small buffer to be loaded ahead
-        const bool in_overrun = overrun_mode_.load();
-        const size_t max_concurrent = in_overrun ? 2 : config_.threadCount;  // 2 in overrun, 16 normal
+        // Use full thread count for maximum cache fill rate
+        // Adaptive speed control handles playback pacing, so we always want fast cache filling
+        const size_t max_concurrent = config_.threadCount;
 
         // Spawn async tasks (up to max_concurrent)
         {
@@ -1349,6 +1456,7 @@ void DirectEXRCache::IOWorkerThread() {
                 EXRRequest request;
                 request.frame = frame;
                 request.byteCount = 3840 * 2160 * 4 * sizeof(half);  // Estimate
+                request.generation = request_generation_.load();  // Capture generation for stale detection
 
                 // Spawn async task
                 const std::string path = sequenceFiles_[frame];
@@ -1406,13 +1514,44 @@ void DirectEXRCache::IOWorkerThread() {
                     try {
                         auto pixelData = it->second.future.get();
 
-                        if (pixelData && !pixelData->pixels.empty()) {
+                        // Check if request is stale (user seeked since this was requested)
+                        uint64_t current_gen = request_generation_.load();
+                        bool is_stale = (it->second.generation != current_gen);
+
+                        if (is_stale) {
+                            // Discard stale result - user has seeked since this was requested
+                            // Debug::Log("DirectEXRCache: [STALE] Discarding frame " + std::to_string(it->first));
+                        } else if (pixelData && !pixelData->pixels.empty()) {
                             // Add directly to pixel cache (no intermediate queue!)
                             size_t byteCount = pixelData->pixels.size();  // Already in bytes (uint8_t vector)
                             pixelCache_.Add(it->first, pixelData, byteCount);
 
                             // Register with SharedMemoryPool for global LRU coordination
                             RegisterWithPool(it->first, byteCount);
+
+                            // Track completion time for rate measurement
+                            {
+                                std::lock_guard<std::mutex> rate_lock(rate_mutex_);
+                                auto now = std::chrono::steady_clock::now();
+                                frame_completion_times_.push_back(now);
+
+                                // Prune old entries outside the measurement window
+                                auto cutoff = now - std::chrono::milliseconds(
+                                    static_cast<int>(RATE_WINDOW_SECONDS * 1000));
+                                while (!frame_completion_times_.empty() &&
+                                       frame_completion_times_.front() < cutoff) {
+                                    frame_completion_times_.pop_front();
+                                }
+
+                                // Update measured fill rate
+                                if (frame_completion_times_.size() >= 2) {
+                                    auto window_start = frame_completion_times_.front();
+                                    auto window_duration = std::chrono::duration<double>(now - window_start).count();
+                                    if (window_duration > 0.1) {  // Need at least 100ms of data
+                                        measured_fill_rate_.store(frame_completion_times_.size() / window_duration);
+                                    }
+                                }
+                            }
 
                             segmentsDirty_ = true;  // Mark segments dirty for UI update
                             completed++;

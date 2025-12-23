@@ -4486,7 +4486,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.8");
+                ImGui::TextDisabled("About u.m.p. v0.5.9");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -9672,11 +9672,7 @@ private:
 
                     // Draw cache segments in the unified cache bar (below ruler)
                     // Use cache_bar_y defined earlier when drawing cache bar background
-                    // Skip drawing when in overrun mode (cache is not meaningful during frame-by-frame playback)
-                    bool in_overrun_mode = video_player && video_player->GetEXRCache() &&
-                                           video_player->GetEXRCache()->IsInOverrunMode();
-
-                    for (const auto& segment : (in_overrun_mode ? std::vector<FrameCache::CacheSegment>{} : cached_segments)) {
+                    for (const auto& segment : cached_segments) {
                         // Convert timestamps to frame numbers and then to pixel positions (with zoom/pan)
                         int start_frame, end_frame;
 
