@@ -1,2 +1,17 @@
 source/external/ffmpeg/bin/avcodec-62.dll filter=lfs diff=lfs merge=lfs -text
 source/external/mpv/bin/libmpv-2.dll filter=lfs diff=lfs merge=lfs -text
+
+# Exclude everything
+* linguist-vendored
+
+# Re-include C++
+*.c linguist-vendored=false
+*.cc linguist-vendored=false
+*.cpp linguist-vendored=false
+*.cxx linguist-vendored=false
+*.h linguist-vendored=false
+*.hpp linguist-vendored=false
+*.hh linguist-vendored=false
+
+# Re-include Python
+*.py linguist-vendored=false
