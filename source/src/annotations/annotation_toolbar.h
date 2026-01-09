@@ -90,6 +90,11 @@ private:
                             ImVec4 accent_muted_dark = ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
 
     /**
+     * Helper to render a vertical divider.
+     */
+    void RenderDivider();
+
+    /**
      * Helper to render a tool button with icon.
      */
     bool ToolButton(const char* label, DrawingTool tool, const char* tooltip, ImVec4 accent_regular);

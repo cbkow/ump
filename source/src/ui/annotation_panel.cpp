@@ -38,16 +38,86 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         return;
     }
 
-    ImGui::Begin("Annotations", p_open, ImGuiWindowFlags_MenuBar);
+    ImGui::Begin("Annotations", p_open);
 
-    // Menu bar for import/export
-    // Match main menu popup style
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-    if (ImGui::BeginMenuBar()) {
-        RenderMenuBar(p_open);
-        ImGui::EndMenuBar();
+    // Header row with icon, title, menu buttons, and close button
+    {
+        #define ICON_NOTES u8"\uE873"  // Material icon for notes/description
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImGui::Text(ICON_NOTES);
+            ImGui::PopFont();
+            ImGui::SameLine();
+        }
+        ImGui::Text("Notes");
+        ImGui::PopStyleColor();
+
+        // Export/Import buttons with spacing after title
+        ImGui::SameLine(0.0f, 20.0f);
+        bool has_notes = annotation_manager_->GetNoteCount() > 0;
+
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
+
+        // Export button with popup
+        if (ImGui::SmallButton("Export")) {
+            ImGui::OpenPopup("ExportPopup");
+        }
+        if (ImGui::BeginPopup("ExportPopup")) {
+            if (!has_notes) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::MenuItem("Markdown")) {
+                if (export_callback_) export_callback_("markdown");
+            }
+            if (ImGui::MenuItem("HTML")) {
+                if (export_callback_) export_callback_("html");
+            }
+            if (ImGui::MenuItem("PDF")) {
+                if (export_callback_) export_callback_("pdf");
+            }
+            if (!has_notes) {
+                ImGui::EndDisabled();
+            }
+            ImGui::EndPopup();
+        }
+
+        ImGui::SameLine();
+
+        // Import button with popup
+        if (ImGui::SmallButton("Import")) {
+            ImGui::OpenPopup("ImportPopup");
+        }
+        if (ImGui::BeginPopup("ImportPopup")) {
+            if (ImGui::MenuItem("From Frame.io")) {
+                if (frameio_import_callback_) frameio_import_callback_();
+            }
+            ImGui::EndPopup();
+        }
+
+        ImGui::PopStyleColor();
+
+        // Close button on the right
+        float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
+        ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
+        ImVec2 button_pos = ImGui::GetCursorScreenPos();
+        bool clicked = ImGui::InvisibleButton("##CloseAnnotations", ImVec2(button_size, button_size));
+        bool hovered = ImGui::IsItemHovered();
+        // Draw icon centered - disabled color by default, regular on hover
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
+            ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
+                                     button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+            ImU32 icon_col = hovered ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+            ImGui::GetWindowDrawList()->AddText(icon_pos, icon_col, ICON_CLOSE);
+            ImGui::PopFont();
+        }
+        if (clicked && p_open) {
+            *p_open = false;
+        }
+        #undef ICON_NOTES
     }
-    ImGui::PopStyleColor();
 
     RenderHeader();
 
@@ -58,7 +128,10 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
     float available_height = ImGui::GetContentRegionAvail().y;
 
     // Reserve some minimum space for footer (just the enabled button now)
-    float footer_reserve = 50.0f; // Reduced from 196.00
+    // Scale with font (0.65 dampened)
+    const float ui_scale = ImGui::GetIO().FontGlobalScale;
+    const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+    float footer_reserve = 50.0f * height_scale;
 
     // Scrollable notes list
     if (ImGui::BeginChild("NotesScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
@@ -93,7 +166,7 @@ void AnnotationPanel::RenderHeader() {
     }
 
     // Full-width Add Note button on its own row
-    if (ImGui::Button("Add Note", ImVec2(-1, 30.0f))) {
+    if (ImGui::Button("Add Note", ImVec2(-1, 0))) {
         HandleAddNote();
     }
 }
@@ -101,8 +174,11 @@ void AnnotationPanel::RenderHeader() {
 void AnnotationPanel::RenderMenuBar(bool* p_open) {
     bool has_notes = annotation_manager_->GetNoteCount() > 0;
 
-    // Export menu
-    if (ImGui::BeginMenu("Export")) {
+    // Export button with popup
+    if (ImGui::SmallButton("Export")) {
+        ImGui::OpenPopup("ExportPopup");
+    }
+    if (ImGui::BeginPopup("ExportPopup")) {
         if (!has_notes) {
             ImGui::BeginDisabled();
         }
@@ -129,54 +205,23 @@ void AnnotationPanel::RenderMenuBar(bool* p_open) {
             ImGui::EndDisabled();
         }
 
-        ImGui::EndMenu();
+        ImGui::EndPopup();
     }
 
     ImGui::SameLine();
 
-    // Import menu
-    if (ImGui::BeginMenu("Import")) {
+    // Import button with popup
+    if (ImGui::SmallButton("Import")) {
+        ImGui::OpenPopup("ImportPopup");
+    }
+    if (ImGui::BeginPopup("ImportPopup")) {
         if (ImGui::MenuItem("From Frame.io")) {
             if (frameio_import_callback_) {
                 frameio_import_callback_();
             }
         }
 
-        ImGui::EndMenu();
-    }
-
-    // Close button on the right side of menu bar
-    if (p_open) {
-        float button_size = ImGui::GetFrameHeight();
-        float avail_width = ImGui::GetContentRegionAvail().x;
-        float right_margin = 11.0f;
-        float corner_radius = ImGui::GetStyle().FrameRounding;
-        ImGui::SameLine(ImGui::GetCursorPosX() + avail_width - button_size - right_margin);
-        ImVec2 button_pos = ImGui::GetCursorScreenPos();
-        bool clicked = ImGui::InvisibleButton("##CloseAnnotations", ImVec2(button_size, button_size));
-        bool hovered = ImGui::IsItemHovered();
-        bool active = ImGui::IsItemActive();
-        // Draw button background on hover/active
-        if (hovered || active) {
-            ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
-                                  : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-            ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
-        }
-        // Draw icon centered with -1px vertical offset
-        if (font_icons) {
-            ImGui::PushFont(font_icons);
-            ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
-            ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
-                                     button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
-            ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
-            ImGui::PopFont();
-        }
-        if (clicked) {
-            *p_open = false;
-        }
-        if (hovered) {
-            ImGui::SetTooltip("Close Annotations (Ctrl+5)");
-        }
+        ImGui::EndPopup();
     }
 }
 
@@ -220,7 +265,6 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
     ImGui::PushStyleColor(ImGuiCol_Button, button_color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active);
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8.0f, 8.0f));
 
     const char* button_text = *annotations_enabled_ptr_ ? "Annotations Enabled" : "Annotations Disabled";
     if (ImGui::Button(button_text, ImVec2(-1, 0))) {
@@ -228,7 +272,6 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
         Debug::Log(*annotations_enabled_ptr_ ? "Annotations enabled for playback" : "Annotations disabled for playback");
     }
 
-    ImGui::PopStyleVar();
     ImGui::PopStyleColor(3);
 }
 
@@ -328,18 +371,6 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     if (mono_font) ImGui::PopFont();
     ImGui::PopStyleColor();
 
-    // Addressed checkbox (styled like Frame count)
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    if (mono_font) ImGui::PushFont(mono_font);
-    bool addressed = note.addressed;
-    if (ImGui::Checkbox("Addressed", &addressed)) {
-        if (annotation_manager_) {
-            annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
-        }
-    }
-    if (mono_font) ImGui::PopFont();
-    ImGui::PopStyleColor();
-
     ImGui::PopItemWidth();
     ImGui::EndGroup();
 
@@ -349,7 +380,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // === COLUMN 3: Edit and Delete buttons (stacked) ===
     ImGui::BeginGroup();
 
-    const float button_height = 28.0f;
+    const float button_height = 0;  // Auto-height based on frame padding
 
     // Material Icons edit icon
     #define ICON_EDIT u8"\uE3C9"
@@ -460,6 +491,20 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
             seek_callback_(note.timestamp_seconds);
         }
     }
+
+    // Addressed checkbox (flush-left below text field)
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    if (mono_font) ImGui::PushFont(mono_font);
+    bool addressed = note.addressed;
+    if (ImGui::Checkbox("Addressed", &addressed)) {
+        if (annotation_manager_) {
+            annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
+        }
+    }
+    if (mono_font) ImGui::PopFont();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
 
     // Add bottom padding
     ImGui::Dummy(ImVec2(0, padding));

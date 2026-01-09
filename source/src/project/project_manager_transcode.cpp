@@ -165,14 +165,17 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
     }
 
     // Center the modal
+    float scale = ImGui::GetIO().FontGlobalScale;
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImVec2 center = viewport->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(600, 500), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(600 * scale, 0), ImGuiCond_Always);
 
-    if (!ImGui::BeginPopupModal("Transcode Settings", &show_transcode_settings_dialog, ImGuiWindowFlags_NoResize)) {
+    if (!ImGui::BeginPopupModal("Transcode Settings", &show_transcode_settings_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
+
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
     auto& settings = transcode_dialog_settings;
 
@@ -257,9 +260,16 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
     ImGui::Combo("##Priority", &settings.priority_index, priority_items, IM_ARRAYSIZE(priority_items));
 
     ImGui::Separator();
+    ImGui::Spacing();
 
-    // Action buttons
-    if (ImGui::Button("Add to Queue", ImVec2(150, 30))) {
+    // Action buttons (flush right)
+    float btnPadding = 8.0f * 2;
+    float addW = ImGui::CalcTextSize("Add to Queue").x + btnPadding;
+    float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+    float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+    ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - addW - cancelW - btnSpacing);
+
+    if (ImGui::Button("Add to Queue")) {
         ProcessAddToTranscodeQueue();
         show_transcode_settings_dialog = false;
         transcode_settings_dialog_opened = false;
@@ -268,12 +278,13 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
 
     ImGui::SameLine();
 
-    if (ImGui::Button("Cancel", ImVec2(150, 30))) {
+    if (ImGui::Button("Cancel")) {
         show_transcode_settings_dialog = false;
         transcode_settings_dialog_opened = false;
         ImGui::CloseCurrentPopup();
     }
 
+    ImGui::PopStyleColor();
     ImGui::EndPopup();
 
     // Reset dialog state when closed by X button or Escape

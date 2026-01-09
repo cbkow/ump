@@ -2621,8 +2621,8 @@ private:
         style.FramePadding = ImVec2(8.0f, 8.0f);
         style.ItemSpacing = ImVec2(8.0f, 4.0f);
 
-        colors[ImGuiCol_Text] = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
-        colors[ImGuiCol_TextDisabled] = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+        colors[ImGuiCol_Text] = ImVec4(0.91f, 0.91f, 0.91f, 1.0f);
+        colors[ImGuiCol_TextDisabled] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
         colors[ImGuiCol_WindowBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
         colors[ImGuiCol_ChildBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
         colors[ImGuiCol_PopupBg] = ImVec4(0.125f, 0.125f, 0.125f, 1.00f);
@@ -2678,7 +2678,7 @@ private:
         colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.06f); 
 
         style.WindowPadding = ImVec2(12.00f, 12.00f);
-        style.FramePadding = ImVec2(5.00f, 2.00f);
+        // FramePadding 8,8 set above - kept as default for buttons, tabs, inputs in dialogs
         style.CellPadding = ImVec2(6.00f, 6.00f);
         style.ItemSpacing = ImVec2(6.00f, 6.00f);
         style.ItemInnerSpacing = ImVec2(6.00f, 6.00f);
@@ -3593,9 +3593,15 @@ private:
             ImGui::TextWrapped("Share this link with others to open the project.");
             ImGui::TextWrapped("Format: ump:///path/to/project.umproj");
             ImGui::Separator();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::Spacing();
+
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -3605,9 +3611,15 @@ private:
             ImGui::Separator();
             ImGui::TextWrapped("Please save your project first before sharing.");
             ImGui::Separator();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::Spacing();
+
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -3618,9 +3630,15 @@ private:
             ImGui::TextWrapped("Please restart the application for changes to take effect.");
             ImGui::TextWrapped("The application will use default settings on next launch.");
             ImGui::Separator();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+            ImGui::Spacing();
+
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
     }
@@ -3933,6 +3951,8 @@ private:
                         custom_accent_color_index = -1;  // Clear custom color when using system
                     }
                     SaveSettings();
+                    SetupImGuiStyle();
+                    NodeEditorTheme::ApplyDarkTheme();
                 }
 
                 // Color swatch submenu
@@ -3961,6 +3981,8 @@ private:
                             custom_accent_color_index = i;
                             use_windows_accent_color = false;  // Disable system color when selecting custom
                             SaveSettings();
+                            SetupImGuiStyle();
+                            NodeEditorTheme::ApplyDarkTheme();
                         }
 
                         // Draw checkmark centered on button for selected swatch
@@ -4007,6 +4029,8 @@ private:
                         custom_accent_color_index = -2;
                         use_windows_accent_color = false;
                         SaveSettings();
+                        SetupImGuiStyle();
+                        NodeEditorTheme::ApplyDarkTheme();
                     }
 
                     // Show checkmark indicator if custom color is active
@@ -4486,7 +4510,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.5.9");
+                ImGui::TextDisabled("About u.m.p. v0.6.1");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4785,11 +4809,12 @@ private:
         }
 
         // Set popup to center on screen
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(500, 200), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(500 * scale, 0), ImGuiCond_Always);
 
-        if (ImGui::BeginPopupModal("EXR Transcode Progress", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+        if (ImGui::BeginPopupModal("EXR Transcode Progress", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
             // Check if transcode completed (progress flag was cleared by completion callback)
             if (!show_transcode_progress) {
                 ImGui::CloseCurrentPopup();
@@ -4832,20 +4857,7 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Cancel button
-            if (ImGui::Button("Cancel Transcode", ImVec2(150, 0))) {
-                // Call cancel on project manager's transcoder
-                if (project_manager) {
-                    project_manager->CancelTranscode();
-                    Debug::Log("User requested transcode cancel");
-                }
-                show_transcode_progress = false;
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::SameLine();
-
-            // Estimated time (optional enhancement)
+            // Estimated time on left, Cancel button flush right
             if (total > 0 && current > 0) {
                 static auto start_time = std::chrono::steady_clock::now();
                 if (current == 1) {
@@ -4861,7 +4873,22 @@ private:
                     int eta_sec = (rate > 0) ? static_cast<int>(remaining_frames / rate) : 0;
 
                     ImGui::Text("ETA: %d:%02d", eta_sec / 60, eta_sec % 60);
+                    ImGui::SameLine();
                 }
+            }
+
+            // Cancel button (flush right)
+            float btnPadding = 8.0f * 2;
+            float cancelW = ImGui::CalcTextSize("Cancel Transcode").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - cancelW);
+            if (ImGui::Button("Cancel Transcode")) {
+                // Call cancel on project manager's transcoder
+                if (project_manager) {
+                    project_manager->CancelTranscode();
+                    Debug::Log("User requested transcode cancel");
+                }
+                show_transcode_progress = false;
+                ImGui::CloseCurrentPopup();
             }
 
             ImGui::EndPopup();
@@ -4891,9 +4918,14 @@ private:
             ImGui::Spacing();
             ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Please remove all EXR sequences from the project first.");
             ImGui::Spacing();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -4913,9 +4945,14 @@ private:
             ImGui::TextWrapped("Cleared EXR transcodes (all locations)");
 
             ImGui::Spacing();
-            if (ImGui::Button("OK", ImVec2(120, 0))) {
+
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
     }
@@ -5037,12 +5074,13 @@ private:
 
         ImGui::OpenPopup("System Critical");
 
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(600, 400), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(600 * scale, 0), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("System Critical", nullptr,
-            ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove)) {
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
 
             // Show critical warning with Material Icons
             if (font_icons) ImGui::PushFont(font_icons);
@@ -5115,14 +5153,14 @@ private:
             }
 
             ImGui::SameLine();
-            if (ImGui::Button("Dismiss", ImVec2(100, 0))) {
+            if (ImGui::Button("Dismiss", ImVec2(120, 0))) {
                 show_pressure_critical_dialog = false;
                 in_emergency_mode = false;
                 ImGui::CloseCurrentPopup();
             }
 
             ImGui::SameLine();
-            if (ImGui::Button("Close ump", ImVec2(100, 0))) {
+            if (ImGui::Button("Close ump", ImVec2(120, 0))) {
                 Debug::Log("User requested app shutdown from critical dialog");
                 exit(0);
             }
@@ -5142,12 +5180,13 @@ private:
 
         // Set popup to center on screen
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         bool open = true;
 
         // Set modal size BEFORE BeginPopupModal
-        ImGui::SetNextWindowSize(ImVec2(900, 650), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(900 * scale, 650 * scale), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("Pipeline & Cache Settings", &open, ImGuiWindowFlags_NoResize)) {
 
@@ -5190,7 +5229,7 @@ private:
             ImGui::Spacing();
 
             // Tabbed layout for organized settings
-            if (ImGui::BeginChild("SettingsContent", ImVec2(0, -50), false)) {
+            if (ImGui::BeginChild("SettingsContent", ImVec2(0, -60), false)) {
                 if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
 
                     // === TAB 1: Video Settings ===
@@ -5772,8 +5811,16 @@ private:
 
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
 
-            // Buttons
+            // Buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float applyW = ImGui::CalcTextSize("Apply Settings").x + btnPadding;
+            float resetW = ImGui::CalcTextSize("Reset to Defaults").x + btnPadding;
+            float closeW = ImGui::CalcTextSize("Close").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - applyW - resetW - closeW - btnSpacing * 2);
+
             if (ImGui::Button("Apply Settings") && settings_changed) {
                 // Apply pipeline mode change (only for regular video, not EXR/image sequences)
                 bool is_exr_mode = video_player && video_player->IsInEXRMode();
@@ -5936,14 +5983,15 @@ private:
 
         // Set popup to center on screen
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         bool open = true;
 
-        // Set modal size
-        ImGui::SetNextWindowSize(ImVec2(600, 520), ImGuiCond_Always);
+        // Set modal width with auto-height
+        ImGui::SetNextWindowSize(ImVec2(600 * scale, 0), ImGuiCond_Always);
 
-        if (ImGui::BeginPopupModal("Font Settings", &open, ImGuiWindowFlags_NoResize)) {
+        if (ImGui::BeginPopupModal("Font Settings", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
 
             ImGui::Text("Font Scale Settings");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Adjust the user interface font size");
@@ -6040,16 +6088,15 @@ private:
             ImGui::Spacing();
 
             // ========================================================================
-            // BOTTOM BUTTONS
+            // BOTTOM BUTTONS (flush right)
             // ========================================================================
-            float buttonWidth = 120.0f;
-            float spacing = ImGui::GetStyle().ItemSpacing.x;
-            float totalWidth = buttonWidth * 2 + spacing;
-            float offsetX = (ImGui::GetContentRegionAvail().x - totalWidth) * 0.5f;
+            float btnPadding = 8.0f * 2;
+            float saveW = ImGui::CalcTextSize("Save").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - saveW - cancelW - btnSpacing);
 
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
-
-            if (ImGui::Button("Save", ImVec2(buttonWidth, 0))) {
+            if (ImGui::Button("Save")) {
                 // Apply the new scale
                 g_font_scale = font_settings_temp_scale;
                 ImGui::GetIO().FontGlobalScale = g_font_scale;
@@ -6064,7 +6111,7 @@ private:
 
             ImGui::SameLine();
 
-            if (ImGui::Button("Cancel", ImVec2(buttonWidth, 0))) {
+            if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
 
@@ -6088,9 +6135,10 @@ private:
         }
 
         // Center popup on screen
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(750, 650), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(750 * scale, 650 * scale), ImGuiCond_Always);
 
         bool open = true;
         if (ImGui::BeginPopupModal("Keyboard Shortcuts", &open, ImGuiWindowFlags_NoResize)) {
@@ -6354,12 +6402,12 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Close button centered at bottom
-            float buttonWidth = 120.0f;
-            float offsetX = (ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f;
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + offsetX);
+            // Close button (flush right)
+            float btnPadding = 8.0f * 2;
+            float closeW = ImGui::CalcTextSize("Close").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - closeW);
 
-            if (ImGui::Button("Close", ImVec2(buttonWidth, 0))) {
+            if (ImGui::Button("Close")) {
                 ImGui::CloseCurrentPopup();
             }
 
@@ -6373,44 +6421,53 @@ private:
 
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));  // Override global 8,8 for viewport controls
         ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
 
             // Calculate space for toolbar (only in annotation mode) and timeline at bottom
-            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode()) ? 35.0f : 0.0f;
+            // Transport and bottom toolbar rows use dampened scaling (less aggressive than full ui_scale)
+            const float ui_scale = ImGui::GetIO().FontGlobalScale;
+            const float scale_factor = 1.0f + (ui_scale - 1.0f) * 0.5f;  // Half the scaling effect
+            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode()) ? 36.0f * scale_factor : 0.0f;
 
             // Timeline height: base 170px + 60px for playlist timeline when in sequence mode
             // OTIO mode: expanded height for multi-track view
             // Dual view mode: expanded height for two tracks + bottom toolbar
+            const float transport_row_h = 50.0f * scale_factor;  // Base 50px
+            const float bottom_row_h = 36.0f * scale_factor;     // Base 36px
             float timeline_height = 0.0f;
             if (show_timeline_panel) {
                 if (video_player && video_player->IsComparisonModeEnabled()) {
                     // Dual view timeline: 2 tracks + transport + ruler + bottom toolbar
-                    timeline_height = 60.0f +  // Transport controls row
-                                     2 * OTIOTimeline::TRACK_LANE_HEIGHT +  // Two tracks (Left/Right)
+                    timeline_height = transport_row_h +
+                                     2 * OTIOTimeline::TRACK_LANE_HEIGHT +
                                      OTIOTimeline::TRACK_SEPARATOR_HEIGHT +
                                      OTIOTimeline::TIMELINE_RULER_HEIGHT +
-                                     48.0f;  // Bottom toolbar (Volume/Loop/Zoom/Pan/Timecode)
+                                     bottom_row_h;
                 } else if (otio_timeline_mode) {
                     // OTIO timeline needs more height for tracks
-                    // 5 tracks * 32px + separator + ruler + transport + padding
                     float track_count = timeline_view ?
                         (float)(timeline_view->GetVideoTrackCount() + timeline_view->GetAudioTrackCount()) : 5.0f;
                     // Add breadcrumb height when viewing nested timeline
                     float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? 58.0f : 0.0f;
-                    timeline_height = 60.0f +  // Transport controls
+                    timeline_height = transport_row_h +
                                      track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
                                      OTIOTimeline::TRACK_SEPARATOR_HEIGHT +
                                      OTIOTimeline::TIMELINE_RULER_HEIGHT +
                                      breadcrumb_height +
-                                     52.0f;  // Volume/loop row + bottom padding
+                                     bottom_row_h;
                 } else {
-                    timeline_height = 180.0f;  // Base timeline height
+                    // Standard timeline: transport + ruler + timeline + bottom toolbar
+                    timeline_height = transport_row_h +
+                                     OTIOTimeline::TIMELINE_RULER_HEIGHT +
+                                     40.0f +  // Timeline track area
+                                     bottom_row_h;
                     // Add extra space for playlist timeline when in sequence mode with clips
                     if (project_manager && project_manager->IsInSequenceMode()) {
                         auto* sequence = project_manager->GetCurrentSequence();
                         if (sequence && !sequence->clips.empty()) {
-                            timeline_height += 60.0f;  // Playlist timeline (18px + text line + bottom padding)
+                            timeline_height += 60.0f * scale_factor;  // Playlist timeline (scaled)
                         }
                     }
                 }
@@ -6422,9 +6479,9 @@ private:
                 ImGui::BeginChild("##ToolbarArea", ImVec2(0, toolbar_height), true,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-                // Add vertical spacing at top
-                const float toolbar_v_padding = 10.0f;
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + toolbar_v_padding);
+                // Add vertical spacing at top (scale with toolbar height)
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+                ImGui::AlignTextToFramePadding();
 
                 // Add left padding
                 const float toolbar_h_padding = 4.0f;
@@ -6920,7 +6977,7 @@ private:
         }
         ImGui::End();
         ImGui::PopStyleColor();  // kTransparentBorder
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(2);   // FramePadding, WindowPadding
     }
 
     void RenderBackgroundSelectionPanel(VideoBackgroundType& bg_type, bool& show_panel) {
@@ -6932,8 +6989,11 @@ private:
         ImVec2 video_pos = video_window->Pos;
         ImVec2 video_size = video_window->Size;
 
-        const float panel_width = 200.0f;
-        const float panel_height = 116.0f;
+        // Scale panel dimensions with font (full width, dampened height)
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+        const float panel_width = 200.0f * ui_scale;
+        const float panel_height = 116.0f * height_scale;
         const float margin = 10.0f;
 
         // Position in top-right corner
@@ -7037,6 +7097,11 @@ private:
         ImVec2 video_size = video_window->Size;
 
         // Calculate timeline height to position toolbar above it
+        // Transport and bottom rows use dampened scaling (less aggressive than full ui_scale)
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float scale_factor = 1.0f + (ui_scale - 1.0f) * 0.5f;  // Half the scaling effect
+        const float transport_row_h = 50.0f * scale_factor;  // Base 50px
+        const float bottom_row_h = 36.0f * scale_factor;     // Base 36px
         float timeline_height = 0.0f;
         if (show_timeline_panel) {
             if (otio_timeline_mode) {
@@ -7045,11 +7110,17 @@ private:
                     (float)(timeline_view->GetVideoTrackCount() + timeline_view->GetAudioTrackCount()) : 5.0f;
                 // Add breadcrumb height when viewing nested timeline
                 float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? 58.0f : 0.0f;
-                timeline_height = 60.0f + track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
+                timeline_height = transport_row_h +
+                                 track_count * OTIOTimeline::TRACK_LANE_HEIGHT +
                                  OTIOTimeline::TRACK_SEPARATOR_HEIGHT +
-                                 OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_height + 52.0f;
+                                 OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_height +
+                                 bottom_row_h;
             } else {
-                timeline_height = 170.0f;
+                // Standard timeline: transport + ruler + timeline + bottom toolbar
+                timeline_height = transport_row_h +
+                                 OTIOTimeline::TIMELINE_RULER_HEIGHT +
+                                 40.0f +  // Timeline track area
+                                 bottom_row_h;
                 if (project_manager && project_manager->IsInSequenceMode()) {
                     auto* sequence = project_manager->GetCurrentSequence();
                     if (sequence && !sequence->clips.empty()) {
@@ -7060,7 +7131,7 @@ private:
         }
 
         const float panel_width = video_size.x;
-        const float panel_height = 50.0f;
+        const float panel_height = transport_row_h;
         const float margin = 0.0f;
 
         // Position at bottom of video area (above timeline)
@@ -7407,7 +7478,8 @@ private:
 
         ImGui::OpenPopup("Import from Frame.io");
 
-        ImGui::SetNextWindowSize(ImVec2(500, 350), ImGuiCond_FirstUseEver);
+        float scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(450 * scale + 50, 0), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("Import from Frame.io", &frameio_import_state.show_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Import annotations from Frame.io review links");
@@ -7476,13 +7548,20 @@ private:
             }
 
             ImGui::Separator();
+            ImGui::Spacing();
 
-            // Buttons
+            // Buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float importW = ImGui::CalcTextSize("Import").x + btnPadding;
+            float closeW = ImGui::CalcTextSize("Close").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - importW - closeW - btnSpacing);
+
             if (frameio_import_state.importing) {
                 ImGui::BeginDisabled();
             }
 
-            if (ImGui::Button("Import", ImVec2(120, 0))) {
+            if (ImGui::Button("Import")) {
                 // Start import
                 frameio_import_state.importing = true;
                 frameio_import_state.status_message = "Importing...";
@@ -7572,7 +7651,7 @@ private:
 
             ImGui::SameLine();
 
-            if (ImGui::Button("Close", ImVec2(120, 0))) {
+            if (ImGui::Button("Close")) {
                 frameio_import_state.show_dialog = false;
             }
 
@@ -7660,8 +7739,11 @@ private:
         ImVec2 video_pos = video_window->Pos;
         ImVec2 video_size = video_window->Size;
 
-        const float panel_width = 315.0f;
-        const float panel_height = 695.0f;
+        // Scale panel dimensions with font (full width, dampened height)
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.75f;
+        const float panel_width = 315.0f * ui_scale;
+        const float panel_height = 655.0f * height_scale;
         const float margin = 10.0f;
 
         // Position in top-right corner (same as background panel)
@@ -7726,7 +7808,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("16:9 Broadcast")) {
+                        if (ImGui::SmallButton("16:9 Broadcast")) {
                             Debug::Log("*** BUTTON CLICKED: 16:9 Standard ***");
                             Debug::Log("Loading 16:9 standard SVG");
                             bool result = svg_renderer->LoadSafetyOverlaySVG("assets/safety/16x9.svg");
@@ -7744,7 +7826,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("YouTube Masthead 16:9")) {
+                        if (ImGui::SmallButton("YouTube Masthead 16:9")) {
                             Debug::Log("Loading YouTube Masthead SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Youtube_16x9_Masthead.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7760,7 +7842,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("YouTube 16:9")) {
+                        if (ImGui::SmallButton("YouTube 16:9")) {
                             Debug::Log("Loading YouTube 16:9 SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Youtube_16x9.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7773,7 +7855,7 @@ private:
                         ImGui::Spacing();
                         ImGui::TextDisabled("9:16 Vertical:");
 
-                        if (ImGui::Button("TikTok 9:16")) {
+                        if (ImGui::SmallButton("TikTok 9:16")) {
                             Debug::Log("*** BUTTON CLICKED: TikTok 9:16 ***");
                             Debug::Log("Loading TikTok SVG");
                             bool result = svg_renderer->LoadSafetyOverlaySVG("assets/safety/TikTok_9x16.svg");
@@ -7788,7 +7870,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("YouTube 9:16")) {
+                        if (ImGui::SmallButton("YouTube 9:16")) {
                             Debug::Log("Loading YouTube 9:16 SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Youtube_9x16.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7803,7 +7885,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Meta Reels 9:16")) {
+                        if (ImGui::SmallButton("Meta Reels 9:16")) {
                             Debug::Log("Loading Meta Reels SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Meta_Reels_9x16.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7819,7 +7901,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Meta Stories 9x16")) {
+                        if (ImGui::SmallButton("Meta Stories 9x16")) {
                             Debug::Log("Loading Meta Stories SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Meta_Stories_9x16.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7834,7 +7916,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Pinterest 9:16")) {
+                        if (ImGui::SmallButton("Pinterest 9:16")) {
                             Debug::Log("Loading Pinterest 9:16 SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Pinterest_9x16.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7849,7 +7931,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Samsung Safety 9:16")) {
+                        if (ImGui::SmallButton("Samsung Safety 9:16")) {
                             Debug::Log("Loading Samsung Safety SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Samsung_9x16_Safety.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7864,7 +7946,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Snapchat 9:16")) {
+                        if (ImGui::SmallButton("Snapchat 9:16")) {
                             Debug::Log("Loading Snapchat SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Snapchat_9x16_unofficial.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7882,7 +7964,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("YouTube 1:1")) {
+                        if (ImGui::SmallButton("YouTube 1:1")) {
                             Debug::Log("Loading YouTube 1:1 SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Youtube_1x1.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7897,7 +7979,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("Pinterest Spotlight 1:1")) {
+                        if (ImGui::SmallButton("Pinterest Spotlight 1:1")) {
                             Debug::Log("Loading Pinterest Premium Spotlight SVG");
                             svg_renderer->LoadSafetyOverlaySVG("assets/safety/Pinterest_PremiumSpotlight_1x1.svg");
                             video_player->EnableSafetyOverlays(true);
@@ -7916,7 +7998,7 @@ private:
                             ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
                         }
 
-                        if (ImGui::Button("None / Disable")) {
+                        if (ImGui::SmallButton("None / Disable")) {
                             Debug::Log("Disabling safety overlays");
                             video_player->EnableSafetyOverlays(false);
                             // Clear the loaded SVG so other buttons become unhighlighted
@@ -8003,8 +8085,11 @@ private:
         ImVec2 video_pos = video_window->Pos;
         ImVec2 video_size = video_window->Size;
 
-        const float panel_width = 400.0f;
-        const float panel_height = 580.0f;  // Increased from 430 to accommodate Blender 5.0 section
+        // Scale panel dimensions with font (full width, dampened height)
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+        const float panel_width = 400.0f * ui_scale;
+        const float panel_height = 595.0f * height_scale;  // Increased from 430 to accommodate Blender 5.0 section
         const float margin = 10.0f;
 
         // Position in top-right corner (same as background panel)
@@ -8031,65 +8116,57 @@ private:
         if (ImGui::Begin("##ColorspacePresetsPanel", &show_panel, panel_flags)) {
             panel_hovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 
+            // Style for all collapsing headers
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+
             // Standard Presets Section (using Blender config internally)
-            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("Standard Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
+            if (ImGui::CollapsingHeader("Standard Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::PushID("StandardPresets##Panel");
+                ImGui::Indent(8.0f);
                 CreateStandardPresets();
-                ImGui::Spacing();
-            }
-            else {
-                ImGui::PopStyleColor();
+                ImGui::Unindent(8.0f);
+                ImGui::PopID();
             }
 
             // ACES 1.3 Presets Section
-            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("ACES 1.3 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
+            if (ImGui::CollapsingHeader("ACES 1.3 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::PushID("ACES13Presets##Panel");
+                ImGui::Indent(8.0f);
                 CreateACESPresets();
-                ImGui::Spacing();
-            }
-            else {
-                ImGui::PopStyleColor();
+                ImGui::Unindent(8.0f);
+                ImGui::PopID();
             }
 
             // ACES 2.0 Presets Section
-            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("ACES 2.0 Workflows")) {
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
+            if (ImGui::CollapsingHeader("ACES 2.0 Workflows##PresetPanel")) {
+                ImGui::PushID("ACES20Presets##Panel");
+                ImGui::Indent(8.0f);
                 CreateACES20Presets();
-                ImGui::Spacing();
-            }
-            else {
-                ImGui::PopStyleColor();
+                ImGui::Unindent(8.0f);
+                ImGui::PopID();
             }
 
             // Blender 4.5 Presets Section
-            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("Blender 4.5 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
+            if (ImGui::CollapsingHeader("Blender 4.5 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::PushID("Blender45Presets##Panel");
+                ImGui::Indent(8.0f);
                 CreateBlenderPresets();
-                ImGui::Spacing();
-            }
-            else {
-                ImGui::PopStyleColor();
+                ImGui::Unindent(8.0f);
+                ImGui::PopID();
             }
 
             // Blender 5.0 Presets Section
-            ImGui::PushStyleColor(ImGuiCol_Text, Bright(GetWindowsAccentColor()));
-            if (ImGui::CollapsingHeader("Blender 5.0 Workflows", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::PopStyleColor();
-                ImGui::Spacing();
+            if (ImGui::CollapsingHeader("Blender 5.0 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
+                ImGui::PushID("Blender50Presets##Panel");
+                ImGui::Indent(8.0f);
                 CreateBlender5Presets();
-                ImGui::Spacing();
+                ImGui::Unindent(8.0f);
+                ImGui::PopID();
             }
-            else {
-                ImGui::PopStyleColor();
-            }
+
+            ImGui::PopStyleColor(3);
 
             // Reset Section at Bottom
             ImGui::Spacing();
@@ -8417,8 +8494,12 @@ private:
                 position = project_manager->GetTimelinePosition();
             }
 
-            float button_size = 37.0f;
-            float small_button = 37.0f;
+            // Add top padding to transport row
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 2.4f);
+
+            // Transport button sizes - use GetFrameHeight() which already scales with font
+            float button_size = ImGui::GetFrameHeight() * 1.5f;  // Slightly larger than frame
+            float small_button = button_size;
 
             int button_count = 22;  // Added 5 view toggle buttons + 1 dual view toggle
             int spacer_count = 12;   // Added 1 spacer for dual view button
@@ -8449,6 +8530,8 @@ private:
             float utility_icon_scale = 1.3f;  // Utility/view toggle button icon size
             ImVec4 disabled_color = ImVec4(0.29f, 0.29f, 0.29f, 1.0f);  // Color for disabled buttons (RGB: 0.0-1.0)
 
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // No padding - icon fills button
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));  // Center icon
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));  // Transparent background
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));  // Subtle hover
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));  // Subtle active
@@ -8524,21 +8607,27 @@ private:
             float playback_box_padding = 5.0f; // Padding on each side for rounded corners
             float playback_box_width = (playback_button_count * small_button) + (playback_spacer_count * item_spacing) + (playback_box_padding * 2 + 12);
             float playback_box_height = button_size;  // Just button height, no padding
+            float box_corner_radius = 9.0f;
+            float box_y_offset = 1.1f;  // Vertical offset for playback box and buttons
             ImVec2 playback_box_start = ImGui::GetCursorScreenPos();
+            playback_box_start.y += box_y_offset;  // Offset the box down
 
             // Draw background box with rounded corners
             transport_draw_list->AddRectFilled(
                 playback_box_start,
                 ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
                 IM_COL32(16, 16, 16, 60),
-                9.0f); // Rounded corners
+                box_corner_radius);
 
             // Draw border (20% opacity = ~51/255) with rounded corners
             transport_draw_list->AddRect(
                 playback_box_start,
                 ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
                 IM_COL32(255, 255, 255, 15),
-                9.0f, 0, 1.0f); // Rounded corners
+                box_corner_radius, 0, 1.0f);
+
+            // Offset buttons to match the box
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + box_y_offset);
 
             // Add 15px dummy for padding before buttons
             ImGui::Dummy(ImVec2(playback_box_padding, 0));
@@ -9129,6 +9218,7 @@ private:
             }
 
             // Pop transport row button styling
+            ImGui::PopStyleVar(2);    // Pop FramePadding, ButtonTextAlign
             ImGui::PopStyleColor(3);  // Pop Button, ButtonHovered, ButtonActive
 
             ImGui::Spacing();
@@ -9137,7 +9227,10 @@ private:
             // Layout: [Track Header] [Timeline Content Area]
             // Timeline Content: [Clip Track 30px] [Ruler 35px matching timeline_view]
 
-            const float TRACK_HEADER_WIDTH = 60.0f;
+            // Track header width scales with font (dampened scaling)
+            const float tl_ui_scale = ImGui::GetIO().FontGlobalScale;
+            const float tl_scale_factor = 1.0f + (tl_ui_scale - 1.0f) * 0.5f;
+            const float TRACK_HEADER_WIDTH = 60.0f * tl_scale_factor;
             const float CACHE_BAR_HEIGHT = 6.0f;
             const float TRACK_HEIGHT = 30.0f;      // Single track height for clip
             const float RULER_HEIGHT = 42.0f;      // Taller ruler
@@ -10263,10 +10356,12 @@ private:
 
             // === VOLUME/LOOP TOOLBAR (BELOW TIMELINE) ===
             // Align all text to frame padding for consistent baseline with buttons/sliders
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.5f);
             ImGui::AlignTextToFramePadding();
 
             // Volume control on left
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Volume:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
@@ -10274,17 +10369,26 @@ private:
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 const char* volume_icon = is_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
-                ImVec4 button_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, button_color);
+                ImVec4 active_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                if (ImGui::Button(volume_icon, ImVec2(25.0f, 25.0f))) {
-                    ToggleMute();
-                }
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+                bool clicked = ImGui::Button(volume_icon, ImVec2(btn_size, btn_size));
+                bool hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
 
-                ImGui::PopStyleColor();
                 ImGui::PopFont();
 
-                if (ImGui::IsItemHovered()) {
+                if (clicked) {
+                    ToggleMute();
+                }
+                if (hovered) {
                     ImGui::SetTooltip(is_muted ? "Unmute (M)" : "Mute (M)");
                 }
             }
@@ -10293,6 +10397,8 @@ private:
 
             // Volume slider - disabled when muted
             ImGui::SetNextItemWidth(120);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+            ImGui::SetWindowFontScale(0.85f);
             ImGui::BeginDisabled(is_muted);  // Disable slider when muted
             if (ImGui::SliderInt("##volume_slider", &current_volume, 0, 100, "%d%%")) {
                 if (!is_muted) {  // Only apply if not muted
@@ -10304,18 +10410,33 @@ private:
                 }
             }
             ImGui::EndDisabled();
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleVar();
 
             // Show muted indicator
             if (is_muted) {
                 ImGui::SameLine();
                 if (font_mono) ImGui::PushFont(font_mono);
-                ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "MUTED");
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+                ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
                 if (font_mono) ImGui::PopFont();
             }
 
-            // Context-aware Loop toggle
+            // Vertical divider between volume and loop
             ImGui::SameLine();
+            ImGui::Dummy(ImVec2(8, 0));
+            ImGui::SameLine();
+            {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float h = ImGui::GetFrameHeight();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::SameLine(0, 12);
+            }
+
+            // Context-aware Loop toggle
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Loop:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
@@ -10339,40 +10460,49 @@ private:
             if (is_timeline_mode) {
                 loop_tooltip = loop_enabled ? "Timeline Loop: ON" : "Timeline Loop: OFF";
                 if (loop_enabled) {
-                    loop_status_text = "TIMELINE LOOP";
+                    loop_status_text = "Timeline Loop";
                     status_color = MutedLight(GetWindowsAccentColor());
                 }
             }
             else if (is_playlist_mode) {
                 loop_tooltip = loop_enabled ? "Playlist Loop: ON" : "Playlist Loop: OFF";
                 if (loop_enabled) {
-                    loop_status_text = "PLAYLIST LOOP";
+                    loop_status_text = "Playlist Loop";
                     status_color = MutedLight(GetWindowsAccentColor());
                 }
             }
             else {
                 loop_tooltip = loop_enabled ? "Single File Loop: ON" : "Single File Loop: OFF";
                 if (loop_enabled) {
-                    loop_status_text = "SINGLE LOOP";
+                    loop_status_text = "Single Loop";
                     status_color = MutedLight(GetWindowsAccentColor());
                 }
             }
 
             const char* loop_icon = loop_enabled ? ICON_LOOP : ICON_LOOP_OFF;
-            ImVec4 button_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            ImVec4 active_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-                ImGui::PushStyleColor(ImGuiCol_Text, button_color);
 
-                if (ImGui::Button(loop_icon, ImVec2(25.0f, 25.0f))) {
-                    ToggleLoop();
-                }
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+                bool clicked = ImGui::Button(loop_icon, ImVec2(btn_size, btn_size));
+                bool hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
 
-                ImGui::PopStyleColor();
                 ImGui::PopFont();
 
-                if (ImGui::IsItemHovered()) {
+                if (clicked) {
+                    ToggleLoop();
+                }
+                if (hovered) {
                     ImGui::SetTooltip("%s", loop_tooltip);
                 }
             }
@@ -10381,37 +10511,55 @@ private:
             if (loop_status_text) {
                 ImGui::SameLine();
                 if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
                 ImGui::TextColored(status_color, "%s", loop_status_text);
                 if (font_mono) ImGui::PopFont();
             }
 
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("%s", loop_tooltip);
-            }
-
-            // === FOLLOW PLAYHEAD BUTTON ===
+            // === FOLLOW PLAYHEAD / IN-OUT GROUP ===
             ImGui::SameLine();
-            ImGui::Dummy(ImVec2(10, 0));
+            ImGui::Dummy(ImVec2(8, 0));
             ImGui::SameLine();
 
-            ImVec4 std_follow_color = std_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, std_follow_color);
-            if (font_mono) ImGui::PushFont(font_mono);
-            bool std_follow_clicked = ImGui::Button(std_follow_playhead ? "F*" : "F", ImVec2(25.0f, 25.0f));
-            if (font_mono) ImGui::PopFont();
-            ImGui::PopStyleColor();
-
-            if (std_follow_clicked) {
-                std_follow_playhead = !std_follow_playhead;
-                Debug::Log("Standard Timeline Follow playhead: " + std::string(std_follow_playhead ? "enabled" : "disabled"));
+            // Vertical divider before follow/in-out group
+            {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float h = ImGui::GetFrameHeight();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::SameLine(0, 12);
             }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+
+            {
+                ImVec4 active_color = std_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                const char* follow_text = std_follow_playhead ? "F*" : "F";
+
+                if (font_mono) ImGui::PushFont(font_mono);
+
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+                bool clicked = ImGui::Button(follow_text, ImVec2(btn_size, btn_size));
+                bool hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
+
+                if (font_mono) ImGui::PopFont();
+
+                if (clicked) {
+                    std_follow_playhead = !std_follow_playhead;
+                    Debug::Log("Standard Timeline Follow playhead: " + std::string(std_follow_playhead ? "enabled" : "disabled"));
+                }
+                if (hovered) {
+                    ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+                }
             }
 
             // === IN/OUT POINT BUTTONS ===
-            ImGui::SameLine();
-            ImGui::Spacing();
             ImGui::SameLine();
 
             if (font_icons) {
@@ -10419,13 +10567,22 @@ private:
 
                 // In point button
                 bool has_in = project_manager && project_manager->HasInPoint();
-                if (has_in) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ToImU32(GetWindowsAccentColor()));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToImU32(Bright(GetWindowsAccentColor())));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
-                }
+                const char* in_icon = "\ue892";  // Label icon
+                ImVec4 in_active_color = has_in ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                if (ImGui::Button("\ue892", ImVec2(25.0f, 25.0f))) {  // Label icon
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, in_active_color);
+                bool in_clicked = ImGui::Button(in_icon, ImVec2(btn_size, btn_size));
+                bool in_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
+
+                if (in_clicked) {
                     if (video_player && project_manager) {
                         double current_time = video_player->GetPosition();
                         project_manager->SetInPoint(current_time);
@@ -10433,12 +10590,8 @@ private:
                     }
                 }
 
-                if (has_in) {
-                    ImGui::PopStyleColor(3);
-                }
-
                 ImGui::PopFont();  // Pop icon font for tooltip
-                if (ImGui::IsItemHovered()) {
+                if (in_hovered) {
                     ImGui::SetTooltip("Set In Point (I)");
                 }
                 ImGui::PushFont(font_icons);  // Push icon font back for next button
@@ -10447,13 +10600,21 @@ private:
 
                 // Out point button
                 bool has_out = project_manager && project_manager->HasOutPoint();
-                if (has_out) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, ToImU32(GetWindowsAccentColor()));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ToImU32(Bright(GetWindowsAccentColor())));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ToImU32(MutedLight(GetWindowsAccentColor())));
-                }
+                const char* out_icon = "\ue937";  // Label_Important icon
+                ImVec4 out_active_color = has_out ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-                if (ImGui::Button("\ue937", ImVec2(25.0f, 25.0f))) {  // Label_Important icon
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, out_active_color);
+                bool out_clicked = ImGui::Button(out_icon, ImVec2(btn_size, btn_size));
+                bool out_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
+
+                if (out_clicked) {
                     if (video_player && project_manager) {
                         double current_time = video_player->GetPosition();
                         project_manager->SetOutPoint(current_time);
@@ -10461,12 +10622,8 @@ private:
                     }
                 }
 
-                if (has_out) {
-                    ImGui::PopStyleColor(3);
-                }
-
                 ImGui::PopFont();  // Pop icon font for tooltip
-                if (ImGui::IsItemHovered()) {
+                if (out_hovered) {
                     ImGui::SetTooltip("Set Out Point (O)");
                 }
             }
@@ -10527,15 +10684,27 @@ private:
 
             // === ZOOM/PAN CONTROLS ===
             ImGui::SameLine();
-            ImGui::Dummy(ImVec2(20, 0));
+            ImGui::Dummy(ImVec2(8, 0));
             ImGui::SameLine();
 
+            // Vertical divider after follow/in-out group
+            {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float h = ImGui::GetFrameHeight();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::SameLine(0, 12);
+            }
+
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Zoom:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
 
             ImGui::SetNextItemWidth(160.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+            ImGui::SetWindowFontScale(0.85f);
             float old_zoom = std_timeline_zoom;
             if (ImGui::SliderFloat("##std_zoom_slider", &std_timeline_zoom, 1.0f, 10.0f, "%.1fx")) {
                 // Zoom around playhead position
@@ -10563,6 +10732,8 @@ private:
                 float max_pan = StdTimelineGetMaxPan(std_timeline_visible_width, std_timeline_zoom);
                 std_timeline_pan = std::clamp(std_timeline_pan, 0.0f, max_pan);
             }
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleVar();
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Timeline Zoom (Ctrl+Scroll)");
             }
@@ -10572,12 +10743,15 @@ private:
             ImGui::SameLine();
 
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Pan:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
 
             float std_max_pan = StdTimelineGetMaxPan(std_timeline_visible_width, std_timeline_zoom);
             ImGui::SetNextItemWidth(160.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+            ImGui::SetWindowFontScale(0.85f);
             if (std_max_pan > 0) {
                 if (ImGui::SliderFloat("##std_pan_slider", &std_timeline_pan, 0.0f, std_max_pan, "%.0f")) {
                     // Pan changed via slider
@@ -10589,6 +10763,8 @@ private:
                 ImGui::SliderFloat("##std_pan_slider", &dummy_pan, 0.0f, 1.0f, "N/A");
                 ImGui::EndDisabled();
             }
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleVar();
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Timeline Pan (Scroll)");
             }
@@ -10641,6 +10817,7 @@ private:
 
                 ImGui::SameLine();
                 ImGui::SetCursorPosX(ImGui::GetWindowSize().x - total_width - 15);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
 
                 // Show in accent color when in timecode mode
                 if (timecode_mode_enabled && timecode_state == AVAILABLE) {
@@ -10654,18 +10831,23 @@ private:
 
                 if (font_icons) {
                     ImGui::PushFont(font_icons);
-                }
-
-                if (ImGui::Button("\uf50b", ImVec2(25.0f, 25.0f))) {  // "play_for_work" icon
-                    OpenGotoTimecodeModal();
-                }
-
-                if (font_icons) {
+                    float btn_size = ImGui::GetFrameHeight();
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                    if (ImGui::Button("\uf50b##std_goto", ImVec2(btn_size, btn_size))) {  // "play_for_work" icon
+                        OpenGotoTimecodeModal();
+                    }
+                    bool hovered = ImGui::IsItemHovered();
+                    ImGui::PopStyleColor(3);
+                    ImGui::PopStyleVar(2);
                     ImGui::PopFont();
-                }
 
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Go to timecode/frame");
+                    if (hovered) {
+                        ImGui::SetTooltip("Go to timecode/frame");
+                    }
                 }
 
                 ImGui::PopFont();
@@ -10694,8 +10876,10 @@ private:
         ImGui::Separator();
         ImGui::Spacing();
 
-        // Canvas setup
-        const float timeline_height = 18.0f;  // Ultra-compact NLE-style
+        // Canvas setup - scale with font
+        const float pl_ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float pl_scale_factor = 1.0f + (pl_ui_scale - 1.0f) * 0.5f;
+        const float timeline_height = 18.0f * pl_scale_factor;  // Ultra-compact NLE-style, scales with font
         const float min_clip_width = 60.0f;
         const float clip_rounding = 2.0f;     // Rounded corners
         const float clip_gap = 2.0f;          // Small gap between clips
@@ -11001,8 +11185,12 @@ private:
         // =====================================================================
         // ROW 1: Transport Controls (matching OTIO timeline style)
         // =====================================================================
-        float button_size = 37.0f;
-        float small_button = 37.0f;
+        // Add top padding to transport row
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.7f);
+
+        // Transport button sizes - use GetFrameHeight() which already scales with font
+        float button_size = ImGui::GetFrameHeight() * 1.5f;
+        float small_button = button_size;
         float icon_scale = 1.6f;
         float utility_icon_scale = 1.3f;
         float item_spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -11029,6 +11217,8 @@ private:
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + center_offset);
         }
 
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // No padding - icon fills button
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));  // Center icon
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
@@ -11046,7 +11236,9 @@ private:
 
         ImDrawList* transport_draw_list = ImGui::GetWindowDrawList();
         float playback_box_height = button_size;
+        float box_y_offset = 1.1f;  // Vertical offset for playback box and buttons
         ImVec2 playback_box_start = ImGui::GetCursorScreenPos();
+        playback_box_start.y += box_y_offset;  // Offset the box down
 
         // Draw playback background box
         transport_draw_list->AddRectFilled(
@@ -11057,6 +11249,9 @@ private:
             playback_box_start,
             ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
             IM_COL32(255, 255, 255, 15), 9.0f, 0, 1.0f);
+
+        // Offset buttons to match the box
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + box_y_offset);
 
         ImGui::Dummy(ImVec2(playback_box_padding, 0));
         ImGui::SameLine();
@@ -11371,6 +11566,7 @@ private:
         if (hover_all) ImGui::SetTooltip("Show All Panels (Ctrl+9)");
         if (hover_minimal) ImGui::SetTooltip(minimal_view_mode ? "Exit Minimal View (Ctrl+-)" : "Minimal View (Ctrl+-)");
 
+        ImGui::PopStyleVar(2);    // Pop FramePadding, ButtonTextAlign
         ImGui::PopStyleColor(3);
 
         ImGui::Spacing();
@@ -11742,7 +11938,7 @@ private:
                 // Trim Mode Panel - position at bottom right of main viewport, above transport row
                 float panel_w = 420.0f;
                 float panel_h = 280.0f;  // Increased to fit all content
-                float transport_row_height = 50.0f;  // Transport controls height + padding
+                float transport_row_height = 50.0f;  // Transport controls height (fixed)
 
                 // Use main viewport for window-relative positioning
                 ImGuiViewport* main_vp = ImGui::GetMainViewport();
@@ -12182,17 +12378,18 @@ private:
         }
 
         // Reset cursor position to after the timeline area for bottom toolbar
-        ImGui::SetCursorScreenPos(ImVec2(tracks_start_pos.x, ruler_y + TIMELINE_RULER_HEIGHT + 5));
+        ImGui::SetCursorScreenPos(ImVec2(tracks_start_pos.x, ruler_y + TIMELINE_RULER_HEIGHT));
 
         // =====================================================================
         // BOTTOM TOOLBAR: Volume/Loop/Pan/Zoom/Timecode
         // =====================================================================
         ImGui::Spacing();
-        ImGui::Spacing();
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.5f);
         ImGui::AlignTextToFramePadding();
 
         // --- Volume Control ---
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Volume:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
@@ -12200,23 +12397,27 @@ private:
         // Mute button
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImVec4 vol_button_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, vol_button_color);
+            const char* volume_icon = is_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+            ImVec4 active_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            bool mute_clicked = false;
-            if (is_muted) {
-                mute_clicked = ImGui::Button(ICON_VOLUME_MUTE "##dv_mute", ImVec2(25.0f, 25.0f));
-            } else {
-                mute_clicked = ImGui::Button(ICON_VOLUME_UP "##dv_mute", ImVec2(25.0f, 25.0f));
-            }
-            if (mute_clicked) {
-                ToggleMute();
-            }
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(volume_icon, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
 
-            ImGui::PopStyleColor();
             ImGui::PopFont();
 
-            if (ImGui::IsItemHovered()) {
+            if (clicked) {
+                ToggleMute();
+            }
+            if (hovered) {
                 ImGui::SetTooltip(is_muted ? "Unmute (M)" : "Mute (M)");
             }
         }
@@ -12225,6 +12426,8 @@ private:
 
         // Volume slider
         ImGui::SetNextItemWidth(120);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+        ImGui::SetWindowFontScale(0.85f);
         ImGui::BeginDisabled(is_muted);
         if (ImGui::SliderInt("##dv_volume_slider", &current_volume, 0, 100, "%d%%")) {
             if (!is_muted) {
@@ -12236,18 +12439,33 @@ private:
             }
         }
         ImGui::EndDisabled();
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleVar();
 
         // Muted indicator
         if (is_muted) {
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "MUTED");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
             if (font_mono) ImGui::PopFont();
         }
 
-        // --- Loop Control ---
+        // Vertical divider between volume and loop
         ImGui::SameLine();
+        ImGui::Dummy(ImVec2(8, 0));
+        ImGui::SameLine();
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetFrameHeight();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(1, 0));
+            ImGui::SameLine(0, 12);
+        }
+
+        // --- Loop Control ---
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Loop:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
@@ -12260,26 +12478,30 @@ private:
         } else {
             loop_enabled = video_player->IsLooping();
         }
-        ImVec4 loop_button_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImGui::PushStyleColor(ImGuiCol_Text, loop_button_color);
+            const char* loop_icon = loop_enabled ? ICON_LOOP : ICON_LOOP_OFF;
+            ImVec4 active_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            bool loop_clicked = false;
-            if (loop_enabled) {
-                loop_clicked = ImGui::Button(ICON_LOOP "##dv_loop_btn", ImVec2(25.0f, 25.0f));
-            } else {
-                loop_clicked = ImGui::Button(ICON_LOOP_OFF "##dv_loop_btn", ImVec2(25.0f, 25.0f));
-            }
-            if (loop_clicked) {
-                ToggleLoop();
-            }
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(loop_icon, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
 
-            ImGui::PopStyleColor();
             ImGui::PopFont();
 
-            if (ImGui::IsItemHovered()) {
+            if (clicked) {
+                ToggleLoop();
+            }
+            if (hovered) {
                 ImGui::SetTooltip(loop_enabled ? "Loop ON (L)" : "Loop OFF (L)");
             }
         }
@@ -12287,41 +12509,77 @@ private:
         if (loop_enabled) {
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "LOOP");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Loop");
             if (font_mono) ImGui::PopFont();
         }
 
         // --- Follow Playhead toggle button ---
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(10, 0));
+        ImGui::Dummy(ImVec2(8, 0));
         ImGui::SameLine();
 
-        ImVec4 dv_follow_button_color = g_dv_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, dv_follow_button_color);
-        if (font_mono) ImGui::PushFont(font_mono);
-        bool dv_follow_clicked = ImGui::Button(g_dv_follow_playhead ? "F*" : "F", ImVec2(25.0f, 25.0f));
-        if (font_mono) ImGui::PopFont();
-        ImGui::PopStyleColor();
-
-        if (dv_follow_clicked) {
-            g_dv_follow_playhead = !g_dv_follow_playhead;
-            Debug::Log("Dual View Follow playhead: " + std::string(g_dv_follow_playhead ? "enabled" : "disabled"));
+        // Vertical divider before follow playhead
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetFrameHeight();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(1, 0));
+            ImGui::SameLine(0, 12);
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+
+        {
+            ImVec4 active_color = g_dv_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            const char* follow_text = g_dv_follow_playhead ? "F*" : "F";
+
+            if (font_mono) ImGui::PushFont(font_mono);
+
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(follow_text, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
+
+            if (font_mono) ImGui::PopFont();
+
+            if (clicked) {
+                g_dv_follow_playhead = !g_dv_follow_playhead;
+                Debug::Log("Dual View Follow playhead: " + std::string(g_dv_follow_playhead ? "enabled" : "disabled"));
+            }
+            if (hovered) {
+                ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+            }
         }
 
         // --- Zoom Control ---
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(20, 0));
+        ImGui::Dummy(ImVec2(8, 0));
         ImGui::SameLine();
 
+        // Vertical divider after follow playhead
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetFrameHeight();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(1, 0));
+            ImGui::SameLine(0, 12);
+        }
+
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Zoom:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
 
         ImGui::SetNextItemWidth(160.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+        ImGui::SetWindowFontScale(0.85f);
         float old_dv_pps = g_dv_pixels_per_second;
         if (ImGui::SliderFloat("##dv_zoom_slider", &g_dv_pixels_per_second, g_dv_zoom_min, g_dv_zoom_max, "%.1f px/s", ImGuiSliderFlags_Logarithmic)) {
             // Zoom around playhead position
@@ -12343,6 +12601,8 @@ private:
             float max_scroll = std::max(0.0f, static_cast<float>(duration) * g_dv_pixels_per_second - visible_width);
             g_dv_scroll_offset_x = std::clamp(g_dv_scroll_offset_x, 0.0f, max_scroll);
         }
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleVar();
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Timeline Zoom (+/- or Ctrl+Scroll)\nMin: %.1f  Max: %.1f px/s", g_dv_zoom_min, g_dv_zoom_max);
         }
@@ -12353,12 +12613,15 @@ private:
         ImGui::SameLine();
 
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Pan:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
 
         float max_scroll = std::max(0.0f, static_cast<float>(duration) * g_dv_pixels_per_second - (content_region.x - TRACK_HEADER_WIDTH));
         ImGui::SetNextItemWidth(160.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+        ImGui::SetWindowFontScale(0.85f);
         if (max_scroll > 0) {
             if (ImGui::SliderFloat("##dv_pan_slider", &g_dv_scroll_offset_x, 0.0f, max_scroll, "%.0f")) {
                 // Pan changed via slider
@@ -12369,6 +12632,8 @@ private:
             ImGui::SliderFloat("##dv_pan_slider", &dummy_pan, 0.0f, 1.0f, "N/A");
             ImGui::EndDisabled();
         }
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleVar();
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Timeline Pan (Scroll or \\ to reset)");
         }
@@ -12396,6 +12661,7 @@ private:
         if (target_x > current_x) {
             ImGui::SetCursorPosX(target_x);
         }
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
 
         if (timecode_mode_enabled && timecode_state == AVAILABLE) {
             ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", frame_str.c_str());
@@ -12408,15 +12674,23 @@ private:
         ImGui::SameLine();
         if (font_icons) {
             ImGui::PushFont(font_icons);
-        }
-        if (ImGui::Button("\uf50b##dv_goto", ImVec2(25.0f, 25.0f))) {
-            OpenGotoTimecodeModal();
-        }
-        if (font_icons) {
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            if (ImGui::Button("\uf50b##dv_goto", ImVec2(btn_size, btn_size))) {
+                OpenGotoTimecodeModal();
+            }
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(2);
             ImGui::PopFont();
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Go to timecode/frame");
+
+            if (hovered) {
+                ImGui::SetTooltip("Go to timecode/frame");
+            }
         }
 
         // =====================================================================
@@ -13073,8 +13347,12 @@ private:
         // =====================================================================
         // ROW 1: Transport Controls (matching standard timeline style)
         // =====================================================================
-        float button_size = 37.0f;
-        float small_button = 37.0f;
+        // Add top padding to transport row
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.7f);
+
+        // Transport button sizes - use GetFrameHeight() which already scales with font
+        float button_size = ImGui::GetFrameHeight() * 1.5f;
+        float small_button = button_size;
         float icon_scale = 1.6f;
         float utility_icon_scale = 1.3f;
         float item_spacing = ImGui::GetStyle().ItemSpacing.x;
@@ -13106,6 +13384,8 @@ private:
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + center_offset);
         }
 
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // No padding - icon fills button
+        ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));  // Center icon
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
@@ -13124,9 +13404,11 @@ private:
         ImDrawList* transport_draw_list = ImGui::GetWindowDrawList();
 
         float playback_box_height = button_size;
+        float box_y_offset = 1.1f;  // Vertical offset for playback box and buttons
 
         // Get start position for playback box
         ImVec2 playback_box_start = ImGui::GetCursorScreenPos();
+        playback_box_start.y += box_y_offset;  // Offset the box down
 
         // Draw background box with rounded corners for playback controls
         transport_draw_list->AddRectFilled(
@@ -13137,6 +13419,9 @@ private:
             playback_box_start,
             ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
             IM_COL32(255, 255, 255, 15), 9.0f, 0, 1.0f);
+
+        // Offset buttons to match the box
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + box_y_offset);
 
         // Padding before playback buttons
         ImGui::Dummy(ImVec2(playback_box_padding, 0));
@@ -13489,6 +13774,7 @@ private:
         if (hover_minimal) ImGui::SetTooltip(minimal_view_mode ? "Exit Minimal View (Ctrl+-)" : "Minimal View (Ctrl+-)");
         if (hover_link) ImGui::SetTooltip("Link Media to Clips");
 
+        ImGui::PopStyleVar(2);    // Pop FramePadding, ButtonTextAlign
         ImGui::PopStyleColor(3);
 
         ImGui::Spacing();
@@ -13664,11 +13950,14 @@ private:
                 track_y = current_y;
             }
 
-            // Track header icon button position (18px icons, no background)
+            // Track header icon button position (icons scale with font)
             // NOTE: Icon button must come FIRST so it can receive clicks before the header area
-            const float track_icon_size = 18.0f;  // Icon font size
-            ImVec2 icon_button_pos(tracks_start_pos.x + 4, track_y + 2);
-            ImVec2 icon_button_size(24, OTIOTimeline::TRACK_LANE_HEIGHT - 4);
+            const float hdr_ui_scale = ImGui::GetIO().FontGlobalScale;
+            const float hdr_scale_factor = 1.0f + (hdr_ui_scale - 1.0f) * 0.5f;
+            const float track_icon_size = 18.0f * hdr_scale_factor;  // Icon font size (scaled)
+            const float icon_v_offset = (OTIOTimeline::TRACK_LANE_HEIGHT - track_icon_size) * 0.5f;
+            ImVec2 icon_button_pos(tracks_start_pos.x + 4, track_y + icon_v_offset);
+            ImVec2 icon_button_size(24 * hdr_scale_factor, track_icon_size);
 
             ImGui::SetCursorScreenPos(icon_button_pos);
             char icon_btn_id[32];
@@ -13698,7 +13987,7 @@ private:
                     icon_color = icon_hovered ? IM_COL32(180, 100, 100, 255) : IM_COL32(120, 70, 70, 255);
                 }
 
-                ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + 5);
+                ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + icon_v_offset);
                 if (font_icons) {
                     draw_list->AddText(font_icons, track_icon_size, icon_pos, icon_color, vis_icon);
                 } else {
@@ -13728,7 +14017,7 @@ private:
                     icon_color = icon_hovered ? IM_COL32(180, 100, 100, 255) : IM_COL32(120, 70, 70, 255);
                 }
 
-                ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + 5);
+                ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + icon_v_offset);
                 if (font_icons) {
                     draw_list->AddText(font_icons, track_icon_size, icon_pos, icon_color, mute_icon);
                 } else {
@@ -13736,8 +14025,10 @@ private:
                 }
             }
 
-            // Track name (same offset for both track types now)
-            ImVec2 name_pos(tracks_start_pos.x + 32, track_y + 7);
+            // Track name (same offset for both track types now, scaled horizontally)
+            const float name_h_offset = 32.0f * hdr_scale_factor;
+            const float text_v_offset = (OTIOTimeline::TRACK_LANE_HEIGHT - ImGui::GetTextLineHeight()) * 0.5f;
+            ImVec2 name_pos(tracks_start_pos.x + name_h_offset, track_y + text_v_offset);
             ImU32 name_color = (track.is_video ? track.visible : !track.muted) ?
                 IM_COL32(180, 180, 180, 255) : IM_COL32(100, 100, 100, 255);
             draw_list->AddText(name_pos, name_color, track.name.c_str());
@@ -15771,19 +16062,20 @@ private:
         // Position cursor below the ruler which is at the bottom of the timeline
         ImGui::SetCursorScreenPos(ImVec2(
             tracks_start_pos.x,
-            ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT + 10));
+            ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT));
 
         // Add spacing between timeline and bottom controls
-        ImGui::Spacing();
         ImGui::Spacing();
 
         // =====================================================================
         // VOLUME/MUTE/LOOP ROW (matching standard timeline panel)
         // =====================================================================
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.5f);
         ImGui::AlignTextToFramePadding();
 
         // Volume control on left
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Volume:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
@@ -15791,24 +16083,27 @@ private:
         // Mute button
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImVec4 vol_button_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-            ImGui::PushStyleColor(ImGuiCol_Text, vol_button_color);
+            const char* volume_icon = is_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+            ImVec4 active_color = is_muted ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // Use separate button IDs since we can't concat const char* with string literal
-            bool mute_clicked = false;
-            if (is_muted) {
-                mute_clicked = ImGui::Button(ICON_VOLUME_MUTE "##otio_mute", ImVec2(25.0f, 25.0f));
-            } else {
-                mute_clicked = ImGui::Button(ICON_VOLUME_UP "##otio_mute", ImVec2(25.0f, 25.0f));
-            }
-            if (mute_clicked) {
-                ToggleMute();
-            }
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(volume_icon, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
 
-            ImGui::PopStyleColor();
             ImGui::PopFont();
 
-            if (ImGui::IsItemHovered()) {
+            if (clicked) {
+                ToggleMute();
+            }
+            if (hovered) {
                 ImGui::SetTooltip(is_muted ? "Unmute (M)" : "Mute (M)");
             }
         }
@@ -15817,6 +16112,8 @@ private:
 
         // Volume slider - disabled when muted
         ImGui::SetNextItemWidth(120);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+        ImGui::SetWindowFontScale(0.85f);
         ImGui::BeginDisabled(is_muted);
         if (ImGui::SliderInt("##otio_volume_slider", &current_volume, 0, 100, "%d%%")) {
             if (!is_muted && video_player) {
@@ -15832,18 +16129,33 @@ private:
             }
         }
         ImGui::EndDisabled();
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopStyleVar();
 
         // Show muted indicator
         if (is_muted) {
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "MUTED");
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
             if (font_mono) ImGui::PopFont();
         }
 
-        // Loop toggle
+        // Vertical divider between volume and loop
         ImGui::SameLine();
+        ImGui::Dummy(ImVec2(8, 0));
+        ImGui::SameLine();
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetFrameHeight();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(1, 0));
+            ImGui::SameLine(0, 12);
+        }
+
+        // Loop toggle
         if (font_mono) ImGui::PushFont(font_mono);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Loop:");
         if (font_mono) ImGui::PopFont();
         ImGui::SameLine();
@@ -15864,31 +16176,33 @@ private:
         ImVec4 loop_status_color;
 
         if (loop_enabled) {
-            loop_status_text = "TIMELINE LOOP";
+            loop_status_text = "Timeline Loop";
             loop_status_color = MutedLight(GetWindowsAccentColor());
         }
 
-        ImVec4 loop_button_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImGui::PushStyleColor(ImGuiCol_Text, loop_button_color);
+            const char* loop_icon = loop_enabled ? ICON_LOOP : ICON_LOOP_OFF;
+            ImVec4 active_color = loop_enabled ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-            // Use separate button calls since we can't concat const char* with string literal
-            bool loop_clicked = false;
-            if (loop_enabled) {
-                loop_clicked = ImGui::Button(ICON_LOOP "##otio_loop_btn", ImVec2(25.0f, 25.0f));
-            } else {
-                loop_clicked = ImGui::Button(ICON_LOOP_OFF "##otio_loop_btn", ImVec2(25.0f, 25.0f));
-            }
-            if (loop_clicked) {
-                ToggleLoop();
-            }
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(loop_icon, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
 
-            ImGui::PopStyleColor();
             ImGui::PopFont();
 
-            if (ImGui::IsItemHovered()) {
+            if (clicked) {
+                ToggleLoop();
+            }
+            if (hovered) {
                 ImGui::SetTooltip("%s", loop_tooltip);
             }
         }
@@ -15897,6 +16211,7 @@ private:
         if (loop_status_text) {
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::TextColored(loop_status_color, "%s", loop_status_text);
             if (font_mono) ImGui::PopFont();
         }
@@ -15906,19 +16221,33 @@ private:
         ImGui::Dummy(ImVec2(10, 0));
         ImGui::SameLine();
 
-        ImVec4 follow_button_color = follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-        ImGui::PushStyleColor(ImGuiCol_Text, follow_button_color);
-        if (font_mono) ImGui::PushFont(font_mono);
-        bool follow_clicked = ImGui::Button(follow_playhead ? "F*" : "F", ImVec2(25.0f, 25.0f));
-        if (font_mono) ImGui::PopFont();
-        ImGui::PopStyleColor();
+        {
+            ImVec4 active_color = follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+            const char* follow_text = follow_playhead ? "F*" : "F";
 
-        if (follow_clicked) {
-            follow_playhead = !follow_playhead;
-            Debug::Log("Follow playhead: " + std::string(follow_playhead ? "enabled" : "disabled"));
-        }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+            if (font_mono) ImGui::PushFont(font_mono);
+
+            float btn_size = ImGui::GetFrameHeight();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+            ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+            ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+            bool clicked = ImGui::Button(follow_text, ImVec2(btn_size, btn_size));
+            bool hovered = ImGui::IsItemHovered();
+            ImGui::PopStyleColor(4);
+            ImGui::PopStyleVar(2);
+
+            if (font_mono) ImGui::PopFont();
+
+            if (clicked) {
+                follow_playhead = !follow_playhead;
+                Debug::Log("Follow playhead: " + std::string(follow_playhead ? "enabled" : "disabled"));
+            }
+            if (hovered) {
+                ImGui::SetTooltip("Follow Playhead (F)\nAuto-scroll to keep playhead visible during playback");
+            }
         }
 
         // === TIMELINE EDITING CONTROLS (same row, after Loop) ===
@@ -15934,14 +16263,25 @@ private:
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 bool has_tl_in = timeline_view->HasTimelineInPoint();
-                ImVec4 in_btn_color = has_tl_in ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, in_btn_color);
-                if (ImGui::Button(ICON_LABEL "##tl_in_btn", ImVec2(25.0f, 25.0f))) {
+                ImVec4 in_active_color = has_tl_in ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, in_active_color);
+                bool in_clicked = ImGui::Button(ICON_LABEL, ImVec2(btn_size, btn_size));
+                bool in_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
+
+                if (in_clicked) {
                     timeline_view->SetTimelineInPoint(tl_current_time);
                 }
-                ImGui::PopStyleColor();
                 ImGui::PopFont();
-                if (ImGui::IsItemHovered()) {
+                if (in_hovered) {
                     ImGui::SetTooltip("Set In Point (I)");
                 }
             }
@@ -15952,14 +16292,25 @@ private:
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 bool has_tl_out = timeline_view->HasTimelineOutPoint();
-                ImVec4 out_btn_color = has_tl_out ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-                ImGui::PushStyleColor(ImGuiCol_Text, out_btn_color);
-                if (ImGui::Button(ICON_LABEL_IMPORTANT "##tl_out_btn", ImVec2(25.0f, 25.0f))) {
+                ImVec4 out_active_color = has_tl_out ? MutedLight(accent_color) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                ImGui::PushStyleColor(ImGuiCol_Text, out_active_color);
+                bool out_clicked = ImGui::Button(ICON_LABEL_IMPORTANT, ImVec2(btn_size, btn_size));
+                bool out_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(4);
+                ImGui::PopStyleVar(2);
+
+                if (out_clicked) {
                     timeline_view->SetTimelineOutPoint(tl_current_time);
                 }
-                ImGui::PopStyleColor();
                 ImGui::PopFont();
-                if (ImGui::IsItemHovered()) {
+                if (out_hovered) {
                     ImGui::SetTooltip("Set Out Point (O)");
                 }
             }
@@ -15981,7 +16332,19 @@ private:
             // Cut button
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-                if (ImGui::Button(ICON_CONTENT_CUT "##tl_cut_btn", ImVec2(25.0f, 25.0f))) {
+
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                bool cut_clicked = ImGui::Button(ICON_CONTENT_CUT, ImVec2(btn_size, btn_size));
+                bool cut_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar(2);
+
+                if (cut_clicked) {
                     // Cut clips at playhead - same as X key
                     auto& selection = timeline_view->GetSelection();
                     if (!selection.selected_clip_ids.empty()) {
@@ -16014,7 +16377,7 @@ private:
                     }
                 }
                 ImGui::PopFont();
-                if (ImGui::IsItemHovered()) {
+                if (cut_hovered) {
                     ImGui::SetTooltip("Cut at Playhead (X)");
                 }
             }
@@ -16024,11 +16387,23 @@ private:
             // Refresh Cache button
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-                if (ImGui::Button(ICON_REFRESH "##tl_refresh_btn", ImVec2(25.0f, 25.0f))) {
+
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                bool refresh_clicked = ImGui::Button(ICON_REFRESH, ImVec2(btn_size, btn_size));
+                bool refresh_hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar(2);
+
+                if (refresh_clicked) {
                     timeline_view->ForceRefreshCache();
                 }
                 ImGui::PopFont();
-                if (ImGui::IsItemHovered()) {
+                if (refresh_hovered) {
                     ImGui::SetTooltip("Refresh Timeline Cache");
                 }
             }
@@ -16039,12 +16414,15 @@ private:
 
             // Zoom slider (240px wide)
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Zoom:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
 
             float tl_zoom = timeline_view->GetZoomLevel();
             ImGui::SetNextItemWidth(160.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+            ImGui::SetWindowFontScale(0.85f);
             if (ImGui::SliderFloat("##tl_zoom_slider", &tl_zoom,
                                    OTIOTimeline::MIN_PIXELS_PER_SECOND,
                                    OTIOTimeline::MAX_PIXELS_PER_SECOND,
@@ -16053,6 +16431,8 @@ private:
                 double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
                 timeline_view->SetZoomLevelAroundTime(tl_zoom, playhead_time);
             }
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleVar();
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Timeline Zoom (Ctrl+Scroll)\nMin: %.1f  Max: %.1f px/s",
                                   OTIOTimeline::MIN_PIXELS_PER_SECOND, OTIOTimeline::MAX_PIXELS_PER_SECOND);
@@ -16064,6 +16444,7 @@ private:
 
             // Pan slider (240px wide)
             if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Pan:");
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
@@ -16071,6 +16452,8 @@ private:
             float tl_pan = timeline_view->GetScrollOffset();
             float tl_max_pan = timeline_view->GetMaxScrollOffset();
             ImGui::SetNextItemWidth(160.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+            ImGui::SetWindowFontScale(0.85f);
             if (tl_max_pan > 0) {
                 if (ImGui::SliderFloat("##tl_pan_slider", &tl_pan, 0.0f, tl_max_pan, "%.0f")) {
                     timeline_view->SetScrollOffset(tl_pan);
@@ -16081,6 +16464,8 @@ private:
                 ImGui::SliderFloat("##tl_pan_slider", &dummy_pan, 0.0f, 1.0f, "N/A");
                 ImGui::EndDisabled();
             }
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopStyleVar();
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Timeline Pan (Scroll)");
             }
@@ -16113,6 +16498,7 @@ private:
             if (target_x > current_x) {
                 ImGui::SetCursorPosX(target_x);
             }
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
 
             // Show in accent color when in timecode mode
             if (timecode_mode_enabled && timecode_state == AVAILABLE) {
@@ -16127,18 +16513,23 @@ private:
 
             if (font_icons) {
                 ImGui::PushFont(font_icons);
-            }
-
-            if (ImGui::Button("\uf50b##otio_goto", ImVec2(25.0f, 25.0f))) {  // "play_for_work" icon
-                OpenGotoTimecodeModal();
-            }
-
-            if (font_icons) {
+                float btn_size = ImGui::GetFrameHeight();
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+                if (ImGui::Button("\uf50b##otio_goto", ImVec2(btn_size, btn_size))) {  // "play_for_work" icon
+                    OpenGotoTimecodeModal();
+                }
+                bool hovered = ImGui::IsItemHovered();
+                ImGui::PopStyleColor(3);
+                ImGui::PopStyleVar(2);
                 ImGui::PopFont();
-            }
 
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Go to timecode/frame");
+                if (hovered) {
+                    ImGui::SetTooltip("Go to timecode/frame");
+                }
             }
         }
 
@@ -16154,9 +16545,10 @@ private:
         }
 
         // Center the modal
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(520, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(520 * scale, 0), ImGuiCond_Always);
 
         // Push consistent window padding for modal
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
@@ -16207,14 +16599,16 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Action buttons - right aligned
-            float button_width = 100.0f;
-            float total_buttons_width = button_width * 2 + ImGui::GetStyle().ItemSpacing.x;
-            ImGui::SetCursorPosX(ImGui::GetContentRegionAvail().x - total_buttons_width + ImGui::GetStyle().WindowPadding.x);
+            // Action buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float linkW = ImGui::CalcTextSize("Link Media").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - linkW - cancelW - btnSpacing);
 
             bool can_link = !link_media_search_path.empty() && timeline_view;
             if (!can_link) ImGui::BeginDisabled();
-            if (ImGui::Button("Link Media", ImVec2(button_width, 0))) {
+            if (ImGui::Button("Link Media")) {
                 // Create media linker if needed
                 if (!media_linker) {
                     media_linker = std::make_unique<ump::MediaLinker>();
@@ -16234,7 +16628,7 @@ private:
             if (!can_link) ImGui::EndDisabled();
 
             ImGui::SameLine();
-            if (ImGui::Button("Cancel", ImVec2(button_width, 0))) {
+            if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
 
@@ -16292,10 +16686,11 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Center the OK button
-            float ok_width = 100.0f;
-            ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ok_width) * 0.5f + ImGui::GetStyle().WindowPadding.x);
-            if (ImGui::Button("OK", ImVec2(ok_width, 0))) {
+            // OK button (flush right)
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+            if (ImGui::Button("OK")) {
                 // Save links to cache for persistence across timeline reloads
                 if (last_link_summary.linked_count > 0) {
                     SaveLinksToCache(auto_relink_timeline_id);
@@ -16379,10 +16774,12 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Center the OK button
-            float ok_width = 100.0f;
-            ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ok_width) * 0.5f + ImGui::GetStyle().WindowPadding.x);
-            if (ImGui::Button("OK##autorelink", ImVec2(ok_width, 0))) {
+            // OK button (flush right)
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
+
+            if (ImGui::Button("OK")) {
                 // Initialize timeline playback if linking was successful
                 if (last_link_summary.linked_count > 0 && timeline_view && video_player) {
                     if (!timeline_view->HasPlaybackController()) {
@@ -16776,26 +17173,19 @@ private:
                 ImGui::PopStyleColor();
 
                 // Close button on the right
-                float button_size = ImGui::GetFrameHeight();
-                float corner_radius = ImGui::GetStyle().FrameRounding;
+                float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
                 ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
                 ImVec2 button_pos = ImGui::GetCursorScreenPos();
                 bool clicked = ImGui::InvisibleButton("##CloseInspector", ImVec2(button_size, button_size));
                 bool hovered = ImGui::IsItemHovered();
-                bool active = ImGui::IsItemActive();
-                // Draw button background on hover/active
-                if (hovered || active) {
-                    ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
-                                          : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-                    ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
-                }
-                // Draw icon centered with -1px vertical offset
+                // Draw icon centered - disabled color by default, regular on hover
                 if (font_icons) {
                     ImGui::PushFont(font_icons);
                     ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
                     ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
                                              button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
-                    ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                    ImU32 icon_col = hovered ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                    ImGui::GetWindowDrawList()->AddText(icon_pos, icon_col, ICON_CLOSE);
                     ImGui::PopFont();
                 }
                 if (clicked) {
@@ -16830,16 +17220,15 @@ private:
                         ImGui::Separator();
 
                         // Clip name
-                        ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                         if (font_mono) ImGui::PushFont(font_mono);
                         ImGui::Text("%s", sel_clip->name.c_str());
                         if (font_mono) ImGui::PopFont();
-                        ImGui::PopStyleColor();
 
                         ImGui::Spacing();
 
                         // Clip properties table
-                        if (ImGui::BeginTable("SelectedClipProps", 2, ImGuiTableFlags_SizingFixedFit)) {
+                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                        if (ImGui::BeginTable("SelectedClipProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -16908,19 +17297,37 @@ private:
 
                             ImGui::EndTable();
                         }
+                        ImGui::PopStyleVar();  // CellPadding
 
                         // Source file path
                         ImGui::Spacing();
                         ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Source File:");
+                        std::string clip_path = !sel_clip->linked_path.empty() ? sel_clip->linked_path : sel_clip->file_path;
                         if (font_mono) ImGui::PushFont(font_mono);
-                        if (!sel_clip->linked_path.empty()) {
-                            ImGui::TextWrapped("%s", sel_clip->linked_path.c_str());
-                        } else if (!sel_clip->file_path.empty()) {
-                            ImGui::TextWrapped("%s", sel_clip->file_path.c_str());
+                        if (!clip_path.empty()) {
+                            ImGui::TextWrapped("%s", clip_path.c_str());
                         } else {
                             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
                         }
                         if (font_mono) ImGui::PopFont();
+
+                        // Action buttons for source file
+                        if (!clip_path.empty()) {
+                            if (ImGui::SmallButton("Open in Explorer##ClipPath")) {
+                                project_manager->ShowInExplorer(clip_path);
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Open in Windows Explorer");
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Copy Path##ClipPath")) {
+                                ImGui::SetClipboardText(clip_path.c_str());
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Copy path to clipboard");
+                            }
+                        }
 
                         ImGui::Spacing();
                         ImGui::Separator();
@@ -16956,16 +17363,15 @@ private:
                 }
 
                 // Timeline name
-                ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", timeline_name.c_str());
                 if (font_mono) ImGui::PopFont();
-                ImGui::PopStyleColor();
 
                 ImGui::Spacing();
 
                 // Properties table
-                if (ImGui::BeginTable("TimelineProps", 2, ImGuiTableFlags_SizingFixedFit)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                if (ImGui::BeginTable("TimelineProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                     ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -17049,6 +17455,7 @@ private:
 
                     ImGui::EndTable();
                 }
+                ImGui::PopStyleVar();  // CellPadding
 
                 // Source directory info
                 ImGui::Spacing();
@@ -17064,6 +17471,24 @@ private:
                     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
                 }
                 if (font_mono) ImGui::PopFont();
+
+                // Action buttons for source directory
+                if (!source_dir.empty()) {
+                    if (ImGui::SmallButton("Open in Explorer##SourceDir")) {
+                        project_manager->ShowInExplorer(source_dir);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Open in Windows Explorer");
+                    }
+
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Copy Path##SourceDir")) {
+                        ImGui::SetClipboardText(source_dir.c_str());
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip("Copy path to clipboard");
+                    }
+                }
             }
             else if (project_manager->IsInSequenceMode()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
@@ -17531,6 +17956,7 @@ private:
         if (!available_configs.empty()) {
             std::string current_config_name = ocio_manager->GetActiveConfigName();
 
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
             if (ImGui::BeginCombo("Config", current_config_name.c_str())) {
                 for (const auto& config_info : available_configs) {
                     bool is_selected = (config_info.name == current_config_name);
@@ -17547,14 +17973,21 @@ private:
                 }
                 ImGui::EndCombo();
             }
+            ImGui::PopStyleColor();
         }
 
         ImGui::Separator();
 
         // Input colorspaces
-        if (ImGui::TreeNode("Input Colorspaces")) {
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+        if (ImGui::CollapsingHeader("Input Colorspaces##ConfigTab")) {
+            ImGui::Indent(8.0f);
             auto colorspaces = ocio_manager->GetInputColorSpaces();
+            int cs_idx = 0;
             for (const auto& cs : colorspaces) {
+                ImGui::PushID(cs_idx++);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Selectable(cs.c_str());
                 if (font_mono) ImGui::PopFont();
@@ -17585,51 +18018,68 @@ private:
                     ImGui::EndDragDropSource();
                     UpdateColorPipeline();
                 }
+                ImGui::PopID();
             }
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
         }
+        ImGui::PopStyleColor(3);
 
         // Looks
         auto looks = ocio_manager->GetLooks();
-        if (!looks.empty() && ImGui::TreeNode("Looks")) {
-            for (const auto& look : looks) {
-                if (font_mono) ImGui::PushFont(font_mono);
-                ImGui::Selectable(look.c_str());
-                if (font_mono) ImGui::PopFont();
+        if (!looks.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+            if (ImGui::CollapsingHeader("Looks##ConfigTab")) {
+                ImGui::Indent(8.0f);
+                int look_idx = 0;
+                for (const auto& look : looks) {
+                    ImGui::PushID(look_idx++);
+                    if (font_mono) ImGui::PushFont(font_mono);
+                    ImGui::Selectable(look.c_str());
+                    if (font_mono) ImGui::PopFont();
 
-                // Check for double-click AFTER the Selectable
-                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (node_manager) {
-                        node_manager->SetPendingNodeCreation(
-                            ump::NodeType::LOOK, look);
-                        Debug::Log("Double-clicked to create: " + look);
+                    // Check for double-click AFTER the Selectable
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        if (node_manager) {
+                            node_manager->SetPendingNodeCreation(
+                                ump::NodeType::LOOK, look);
+                            Debug::Log("Double-clicked to create: " + look);
+                            UpdateColorPipeline();
+                        }
+                    }
+
+                    // Drag source
+                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        struct DragPayload {
+                            ump::NodeType type;
+                            char name[256];
+                        };
+
+                        DragPayload payload;
+                        payload.type = ump::NodeType::LOOK;
+                        strncpy_s(payload.name, sizeof(payload.name), look.c_str(), _TRUNCATE);
+
+                        ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
+                        ImGui::Text("Creating: %s", look.c_str());
+                        ImGui::EndDragDropSource();
                         UpdateColorPipeline();
                     }
+                    ImGui::PopID();
                 }
-
-                // Drag source
-                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                    struct DragPayload {
-                        ump::NodeType type;
-                        char name[256];
-                    };
-
-                    DragPayload payload;
-                    payload.type = ump::NodeType::LOOK;
-                    strncpy_s(payload.name, sizeof(payload.name), look.c_str(), _TRUNCATE);
-
-                    ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
-                    ImGui::Text("Creating: %s", look.c_str());
-                    ImGui::EndDragDropSource();
-                    UpdateColorPipeline();
-                }
+                ImGui::Unindent(8.0f);
             }
-            ImGui::TreePop();
+            ImGui::PopStyleColor(3);
         }
 
         // LUT
-        if (ImGui::TreeNode("LUT")) {
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+        if (ImGui::CollapsingHeader("LUT##ConfigTab")) {
+            ImGui::Indent(8.0f);
             // Scene-Referred LUT (applied before display transform)
+            ImGui::PushID("SceneLUT##ConfigTab");
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::Selectable("Scene-Referred LUT");
             if (font_mono) ImGui::PopFont();
@@ -17656,8 +18106,10 @@ private:
                 ImGui::Text("Creating: Scene LUT");
                 ImGui::EndDragDropSource();
             }
+            ImGui::PopID();
 
             // Display-Referred LUT (applied after display transform)
+            ImGui::PushID("DisplayLUT##ConfigTab");
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::Selectable("Display-Referred LUT");
             if (font_mono) ImGui::PopFont();
@@ -17684,45 +18136,57 @@ private:
                 ImGui::Text("Creating: Display LUT");
                 ImGui::EndDragDropSource();
             }
-            ImGui::TreePop();
+            ImGui::PopID();
+            ImGui::Unindent(8.0f);
         }
+        ImGui::PopStyleColor(3);
 
         // Output displays
         auto displays = ocio_manager->GetDisplays();
-        if (!displays.empty() && ImGui::TreeNode("Output Displays")) {
-            for (const auto& display : displays) {
-                if (font_mono) ImGui::PushFont(font_mono);
-                ImGui::Selectable(display.c_str());
-                if (font_mono) ImGui::PopFont();
+        if (!displays.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+            if (ImGui::CollapsingHeader("Output Displays##ConfigTab")) {
+                ImGui::Indent(8.0f);
+                int display_idx = 0;
+                for (const auto& display : displays) {
+                    ImGui::PushID(display_idx++);
+                    if (font_mono) ImGui::PushFont(font_mono);
+                    ImGui::Selectable(display.c_str());
+                    if (font_mono) ImGui::PopFont();
 
-                // Check for double-click AFTER the Selectable
-                if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    if (node_manager) {
-                        node_manager->SetPendingNodeCreation(
-                            ump::NodeType::OUTPUT_DISPLAY, display);
-                        Debug::Log("Double-clicked to create: " + display);
+                    // Check for double-click AFTER the Selectable
+                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                        if (node_manager) {
+                            node_manager->SetPendingNodeCreation(
+                                ump::NodeType::OUTPUT_DISPLAY, display);
+                            Debug::Log("Double-clicked to create: " + display);
+                            UpdateColorPipeline();
+                        }
+                    }
+
+                    // Drag source
+                    if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+                        struct DragPayload {
+                            ump::NodeType type;
+                            char name[256];
+                        };
+
+                        DragPayload payload;
+                        payload.type = ump::NodeType::OUTPUT_DISPLAY;
+                        strncpy_s(payload.name, sizeof(payload.name), display.c_str(), _TRUNCATE);
+
+                        ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
+                        ImGui::Text("Creating: %s", display.c_str());
+                        ImGui::EndDragDropSource();
                         UpdateColorPipeline();
                     }
+                    ImGui::PopID();
                 }
-
-                // Drag source
-                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
-                    struct DragPayload {
-                        ump::NodeType type;
-                        char name[256];
-                    };
-
-                    DragPayload payload;
-                    payload.type = ump::NodeType::OUTPUT_DISPLAY;
-                    strncpy_s(payload.name, sizeof(payload.name), display.c_str(), _TRUNCATE);
-
-                    ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
-                    ImGui::Text("Creating: %s", display.c_str());
-                    ImGui::EndDragDropSource();
-                    UpdateColorPipeline();
-                }
+                ImGui::Unindent(8.0f);
             }
-            ImGui::TreePop();
+            ImGui::PopStyleColor(3);
         }
     }
 
@@ -17738,41 +18202,66 @@ private:
         ImGui::PopStyleColor();
         ImGui::Separator();
 
+        // Style for all collapsing headers in this tab
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+
         // Standard Presets (Top priority - using Blender config)
-        if (ImGui::TreeNode("Standard")) {
+        if (ImGui::CollapsingHeader("Standard##PresetsTab")) {
+            ImGui::PushID("StandardPresets##Tab");
+            ImGui::Indent(8.0f);
             CreateStandardPresets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
 
         // ACES 1.3 Presets
-        if (ImGui::TreeNode("ACES 1.3")) {
+        if (ImGui::CollapsingHeader("ACES 1.3##PresetsTab")) {
+            ImGui::PushID("ACES13Presets##Tab");
+            ImGui::Indent(8.0f);
             CreateACESPresets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
 
         // ACES 2.0 Presets
-        if (ImGui::TreeNode("ACES 2.0")) {
+        if (ImGui::CollapsingHeader("ACES 2.0##PresetsTab")) {
+            ImGui::PushID("ACES20Presets##Tab");
+            ImGui::Indent(8.0f);
             CreateACES20Presets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
 
         // Blender 4.5 Presets
-        if (ImGui::TreeNode("Blender 4.5")) {
+        if (ImGui::CollapsingHeader("Blender 4.5##PresetsTab")) {
+            ImGui::PushID("Blender45Presets##Tab");
+            ImGui::Indent(8.0f);
             CreateBlenderPresets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
 
         // Blender 5.0 Presets
-        if (ImGui::TreeNode("Blender 5.0")) {
+        if (ImGui::CollapsingHeader("Blender 5.0##PresetsTab")) {
+            ImGui::PushID("Blender50Presets##Tab");
+            ImGui::Indent(8.0f);
             CreateBlender5Presets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
 
         // Custom Presets
-        if (ImGui::TreeNode("Custom")) {
+        if (ImGui::CollapsingHeader("Custom##PresetsTab")) {
+            ImGui::PushID("CustomPresets##Tab");
+            ImGui::Indent(8.0f);
             CreateCustomPresets();
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
+            ImGui::PopID();
         }
+
+        ImGui::PopStyleColor(3);
     }
 
     void CreateACESPresets() {
@@ -18740,37 +19229,8 @@ private:
         ImGui::PopStyleColor();
         ImGui::Separator();
 
-        // Main scrollable content area (includes footer)
-        ImGui::BeginChild("ScrollableContent", ImVec2(0, 0), false);
-
-        // Get selected nodes
+        // Get selected nodes early - needed for both content and footer
         int num_selected = ImNodes::NumSelectedNodes();
-
-        if (num_selected == 0) {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Text("No node selected");
-            ImGui::Spacing();
-            ImGui::TextWrapped("Select a node in the editor to view and edit its properties.");
-            ImGui::PopStyleColor();
-        }
-        else if (num_selected > 1) {
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()),
-                "Multiple nodes selected (%d)", num_selected);
-            ImGui::TextWrapped("Select a single node to edit properties.");
-        }
-        else {
-            // Single node selected
-            int selected_id;
-            ImNodes::GetSelectedNodes(&selected_id);
-
-            auto* node = node_manager->GetNodeById(selected_id);
-            if (node) {
-                RenderNodeSpecificProperties(node);
-            }
-        }
-
-        // Footer area (inside scrollable region) - ONLY show for Output Display nodes
-        // Check if output display node is selected
         bool output_node_selected = false;
         if (num_selected == 1) {
             int selected_id;
@@ -18779,16 +19239,55 @@ private:
             output_node_selected = (node && node->GetType() == ump::NodeType::OUTPUT_DISPLAY);
         }
 
-        // Only show footer controls when Output Display node is selected
-        if (output_node_selected) {
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
+        // Reserve space for sticky footer (scale with font, 0.65 dampened)
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+        const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+        float footer_reserve = 88.0f * height_scale;  // Space for two buttons + spacing
 
-            // Only enable button if pipeline ready
-            bool pipeline_ready = CheckPipelineReadiness();
+        float available_height = ImGui::GetContentRegionAvail().y;
 
-            if (!pipeline_ready) {
+        // Main scrollable content area
+        if (ImGui::BeginChild("ScrollableContent", ImVec2(0, available_height - footer_reserve), false)) {
+            if (num_selected == 0) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
+                ImGui::Text("No node selected");
+                ImGui::Spacing();
+                ImGui::TextWrapped("Select a node in the editor to view and edit its properties.");
+                ImGui::PopStyleColor();
+            }
+            else if (num_selected > 1) {
+                ImGui::TextColored(MutedLight(GetWindowsAccentColor()),
+                    "Multiple nodes selected (%d)", num_selected);
+                ImGui::TextWrapped("Select a single node to edit properties.");
+            }
+            else {
+                // Single node selected
+                int selected_id;
+                ImNodes::GetSelectedNodes(&selected_id);
+
+                auto* node = node_manager->GetNodeById(selected_id);
+                if (node) {
+                    RenderNodeSpecificProperties(node);
+                }
+            }
+        }
+        ImGui::EndChild();
+
+        // Sticky footer - always visible, disabled when output node not selected
+        ImGui::Separator();
+
+        float footer_width = ImGui::GetContentRegionAvail().x - 10.0f;  // 10px right margin
+        if (ImGui::BeginChild("ShaderFooter", ImVec2(footer_width, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            // Check if pipeline is ready (only meaningful when output node selected)
+            bool pipeline_ready = output_node_selected && CheckPipelineReadiness();
+
+            // Disable entire footer if output node not selected
+            if (!output_node_selected) {
+                ImGui::BeginDisabled();
+            }
+
+            // Generate Shader button - only enabled if pipeline ready
+            if (!pipeline_ready && output_node_selected) {
                 ImGui::BeginDisabled();
             }
 
@@ -18797,7 +19296,7 @@ private:
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
             }
 
-            if (ImGui::Button("Generate Shader", ImVec2(-1, 30.0f))) {
+            if (ImGui::Button("Generate Shader", ImVec2(-1, 0))) {
                 GenerateOCIOPipeline();
             }
 
@@ -18805,24 +19304,36 @@ private:
                 ImGui::PopStyleColor(2);
             }
 
-            // Add Remove OCIO button - always available
+            if (!pipeline_ready && output_node_selected) {
+                ImGui::EndDisabled();
+            }
+
+            // Remove Shader button - enabled when output node selected
             ImGui::Spacing();
-            ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
-            if (ImGui::Button("Remove Shader", ImVec2(-1, 25.0f))) {
+            if (output_node_selected) {
+                ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
+            }
+
+            if (ImGui::Button("Remove Shader", ImVec2(-1, 0))) {
                 Debug::Log("User requested OCIO pipeline removal");
                 video_player->ClearColorPipeline();
             }
-            ImGui::PopStyleColor(2);
 
-            if (!pipeline_ready) {
+            if (output_node_selected) {
+                ImGui::PopStyleColor(2);
+            }
+
+            if (!output_node_selected) {
                 ImGui::EndDisabled();
+            }
+            else if (!pipeline_ready) {
+                ImGui::Spacing();
                 ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                 ImGui::TextWrapped("Connect Input to Output");
                 ImGui::PopStyleColor();
             }
         }
-
         ImGui::EndChild();
 
         ImGui::PopStyleVar(2);
@@ -18946,28 +19457,6 @@ private:
                         display_node->SetView(view_name);
                         Debug::Log("View changed to: " + view_name);
                     }
-
-                    // Add description if it's a special view
-                    if (view_name == "AgX") {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(Filmic tone mapping)");
-                    }
-                    else if (view_name == "Standard") {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(Default)");
-                    }
-                    else if (view_name == "False Color") {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(Exposure visualization)");
-                    }
-                    else if (view_name.find("ACES 2.0 - SDR") != std::string::npos) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(ACES 2.0 SDR tone map)");
-                    }
-                    else if (view_name.find("ACES 2.0 - HDR") != std::string::npos) {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(ACES 2.0 HDR tone map)");
-                    }
                 }
 
                 ImGui::Unindent();
@@ -19003,6 +19492,7 @@ private:
         std::string current_cs = cs_node->GetColorSpace();
 
         // Optional: Allow changing colorspace
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
         if (ImGui::BeginCombo("ColorSpace", current_cs.c_str())) {
             if (ocio_manager) {
                 auto colorspaces = ocio_manager->GetInputColorSpaces();
@@ -19015,6 +19505,7 @@ private:
             }
             ImGui::EndCombo();
         }
+        ImGui::PopStyleColor();
 
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
             "Type: Input Source");
@@ -19359,26 +19850,19 @@ private:
             ImGui::PopStyleColor();
 
             // Close button on the right
-            float button_size = ImGui::GetFrameHeight();
-            float corner_radius = ImGui::GetStyle().FrameRounding;
+            float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
             ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
             ImVec2 button_pos = ImGui::GetCursorScreenPos();
             bool clicked = ImGui::InvisibleButton("##CloseColor", ImVec2(button_size, button_size));
             bool hovered = ImGui::IsItemHovered();
-            bool active = ImGui::IsItemActive();
-            // Draw button background on hover/active
-            if (hovered || active) {
-                ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
-                                      : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-                ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
-            }
-            // Draw icon centered with -1px vertical offset
+            // Draw icon centered - disabled color by default, regular on hover
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
                 ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
                                          button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
-                ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                ImU32 icon_col = hovered ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                ImGui::GetWindowDrawList()->AddText(icon_pos, icon_col, ICON_CLOSE);
                 ImGui::PopFont();
             }
             if (clicked) {
@@ -22017,8 +22501,9 @@ private:
         if (!show_goto_timecode_modal) return;
 
         // Center modal on screen
+        float scale = ImGui::GetIO().FontGlobalScale;
         ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(450, 0), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(450 * scale, 0), ImGuiCond_Appearing);
 
         // Open modal with darkened background
         if (ImGui::BeginPopupModal("Go To Timecode/Frame", &show_goto_timecode_modal,
@@ -22186,8 +22671,14 @@ private:
             ImGui::Separator();
             ImGui::Spacing();
 
-            // Buttons
-            if (ImGui::Button("Go To", ImVec2(120, 0)) || navigate) {
+            // Buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float gotoW = ImGui::CalcTextSize("Go To").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - gotoW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Go To") || navigate) {
                 // Perform navigation
                 if (video_player && video_player->HasVideo()) {
                     double fps = video_player->GetFrameRate();
@@ -22235,7 +22726,7 @@ private:
 
             ImGui::SameLine();
 
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            if (ImGui::Button("Cancel")) {
                 show_goto_timecode_modal = false;
                 ImGui::CloseCurrentPopup();
             }

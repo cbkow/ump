@@ -7459,6 +7459,7 @@ void VideoPlayer::RenderSideBySide() {
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
     ImGui::SetNextItemWidth(dropdown_width);
     if (ImGui::BeginCombo("##ViewModeSelect", view_label.c_str(), ImGuiComboFlags_NoArrowButton)) {
@@ -7473,7 +7474,7 @@ void VideoPlayer::RenderSideBySide() {
         ImGui::EndCombo();
     }
 
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(5);
     ImGui::PopStyleVar();
     ImGui::EndChild();
 
@@ -7490,6 +7491,7 @@ void VideoPlayer::RenderSideBySide() {
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
         // Set popup height to fit all items without scrollbar
         ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, 270.0f));
@@ -7588,7 +7590,7 @@ void VideoPlayer::RenderSideBySide() {
             ImGui::EndCombo();
         }
 
-        ImGui::PopStyleColor(4);
+        ImGui::PopStyleColor(5);
         ImGui::PopStyleVar();
         ImGui::EndChild();
     }
@@ -7938,6 +7940,7 @@ void VideoPlayer::RenderSplitScreen() {
     ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
     ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
     ImGui::SetNextItemWidth(dropdown_width);
     if (ImGui::BeginCombo("##ViewModeSelect", view_label.c_str(), ImGuiComboFlags_NoArrowButton)) {
@@ -7952,7 +7955,7 @@ void VideoPlayer::RenderSplitScreen() {
         ImGui::EndCombo();
     }
 
-    ImGui::PopStyleColor(4);
+    ImGui::PopStyleColor(5);
     ImGui::PopStyleVar();
     ImGui::EndChild();
 
@@ -7969,6 +7972,7 @@ void VideoPlayer::RenderSplitScreen() {
         ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.25f, 0.25f, 0.25f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_FrameBgActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
         // Set popup height to fit all items without scrollbar
         ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(FLT_MAX, 270.0f));
@@ -8067,7 +8071,7 @@ void VideoPlayer::RenderSplitScreen() {
             ImGui::EndCombo();
         }
 
-        ImGui::PopStyleColor(4);
+        ImGui::PopStyleColor(5);
         ImGui::PopStyleVar();
         ImGui::EndChild();
     }
@@ -8171,6 +8175,7 @@ render_toggle_button:
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
         ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
         ImGui::BeginChild("##ComparisonModeToggleDiff", ImVec2(150, 36), false,
@@ -8205,7 +8210,7 @@ render_toggle_button:
         }
 
         ImGui::EndChild();
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(2);
         ImGui::PopStyleVar(2);
 
         // Show status underneath toggle button
@@ -8358,6 +8363,7 @@ render_toggle_button:
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.85f));
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
 
     ImGui::SetCursorScreenPos(ImVec2(viewport_pos.x + 10, viewport_pos.y + 10));
     ImGui::BeginChild("##ComparisonModeToggleDiff2", ImVec2(150, 36), false,
@@ -8392,7 +8398,7 @@ render_toggle_button:
     }
 
     ImGui::EndChild();
-    ImGui::PopStyleColor();
+    ImGui::PopStyleColor(2);
     ImGui::PopStyleVar(2);
 
     // Show status underneath toggle button

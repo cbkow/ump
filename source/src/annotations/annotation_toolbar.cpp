@@ -29,20 +29,40 @@ void AnnotationToolbar::Render(ViewportAnnotator* viewport_annotator, bool can_u
     stroke_width_ = viewport_annotator->GetStrokeWidth();
     fill_enabled_ = viewport_annotator->IsFillEnabled();
 
+    // Align text to frame padding for consistent vertical centering
+    ImGui::AlignTextToFramePadding();
+
     // Render toolbar content inline (no window creation - parent manages layout)
     // Horizontal layout
     RenderToolButtons(s_icon_font, s_accent_regular);
     ImGui::SameLine();
-    ImGui::Text("|");
+
+    // Vertical divider
+    RenderDivider();
     ImGui::SameLine();
+
     RenderDrawingProperties();
     ImGui::SameLine();
-    ImGui::Text("|");
+
+    // Vertical divider
+    RenderDivider();
     ImGui::SameLine();
+
     RenderActionButtons(can_undo, can_redo, s_icon_font, s_accent_regular, s_accent_muted_dark);
 }
 
+void AnnotationToolbar::RenderDivider() {
+    ImGui::Dummy(ImVec2(8, 0));
+    ImGui::SameLine();
+    ImVec2 p = ImGui::GetCursorScreenPos();
+    float h = ImGui::GetFrameHeight();
+    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+    ImGui::Dummy(ImVec2(1, 0));
+    ImGui::SameLine(0, 12);
+}
+
 void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regular) {
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 0.9f);
     ImGui::Text("Tools:");
     ImGui::SameLine();
 
@@ -105,6 +125,7 @@ void AnnotationToolbar::RenderToolButtons(ImFont* icon_font, ImVec4 accent_regul
 
 void AnnotationToolbar::RenderDrawingProperties() {
     // Color picker with extra padding around popup to prevent accidental drawing
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 0.9f);
     ImGui::Text("Color:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(200.0f);
@@ -120,14 +141,20 @@ void AnnotationToolbar::RenderDrawingProperties() {
 
     // Stroke width
     ImGui::SameLine();
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 0.9f);
     ImGui::Text("Width:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120.0f);
+    // Match slider styling from bottom row
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+    ImGui::SetWindowFontScale(0.85f);
     if (ImGui::SliderFloat("##Width", &stroke_width_, 1.0f, 20.0f, "%.1f")) {
         if (callbacks_.on_stroke_width_changed) {
             callbacks_.on_stroke_width_changed(stroke_width_);
         }
     }
+    ImGui::SetWindowFontScale(1.0f);
+    ImGui::PopStyleVar();
 
     // Fill toggle (for shapes)
     if (selected_tool_ == DrawingTool::RECTANGLE || selected_tool_ == DrawingTool::OVAL) {
@@ -149,13 +176,24 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     #define ICON_CHECK          u8"\uE5CA"
     #define ICON_CANCEL         u8"\uE5C9"
 
-    // Undo button
+    float btn_size = ImGui::GetFrameHeight();
+
+    // Undo button - transparent background
     if (!can_undo) {
         ImGui::BeginDisabled();
     }
 
     if (icon_font) ImGui::PushFont(icon_font);
-    bool undo_clicked = ImGui::Button(icon_font ? ICON_UNDO : "Undo");
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+    bool undo_clicked = ImGui::Button(icon_font ? ICON_UNDO : "Undo", ImVec2(btn_size, btn_size));
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+
     if (icon_font) ImGui::PopFont();
 
     if (ImGui::IsItemHovered()) {
@@ -172,13 +210,22 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
 
     ImGui::SameLine();
 
-    // Redo button
+    // Redo button - transparent background
     if (!can_redo) {
         ImGui::BeginDisabled();
     }
 
     if (icon_font) ImGui::PushFont(icon_font);
-    bool redo_clicked = ImGui::Button(icon_font ? ICON_REDO : "Redo");
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+    bool redo_clicked = ImGui::Button(icon_font ? ICON_REDO : "Redo", ImVec2(btn_size, btn_size));
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+
     if (icon_font) ImGui::PopFont();
 
     if (ImGui::IsItemHovered()) {
@@ -195,9 +242,18 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
 
     ImGui::SameLine();
 
-    // Clear All button
+    // Clear All button - transparent background
     if (icon_font) ImGui::PushFont(icon_font);
-    bool clear_clicked = ImGui::Button(icon_font ? ICON_DELETE_SWEEP : "Clear All");
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+    bool clear_clicked = ImGui::Button(icon_font ? ICON_DELETE_SWEEP : "Clear All", ImVec2(btn_size, btn_size));
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
+
     if (icon_font) ImGui::PopFont();
 
     if (ImGui::IsItemHovered()) {
@@ -209,41 +265,12 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     }
 
     ImGui::SameLine();
-    ImGui::Text("|");
+
+    // Vertical divider before Save/Discard
+    RenderDivider();
     ImGui::SameLine();
 
-    // Calculate hover/active colors from accent colors
-    ImVec4 regular_hover = ImVec4(
-        accent_regular.x * 1.2f,
-        accent_regular.y * 1.2f,
-        accent_regular.z * 1.2f,
-        accent_regular.w
-    );
-    ImVec4 regular_active = ImVec4(
-        accent_regular.x * 0.8f,
-        accent_regular.y * 0.8f,
-        accent_regular.z * 0.8f,
-        accent_regular.w
-    );
-
-    ImVec4 muted_dark_hover = ImVec4(
-        accent_muted_dark.x * 1.2f,
-        accent_muted_dark.y * 1.2f,
-        accent_muted_dark.z * 1.2f,
-        accent_muted_dark.w
-    );
-    ImVec4 muted_dark_active = ImVec4(
-        accent_muted_dark.x * 0.8f,
-        accent_muted_dark.y * 0.8f,
-        accent_muted_dark.z * 0.8f,
-        accent_muted_dark.w
-    );
-
-    // Done button (system accent regular) - always use text for visibility
-    ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, regular_hover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, regular_active);
-
+    // Save button - uses regular button colors (not system accent)
     if (ImGui::Button("Save")) {
         if (callbacks_.on_done) {
             callbacks_.on_done();
@@ -254,15 +281,9 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
         ImGui::SetTooltip("Save annotations and exit annotation mode (Enter)");
     }
 
-    ImGui::PopStyleColor(3);
-
     ImGui::SameLine();
 
-    // Cancel button (system accent muted dark) - always use text for visibility
-    ImGui::PushStyleColor(ImGuiCol_Button, accent_muted_dark);
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, muted_dark_hover);
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, muted_dark_active);
-
+    // Discard button - uses regular button colors (not system accent)
     if (ImGui::Button("Discard")) {
         if (callbacks_.on_cancel) {
             callbacks_.on_cancel();
@@ -273,8 +294,6 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
         ImGui::SetTooltip("Discard annotations and exit annotation mode (Esc)");
     }
 
-    ImGui::PopStyleColor(3);
-
     #undef ICON_UNDO
     #undef ICON_REDO
     #undef ICON_DELETE_SWEEP
@@ -284,23 +303,28 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
 
 bool AnnotationToolbar::ToolButton(const char* label, DrawingTool tool, const char* tooltip, ImVec4 accent_regular) {
     bool is_selected = (selected_tool_ == tool);
+    float btn_size = ImGui::GetFrameHeight();
 
-    // Push colors based on selection state
+    // Push colors based on selection state - transparent by default, accent when selected
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleVar(ImGuiStyleVar_ButtonTextAlign, ImVec2(0.5f, 0.5f));
+
     if (is_selected) {
-        // Selected tool - use accent color
+        // Selected tool - use accent color background
         ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(accent_regular.x * 0.8f, accent_regular.y * 0.8f, accent_regular.z * 0.8f, accent_regular.w));
     } else {
-        // Not selected - use default button colors from style
-        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        // Not selected - transparent background with hover states
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
     }
 
-    bool clicked = ImGui::Button(label);
+    bool clicked = ImGui::Button(label, ImVec2(btn_size, btn_size));
 
     ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar(2);
 
     // Pop icon font before showing tooltip
     ImFont* current_font = ImGui::GetFont();

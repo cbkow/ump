@@ -1322,26 +1322,19 @@ namespace ump {
             ImGui::PopStyleColor();
 
             // Close button on the right
-            float button_size = ImGui::GetFrameHeight();
-            float corner_radius = ImGui::GetStyle().FrameRounding;
+            float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
             ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
             ImVec2 button_pos = ImGui::GetCursorScreenPos();
             bool clicked = ImGui::InvisibleButton("##CloseProject", ImVec2(button_size, button_size));
             bool hovered = ImGui::IsItemHovered();
-            bool active = ImGui::IsItemActive();
-            // Draw button background on hover/active
-            if (hovered || active) {
-                ImU32 bg_col = active ? ImGui::GetColorU32(ImGuiCol_ButtonActive)
-                                      : ImGui::GetColorU32(ImGuiCol_ButtonHovered);
-                ImGui::GetWindowDrawList()->AddRectFilled(button_pos, ImVec2(button_pos.x + button_size, button_pos.y + button_size), bg_col, corner_radius);
-            }
-            // Draw icon centered with -1px vertical offset
+            // Draw icon centered - disabled color by default, regular on hover
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
                 ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
                                          button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
-                ImGui::GetWindowDrawList()->AddText(icon_pos, ImGui::GetColorU32(ImGuiCol_Text), ICON_CLOSE);
+                ImU32 icon_col = hovered ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
+                ImGui::GetWindowDrawList()->AddText(icon_pos, icon_col, ICON_CLOSE);
                 ImGui::PopFont();
             }
             if (clicked) {
@@ -1436,68 +1429,73 @@ namespace ump {
     }
 
     void ProjectManager::CreateMediaPool() {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(25, 25, 25, 255));
-
-        if (ImGui::BeginChild("MediaPool", ImVec2(0, 0), true)) {
-            for (auto& bin : bins) {
-                CreateBinUI(bin);
-                // Inline toolbars removed - use menu bar instead
-            }
-
-            // Context menu for empty space below the tree
-            // Use remaining space as an invisible button for right-click detection
-            ImVec2 avail = ImGui::GetContentRegionAvail();
-            if (avail.y > 10.0f) {  // Only if there's meaningful empty space
-                ImGui::InvisibleButton("##EmptySpaceContextArea", ImVec2(avail.x, avail.y));
-                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                    ImGui::OpenPopup("##EmptySpaceContextMenu");
-                }
-            }
-
-            // Context menu popup
-            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-            if (ImGui::BeginPopup("##EmptySpaceContextMenu")) {
-                if (ImGui::MenuItem("Open Media...")) {
-                    // Trigger file open dialog (will be handled by main.cpp)
-                    pending_open_media_dialog = true;
-                }
-                if (ImGui::MenuItem("Open Project...")) {
-                    pending_open_project_dialog = true;
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Import Timeline...")) {
-                    ImportTimelineFromMenu();
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("New Timeline")) {
-                    show_new_timeline_dialog = true;
-                }
-                if (ImGui::MenuItem("New Playlist")) {
-                    show_new_sequence_dialog = true;
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopStyleColor();
+        for (auto& bin : bins) {
+            CreateBinUI(bin);
+            // Inline toolbars removed - use menu bar instead
         }
-        ImGui::EndChild();
+
+        // Context menu for empty space below the tree
+        // Use remaining space as an invisible button for right-click detection
+        ImVec2 avail = ImGui::GetContentRegionAvail();
+        if (avail.y > 10.0f) {  // Only if there's meaningful empty space
+            ImGui::InvisibleButton("##EmptySpaceContextArea", ImVec2(avail.x, avail.y));
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup("##EmptySpaceContextMenu");
+            }
+        }
+
+        // Context menu popup
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
+        if (ImGui::BeginPopup("##EmptySpaceContextMenu")) {
+            if (ImGui::MenuItem("Open Media...")) {
+                // Trigger file open dialog (will be handled by main.cpp)
+                pending_open_media_dialog = true;
+            }
+            if (ImGui::MenuItem("Open Project...")) {
+                pending_open_project_dialog = true;
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Import Timeline...")) {
+                ImportTimelineFromMenu();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("New Timeline")) {
+                show_new_timeline_dialog = true;
+            }
+            if (ImGui::MenuItem("New Playlist")) {
+                show_new_sequence_dialog = true;
+            }
+            ImGui::EndPopup();
+        }
         ImGui::PopStyleColor();
     }
 
     void ProjectManager::CreateBinUI(ProjectBin& bin) {
-        std::string tree_id = "bin_" + bin.name + "##" + std::to_string(reinterpret_cast<uintptr_t>(&bin));
-
-        ImGuiTreeNodeFlags node_flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
-        if (bin.is_open) {
-            node_flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        // Build header text with item count
+        char header_text[128];
+        size_t item_count = bin.items.size();
+        if (item_count > 0) {
+            snprintf(header_text, sizeof(header_text), "%s (%zu)", bin.name.c_str(), item_count);
+        } else {
+            snprintf(header_text, sizeof(header_text), "%s", bin.name.c_str());
         }
 
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.3f, 0.4f, 0.5f, 0.4f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.4f, 0.5f, 0.6f, 0.6f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.5f, 0.6f, 0.7f, 0.8f));
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));  
+        // Unique ID for state persistence
+        std::string header_id = header_text + std::string("##bin_") + bin.name;
 
-        bool node_open = ImGui::TreeNodeEx(tree_id.c_str(), node_flags);
-        ImGui::PopStyleColor(4);
+        // Set open state flag
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_None;
+        if (bin.is_open) {
+            flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        }
+
+        // Style the collapsing header
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
+
+        bool node_open = ImGui::CollapsingHeader(header_id.c_str(), flags);
+        ImGui::PopStyleColor(3);
 
         // Right-click context menu for bin headers
         std::string bin_context_id = "bin_context_" + bin.name;
@@ -1505,7 +1503,7 @@ namespace ump {
             ImGui::OpenPopup(bin_context_id.c_str());
         }
 
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
         if (ImGui::BeginPopup(bin_context_id.c_str())) {
             if (bin.name == "Playlists") {
                 if (ImGui::MenuItem("New Playlist")) {
@@ -1529,10 +1527,12 @@ namespace ump {
         ImGui::PopStyleColor();
 
         if (node_open) {
+            // Add slight indent for bin contents
+            ImGui::Indent(8.0f);
             for (const auto& item : bin.items) {
                 CreateMediaItemUI(item);
             }
-            ImGui::TreePop();
+            ImGui::Unindent(8.0f);
         }
 
         bin.is_open = node_open;
@@ -1629,9 +1629,9 @@ namespace ump {
 
             if (font_mono) ImGui::PushFont(font_mono);
             if (item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) {
-                ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "[%s] %.2fs", type_str.c_str(), item.duration);
+                ImGui::TextDisabled("[%s] %.2fs", type_str.c_str(), item.duration);
             } else {
-                ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "[%s] %.2fs", type_str.c_str(), item.duration);
+                ImGui::TextDisabled("[%s] %.2fs", type_str.c_str(), item.duration);
             }
             if (font_mono) ImGui::PopFont();
         }
@@ -1640,7 +1640,7 @@ namespace ump {
         if (item.type == MediaType::TIMELINE && item.duration > 0) {
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "[%s @ %.0ffps] %.2fs",
+            ImGui::TextDisabled("[%s @ %.0ffps] %.2fs",
                               item.timeline_format.c_str(), item.frame_rate, item.duration);
             if (font_mono) ImGui::PopFont();
         }
@@ -1658,26 +1658,42 @@ namespace ump {
             show_new_project_dialog = false;
         }
 
+        float project_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(400 * project_scale + 50, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("New Project", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             static char project_name[256] = "Untitled Project";
             static char project_path[512] = "";
 
             ImGui::Text("Create New Project");
             ImGui::Separator();
+            ImGui::Spacing();
             ImGui::Text("Project Name:");
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##ProjectNameInput", project_name, sizeof(project_name));
+            ImGui::Spacing();
             ImGui::Text("Location:");
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##ProjectPathInput", project_path, sizeof(project_path));
+            ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
 
-            if (ImGui::Button("Create##NewProjectDialog")) {
+            // Create and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Create")) {
                 CreateNewProject(project_name, project_path);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel##NewProjectDialog")) {
+            if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -1690,22 +1706,36 @@ namespace ump {
             show_new_sequence_dialog = false;
         }
 
+        float playlist_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(350 * playlist_scale + 50, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("New Playlist", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             static char sequence_name[256] = "";
             ImGui::Text("Create New Playlist");
             ImGui::Separator();
+            ImGui::Spacing();
             ImGui::Text("Playlist Name:");
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##SequenceNameInput", sequence_name, sizeof(sequence_name));
+            ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
 
-            if (ImGui::Button("Create##NewSequenceDialog")) {
+            // Create and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Create")) {
                 CreateNewSequence(sequence_name);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel##NewSequenceDialog")) {
+            if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -1718,9 +1748,23 @@ namespace ump {
             show_rename_dialog = false;
         }
 
+        float rename_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(350 * rename_scale + 50, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("Rename Item", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Enter new name:");
+            ImGui::Spacing();
+            ImGui::SetNextItemWidth(-1);
             bool enter_pressed = ImGui::InputText("##RenameInput", rename_buffer, sizeof(rename_buffer), ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // OK and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW - cancelW - btnSpacing);
 
             if (ImGui::Button("OK") || enter_pressed) {
                 ProcessRenameItem();
@@ -1730,6 +1774,7 @@ namespace ump {
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -1742,12 +1787,25 @@ namespace ump {
             show_create_playlist_dialog = false;
         }
 
+        float create_playlist_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(400 * create_playlist_scale + 50, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("Create Playlist from Selection", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Create new playlist from %d selected items", (int)pending_playlist_items.size());
             ImGui::Separator();
+            ImGui::Spacing();
             ImGui::Text("Playlist Name:");
+            ImGui::SetNextItemWidth(-1);
             bool enter_pressed = ImGui::InputText("##PlaylistNameInput", new_playlist_name_buffer, sizeof(new_playlist_name_buffer), ImGuiInputTextFlags_EnterReturnsTrue);
+            ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
+
+            // Create and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
 
             if (ImGui::Button("Create") || enter_pressed) {
                 ProcessCreatePlaylistFromSelection();
@@ -1758,6 +1816,7 @@ namespace ump {
                 pending_playlist_items.clear();
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -1775,6 +1834,8 @@ namespace ump {
             new_timeline_fps = 24.0;
         }
 
+        float scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(550 * scale + 50, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("New Timeline", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Create New Timeline");
             ImGui::Separator();
@@ -1782,7 +1843,7 @@ namespace ump {
 
             ImGui::TextDisabled("Timeline Name (optional):");
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(300);
+            ImGui::SetNextItemWidth(280 * scale);
             ImGui::InputText("##TimelineNameInput", new_timeline_name_buffer, sizeof(new_timeline_name_buffer));
             if (font_mono) ImGui::PopFont();
 
@@ -1792,14 +1853,14 @@ namespace ump {
 
             // Width and Height fields with room for 6 digits
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(70);
+            ImGui::SetNextItemWidth(70 * scale);
             ImGui::InputInt("##TimelineWidth", &new_timeline_width, 0, 0);
             if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
             ImGui::Text("x");
             ImGui::SameLine();
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(70);
+            ImGui::SetNextItemWidth(70 * scale);
             ImGui::InputInt("##TimelineHeight", &new_timeline_height, 0, 0);
             if (font_mono) ImGui::PopFont();
 
@@ -1816,22 +1877,17 @@ namespace ump {
             ImGui::Spacing();
             ImGui::TextDisabled("Frame Rate:");
             if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(120);
+            ImGui::SetNextItemWidth(120 * scale);
             ImGui::InputDouble("##TimelineFPS", &new_timeline_fps, 0.0, 0.0, "%.3f fps");
             if (font_mono) ImGui::PopFont();
 
-            // Frame rate presets - first row
-            ImGui::SameLine();
-            ImGui::Spacing();
-            ImGui::SameLine();
+            // Frame rate presets - below input box like resolution presets
             if (ImGui::Button("23.976")) { new_timeline_fps = 23.976; }
             ImGui::SameLine();
             if (ImGui::Button("24")) { new_timeline_fps = 24.0; }
             ImGui::SameLine();
             if (ImGui::Button("25")) { new_timeline_fps = 25.0; }
-
-            // Frame rate presets - second row
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 135);  // Align with buttons above
+            ImGui::SameLine();
             if (ImGui::Button("29.97")) { new_timeline_fps = 29.97; }
             ImGui::SameLine();
             if (ImGui::Button("30")) { new_timeline_fps = 30.0; }
@@ -1851,8 +1907,16 @@ namespace ump {
 
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
 
-            if (ImGui::Button("Create##NewTimelineDialog")) {
+            // Create and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Create")) {
                 std::string timeline_id = CreateNewTimeline(
                     new_timeline_name_buffer,
                     new_timeline_width,
@@ -1871,9 +1935,10 @@ namespace ump {
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel##NewTimelineDialog")) {
+            if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -1886,6 +1951,8 @@ namespace ump {
             show_edl_import_dialog = false;
         }
 
+        float edl_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(550 * edl_scale, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("EDL Import Settings", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             std::string filename = std::filesystem::path(pending_edl_path).filename().string();
             ImGui::Text("Import Timeline: %s", filename.c_str());
@@ -1950,16 +2017,25 @@ namespace ump {
 
             ImGui::Spacing();
             ImGui::Separator();
+            ImGui::Spacing();
 
-            if (ImGui::Button("Import##EDLDialog")) {
+            // Import and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float importW = ImGui::CalcTextSize("Import").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - importW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Import")) {
                 CompleteEDLImport();
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel##EDLDialog")) {
+            if (ImGui::Button("Cancel")) {
                 pending_edl_path.clear();
                 ImGui::CloseCurrentPopup();
             }
+
             ImGui::EndPopup();
         }
 
@@ -2035,6 +2111,7 @@ namespace ump {
                 }
 
                 // Show layer selection combo box
+                ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
                 if (ImGui::BeginCombo("##exr_layer", layer_display_names_copy[current_layer_index].c_str())) {
                     for (int i = 0; i < layer_display_names_copy.size(); i++) {
                         bool is_selected = (current_layer_index == i);
@@ -2049,6 +2126,7 @@ namespace ump {
                     }
                     ImGui::EndCombo();
                 }
+                ImGui::PopStyleColor();
 
                 if (font_mono) ImGui::PushFont(font_mono);
                 if (current_layer_index < layer_names_copy.size()) {
@@ -2059,7 +2137,7 @@ namespace ump {
                 // Show hidden Cryptomatte layers feedback
                 if (hidden_cryptomatte_count > 0) {
                     if (font_mono) ImGui::PushFont(font_mono);
-                    ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%d Cryptomatte layer%s hidden",
+                    ImGui::TextDisabled("%d Cryptomatte layer%s hidden",
                         hidden_cryptomatte_count,
                         hidden_cryptomatte_count == 1 ? "" : "s");
                     if (font_mono) ImGui::PopFont();
@@ -2070,7 +2148,7 @@ namespace ump {
 
             // Transcode Options (for both EXR and TIFF/PNG sequences)
             if (is_exr_sequence || is_tiff_png_sequence) {
-                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Performance Optimization:");
+                ImGui::Text("Performance Optimization:");
 
                 std::string transcode_label = is_exr_sequence ?
                     "Transcode EXR (optimize for playback)" :
@@ -2100,6 +2178,7 @@ namespace ump {
                                      (exr_transcode_max_width == 2560) ? 2 :
                                      (exr_transcode_max_width == 3840) ? 3 : 4;
 
+                    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
                     if (ImGui::Combo("Max Width", &width_index, width_options, IM_ARRAYSIZE(width_options))) {
                         switch (width_index) {
                             case 0: exr_transcode_max_width = 0; break;     // Native
@@ -2109,6 +2188,7 @@ namespace ump {
                             case 4: exr_transcode_max_width = 1920; break;  // Custom - default to 1920
                         }
                     }
+                    ImGui::PopStyleColor();
 
                     // Custom width input
                     if (width_index == 4) {
@@ -2126,6 +2206,7 @@ namespace ump {
                                            (exr_transcode_compression == 4) ? 4 :  // PIZ
                                            (exr_transcode_compression == 3) ? 5 : 0;  // ZIP
 
+                    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
                     if (ImGui::Combo("Compression", &compression_index, compression_options, IM_ARRAYSIZE(compression_options))) {
                         switch (compression_index) {
                             case 0: exr_transcode_compression = 7; break;  // B44A
@@ -2136,6 +2217,7 @@ namespace ump {
                             case 5: exr_transcode_compression = 3; break;  // ZIP
                         }
                     }
+                    ImGui::PopStyleColor();
 
                     ImGui::Unindent();
                 }
@@ -2173,6 +2255,15 @@ namespace ump {
             }
 
             ImGui::Separator();
+            ImGui::Spacing();
+
+            // OK and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float okW = ImGui::CalcTextSize("OK").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW - cancelW - btnSpacing);
+
             if (ImGui::Button("OK")) {
                 Debug::Log("OK button pressed");
                 if (!pending_sequence_path.empty() && selected_frame_rate > 0.0) {
@@ -2315,20 +2406,68 @@ namespace ump {
                     ImGui::Text("Sequence Properties");
                     ImGui::Separator();
 
-                    if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit)) {
+                    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                    if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                         ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
+                        // Get resolved path (strip mf:// or exr:// prefixes)
+                        std::string resolved_path;
+                        if (!current_file_path->empty()) {
+                            resolved_path = *current_file_path;
+                            if (resolved_path.substr(0, 5) == "mf://") {
+                                resolved_path = resolved_path.substr(5);
+                            } else if (resolved_path.substr(0, 6) == "exr://") {
+                                // Format: exr://layer_name@path
+                                size_t at_pos = resolved_path.find('@');
+                                if (at_pos != std::string::npos) {
+                                    resolved_path = resolved_path.substr(at_pos + 1);
+                                }
+                            }
+                        }
+
+                        // Get directory from path
+                        std::string seq_directory;
+                        size_t last_slash = resolved_path.find_last_of("/\\");
+                        if (last_slash != std::string::npos) {
+                            seq_directory = resolved_path.substr(0, last_slash);
+                        }
+
+                        // Path row
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::TextDisabled("Path:");
+                        ImGui::TableSetColumnIndex(1);
+                        if (font_mono) ImGui::PushFont(font_mono);
+                        ImGui::TextWrapped("%s", seq_directory.c_str());
+                        if (font_mono) ImGui::PopFont();
+
+                        // Action buttons for path
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(1);
+                        if (!seq_directory.empty()) {
+                            if (ImGui::SmallButton("Open in Explorer##SeqPath")) {
+                                ShowInExplorer(seq_directory);
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Open in Windows Explorer");
+                            }
+
+                            ImGui::SameLine();
+                            if (ImGui::SmallButton("Copy Path##SeqPath")) {
+                                CopyToClipboard(seq_directory);
+                            }
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip("Copy path to clipboard");
+                            }
+                        }
+
                         // Image type
                         std::string image_type = "Unknown";
-                        if (!current_file_path->empty()) {
-                            std::string path_to_check = *current_file_path;
-                            if (path_to_check.substr(0, 5) == "mf://") {
-                                path_to_check = path_to_check.substr(5);
-                            }
-                            size_t dot_pos = path_to_check.find_last_of('.');
+                        if (!resolved_path.empty()) {
+                            size_t dot_pos = resolved_path.find_last_of('.');
                             if (dot_pos != std::string::npos) {
-                                std::string ext = path_to_check.substr(dot_pos + 1);
+                                std::string ext = resolved_path.substr(dot_pos + 1);
                                 std::transform(ext.begin(), ext.end(), ext.begin(), ::toupper);
                                 image_type = ext;
                             }
@@ -2391,6 +2530,7 @@ namespace ump {
 
                         ImGui::EndTable();
                     }
+                    ImGui::PopStyleVar();  // CellPadding
                 } else {
                     ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Sequence properties will be available when loaded");
                 }
@@ -2523,12 +2663,12 @@ namespace ump {
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type == MediaType::SEQUENCE && ImGui::MenuItem("Rename", "F2")) {
+        if (selection_count == 1 && (item.type == MediaType::SEQUENCE || item.type == MediaType::TIMELINE) && ImGui::MenuItem("Rename", "F2")) {
             StartRenaming(item.id);
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type != MediaType::SEQUENCE && ImGui::MenuItem("Show in Explorer")) {
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && ImGui::MenuItem("Show in Explorer")) {
             ShowInExplorer(item.path);
             ImGui::CloseCurrentPopup();
         }
@@ -5164,7 +5304,8 @@ namespace ump {
         ImGui::Text("Timecode");
         ImGui::Separator();
 
-        if (ImGui::BeginTable("TimecodeTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("TimecodeTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Timecode", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5227,6 +5368,7 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     // ============================================================================
@@ -5241,27 +5383,28 @@ namespace ump {
 
         // Show file information
         ImGui::Spacing();
-        ImGui::TextColored(Bright(GetWindowsAccentColor()), "File Information");
+        ImGui::Text("File Information");
         ImGui::Separator();
         DisplayEXRFileInfoTable(exr_meta);
 
         // Show image properties
         ImGui::Spacing();
-        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Properties");
+        ImGui::Text("Image Properties");
         ImGui::Separator();
         DisplayEXRImagePropertiesTable(exr_meta);
 
         // Show layer information (lazy loaded)
         if (exr_meta->extended_properties_detected && exr_meta->total_layers > 0) {
             ImGui::Spacing();
-            ImGui::TextColored(Bright(GetWindowsAccentColor()), "EXR Layers");
+            ImGui::Text("EXR Layers");
             ImGui::Separator();
             DisplayEXRChannelsTable(exr_meta);
         }
     }
 
     void ProjectManager::DisplayEXRFileInfoTable(const EXRMetadata* exr_meta) {
-        if (ImGui::BeginTable("EXRFileInfoTable", 3, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("EXRFileInfoTable", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 120.0f);
@@ -5274,6 +5417,42 @@ namespace ump {
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", exr_meta->file_name.c_str());
             if (font_mono) ImGui::PopFont();
+
+            // Path (directory)
+            std::string exr_directory;
+            if (!exr_meta->file_path.empty()) {
+                size_t last_slash = exr_meta->file_path.find_last_of("/\\");
+                if (last_slash != std::string::npos) {
+                    exr_directory = exr_meta->file_path.substr(0, last_slash);
+                }
+            }
+            if (!exr_directory.empty()) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("Path:");
+                ImGui::TableSetColumnIndex(1);
+                if (font_mono) ImGui::PushFont(font_mono);
+                ImGui::TextWrapped("%s", exr_directory.c_str());
+                if (font_mono) ImGui::PopFont();
+
+                // Action buttons
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(1);
+                if (ImGui::SmallButton("Open in Explorer##EXRPath")) {
+                    ShowInExplorer(exr_directory);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Open in Windows Explorer");
+                }
+
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy Path##EXRPath")) {
+                    CopyToClipboard(exr_directory);
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Copy path to clipboard");
+                }
+            }
 
             // Sequence Pattern
             if (!exr_meta->sequence_pattern.empty()) {
@@ -5334,10 +5513,12 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayEXRImagePropertiesTable(const EXRMetadata* exr_meta) {
-        if (ImGui::BeginTable("EXRImagePropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("EXRImagePropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5497,6 +5678,7 @@ namespace ump {
                     // Show dropdown combo box
                     if (!available_layer_display_names.empty()) {
                         if (font_mono) ImGui::PushFont(font_mono);
+                        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
                         if (ImGui::BeginCombo("##layer_selector", available_layer_display_names[current_layer_index].c_str())) {
                             for (int i = 0; i < available_layer_display_names.size(); i++) {
                                 bool is_selected = (current_layer_index == i);
@@ -5576,6 +5758,7 @@ namespace ump {
                             }
                             ImGui::EndCombo();
                         }
+                        ImGui::PopStyleColor();
                         if (font_mono) ImGui::PopFont();
                     } else {
                         // Fallback: Show as text if no layers available
@@ -5604,25 +5787,25 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayEXRChannelsTable(const EXRMetadata* exr_meta) {
-        if (ImGui::BeginTable("EXRLayersTable", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg)) {
+        // Show layer summary above the table
+        if (!exr_meta->layer_summary.empty()) {
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImGui::TextDisabled("%s", exr_meta->layer_summary.c_str());
+            if (font_mono) ImGui::PopFont();
+            ImGui::Spacing();
+        }
+
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("EXRLayersTable", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthFixed, 150.0f);
             ImGui::TableSetupColumn("Channels", ImGuiTableColumnFlags_WidthFixed, 80.0f);
             ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
             ImGui::TableHeadersRow();
-
-            // Show layer summary first
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(0);
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_summary.c_str());
-            if (font_mono) ImGui::PopFont();
-            ImGui::TableSetColumnIndex(1);
-            ImGui::TableSetColumnIndex(2);
-            ImGui::TableSetColumnIndex(3);
 
             // Show individual layers (all of them, typically not more than 10-15)
             for (size_t i = 0; i < exr_meta->layers.size(); i++) {
@@ -5662,6 +5845,7 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     // ============================================================================
@@ -5669,7 +5853,8 @@ namespace ump {
     // ============================================================================
 
     void ProjectManager::DisplayFileInfoTable(const VideoMetadata* video_meta) {
-        if (ImGui::BeginTable("FileInfoTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("FileInfoTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5731,10 +5916,12 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayVideoPropertiesTable(const VideoMetadata* video_meta) {
-        if (ImGui::BeginTable("VideoPropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("VideoPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5827,6 +6014,7 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayColorPropertiesTable(const VideoMetadata* video_meta) {
@@ -5835,7 +6023,8 @@ namespace ump {
             const_cast<VideoMetadata*>(video_meta)->DetectAndCacheNCLC();
         }
 
-        if (ImGui::BeginTable("ColorPropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("ColorPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5918,15 +6107,17 @@ namespace ump {
             if (is_4444) {
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "4444 Color Matrix Applied");
             } else {
-                ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Standard Processing");
+                ImGui::TextDisabled("Standard Processing");
             }
             if (font_mono) ImGui::PopFont();
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayAudioPropertiesTable(const VideoMetadata* video_meta) {
-        if (ImGui::BeginTable("AudioPropsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("AudioPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5962,10 +6153,12 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayAdobeProjectsTable(const AdobeMetadata* adobe_meta) {
-        if (ImGui::BeginTable("AdobeProjectsTable", 2, ImGuiTableFlags_SizingFixedFit)) {
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        if (ImGui::BeginTable("AdobeProjectsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Application", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Project File", ImGuiTableColumnFlags_WidthStretch);
 
@@ -5983,6 +6176,7 @@ namespace ump {
 
             ImGui::EndTable();
         }
+        ImGui::PopStyleVar();  // CellPadding
     }
 
     void ProjectManager::DisplayAdobeProjectRow(const std::string& app_name, const std::string& project_path, const std::string& button_suffix) {
