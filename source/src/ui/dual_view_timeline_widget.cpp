@@ -3,13 +3,16 @@
 #include <algorithm>
 #include <cmath>
 
+// External mono font for clip names
+extern ImFont* font_mono;
+
 namespace ump {
 
 DualViewTimelineWidget::DualViewTimelineWidget() {
 }
 
 bool DualViewTimelineWidget::Render(DualViewTimeline& timeline, double current_time,
-                                     float available_width, ImFont* font_mono) {
+                                     float available_width, ImFont* font_regular) {
     bool edit_occurred = false;
 
     // Calculate layout
@@ -57,7 +60,7 @@ bool DualViewTimelineWidget::Render(DualViewTimeline& timeline, double current_t
     );
     RenderTrack(timeline.left, true, timeline, current_time,
                 ImVec2(widget_pos.x + TRACK_LABEL_WIDTH, left_track_pos.y),
-                track_lane_width, draw_list, font_mono);
+                track_lane_width, draw_list, font_regular);
 
     // Track separator
     float separator_y = left_track_pos.y + TRACK_HEIGHT + TRACK_PADDING * 0.5f;
@@ -75,7 +78,7 @@ bool DualViewTimelineWidget::Render(DualViewTimeline& timeline, double current_t
     );
     RenderTrack(timeline.right, false, timeline, current_time,
                 ImVec2(widget_pos.x + TRACK_LABEL_WIDTH, right_track_pos.y),
-                track_lane_width, draw_list, font_mono);
+                track_lane_width, draw_list, font_regular);
 
     // Draw playhead (vertical line at current time)
     if (timeline.timeline_duration > 0 && current_time >= 0) {
@@ -237,7 +240,7 @@ void DualViewTimelineWidget::RenderTrack(DualViewClip& clip, bool is_left_track,
                                           const DualViewTimeline& timeline,
                                           double current_time, ImVec2 track_pos,
                                           float track_width, ImDrawList* draw_list,
-                                          ImFont* font_mono) {
+                                          ImFont* font_regular) {
     // Track background
     draw_list->AddRectFilled(
         track_pos,

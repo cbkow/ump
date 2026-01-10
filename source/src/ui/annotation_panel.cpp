@@ -29,12 +29,14 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
 
     // Transparent border for docked panel (dock borders remain visible)
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    // Match Inspector panel background color
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.141f, 0.141f, 0.141f, 1.0f));  // #242424
 
     if (!annotation_manager_) {
         ImGui::Begin("Annotations", p_open);
         ImGui::Text("No annotation manager set");
         ImGui::End();
-        ImGui::PopStyleColor();
+        ImGui::PopStyleColor(2);
         return;
     }
 
@@ -91,22 +93,26 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
     const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
     float footer_reserve = 50.0f * height_scale;
 
-    // Scrollable notes list
+    // Scrollable notes list - use transparent background to show panel color
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     if (ImGui::BeginChild("NotesScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
         RenderNotesList();
     }
     ImGui::EndChild();
+    ImGui::PopStyleColor();
 
     ImGui::Separator();
 
-    // Footer in auto-sized child (expands to fit content)
+    // Footer in auto-sized child (expands to fit content) - use transparent background
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     if (ImGui::BeginChild("FooterRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar)) {
         RenderFooter(accent_regular);
     }
     ImGui::EndChild();
+    ImGui::PopStyleColor();
 
     ImGui::End();
-    ImGui::PopStyleColor();  // Transparent border
+    ImGui::PopStyleColor(2);  // Transparent border + window background
 }
 
 void AnnotationPanel::RenderHeader() {
@@ -313,20 +319,24 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     ImGui::BeginGroup();
     ImGui::PushItemWidth(middle_width);
 
-    // Timecode (clickable with bright accent color)
+    // Get mono font for timecode and frame display
+    ImFont* mono_font = ImGui::GetIO().Fonts->Fonts.Size > 2 ? ImGui::GetIO().Fonts->Fonts[2] : nullptr;
+
+    // Timecode (clickable with bright accent color, mono font)
     ImVec4 timecode_color = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, timecode_color);
+    if (mono_font) ImGui::PushFont(mono_font);
     if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(middle_width, 0))) {
         selected_timecode_ = note.timecode;
         if (seek_callback_) {
             seek_callback_(note.timestamp_seconds);
         }
     }
+    if (mono_font) ImGui::PopFont();
     ImGui::PopStyleColor();
 
     // Frame number (disabled text style with mono font)
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImFont* mono_font = ImGui::GetIO().Fonts->Fonts.Size > 2 ? ImGui::GetIO().Fonts->Fonts[2] : nullptr;
     if (mono_font) ImGui::PushFont(mono_font);
     ImGui::Text("Frame: %d", note.frame);
     if (mono_font) ImGui::PopFont();
@@ -453,17 +463,17 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         }
     }
 
-    // Addressed checkbox (flush-left below text field)
+    // Addressed checkbox (flush-left below text field, smaller regular font)
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    if (mono_font) ImGui::PushFont(mono_font);
+    ImGui::SetWindowFontScale(0.85f);
     bool addressed = note.addressed;
     if (ImGui::Checkbox("Addressed", &addressed)) {
         if (annotation_manager_) {
             annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
         }
     }
-    if (mono_font) ImGui::PopFont();
+    ImGui::SetWindowFontScale(1.0f);
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
@@ -481,14 +491,6 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // Extend the shape a few pixels on the right for better visual spacing
     const float right_extension = 8.0f;
-
-    // Draw background (always)
-    ImU32 background_color = IM_COL32(16, 16, 16, 60);
-    draw_list->AddRectFilled(
-        group_start_pos,
-        ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
-        background_color,
-        rounding);
 
     // Draw subtle border with rounded corners (always visible)
     draw_list->AddRect(

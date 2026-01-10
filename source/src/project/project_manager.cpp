@@ -58,6 +58,7 @@ static ump::EXRTranscoder& GetSharedTranscoder() {
     return s_transcoder;
 }
 
+extern ImFont* font_regular;
 extern ImFont* font_mono;
 
 // External variables from main.cpp
@@ -1435,9 +1436,9 @@ namespace ump {
         std::string project_name = GetProjectName(current_project_path);
         ImGui::Text("Project: %s", project_name.c_str());
         ImGui::SameLine();
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "(%zu items)", media_pool.size());
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
     }
 
     void ProjectManager::CreateMediaPool() {
@@ -1598,11 +1599,11 @@ namespace ump {
             ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
         }
 
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::PushStyleColor(ImGuiCol_Text, text_color);
         bool clicked = ImGui::Selectable(display_name.c_str(), is_selected, ImGuiSelectableFlags_AllowDoubleClick);
         ImGui::PopStyleColor();
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
 
         if (is_selected) {
             ImGui::PopStyleColor(3);
@@ -2418,7 +2419,7 @@ namespace ump {
                     ImGui::Text("Sequence Properties");
                     ImGui::Separator();
 
-                    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
                     if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                         ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                         ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -2453,25 +2454,19 @@ namespace ump {
                         if (font_mono) ImGui::PushFont(font_mono);
                         ImGui::TextWrapped("%s", seq_directory.c_str());
                         if (font_mono) ImGui::PopFont();
-
-                        // Action buttons for path
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(1);
                         if (!seq_directory.empty()) {
-                            if (ImGui::SmallButton("Open in Explorer##SeqPath")) {
+                            // Invert button background based on row alternation
+                            int row_idx = ImGui::TableGetRowIndex();
+                            bool is_alt_row = (row_idx % 2) == 1;
+                            ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                            if (ImGui::SmallButton("Open##SeqPath")) {
                                 ShowInExplorer(seq_directory);
                             }
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("Open in Windows Explorer");
-                            }
-
                             ImGui::SameLine();
-                            if (ImGui::SmallButton("Copy Path##SeqPath")) {
+                            if (ImGui::SmallButton("Copy##SeqPath")) {
                                 CopyToClipboard(seq_directory);
                             }
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("Copy path to clipboard");
-                            }
+                            ImGui::PopStyleColor();
                         }
 
                         // Image type
@@ -4577,11 +4572,13 @@ namespace ump {
         auto seq = GetCurrentSequence();
         if (!seq || index < 0 || index >= (int)seq->clips.size()) return;
 
-        int64_t target_pos = index;
-        if (mpv_set_property(video_player->GetMPVHandle(), "playlist-pos", MPV_FORMAT_INT64, &target_pos) >= 0) {
-            cached_playlist_position = index;
-            SyncPlaylistPosition();
-        }
+        // Use playlist-play-index command - lets MPV manage the transition
+        // Don't call SyncPlaylistPosition() here - let the playlist-pos event handler do it
+        // This makes manual switching follow the same code path as automatic playlist progression,
+        // avoiding race conditions between multiple UpdateProperties()/CreateVideoTextures() calls
+        std::string index_str = std::to_string(index);
+        const char* cmd[] = { "playlist-play-index", index_str.c_str(), nullptr };
+        mpv_command(video_player->GetMPVHandle(), cmd);
     }
 
     void ProjectManager::SyncPlaylistPosition() {
@@ -5316,7 +5313,7 @@ namespace ump {
         ImGui::Text("Timecode");
         ImGui::Separator();
 
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("TimecodeTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Source", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Timecode", ImGuiTableColumnFlags_WidthStretch);
@@ -5330,13 +5327,14 @@ namespace ump {
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_start_timecode.c_str());
                 if (font_mono) ImGui::PopFont();
-
-                // Copy button on new row
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(1);
-                if (ImGui::SmallButton("Copy Timecode##QTStart")) {
+                // Invert button background based on row alternation
+                int row_idx = ImGui::TableGetRowIndex();
+                bool is_alt_row = (row_idx % 2) == 1;
+                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                if (ImGui::SmallButton("Copy##QTStart")) {
                     CopyToClipboard(adobe_meta->qt_start_timecode);
                 }
+                ImGui::PopStyleColor();
             }
 
             // QuickTime General Timecode
@@ -5348,13 +5346,14 @@ namespace ump {
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_timecode.c_str());
                 if (font_mono) ImGui::PopFont();
-
-                // Copy button on new row
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(1);
-                if (ImGui::SmallButton("Copy Timecode##QTCode")) {
+                // Invert button background based on row alternation
+                int row_idx2 = ImGui::TableGetRowIndex();
+                bool is_alt_row2 = (row_idx2 % 2) == 1;
+                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row2 ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                if (ImGui::SmallButton("Copy##QTCode")) {
                     CopyToClipboard(adobe_meta->qt_timecode);
                 }
+                ImGui::PopStyleColor();
             }
 
             // Creation dates for reference
@@ -5415,7 +5414,7 @@ namespace ump {
     }
 
     void ProjectManager::DisplayEXRFileInfoTable(const EXRMetadata* exr_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("EXRFileInfoTable", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -5446,24 +5445,18 @@ namespace ump {
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextWrapped("%s", exr_directory.c_str());
                 if (font_mono) ImGui::PopFont();
-
-                // Action buttons
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(1);
-                if (ImGui::SmallButton("Open in Explorer##EXRPath")) {
+                // Invert button background based on row alternation
+                int row_idx = ImGui::TableGetRowIndex();
+                bool is_alt_row = (row_idx % 2) == 1;
+                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                if (ImGui::SmallButton("Open##EXRPath")) {
                     ShowInExplorer(exr_directory);
                 }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Open in Windows Explorer");
-                }
-
                 ImGui::SameLine();
-                if (ImGui::SmallButton("Copy Path##EXRPath")) {
+                if (ImGui::SmallButton("Copy##EXRPath")) {
                     CopyToClipboard(exr_directory);
                 }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Copy path to clipboard");
-                }
+                ImGui::PopStyleColor();
             }
 
             // Sequence Pattern
@@ -5529,7 +5522,7 @@ namespace ump {
     }
 
     void ProjectManager::DisplayEXRImagePropertiesTable(const EXRMetadata* exr_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("EXRImagePropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -5689,7 +5682,7 @@ namespace ump {
 
                     // Show dropdown combo box
                     if (!available_layer_display_names.empty()) {
-                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (font_regular) ImGui::PushFont(font_regular);
                         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
                         if (ImGui::BeginCombo("##layer_selector", available_layer_display_names[current_layer_index].c_str())) {
                             for (int i = 0; i < available_layer_display_names.size(); i++) {
@@ -5771,18 +5764,18 @@ namespace ump {
                             ImGui::EndCombo();
                         }
                         ImGui::PopStyleColor();
-                        if (font_mono) ImGui::PopFont();
+                        if (font_regular) ImGui::PopFont();
                     } else {
                         // Fallback: Show as text if no layers available
-                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (font_regular) ImGui::PushFont(font_regular);
                         ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
-                        if (font_mono) ImGui::PopFont();
+                        if (font_regular) ImGui::PopFont();
                     }
                 } else {
                     // Not a media pool item - show as read-only text
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->layer_name.c_str());
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
                 }
             }
 
@@ -5790,7 +5783,7 @@ namespace ump {
             if (exr_meta->extended_properties_detected && !exr_meta->colorspace.empty()) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
-                ImGui::Text("Colorspace:");
+                ImGui::TextDisabled("Colorspace:");
                 ImGui::TableSetColumnIndex(1);
                 if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->colorspace.c_str());
@@ -5811,7 +5804,7 @@ namespace ump {
             ImGui::Spacing();
         }
 
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("EXRLayersTable", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthFixed, 150.0f);
             ImGui::TableSetupColumn("Channels", ImGuiTableColumnFlags_WidthFixed, 80.0f);
@@ -5865,7 +5858,7 @@ namespace ump {
     // ============================================================================
 
     void ProjectManager::DisplayFileInfoTable(const VideoMetadata* video_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("FileInfoTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -5887,23 +5880,19 @@ namespace ump {
             if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", video_meta->file_path.c_str());
             if (font_mono) ImGui::PopFont();
-
-            // Actions row for Path
-            ImGui::TableNextRow();
-            ImGui::TableSetColumnIndex(1);
-            if (ImGui::SmallButton("Open in Explorer##Path")) {
-                OpenFileInExplorer(video_meta->file_path);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Open in Windows Explorer");
-            }
-
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Copy Path##Path")) {
-                CopyToClipboard(video_meta->file_path);
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Copy path to clipboard");
+            if (!video_meta->file_path.empty()) {
+                // Invert button background based on row alternation
+                int row_idx = ImGui::TableGetRowIndex();
+                bool is_alt_row = (row_idx % 2) == 1;
+                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                if (ImGui::SmallButton("Open##FilePath")) {
+                    OpenFileInExplorer(video_meta->file_path);
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Copy##FilePath")) {
+                    CopyToClipboard(video_meta->file_path);
+                }
+                ImGui::PopStyleColor();
             }
 
             // File Size
@@ -5932,7 +5921,7 @@ namespace ump {
     }
 
     void ProjectManager::DisplayVideoPropertiesTable(const VideoMetadata* video_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("VideoPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -6035,7 +6024,7 @@ namespace ump {
             const_cast<VideoMetadata*>(video_meta)->DetectAndCacheNCLC();
         }
 
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("ColorPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -6128,7 +6117,7 @@ namespace ump {
     }
 
     void ProjectManager::DisplayAudioPropertiesTable(const VideoMetadata* video_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("AudioPropsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -6169,7 +6158,7 @@ namespace ump {
     }
 
     void ProjectManager::DisplayAdobeProjectsTable(const AdobeMetadata* adobe_meta) {
-        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
         if (ImGui::BeginTable("AdobeProjectsTable", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
             ImGui::TableSetupColumn("Application", ImGuiTableColumnFlags_WidthFixed, 120.0f);
             ImGui::TableSetupColumn("Project File", ImGuiTableColumnFlags_WidthStretch);
@@ -6192,7 +6181,6 @@ namespace ump {
     }
 
     void ProjectManager::DisplayAdobeProjectRow(const std::string& app_name, const std::string& project_path, const std::string& button_suffix) {
-        // Project name row
         ImGui::TableNextRow();
         ImGui::TableSetColumnIndex(0);
         ImGui::TextDisabled("%s", app_name.c_str());
@@ -6206,28 +6194,23 @@ namespace ump {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", project_path.c_str());
         }
-
-        // Actions row below
-        ImGui::TableNextRow();
-        ImGui::TableSetColumnIndex(1);
+        // Buttons below the filename in the same row
+        // Invert button background based on row alternation
+        int row_idx = ImGui::TableGetRowIndex();
+        bool is_alt_row = (row_idx % 2) == 1;
+        ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
         if (button_suffix != "PRM") { // Mac paths might not work with Windows Explorer
-            std::string open_button = "Open in Explorer##" + button_suffix;
+            std::string open_button = "Open##" + button_suffix;
             if (ImGui::SmallButton(open_button.c_str())) {
                 OpenFileInExplorer(project_path);
             }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Open in Windows Explorer");
-            }
             ImGui::SameLine();
         }
-
-        std::string copy_button = "Copy Path##" + button_suffix;
+        std::string copy_button = "Copy##" + button_suffix;
         if (ImGui::SmallButton(copy_button.c_str())) {
             CopyToClipboard(project_path);
         }
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Copy path to clipboard");
-        }
+        ImGui::PopStyleColor();
     }
 
     // ============================================================================

@@ -2522,7 +2522,7 @@ private:
 
         io.Fonts->AddFontDefault();
         font_regular = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 17.0f);
-        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/Inter_18pt-Regular.ttf", 17.0f);
+        font_mono = io.Fonts->AddFontFromFileTTF("assets/fonts/JetBrainsMono-Regular.ttf", 15.0f);
 
         ImFontConfig icons_config;
         icons_config.MergeMode = false;
@@ -4530,7 +4530,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.2");
+                ImGui::TextDisabled("About u.m.p. v0.6.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4897,9 +4897,9 @@ private:
 
             // Status message
             if (!status_msg.empty()) {
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::TextWrapped("%s", status_msg.c_str());
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
             }
 
             ImGui::Spacing();
@@ -5262,7 +5262,7 @@ private:
             ImGui::Text("Current Pipeline Mode:");
             auto it = PIPELINE_CONFIGS.find(cache_settings.current_pipeline_mode);
             if (it != PIPELINE_CONFIGS.end()) {
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 if (is_exr_mode) {
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (EXR - Fixed)", it->second.description.c_str());
                 } else if (is_image_sequence) {
@@ -5270,7 +5270,7 @@ private:
                 } else {
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s (Video)", it->second.description.c_str());
                 }
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
             }
 
             ImGui::Spacing();
@@ -5337,9 +5337,9 @@ private:
             }
 
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::Text("seconds (%.1f minutes)", cache_settings.max_cache_seconds / 60.0f);
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             // Help text
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Maximum duration of video cached around current position");
@@ -5423,11 +5423,11 @@ private:
                     double estimated_seconds = g_exr_read_ahead_frames / 24.0;
                     double estimated_ram_gb = (g_exr_read_ahead_frames * 63.0) / 1024.0;  // 4K EXR estimate
                     ImGui::Spacing();
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                         "Cache: %.1f seconds @ 24fps (~%.1f GB for 4K EXR)",
                         estimated_seconds, estimated_ram_gb);
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
 
                     // Read-Behind Time
                     ImGui::Spacing();
@@ -5454,14 +5454,14 @@ private:
                     ImGui::Spacing();
 
                     int hw_threads = std::thread::hardware_concurrency();
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                         "OpenEXR Threads: %d (auto-detected from CPU)", hw_threads);
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                         "Background Loaders: 16 concurrent pixel loads");
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                         "Thread Pool: std::async (reuses threads efficiently)");
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
 
                     // === I/O Threading Settings ===
                     ImGui::Spacing();
@@ -5539,13 +5539,13 @@ private:
                     // Custom Cache Path
                     ImGui::Text("Cache Location:");
                     ImGui::PushItemWidth(-1);
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     if (g_custom_cache_path.empty()) {
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\ump\\");
                     } else {
                         ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", g_custom_cache_path.c_str());
                     }
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
                     ImGui::PopItemWidth();
 
                     if (ImGui::Button("Change Cache Folder...##IS", ImVec2(-1, 0))) {
@@ -5683,13 +5683,13 @@ private:
 
                     // Display memory estimate
                     ImGui::Spacing();
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     double thumb_memory_mb = (cache_settings.thumbnail_width * cache_settings.thumbnail_height * 4.0 * cache_settings.thumbnail_cache_size) / (1024.0 * 1024.0);
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                         "Thumbnail Cache: ~%.1f MB (%d thumbnails @ %dx%d)",
                         thumb_memory_mb, cache_settings.thumbnail_cache_size,
                         cache_settings.thumbnail_width, cache_settings.thumbnail_height);
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
 
                     ImGui::EndDisabled();
 
@@ -5802,7 +5802,7 @@ private:
                         ImGui::Separator();
                         ImGui::Spacing();
                         auto stats = active_cache_tl->GetStats();
-                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (font_regular) ImGui::PushFont(font_regular);
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                             "Cached: %d frames (%.1f MB)",
                             stats.cached_frames,
@@ -5837,7 +5837,7 @@ private:
                         ImGui::TextColored(tex_leak_tl ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
                             "GPU Tex: %d alive (created=%d del=%d)",
                             stats.texture_balance, stats.textures_created, stats.textures_deleted);
-                        if (font_mono) ImGui::PopFont();
+                        if (font_regular) ImGui::PopFont();
 
                         // Clear button
                         ImGui::Spacing();
@@ -6116,8 +6116,8 @@ private:
             ImGui::Spacing();
 
             // Mono font preview
-        /*    if (font_mono) {
-                ImGui::PushFont(font_mono);
+        /*    if (font_regular) {
+                ImGui::PushFont(font_regular);
                 ImGui::Text("Mono Font: function main() { return 0; }");
                 ImGui::PopFont();
             } else {
@@ -9413,8 +9413,8 @@ private:
                 IM_COL32(60, 60, 60, 255), 1.0f);
 
             // Track label in header (centered in clip track area)
-            if (font_mono && duration > 0 && total_frames > 0) {
-                ImGui::PushFont(font_mono);
+            if (font_regular && duration > 0 && total_frames > 0) {
+                ImGui::PushFont(font_regular);
                 ImVec2 label_size = ImGui::CalcTextSize(track_label);
                 float label_x = header_pos.x + (header_size.x - label_size.x) * 0.5f;
                 float label_y = header_pos.y + (TRACK_HEIGHT - label_size.y) * 0.5f;
@@ -9805,7 +9805,7 @@ private:
                             display_frame_num = ump::FrameIndexing::InternalToDisplay(frame_num);
                         }
                         snprintf(frame_label, sizeof(frame_label), "%d", display_frame_num);
-                        draw_list->AddText(font_mono, 12.0f,
+                        draw_list->AddText(font_regular, 12.0f,
                             ImVec2(x - ImGui::CalcTextSize(frame_label).x * 0.5f, ruler_y + 2),
                             IM_COL32(180, 180, 180, 255), frame_label);
                     }
@@ -10467,7 +10467,7 @@ private:
                     if (is_major) {
                         char frame_label[16];
                         snprintf(frame_label, sizeof(frame_label), "%d", frame_num);
-                        draw_list->AddText(font_mono, 12.0f,
+                        draw_list->AddText(font_regular, 12.0f,
                             ImVec2(x - ImGui::CalcTextSize(frame_label).x * 0.5f, ruler_y + 2),
                             IM_COL32(100, 100, 100, 255), frame_label);
                     }
@@ -10504,10 +10504,10 @@ private:
             ImGui::AlignTextToFramePadding();
 
             // Volume control on left
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Volume:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
             // NEW: Mute button
             if (font_icons) {
@@ -10560,10 +10560,10 @@ private:
             // Show muted indicator
             if (is_muted) {
                 ImGui::SameLine();
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
                 ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
             }
 
             // Vertical divider between volume and loop
@@ -10579,10 +10579,10 @@ private:
             }
 
             // Context-aware Loop toggle
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Loop:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
 
             // In timeline mode, use timeline cache's loop state
@@ -10654,10 +10654,10 @@ private:
             // Show loop status indicator
             if (loop_status_text) {
                 ImGui::SameLine();
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
                 ImGui::TextColored(status_color, "%s", loop_status_text);
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
             }
 
             // === FOLLOW PLAYHEAD / IN-OUT GROUP ===
@@ -10678,7 +10678,7 @@ private:
                 ImVec4 active_color = std_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
                 const char* follow_text = std_follow_playhead ? "F*" : "F";
 
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
 
                 float btn_size = ImGui::GetFrameHeight();
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -10692,7 +10692,7 @@ private:
                 ImGui::PopStyleColor(4);
                 ImGui::PopStyleVar(2);
 
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
 
                 if (clicked) {
                     std_follow_playhead = !std_follow_playhead;
@@ -10778,7 +10778,7 @@ private:
                 ImGui::Spacing();
                 ImGui::SameLine();
 
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
 
                 double in_pt = project_manager->GetInPoint();
                 double out_pt = project_manager->GetOutPoint();
@@ -10813,7 +10813,7 @@ private:
                     ImGui::Text("%s", out_tc.c_str());
                 }
 
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
 
                 // Clear button
                 ImGui::SameLine();
@@ -10840,10 +10840,10 @@ private:
                 ImGui::SameLine(0, 12);
             }
 
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Zoom:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
 
             ImGui::SetNextItemWidth(160.0f);
@@ -10886,10 +10886,10 @@ private:
             ImGui::Dummy(ImVec2(10, 0));
             ImGui::SameLine();
 
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Pan:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
 
             float std_max_pan = StdTimelineGetMaxPan(std_timeline_visible_width, std_timeline_zoom);
@@ -10915,7 +10915,7 @@ private:
 
             // === COMPACT FRAME COUNTER (RIGHT ALIGNED) ===
             if (video_player && video_player->HasVideo()) {
-                ImGui::PushFont(font_mono);
+                ImGui::PushFont(font_regular);
 
                 double position = video_player->GetPosition();
                 double duration = video_player->GetDuration();
@@ -10924,6 +10924,7 @@ private:
 
                 // Calculate display time and frame
                 std::string frame_str;
+                char frame_buf[16];
                 if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
                     // IMAGE SEQUENCE: Show file frame numbers (e.g., sequence 1-90 shows "Frame 1" to "Frame 90")
                     int start_frame = video_player->IsInEXRMode()
@@ -10939,7 +10940,8 @@ private:
 
                     // Convert internal 0-based index to actual file frame number
                     int display_frame = ump::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
-                    frame_str = time_display + " Frame " + std::to_string(display_frame);
+                    snprintf(frame_buf, sizeof(frame_buf), "%04d", display_frame);
+                    frame_str = time_display + " Frame " + frame_buf;
                 } else {
                     // REGULAR VIDEO: Show 1-based frame numbers (Frame 1, 2, 3...)
                     double frame_duration = 1.0 / video_player->GetFrameRate();
@@ -10951,17 +10953,20 @@ private:
 
                     // Use 1-based display for regular videos (Frame 1, not Frame 0)
                     int display_frame = ump::FrameIndexing::InternalToDisplay(current_frame);
-                    frame_str = time_display + " Frame " + std::to_string(display_frame);
+                    snprintf(frame_buf, sizeof(frame_buf), "%04d", display_frame);
+                    frame_str = time_display + " Frame " + frame_buf;
                 }
 
                 // Calculate position for right-aligned text (with button)
+                if (font_mono) ImGui::PushFont(font_mono);
                 ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
                 float button_width = 25.0f;  // Match In/Out button width
                 float total_width = text_size.x + button_width + 5.0f;  // 5px spacing
+                float vertical_padding = 1.19f;
 
                 ImGui::SameLine();
                 ImGui::SetCursorPosX(ImGui::GetWindowSize().x - total_width - 15);
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_padding);
 
                 // Show in accent color when in timecode mode
                 if (timecode_mode_enabled && timecode_state == AVAILABLE) {
@@ -10969,6 +10974,7 @@ private:
                 } else {
                     ImGui::Text("%s", frame_str.c_str());
                 }
+                if (font_mono) ImGui::PopFont();
 
                 // Go To button next to timecode
                 ImGui::SameLine();
@@ -11159,7 +11165,7 @@ private:
 
                 ImGui::BeginTooltip();
 
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
 
                 // Clip number and name
                 ImGui::Text("Clip %zu: %s", i + 1, clip.name.c_str());
@@ -11179,7 +11185,7 @@ private:
                 }
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "File: %s", filename.c_str());
 
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
 
                 ImGui::EndTooltip();
 
@@ -11191,9 +11197,9 @@ private:
             if (ImGui::BeginDragDropSource()) {
                 int source_index = (int)i;
                 ImGui::SetDragDropPayload("PLAYLIST_ITEM", &source_index, sizeof(int));
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::Text("Moving: %s", clip.name.c_str());
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
                 ImGui::EndDragDropSource();
             }
 
@@ -11847,19 +11853,19 @@ private:
             draw_list->AddLine(ImVec2(x, ruler_bottom - tick_height), ImVec2(x, ruler_bottom), tick_color, tick_width);
 
             // Time labels on major ticks
-            if (is_major && font_mono) {
+            if (is_major && font_regular) {
                 char time_str[32];
                 int mins = (int)(t / 60);
                 float secs = t - mins * 60;
                 snprintf(time_str, sizeof(time_str), "%d:%05.2f", mins, secs);
 
-                ImGui::PushFont(font_mono);
+                ImGui::PushFont(font_regular);
                 ImVec2 text_size = ImGui::CalcTextSize(time_str);
                 ImGui::PopFont();
 
                 float text_x = x - text_size.x * 0.5f;
                 float text_y = ruler_y + 2;
-                draw_list->AddText(font_mono, ImGui::GetFontSize(), ImVec2(text_x, text_y),
+                draw_list->AddText(font_regular, ImGui::GetFontSize(), ImVec2(text_x, text_y),
                                   IM_COL32(140, 140, 140, 255), time_str);
             }
             marker_count++;
@@ -12532,10 +12538,10 @@ private:
         ImGui::AlignTextToFramePadding();
 
         // --- Volume Control ---
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Volume:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         // Mute button
@@ -12589,10 +12595,10 @@ private:
         // Muted indicator
         if (is_muted) {
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
         }
 
         // Vertical divider between volume and loop
@@ -12608,10 +12614,10 @@ private:
         }
 
         // --- Loop Control ---
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Loop:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         // Check dual view timer's loop state if active, otherwise fall back to video player
@@ -12652,10 +12658,10 @@ private:
 
         if (loop_enabled) {
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Loop");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
         }
 
         // --- Follow Playhead toggle button ---
@@ -12676,7 +12682,7 @@ private:
             ImVec4 active_color = g_dv_follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             const char* follow_text = g_dv_follow_playhead ? "F*" : "F";
 
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
 
             float btn_size = ImGui::GetFrameHeight();
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -12690,7 +12696,7 @@ private:
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar(2);
 
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             if (clicked) {
                 g_dv_follow_playhead = !g_dv_follow_playhead;
@@ -12715,10 +12721,10 @@ private:
             ImGui::SameLine(0, 12);
         }
 
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Zoom:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         ImGui::SetNextItemWidth(160.0f);
@@ -12756,10 +12762,10 @@ private:
         ImGui::Dummy(ImVec2(10, 0));
         ImGui::SameLine();
 
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Pan:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         float max_scroll = std::max(0.0f, static_cast<float>(duration) * g_dv_pixels_per_second - (content_region.x - TRACK_HEADER_WIDTH));
@@ -12792,12 +12798,15 @@ private:
 
         std::string time_display = FormatCurrentTimecodeWithOffset(position);
         int display_frame = current_frame + 1;  // 1-based frame numbering
-        std::string frame_str = time_display + " Frame " + std::to_string(display_frame);
+        char frame_buf[16];
+        snprintf(frame_buf, sizeof(frame_buf), "%04d", display_frame);
+        std::string frame_str = time_display + " Frame " + frame_buf;
 
         if (font_mono) ImGui::PushFont(font_mono);
         ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
         float button_w = 25.0f;
         float total_w = text_size.x + button_w + 5.0f;
+        float vertical_padding = 1.1f;
 
         float window_width = ImGui::GetWindowSize().x;
         float current_x = ImGui::GetCursorPosX();
@@ -12805,7 +12814,7 @@ private:
         if (target_x > current_x) {
             ImGui::SetCursorPosX(target_x);
         }
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_padding);
 
         if (timecode_mode_enabled && timecode_state == AVAILABLE) {
             ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", frame_str.c_str());
@@ -13944,7 +13953,7 @@ private:
             float bc_x = breadcrumb_pos.x + 8.0f;
             float bc_y = breadcrumb_pos.y + 3.0f;
 
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
 
             // Back button to exit current nested timeline
             if (font_icons) {
@@ -13998,7 +14007,7 @@ private:
                 bc_draw->AddText(ImVec2(depth_x, bc_y), IM_COL32(100, 100, 100, 255), depth_str.c_str());
             }
 
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             // Advance cursor past breadcrumb bar
             ImGui::Dummy(ImVec2(content_region.x, breadcrumb_height));
@@ -14741,9 +14750,9 @@ private:
                 char time_str[16];
                 snprintf(time_str, sizeof(time_str), "%d:%02d", mins, secs);
 
-                if (font_mono) {
+                if (font_regular) {
                     ImVec2 text_size = ImGui::CalcTextSize(time_str);
-                    draw_list->AddText(font_mono, 12.0f,
+                    draw_list->AddText(font_regular, 12.0f,
                         ImVec2(x - text_size.x * 0.5f, ruler_y + 8),
                         IM_COL32(180, 180, 180, 255), time_str);
                 } else {
@@ -16218,10 +16227,10 @@ private:
         ImGui::AlignTextToFramePadding();
 
         // Volume control on left
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Volume:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         // Mute button
@@ -16279,10 +16288,10 @@ private:
         // Show muted indicator
         if (is_muted) {
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
         }
 
         // Vertical divider between volume and loop
@@ -16298,10 +16307,10 @@ private:
         }
 
         // Loop toggle
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
         ImGui::Text("Loop:");
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         ImGui::SameLine();
 
         // Get loop state (context-aware for timeline mode)
@@ -16354,22 +16363,31 @@ private:
         // Show loop status indicator
         if (loop_status_text) {
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::TextColored(loop_status_color, "%s", loop_status_text);
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
         }
 
         // Follow Playhead toggle button (F key shortcut)
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(10, 0));
+        ImGui::Dummy(ImVec2(8, 0));
         ImGui::SameLine();
+
+        // Vertical divider before follow/editing group
+        {
+            ImVec2 p = ImGui::GetCursorScreenPos();
+            float h = ImGui::GetFrameHeight();
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(1, 0));
+            ImGui::SameLine(0, 12);
+        }
 
         {
             ImVec4 active_color = follow_playhead ? MutedLight(GetWindowsAccentColor()) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
             const char* follow_text = follow_playhead ? "F*" : "F";
 
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
 
             float btn_size = ImGui::GetFrameHeight();
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
@@ -16383,7 +16401,7 @@ private:
             ImGui::PopStyleColor(4);
             ImGui::PopStyleVar(2);
 
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             if (clicked) {
                 follow_playhead = !follow_playhead;
@@ -16552,15 +16570,24 @@ private:
                 }
             }
 
-            ImGui::SameLine();
-            ImGui::Dummy(ImVec2(20, 0));
+            // Vertical divider after editing group
+            ImGui::SameLine(0, 12);
+            {
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                float h = ImGui::GetFrameHeight();
+                ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
+                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::SameLine(0, 8);
+            }
+
+            ImGui::Dummy(ImVec2(12, 0));
             ImGui::SameLine();
 
             // Zoom slider (240px wide)
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Zoom:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
 
             float tl_zoom = timeline_view->GetZoomLevel();
@@ -16587,10 +16614,10 @@ private:
             ImGui::SameLine();
 
             // Pan slider (240px wide)
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
             ImGui::Text("Pan:");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
             ImGui::SameLine();
 
             float tl_pan = timeline_view->GetScrollOffset();
@@ -16627,13 +16654,16 @@ private:
             // Format timecode and frame string
             std::string time_display = FormatCurrentTimecodeWithOffset(position);
             int display_frame = current_frame + 1;  // 1-based frame numbering for display
-            std::string frame_str = time_display + " Frame " + std::to_string(display_frame);
+            char frame_buf[16];
+            snprintf(frame_buf, sizeof(frame_buf), "%04d", display_frame);
+            std::string frame_str = time_display + " Frame " + frame_buf;
 
             // Calculate position for right-aligned text (with button)
             if (font_mono) ImGui::PushFont(font_mono);
             ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
             float button_width = 25.0f;
             float total_width = text_size.x + button_width + 5.0f;
+            float vertical_padding = 1.1f;
 
             // Right-align the frame counter
             float window_width = ImGui::GetWindowSize().x;
@@ -16642,7 +16672,7 @@ private:
             if (target_x > current_x) {
                 ImGui::SetCursorPosX(target_x);
             }
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + vertical_padding);
 
             // Show in accent color when in timecode mode
             if (timecode_mode_enabled && timecode_state == AVAILABLE) {
@@ -17302,6 +17332,7 @@ private:
     void CreateInspectorPanel() {
         if (!show_inspector_panel) return;
 
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.141f, 0.141f, 0.141f, 1.0f));  // #242424
         ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Inspector", &show_inspector_panel)) {
             // Header row with close button
@@ -17379,7 +17410,7 @@ private:
                         ImGui::Spacing();
 
                         // Clip properties table
-                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
                         if (ImGui::BeginTable("SelectedClipProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -17453,8 +17484,8 @@ private:
 
                         // Source file path
                         ImGui::Spacing();
-                        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Source File:");
                         std::string clip_path = !sel_clip->linked_path.empty() ? sel_clip->linked_path : sel_clip->file_path;
+                        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Source File:");
                         if (font_mono) ImGui::PushFont(font_mono);
                         if (!clip_path.empty()) {
                             ImGui::TextWrapped("%s", clip_path.c_str());
@@ -17462,23 +17493,16 @@ private:
                             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
                         }
                         if (font_mono) ImGui::PopFont();
-
-                        // Action buttons for source file
                         if (!clip_path.empty()) {
-                            if (ImGui::SmallButton("Open in Explorer##ClipPath")) {
+                            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.192f, 0.192f, 0.192f, 1.0f));  // #313131
+                            if (ImGui::SmallButton("Open##ClipPath")) {
                                 project_manager->ShowInExplorer(clip_path);
                             }
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("Open in Windows Explorer");
-                            }
-
                             ImGui::SameLine();
-                            if (ImGui::SmallButton("Copy Path##ClipPath")) {
+                            if (ImGui::SmallButton("Copy##ClipPath")) {
                                 ImGui::SetClipboardText(clip_path.c_str());
                             }
-                            if (ImGui::IsItemHovered()) {
-                                ImGui::SetTooltip("Copy path to clipboard");
-                            }
+                            ImGui::PopStyleColor();
                         }
 
                         ImGui::Spacing();
@@ -17504,14 +17528,12 @@ private:
                 }
 
                 // Timeline name
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", timeline_name.c_str());
-                if (font_mono) ImGui::PopFont();
 
                 ImGui::Spacing();
 
                 // Properties table
-                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 4.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
                 if (ImGui::BeginTable("TimelineProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                     ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -17603,8 +17625,8 @@ private:
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Source Directory:");
                 std::string source_dir = timeline_view->GetSourceDirectory();
+                ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Source Directory:");
                 if (font_mono) ImGui::PushFont(font_mono);
                 if (!source_dir.empty()) {
                     ImGui::TextWrapped("%s", source_dir.c_str());
@@ -17612,23 +17634,16 @@ private:
                     ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
                 }
                 if (font_mono) ImGui::PopFont();
-
-                // Action buttons for source directory
                 if (!source_dir.empty()) {
-                    if (ImGui::SmallButton("Open in Explorer##SourceDir")) {
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.192f, 0.192f, 0.192f, 1.0f));  // #313131
+                    if (ImGui::SmallButton("Open##SourceDir")) {
                         project_manager->ShowInExplorer(source_dir);
                     }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Open in Windows Explorer");
-                    }
-
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("Copy Path##SourceDir")) {
+                    if (ImGui::SmallButton("Copy##SourceDir")) {
                         ImGui::SetClipboardText(source_dir.c_str());
                     }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Copy path to clipboard");
-                    }
+                    ImGui::PopStyleColor();
                 }
             }
             else if (project_manager->IsInSequenceMode()) {
@@ -17674,7 +17689,7 @@ private:
                             ImGui::PopStyleColor();
 
                             std::string current_clip = project_manager->GetCurrentClipName();
-                            ImGui::PushFont(font_mono);
+                            ImGui::PushFont(font_regular);
                             if (!current_clip.empty()) {
                                 ImGui::TextColored(MutedDark(GetWindowsAccentColor()), "Current: %s", current_clip.c_str());
                             }
@@ -17695,7 +17710,7 @@ private:
                         ImGui::Text("Playlist Contents:");
                         ImGui::PopStyleColor();
 
-                        ImGui::PushFont(font_mono);
+                        ImGui::PushFont(font_regular);
                         ImGui::TextColored(MutedDark(GetWindowsAccentColor()), "Drag videos here to add. Drag within to reorder");
                         ImGui::PopFont();
 
@@ -17737,10 +17752,10 @@ private:
                                     display_name += " [PLAYING]";
                                 }
 
-                                if (font_mono) ImGui::PushFont(font_mono);
+                                if (font_regular) ImGui::PushFont(font_regular);
                                 bool clicked = ImGui::Selectable(display_name.c_str(), is_selected,
                                     ImGuiSelectableFlags_AllowDoubleClick);
-                                if (font_mono) ImGui::PopFont();
+                                if (font_regular) ImGui::PopFont();
 
                                 if (is_selected) {
                                     ImGui::PopStyleColor(3);
@@ -17825,9 +17840,9 @@ private:
                                 // Existing drag & drop functionality (preserve this)
                                 if (ImGui::BeginDragDropSource()) {
                                     ImGui::SetDragDropPayload("PLAYLIST_ITEM", &i, sizeof(int));
-                                    if (font_mono) ImGui::PushFont(font_mono);
+                                    if (font_regular) ImGui::PushFont(font_regular);
                                     ImGui::Text("Moving: %s", clip.name.c_str());
-                                    if (font_mono) ImGui::PopFont();
+                                    if (font_regular) ImGui::PopFont();
                                     ImGui::EndDragDropSource();
                                 }
 
@@ -17847,10 +17862,10 @@ private:
                         else {
                             // Empty playlist state
                             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                            if (font_mono) ImGui::PushFont(font_mono);
+                            if (font_regular) ImGui::PushFont(font_regular);
                             ImGui::Text("Playlist is empty");
                             ImGui::Text("Drag videos from Project panel to add clips");
-                            if (font_mono) ImGui::PopFont();
+                            if (font_regular) ImGui::PopFont();
                             ImGui::PopStyleColor();
                         }
 
@@ -17951,9 +17966,9 @@ private:
                             ImGui::PopFont();
                             ImGui::SameLine();
                         }
-                        if (font_mono) ImGui::PushFont(font_mono);
+                        if (font_regular) ImGui::PushFont(font_regular);
                         ImGui::Text("Drop videos here to build playlist");
-                        if (font_mono) ImGui::PopFont();
+                        if (font_regular) ImGui::PopFont();
                         ImGui::PopStyleColor();
 
                         if (ImGui::BeginDragDropTarget()) {
@@ -18020,6 +18035,7 @@ private:
         }
         ImGui::End();
         ImGui::PopStyleColor();  // kTransparentBorder
+        ImGui::PopStyleColor();  // WindowBg #242424
     }
 
     void CreateComponentPaletteContent() {
@@ -18096,9 +18112,9 @@ private:
             int cs_idx = 0;
             for (const auto& cs : colorspaces) {
                 ImGui::PushID(cs_idx++);
-                if (font_mono) ImGui::PushFont(font_mono);
+                if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::Selectable(cs.c_str());
-                if (font_mono) ImGui::PopFont();
+                if (font_regular) ImGui::PopFont();
 
                 // Check for double-click AFTER the Selectable
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -18143,9 +18159,9 @@ private:
                 int look_idx = 0;
                 for (const auto& look : looks) {
                     ImGui::PushID(look_idx++);
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::Selectable(look.c_str());
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
 
                     // Check for double-click AFTER the Selectable
                     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -18188,9 +18204,9 @@ private:
             ImGui::Indent(8.0f);
             // Scene-Referred LUT (applied before display transform)
             ImGui::PushID("SceneLUT##ConfigTab");
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::Selectable("Scene-Referred LUT");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             // Double-click to create node
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -18218,9 +18234,9 @@ private:
 
             // Display-Referred LUT (applied after display transform)
             ImGui::PushID("DisplayLUT##ConfigTab");
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::Selectable("Display-Referred LUT");
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             // Double-click to create node
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -18260,9 +18276,9 @@ private:
                 int display_idx = 0;
                 for (const auto& display : displays) {
                     ImGui::PushID(display_idx++);
-                    if (font_mono) ImGui::PushFont(font_mono);
+                    if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::Selectable(display.c_str());
-                    if (font_mono) ImGui::PopFont();
+                    if (font_regular) ImGui::PopFont();
 
                     // Check for double-click AFTER the Selectable
                     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
@@ -18381,7 +18397,7 @@ private:
 
         // ACES presets using alias resolver
 
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         if (ImGui::Selectable("ACEScg -> sRGB")) {
             ApplyAliasPreset("lin_ap1", "srgb_display", "ACES 1.0 - SDR Video");
         }
@@ -18389,7 +18405,7 @@ private:
         if (ImGui::Selectable("ACES2065-1 -> sRGB")) {
             ApplyAliasPreset("aces2065_1", "srgb_display", "ACES 1.0 - SDR Video");
         }
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
     }
 
     void CreateStandardPresets() {
@@ -18408,7 +18424,7 @@ private:
         }
 
         // Single Standard preset: Rec.1886 -> sRGB Standard (labeled as "Rec.709 -> sRGB")
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         if (ImGui::Selectable("Rec.709 -> sRGB")) {
             // Uses Rec.1886 input (gamma corrected) to sRGB Standard output
             ApplyPreset(R"({
@@ -18421,14 +18437,14 @@ private:
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
             })");
         }
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Standard Rec.1886 to sRGB transform (labeled as Rec.709)");
         }
     }
 
     void CreateBlenderPresets() {
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
 
         if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard")) {
             ApplyPreset(R"({
@@ -18454,11 +18470,11 @@ private:
             })");
         }
 
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
     }
 
     void CreateBlender5Presets() {
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
 
         // Use ## to add unique IDs to prevent ImGui ID collisions with Blender 4.5 presets
         if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard##B5")) {
@@ -18533,11 +18549,11 @@ private:
             })");
         }
 
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
     }
 
     void CreateACES20Presets() {
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
 
         // Use ##A20 to add unique IDs for ACES 2.0 presets
         if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 1000 nits##A20")) {
@@ -18626,7 +18642,7 @@ private:
             })JSON");
         }
 
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
     }
 
     std::string GetNodeTreesFolder() {
@@ -18912,7 +18928,7 @@ private:
 
     void CreateCustomPresets() {
         // Show custom presets
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         for (const auto& tree_name : custom_node_trees) {
             ImGui::PushID(tree_name.c_str());
 
@@ -18930,7 +18946,7 @@ private:
 
             ImGui::PopID();
         }
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
 
         if (custom_node_trees.empty()) {
             ImGui::TextDisabled("No custom presets defined");
@@ -19388,7 +19404,7 @@ private:
         if (ImGui::BeginChild("ShaderFooter", ImVec2(footer_width, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             // Check if pipeline is ready (only meaningful when output node selected)
             bool pipeline_ready = output_node_selected && CheckPipelineReadiness();
-            bool shader_active = video_player && video_player->HasColorPipeline();
+            bool shader_active = video_player && video_player->HasActiveColorTransform();
 
             // Disable entire footer if output node not selected
             if (!output_node_selected) {
@@ -19403,17 +19419,19 @@ private:
                 ImGui::BeginDisabled();
             }
 
-            if (pipeline_ready) {
+            // Accent color when pipeline ready AND no shader currently active (prompts user to apply)
+            if (pipeline_ready && !shader_active) {
                 ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, Bright(GetWindowsAccentColor()));
             }
 
             if (ImGui::Button("Apply", ImVec2(button_width, 0))) {
                 GenerateOCIOPipeline();
             }
 
-            if (pipeline_ready) {
-                ImGui::PopStyleColor(2);
+            if (pipeline_ready && !shader_active) {
+                ImGui::PopStyleColor(3);
             }
 
             if (!pipeline_ready && output_node_selected) {
@@ -19422,10 +19440,11 @@ private:
 
             ImGui::SameLine();
 
-            // Remove button - always enabled when output node selected
-            if (output_node_selected) {
+            // Remove button - accent color when shader IS active (prompts user to remove)
+            if (shader_active) {
                 ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, Bright(GetWindowsAccentColor()));
             }
 
             if (ImGui::Button("Remove", ImVec2(button_width, 0))) {
@@ -19433,8 +19452,8 @@ private:
                 video_player->ClearColorPipeline();
             }
 
-            if (output_node_selected) {
-                ImGui::PopStyleColor(2);
+            if (shader_active) {
+                ImGui::PopStyleColor(3);
             }
 
             // Export LUT button - only enabled when shader is active
@@ -19771,9 +19790,9 @@ private:
             // Display current file
             ImGui::Text("File:");
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", current_filename.c_str());
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             ImGui::Spacing();
 
@@ -19844,9 +19863,9 @@ private:
             // Display current file
             ImGui::Text("File:");
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
+            if (font_regular) ImGui::PushFont(font_regular);
             ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", current_filename.c_str());
-            if (font_mono) ImGui::PopFont();
+            if (font_regular) ImGui::PopFont();
 
             ImGui::Spacing();
 
@@ -22736,7 +22755,7 @@ private:
         if (ImGui::BeginPopupModal("Go To Timecode/Frame", &show_goto_timecode_modal,
             ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize)) {
 
-            ImGui::PushFont(font_mono);
+            ImGui::PushFont(font_regular);
 
             // Toggle between timecode and frame input
             ImGui::Text("Input Mode:");
@@ -23224,11 +23243,11 @@ private:
         float available_width = ImGui::GetContentRegionAvail().x - (button_width * button_count) - (spacing * button_count);
 
         // Path text
-        if (font_mono) ImGui::PushFont(font_mono);
+        if (font_regular) ImGui::PushFont(font_regular);
         ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + available_width);
         ImGui::TextWrapped("%s", path.c_str());
         ImGui::PopTextWrapPos();
-        if (font_mono) ImGui::PopFont();
+        if (font_regular) ImGui::PopFont();
 
         // Open button (only on Windows for Windows paths)
         if (show_open_button) {

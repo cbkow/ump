@@ -36,7 +36,7 @@ extern std::string g_custom_cache_path;
 #include <imgui.h>
 
 // External font from main.cpp
-extern ImFont* font_mono;
+extern ImFont* font_regular;
 
 // External functions from main.cpp
 extern ImVec4 GetWindowsAccentColor();
@@ -923,8 +923,10 @@ void VideoPlayer::OnPlaylistItemChanged(const std::string& new_file_path) {
         std::thread([this, new_file_path]() {
             std::this_thread::sleep_for(std::chrono::milliseconds(250));
 
-            // Update properties to get new file duration and dimensions
-            UpdateProperties();
+            // NOTE: Do NOT call UpdateProperties() here - it can trigger CreateVideoTextures()
+            // which makes OpenGL calls, but this background thread doesn't have the GL context.
+            // The main render loop (RenderVideoFrame) calls UpdateProperties() every frame,
+            // so texture recreation will happen automatically on the correct thread.
 
             double duration = cached_duration;
             double fps = GetFrameRate();
@@ -1882,7 +1884,7 @@ void VideoPlayer::RenderVideoTexture() {
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
 
     // Reduced speed overlay - shows when EXR cache can't keep up with playback
-    if (exr_cache_ && exr_cache_->NeedsSpeedAdjustment() && font_mono) {
+    if (exr_cache_ && exr_cache_->NeedsSpeedAdjustment() && font_regular) {
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
         // Format speed as percentage
@@ -1893,7 +1895,7 @@ void VideoPlayer::RenderVideoTexture() {
         float font_size = 14.0f;
 
         // Calculate text size and position (bottom-left corner with padding)
-        ImVec2 text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, overrun_text);
+        ImVec2 text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, overrun_text);
         float padding = 10.0f;
         ImVec2 text_pos(
             image_screen_pos.x + padding,
@@ -1913,7 +1915,7 @@ void VideoPlayer::RenderVideoTexture() {
             (int)(accent.z * 255),
             255
         );
-        draw_list->AddText(font_mono, font_size, text_pos, text_color, overrun_text);
+        draw_list->AddText(font_regular, font_size, text_pos, text_color, overrun_text);
     }
 
     // Add drop target over the image
@@ -7339,11 +7341,11 @@ void VideoPlayer::RenderSideBySide() {
 
         // Optional: Add "GAP" text indicator
         const char* gap_text = (left_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
-        if (font_mono) {
-            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+        if (font_regular) {
+            ImVec2 text_size = font_regular->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
             ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
                            (gap_min.y + gap_max.y - text_size.y) * 0.5f);
-            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+            draw_list->AddText(font_regular, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
         }
     }
 
@@ -7362,11 +7364,11 @@ void VideoPlayer::RenderSideBySide() {
 
         // Optional: Add "GAP" text indicator
         const char* gap_text = (right_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
-        if (font_mono) {
-            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+        if (font_regular) {
+            ImVec2 text_size = font_regular->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
             ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
                            (gap_min.y + gap_max.y - text_size.y) * 0.5f);
-            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+            draw_list->AddText(font_regular, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
         }
     }
 
@@ -7376,14 +7378,14 @@ void VideoPlayer::RenderSideBySide() {
     draw_list->AddLine(divider_top, divider_bottom, IM_COL32(60, 60, 60, 180), 1.0f);
 
     // Draw text overlays using monospace font
-    if (font_mono) {
+    if (font_regular) {
         float font_size = 14.0f;
         float small_font_size = 11.0f;
 
         // Left side - Main Control + media name
         {
             const char* left_label = "Main Control";
-            ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
+            ImVec2 left_text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
             ImVec2 left_text_pos(viewport_pos.x + (half_width - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
 
             // Get media filename
@@ -7392,7 +7394,7 @@ void VideoPlayer::RenderSideBySide() {
                 std::filesystem::path p(current_file_path);
                 left_media_name = p.filename().string();
             }
-            ImVec2 left_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
+            ImVec2 left_media_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
 
             // Background for both labels
             float combined_height = left_text_size.y + left_media_size.y + 4.0f;
@@ -7404,15 +7406,15 @@ void VideoPlayer::RenderSideBySide() {
             );
 
             // Draw labels
-            draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+            draw_list->AddText(font_regular, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
             ImVec2 left_media_pos(viewport_pos.x + (half_width - left_media_size.x) * 0.5f, left_text_pos.y + left_text_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
         }
 
         // Right side - Secondary Video + media name
         {
             const char* right_label = "Secondary Video";
-            ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
+            ImVec2 right_text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
             ImVec2 right_text_pos(viewport_pos.x + half_width + (half_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
 
             // Get media filename
@@ -7421,7 +7423,7 @@ void VideoPlayer::RenderSideBySide() {
                 std::filesystem::path p(comparison_video_->GetFilePath());
                 right_media_name = p.filename().string();
             }
-            ImVec2 right_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
+            ImVec2 right_media_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
 
             // Background for both labels
             float combined_height = right_text_size.y + right_media_size.y + 4.0f;
@@ -7433,9 +7435,9 @@ void VideoPlayer::RenderSideBySide() {
             );
 
             // Draw labels
-            draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
+            draw_list->AddText(font_regular, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
             ImVec2 right_media_pos(viewport_pos.x + half_width + (half_width - right_media_size.x) * 0.5f, right_text_pos.y + right_text_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
         }
     }
 
@@ -7609,7 +7611,7 @@ void VideoPlayer::RenderSideBySide() {
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
         // Use mono font and system accent color
-        ImGui::PushFont(font_mono);
+        ImGui::PushFont(font_regular);
         ImGui::Text("Transcoding difference...");
         ImGui::PopFont();
 
@@ -7780,11 +7782,11 @@ void VideoPlayer::RenderSplitScreen() {
         draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
 
         const char* gap_text = (left_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
-        if (font_mono) {
-            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+        if (font_regular) {
+            ImVec2 text_size = font_regular->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
             ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
                            (gap_min.y + gap_max.y - text_size.y) * 0.5f);
-            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+            draw_list->AddText(font_regular, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
         }
         draw_list->PopClipRect();
     }
@@ -7809,11 +7811,11 @@ void VideoPlayer::RenderSplitScreen() {
         draw_list->AddRectFilled(gap_min, gap_max, IM_COL32(0, 0, 0, 255));
 
         const char* gap_text = (right_gap == ClipGapState::GAP_BEFORE) ? "BEFORE CLIP" : "AFTER CLIP";
-        if (font_mono) {
-            ImVec2 text_size = font_mono->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
+        if (font_regular) {
+            ImVec2 text_size = font_regular->CalcTextSizeA(12.0f, FLT_MAX, 0.0f, gap_text);
             ImVec2 text_pos((gap_min.x + gap_max.x - text_size.x) * 0.5f,
                            (gap_min.y + gap_max.y - text_size.y) * 0.5f);
-            draw_list->AddText(font_mono, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
+            draw_list->AddText(font_regular, 12.0f, text_pos, IM_COL32(100, 100, 100, 255), gap_text);
         }
         draw_list->PopClipRect();
     }
@@ -7862,14 +7864,14 @@ void VideoPlayer::RenderSplitScreen() {
     );
 
     // Draw text labels
-    if (font_mono) {
+    if (font_regular) {
         float font_size = 14.0f;
         float small_font_size = 11.0f;
 
         // Left label
         if (split_x > 150.0f) {  // Only show if there's enough space
             const char* left_label = "Primary";
-            ImVec2 left_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
+            ImVec2 left_text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, left_label);
             ImVec2 left_text_pos(viewport_pos.x + (split_x - left_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
 
             std::string left_media_name;
@@ -7877,7 +7879,7 @@ void VideoPlayer::RenderSplitScreen() {
                 std::filesystem::path p(current_file_path);
                 left_media_name = p.filename().string();
             }
-            ImVec2 left_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
+            ImVec2 left_media_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, left_media_name.c_str());
 
             float combined_height = left_text_size.y + left_media_size.y + 4.0f;
             float max_width = (std::max)(left_text_size.x, left_media_size.x);
@@ -7887,16 +7889,16 @@ void VideoPlayer::RenderSplitScreen() {
                 IM_COL32(20, 20, 20, 180)
             );
 
-            draw_list->AddText(font_mono, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
+            draw_list->AddText(font_regular, font_size, left_text_pos, IM_COL32(200, 200, 200, 255), left_label);
             ImVec2 left_media_pos(viewport_pos.x + (split_x - left_media_size.x) * 0.5f, left_text_pos.y + left_text_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, left_media_pos, IM_COL32(150, 150, 150, 255), left_media_name.c_str());
         }
 
         // Right label
         float right_width = content_region.x - split_x;
         if (right_width > 150.0f && comparison_video_ && comparison_video_->HasVideo()) {  // Only show if there's enough space
             const char* right_label = "Comparison";
-            ImVec2 right_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
+            ImVec2 right_text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, right_label);
             ImVec2 right_text_pos(viewport_pos.x + split_x + (right_width - right_text_size.x) * 0.5f, viewport_pos.y + 10.0f);
 
             std::string right_media_name;
@@ -7904,7 +7906,7 @@ void VideoPlayer::RenderSplitScreen() {
                 std::filesystem::path p(comparison_video_->GetFilePath());
                 right_media_name = p.filename().string();
             }
-            ImVec2 right_media_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
+            ImVec2 right_media_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, right_media_name.c_str());
 
             float combined_height = right_text_size.y + right_media_size.y + 4.0f;
             float max_width = (std::max)(right_text_size.x, right_media_size.x);
@@ -7914,9 +7916,9 @@ void VideoPlayer::RenderSplitScreen() {
                 IM_COL32(20, 20, 20, 180)
             );
 
-            draw_list->AddText(font_mono, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
+            draw_list->AddText(font_regular, font_size, right_text_pos, IM_COL32(200, 200, 200, 255), right_label);
             ImVec2 right_media_pos(viewport_pos.x + split_x + (right_width - right_media_size.x) * 0.5f, right_text_pos.y + right_text_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, right_media_pos, IM_COL32(150, 150, 150, 255), right_media_name.c_str());
         }
     }
 
@@ -8112,14 +8114,14 @@ void VideoPlayer::RenderDifference() {
         }
 
         // Draw "Difference Mode" label with both media names
-        if (font_mono) {
+        if (font_regular) {
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
             float font_size = 14.0f;
             float small_font_size = 11.0f;
 
             // Main label
             const char* mode_label = "Difference Mode";
-            ImVec2 mode_text_size = font_mono->CalcTextSizeA(font_size, FLT_MAX, 0.0f, mode_label);
+            ImVec2 mode_text_size = font_regular->CalcTextSizeA(font_size, FLT_MAX, 0.0f, mode_label);
 
             // Get both media filenames
             std::string primary_name;
@@ -8136,8 +8138,8 @@ void VideoPlayer::RenderDifference() {
                 comparison_name = p.filename().string();
             }
 
-            ImVec2 primary_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, primary_name.c_str());
-            ImVec2 comparison_size = font_mono->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, comparison_name.c_str());
+            ImVec2 primary_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, primary_name.c_str());
+            ImVec2 comparison_size = font_regular->CalcTextSizeA(small_font_size, FLT_MAX, 0.0f, comparison_name.c_str());
 
             // Calculate total height and max width
             float total_height = mode_text_size.y + primary_size.y + comparison_size.y + 6.0f; // 2px spacing between each
@@ -8154,15 +8156,15 @@ void VideoPlayer::RenderDifference() {
             );
 
             // Draw main label
-            draw_list->AddText(font_mono, font_size, label_pos, IM_COL32(200, 200, 200, 255), mode_label);
+            draw_list->AddText(font_regular, font_size, label_pos, IM_COL32(200, 200, 200, 255), mode_label);
 
             // Draw primary filename
             ImVec2 primary_pos(viewport_pos.x + (content_region.x - primary_size.x) * 0.5f, label_pos.y + mode_text_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, primary_pos, IM_COL32(150, 150, 150, 255), primary_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, primary_pos, IM_COL32(150, 150, 150, 255), primary_name.c_str());
 
             // Draw comparison filename
             ImVec2 comparison_pos(viewport_pos.x + (content_region.x - comparison_size.x) * 0.5f, primary_pos.y + primary_size.y + 2.0f);
-            draw_list->AddText(font_mono, small_font_size, comparison_pos, IM_COL32(150, 150, 150, 255), comparison_name.c_str());
+            draw_list->AddText(font_regular, small_font_size, comparison_pos, IM_COL32(150, 150, 150, 255), comparison_name.c_str());
         }
     }
 
@@ -8227,7 +8229,7 @@ render_toggle_button:
             ImGui::BeginChild("##TranscodeProgress", ImVec2(280, 52), false,
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-            ImGui::PushFont(font_mono);
+            ImGui::PushFont(font_regular);
             ImGui::Text("Transcoding difference...");
             ImGui::PopFont();
 
@@ -8244,7 +8246,7 @@ render_toggle_button:
             ImGui::BeginChild("##TranscodePrompt", ImVec2(280, 82), false,
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-            ImGui::PushFont(font_mono);
+            ImGui::PushFont(font_regular);
             ImGui::TextWrapped("Requires transcoding");
             ImGui::PopFont();
 
@@ -8260,7 +8262,7 @@ render_toggle_button:
             ImGui::BeginChild("##InitializingPrompt", ImVec2(280, 40), false,
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-            ImGui::PushFont(font_mono);
+            ImGui::PushFont(font_regular);
             ImGui::Text("Initializing...");
             ImGui::PopFont();
 
@@ -8415,7 +8417,7 @@ render_toggle_button:
         ImGui::BeginChild("##TranscodeProgress", ImVec2(280, 52), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-        ImGui::PushFont(font_mono);
+        ImGui::PushFont(font_regular);
         ImGui::Text("Transcoding difference...");
         ImGui::PopFont();
 
@@ -8432,7 +8434,7 @@ render_toggle_button:
         ImGui::BeginChild("##TranscodePrompt", ImVec2(280, 82), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-        ImGui::PushFont(font_mono);
+        ImGui::PushFont(font_regular);
         ImGui::TextWrapped("Requires transcoding");
         ImGui::PopFont();
 
@@ -8448,7 +8450,7 @@ render_toggle_button:
         ImGui::BeginChild("##InitializingPrompt", ImVec2(280, 40), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoBackground);
 
-        ImGui::PushFont(font_mono);
+        ImGui::PushFont(font_regular);
         ImGui::Text("Initializing...");
         ImGui::PopFont();
 

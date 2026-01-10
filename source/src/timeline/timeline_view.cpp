@@ -17,6 +17,7 @@
 #include <functional>
 
 // External fonts from main.cpp for consistent styling
+extern ImFont* font_regular;
 extern ImFont* font_mono;
 extern ImFont* font_icons;  // Material Icons font
 
@@ -986,10 +987,10 @@ void TimelineView::RenderTimelineRuler() {
             char time_label[32];
             snprintf(time_label, sizeof(time_label), "%02d:%02d", minutes, seconds);
 
-            // Use font_mono for consistent styling
-            if (font_mono) {
+            // Use font_regular for consistent styling
+            if (font_regular) {
                 ImVec2 text_size = ImGui::CalcTextSize(time_label);
-                draw_list->AddText(font_mono, 12.0f,
+                draw_list->AddText(font_regular, 12.0f,
                     ImVec2(x - text_size.x * 0.5f, ruler_pos.y + 22),
                     IM_COL32(180, 180, 180, 255), time_label);
             } else {
@@ -1132,7 +1133,7 @@ void TimelineView::RenderClipTooltip(const OTIOClip& clip) {
 
     ImGui::BeginTooltip();
 
-    if (font_mono) ImGui::PushFont(font_mono);
+    if (font_regular) ImGui::PushFont(font_regular);
 
     // Clip name
     ImGui::Text("Clip: %s", clip.name.c_str());
@@ -1168,7 +1169,7 @@ void TimelineView::RenderClipTooltip(const OTIOClip& clip) {
         }
     }
 
-    if (font_mono) ImGui::PopFont();
+    if (font_regular) ImGui::PopFont();
 
     ImGui::EndTooltip();
 

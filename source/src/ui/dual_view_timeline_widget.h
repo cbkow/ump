@@ -26,7 +26,7 @@ public:
     // Render the two-track timeline
     // Returns true if any edit occurred (caller should update VideoPlayer)
     bool Render(DualViewTimeline& timeline, double current_time,
-                float available_width, ImFont* font_mono = nullptr);
+                float available_width, ImFont* font_regular = nullptr);
 
     //=========================================================================
     // Callbacks
@@ -131,7 +131,7 @@ private:
     // Render a single track
     void RenderTrack(DualViewClip& clip, bool is_left_track, const DualViewTimeline& timeline,
                      double current_time, ImVec2 track_pos, float track_width,
-                     ImDrawList* draw_list, ImFont* font_mono);
+                     ImDrawList* draw_list, ImFont* font_regular);
 
     // Handle mouse interaction for a clip
     void HandleClipInteraction(DualViewClip& clip, bool is_left_track, const DualViewTimeline& timeline,
