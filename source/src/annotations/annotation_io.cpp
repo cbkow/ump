@@ -53,6 +53,10 @@ std::string GetNotesJSONPath(const std::string& media_path) {
 }
 
 std::string GetImagesFolder(const std::string& media_path) {
+    if (media_path.empty()) {
+        return "";
+    }
+
     fs::path path(media_path);
     std::string media_name = SanitizeMediaName(path.filename().string());
 

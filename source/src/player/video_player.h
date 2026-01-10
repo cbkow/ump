@@ -273,6 +273,7 @@ public:
     void SetColorPipeline(std::unique_ptr<OCIOPipeline> pipeline);
     void ClearColorPipeline();
     bool HasColorPipeline() const { return color_pipeline && color_pipeline->IsValid(); }
+    bool HasActiveColorTransform() const { return HasColorPipeline() && !color_pipeline->IsPassthrough(); }
     void ForceFrameRefresh(); // Force re-render current frame with current color pipeline
 
     // Render any texture with OCIO color transformation to current framebuffer

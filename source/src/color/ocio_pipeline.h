@@ -37,6 +37,9 @@ public:
     // Check if pipeline is valid and ready to use
     bool IsValid() const { return is_valid; }
 
+    // Check if this is a passthrough pipeline (no actual color transform)
+    bool IsPassthrough() const { return is_passthrough; }
+
     // Update uniforms for rendering
     void UpdateUniforms(int video_texture_unit = 0, int lut_texture_unit = 1);
 
@@ -58,6 +61,7 @@ private:
     std::vector<std::string> lut_sampler_names;
 
     bool is_valid;
+    bool is_passthrough;
     bool needs_lut;
 
     // Shader compilation helpers

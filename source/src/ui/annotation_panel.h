@@ -93,13 +93,13 @@ private:
 
     std::string selected_timecode_;
     std::string edit_buffer_;
+    std::string right_clicked_note_timecode_;  // Set when user right-clicks on a note
     bool is_editing_;
     bool* annotations_enabled_ptr_;
     float video_aspect_ratio_ = 16.0f / 9.0f;  // Default to 16:9, updated when media loads
 
     // UI helpers
     void RenderHeader();
-    void RenderMenuBar(bool* p_open);
     void RenderNotesList();
     void RenderFooter(ImVec4 accent_regular);
     void RenderNote(AnnotationNote& note);

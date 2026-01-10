@@ -47,6 +47,7 @@
 #include <future>
 #include <chrono>
 #include <thread>
+#include <atomic>
 #include <sstream>
 #include <iomanip>
 #include <map>
@@ -107,6 +108,7 @@ extern "C" {
 // ============================================================================
 // COLOR INCLUDES
 // ============================================================================
+#include "transcode/ocio_lut_baker.h"
 std::unique_ptr<OCIOConfigManager> ocio_manager;
 
 // ============================================================================
@@ -646,6 +648,16 @@ static float font_settings_temp_scale = 1.0f;  // Temporary scale while editing
 // KEYBOARD SHORTCUTS POPUP
 // ============================================================================
 static bool show_shortcuts_popup = false;
+
+// LUT EXPORT POPUP
+// ============================================================================
+static bool show_lut_export_popup = false;
+static std::string lut_export_path;
+static std::atomic<float> lut_export_progress{0.0f};
+static std::atomic<bool> lut_export_cancel{false};
+static std::atomic<bool> lut_export_complete{false};
+static std::atomic<bool> lut_export_error{false};
+static std::string lut_export_error_message;
 
 // Font scale presets
 static constexpr float FONT_SCALE_SMALL = 0.75f;
@@ -3513,6 +3525,7 @@ private:
             CreateCacheSettingsWindow(); // Add cache settings popup
             CreateFontSettingsWindow(); // Add font settings popup
             CreateKeyboardShortcutsPopup(); // Add keyboard shortcuts popup
+            CreateLutExportPopup(); // Add LUT export progress popup
         }
         RenderBackgroundSelectionPanel(video_background_type, show_background_panel);
         RenderSafetyOverlayPanel(show_safety_overlay_panel);
@@ -4103,12 +4116,19 @@ private:
 
                 ImGui::Separator();
 
-                // Import submenu
+                // Import submenu (requires media to be loaded)
+                bool has_media_loaded = !current_file_path.empty();
+                if (!has_media_loaded) {
+                    ImGui::BeginDisabled();
+                }
                 if (ImGui::BeginMenu("Import Notes")) {
                     if (ImGui::MenuItem("From Frame.io...")) {
                         frameio_import_state.show_dialog = true;
                     }
                     ImGui::EndMenu();
+                }
+                if (!has_media_loaded) {
+                    ImGui::EndDisabled();
                 }
 
                 ImGui::EndMenu();
@@ -4510,7 +4530,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.1");
+                ImGui::TextDisabled("About u.m.p. v0.6.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -4550,6 +4570,16 @@ private:
             ImGui::PopStyleColor(); // Pop custom submenu background
 
             // ========================================================================
+            // SHADER STATUS INDICATOR IN MENU BAR
+            // ========================================================================
+            bool shader_applied = video_player && video_player->HasActiveColorTransform();
+            float shader_text_width = 0.0f;
+            if (shader_applied) {
+                const char* shader_text = "Shader Applied";
+                shader_text_width = ImGui::CalcTextSize(shader_text).x + 20.0f; // Add spacing
+            }
+
+            // ========================================================================
             // SYSTEM NOTIFICATION IN MENU BAR
             // ========================================================================
             if (!stats_bar_notification_message.empty()) {
@@ -4565,13 +4595,13 @@ private:
                 }
 
                 if (should_show) {
-                    // Measure text width to position on right side
+                    // Measure text width to position on right side (account for shader text)
                     std::string display_text = stats_bar_notification_message;
                     float text_width = ImGui::CalcTextSize(display_text.c_str()).x;
                     float padding = 20.0f;
 
-                    // Position on right side of menu bar
-                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width + ImGui::GetCursorPosX() - padding);
+                    // Position on right side of menu bar, leaving room for shader text
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width - shader_text_width + ImGui::GetCursorPosX() - padding);
 
                     // Color based on message type
                     ImVec4 bg_color = show_notification_permanent ?
@@ -4593,6 +4623,25 @@ private:
                     ImGui::Text("%s", display_text.c_str());
                     ImGui::PopStyleColor();
                 }
+            }
+
+            // Render shader status (after notification, so it appears to the right)
+            if (shader_applied) {
+                const char* shader_text = "Shader Applied";
+                float padding = 20.0f;
+
+                // If no notification, position from right edge
+                if (stats_bar_notification_message.empty()) {
+                    float text_width = ImGui::CalcTextSize(shader_text).x;
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width + ImGui::GetCursorPosX() - padding);
+                } else {
+                    // Already positioned after notification, just add some spacing
+                    ImGui::SameLine();
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, GetWindowsAccentColor());
+                ImGui::Text("%s", shader_text);
+                ImGui::PopStyleColor();
             }
 
             ImGui::EndMenuBar();
@@ -6419,6 +6468,92 @@ private:
         }
     }
 
+    // ============================================================================
+    // LUT EXPORT POPUP
+    // ============================================================================
+    void CreateLutExportPopup() {
+        // Open modal popup when flag is set
+        if (show_lut_export_popup && !ImGui::IsPopupOpen("Exporting LUT")) {
+            ImGui::OpenPopup("Exporting LUT");
+        }
+
+        // Center popup on screen with auto-height
+        float scale = ImGui::GetIO().FontGlobalScale;
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(400 * scale, 0), ImGuiCond_Always);
+
+        bool open = true;
+        if (ImGui::BeginPopupModal("Exporting LUT", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+
+            // Check for completion or error
+            if (lut_export_complete.load()) {
+                ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "LUT exported successfully!");
+                ImGui::Spacing();
+                ImGui::Text("Saved to:");
+                ImGui::TextWrapped("%s", lut_export_path.c_str());
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                float btnPadding = 8.0f * 2;
+                float closeW = ImGui::CalcTextSize("Close").x + btnPadding;
+                ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - closeW);
+                if (ImGui::Button("Close")) {
+                    show_lut_export_popup = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            else if (lut_export_error.load()) {
+                ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Export failed!");
+                ImGui::Text("%s", lut_export_error_message.c_str());
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                float btnPadding = 8.0f * 2;
+                float closeW = ImGui::CalcTextSize("Close").x + btnPadding;
+                ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - closeW);
+                if (ImGui::Button("Close")) {
+                    show_lut_export_popup = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            else {
+                // In progress
+                ImGui::Text("Generating 65x65x65 3D LUT...");
+                ImGui::Spacing();
+
+                float progress = lut_export_progress.load();
+                ImGui::ProgressBar(progress, ImVec2(-1, 0));
+                ImGui::Text("%.0f%%", progress * 100.0f);
+
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+
+                float btnPadding = 8.0f * 2;
+                float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+                ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - cancelW);
+                if (ImGui::Button("Cancel")) {
+                    lut_export_cancel = true;
+                    show_lut_export_popup = false;
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+
+            // Handle X button click
+            if (!open) {
+                lut_export_cancel = true;
+                show_lut_export_popup = false;
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
     void CreateVideoViewport() {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));  // Override global 8,8 for viewport controls
@@ -7675,6 +7810,9 @@ private:
         ImVec2 center = viewport->GetCenter();
         ImVec2 display_size = viewport->Size;
 
+        // Scale with font size
+        const float ui_scale = ImGui::GetIO().FontGlobalScale;
+
         // Use FOREGROUND draw list for EVERYTHING - this ensures it appears on top of all windows
         // The foreground draw list is rendered AFTER all ImGui windows
         ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
@@ -7686,9 +7824,10 @@ private:
             IM_COL32(0, 0, 0, 185)  // Semi-transparent black (~72% opacity)
         );
 
-        // Modal box dimensions and position
-        const float modal_width = 350.0f;
-        const float modal_height = 160.0f;
+        // Modal box dimensions and position (scaled with font)
+        const float modal_width = 350.0f * ui_scale;
+        const float modal_height = 160.0f * ui_scale;
+        const float corner_rounding = 4.0f * ui_scale;
         ImVec2 modal_pos = ImVec2(center.x - modal_width * 0.5f, center.y - modal_height * 0.5f);
         ImVec2 modal_end = ImVec2(modal_pos.x + modal_width, modal_pos.y + modal_height);
 
@@ -7696,37 +7835,42 @@ private:
         draw_list->AddRectFilled(
             modal_pos, modal_end,
             IM_COL32(33, 33, 33, 217),  // Dark gray, ~85% opacity
-            4.0f  // Corner rounding
+            corner_rounding
         );
 
         // Draw modal border
         draw_list->AddRect(
             modal_pos, modal_end,
             IM_COL32(77, 77, 89, 255),  // Subtle border
-            4.0f,  // Corner rounding
+            corner_rounding,
             0,     // Flags
             1.0f   // Thickness
         );
+
+        // Text vertical positions (scaled)
+        const float title_y_offset = 35.0f * ui_scale;
+        const float status_y_offset = 70.0f * ui_scale;
+        const float wait_y_offset = 105.0f * ui_scale;
 
         // Draw title text (centered)
         const char* title = "Shutting Down ump...";
         ImVec2 title_size = ImGui::CalcTextSize(title);
         float title_x = modal_pos.x + (modal_width - title_size.x) * 0.5f;
-        float title_y = modal_pos.y + 35.0f;
+        float title_y = modal_pos.y + title_y_offset;
         draw_list->AddText(ImVec2(title_x, title_y), IM_COL32(255, 255, 255, 255), title);
 
         // Draw status text (centered)
         const char* status = "Cleaning up GPU resources";
         ImVec2 status_size = ImGui::CalcTextSize(status);
         float status_x = modal_pos.x + (modal_width - status_size.x) * 0.5f;
-        float status_y = modal_pos.y + 70.0f;
+        float status_y = modal_pos.y + status_y_offset;
         draw_list->AddText(ImVec2(status_x, status_y), IM_COL32(179, 179, 179, 255), status);
 
         // Draw "Please wait..." text (centered)
         const char* wait_text = "Please wait...";
         ImVec2 wait_size = ImGui::CalcTextSize(wait_text);
         float wait_x = modal_pos.x + (modal_width - wait_size.x) * 0.5f;
-        float wait_y = modal_pos.y + 105.0f;
+        float wait_y = modal_pos.y + wait_y_offset;
         draw_list->AddText(ImVec2(wait_x, wait_y), IM_COL32(153, 153, 153, 255), wait_text);
     }
 
@@ -8089,7 +8233,7 @@ private:
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
         const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
         const float panel_width = 400.0f * ui_scale;
-        const float panel_height = 595.0f * height_scale;  // Increased from 430 to accommodate Blender 5.0 section
+        const float panel_height = 550.0f * height_scale;  // Increased from 430 to accommodate Blender 5.0 section
         const float margin = 10.0f;
 
         // Position in top-right corner (same as background panel)
@@ -8610,7 +8754,7 @@ private:
             float box_corner_radius = 9.0f;
             float box_y_offset = 1.1f;  // Vertical offset for playback box and buttons
             ImVec2 playback_box_start = ImGui::GetCursorScreenPos();
-            playback_box_start.y += box_y_offset;  // Offset the box down
+            playback_box_start.y += box_y_offset - 0.7f;  // Offset the box down
 
             // Draw background box with rounded corners
             transport_draw_list->AddRectFilled(
@@ -17162,6 +17306,14 @@ private:
         if (ImGui::Begin("Inspector", &show_inspector_panel)) {
             // Header row with close button
             {
+                // Determine context-aware title
+                const char* inspector_context = "Media Properties";
+                if (otio_timeline_mode && timeline_view) {
+                    inspector_context = "Timeline";
+                } else if (project_manager && project_manager->IsInSequenceMode()) {
+                    inspector_context = "Playlist";
+                }
+
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
                 if (font_icons) {
                     ImGui::PushFont(font_icons);
@@ -17169,7 +17321,7 @@ private:
                     ImGui::PopFont();
                     ImGui::SameLine();
                 }
-                ImGui::Text("Inspector");
+                ImGui::Text("Inspector: %s", inspector_context);
                 ImGui::PopStyleColor();
 
                 // Close button on the right
@@ -17336,17 +17488,6 @@ private:
                 }
 
                 // === TIMELINE PROPERTIES ===
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                if (font_icons) {
-                    ImGui::PushFont(font_icons);
-                    ImGui::Text(ICON_ARTICLE);
-                    ImGui::PopFont();
-                    ImGui::SameLine();
-                }
-                ImGui::Text("Timeline Properties");
-                ImGui::PopStyleColor();
-                ImGui::Separator();
-
                 // Get timeline info
                 std::string timeline_name = timeline_view->GetTimelineName();
                 double frame_rate = timeline_view->GetFrameRate();
@@ -17491,17 +17632,6 @@ private:
                 }
             }
             else if (project_manager->IsInSequenceMode()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                if (font_icons) {
-                    ImGui::PushFont(font_icons);
-                    ImGui::Text(ICON_ARTICLE);
-                    ImGui::PopFont();
-                    ImGui::SameLine();
-                }
-                ImGui::Text("Playlist Manager");
-                ImGui::PopStyleColor();
-                ImGui::Separator();
-
                 auto seq = project_manager->GetCurrentSequence();
                 if (seq) {
                     ImGui::Text("Playlist: %s", seq->name.c_str());
@@ -17879,34 +18009,12 @@ private:
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                // === Properties Section ===
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                if (font_icons) {
-                    ImGui::PushFont(font_icons);
-                    ImGui::Text(ICON_MOVIE);
-                    ImGui::PopFont();
-                    ImGui::SameLine();
-                }
-                ImGui::Text("Properties");
-                ImGui::PopStyleColor();
-                ImGui::Separator();
-
+                // Properties section (current playlist item)
                 project_manager->CreatePropertiesSection();
 
             }
             else {
                 // Non-sequence mode - just show properties
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                if (font_icons) {
-                    ImGui::PushFont(font_icons);
-                    ImGui::Text(ICON_MOVIE);
-                    ImGui::PopFont();
-                    ImGui::SameLine();
-                }
-                ImGui::Text("Media Properties");
-                ImGui::PopStyleColor();
-                ImGui::Separator();
-
                 project_manager->CreatePropertiesSection();
             }
         }
@@ -19242,7 +19350,7 @@ private:
         // Reserve space for sticky footer (scale with font, 0.65 dampened)
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
         const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-        float footer_reserve = 88.0f * height_scale;  // Space for two buttons + spacing
+        float footer_reserve = 88.0f * height_scale;  // Space for shader toggle + export LUT buttons
 
         float available_height = ImGui::GetContentRegionAvail().y;
 
@@ -19280,13 +19388,17 @@ private:
         if (ImGui::BeginChild("ShaderFooter", ImVec2(footer_width, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             // Check if pipeline is ready (only meaningful when output node selected)
             bool pipeline_ready = output_node_selected && CheckPipelineReadiness();
+            bool shader_active = video_player && video_player->HasColorPipeline();
 
             // Disable entire footer if output node not selected
             if (!output_node_selected) {
                 ImGui::BeginDisabled();
             }
 
-            // Generate Shader button - only enabled if pipeline ready
+            // Apply and Remove buttons side by side
+            float button_width = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
+
+            // Apply button - disabled if pipeline not ready
             if (!pipeline_ready && output_node_selected) {
                 ImGui::BeginDisabled();
             }
@@ -19296,7 +19408,7 @@ private:
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
             }
 
-            if (ImGui::Button("Generate Shader", ImVec2(-1, 0))) {
+            if (ImGui::Button("Apply", ImVec2(button_width, 0))) {
                 GenerateOCIOPipeline();
             }
 
@@ -19308,14 +19420,15 @@ private:
                 ImGui::EndDisabled();
             }
 
-            // Remove Shader button - enabled when output node selected
-            ImGui::Spacing();
+            ImGui::SameLine();
+
+            // Remove button - always enabled when output node selected
             if (output_node_selected) {
                 ImGui::PushStyleColor(ImGuiCol_Button, MutedDark(GetWindowsAccentColor()));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, GetWindowsAccentColor());
             }
 
-            if (ImGui::Button("Remove Shader", ImVec2(-1, 0))) {
+            if (ImGui::Button("Remove", ImVec2(button_width, 0))) {
                 Debug::Log("User requested OCIO pipeline removal");
                 video_player->ClearColorPipeline();
             }
@@ -19324,10 +19437,124 @@ private:
                 ImGui::PopStyleColor(2);
             }
 
+            // Export LUT button - only enabled when shader is active
+            ImGui::Spacing();
+            if (!shader_active) {
+                ImGui::BeginDisabled();
+            }
+
+            if (ImGui::Button("Export LUT", ImVec2(-1, 0))) {
+                // Open save dialog for .cube file
+                nfdu8char_t* out_path = nullptr;
+                nfdfilteritem_t filter[1] = { { "3D LUT", "cube" } };
+                nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, "color_transform.cube");
+
+                if (result == NFD_OKAY) {
+                    lut_export_path = out_path;
+                    NFD_FreePathU8(out_path);
+
+                    // Ensure .cube extension
+                    if (lut_export_path.find(".cube") == std::string::npos) {
+                        lut_export_path += ".cube";
+                    }
+
+                    // Reset export state
+                    lut_export_progress = 0.0f;
+                    lut_export_cancel = false;
+                    lut_export_complete = false;
+                    lut_export_error = false;
+                    lut_export_error_message.clear();
+
+                    // Extract OCIO settings from node graph
+                    auto pipeline_nodes = node_manager->GetPipelineOrder();
+                    std::string src_colorspace, display, view;
+                    std::vector<std::string> look_chain, scene_luts, display_luts;
+
+                    for (auto* node : pipeline_nodes) {
+                        switch (node->GetType()) {
+                            case ump::NodeType::INPUT_COLORSPACE: {
+                                auto* csNode = dynamic_cast<ump::InputColorSpaceNode*>(node);
+                                if (csNode) src_colorspace = csNode->GetColorSpace();
+                                break;
+                            }
+                            case ump::NodeType::LOOK: {
+                                auto* lookNode = dynamic_cast<ump::LookNode*>(node);
+                                if (lookNode && !lookNode->GetLook().empty())
+                                    look_chain.push_back(lookNode->GetLook());
+                                break;
+                            }
+                            case ump::NodeType::SCENE_LUT: {
+                                auto* lutNode = dynamic_cast<ump::SceneLUTNode*>(node);
+                                if (lutNode && !lutNode->GetLUTPath().empty())
+                                    scene_luts.push_back(lutNode->GetLUTPath());
+                                break;
+                            }
+                            case ump::NodeType::DISPLAY_LUT: {
+                                auto* lutNode = dynamic_cast<ump::DisplayLUTNode*>(node);
+                                if (lutNode && !lutNode->GetLUTPath().empty())
+                                    display_luts.push_back(lutNode->GetLUTPath());
+                                break;
+                            }
+                            case ump::NodeType::OUTPUT_DISPLAY: {
+                                auto* displayNode = dynamic_cast<ump::OutputDisplayNode*>(node);
+                                if (displayNode) {
+                                    display = displayNode->GetDisplay();
+                                    view = displayNode->GetView();
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    // Build looks string
+                    std::string looks;
+                    for (size_t i = 0; i < look_chain.size(); ++i) {
+                        if (i > 0) looks += ", ";
+                        looks += look_chain[i];
+                    }
+
+                    // Start export in background thread
+                    std::string export_path = lut_export_path;
+                    std::thread([=]() {
+                        ump::OCIOLutBaker::BakeConfig config;
+                        config.src_colorspace = src_colorspace;
+                        config.display = display;
+                        config.view = view;
+                        config.looks = looks;
+                        config.scene_luts = scene_luts;
+                        config.display_luts = display_luts;
+                        config.cube_size = 65;
+
+                        // Write directly to user-specified path (not cache)
+                        std::string result = ump::OCIOLutBaker::BakeTo(
+                            config, export_path,
+                            [](float p) { lut_export_progress = p; },
+                            &lut_export_cancel
+                        );
+
+                        if (result.empty()) {
+                            lut_export_error = true;
+                            lut_export_error_message = "Failed to generate LUT";
+                        } else {
+                            lut_export_complete = true;
+                        }
+                    }).detach();
+
+                    show_lut_export_popup = true;
+                    Debug::Log("Starting LUT export to: " + lut_export_path);
+                } else if (result == NFD_ERROR) {
+                    Debug::Log("NFD Error: " + std::string(NFD_GetError()));
+                }
+            }
+
+            if (!shader_active) {
+                ImGui::EndDisabled();
+            }
+
             if (!output_node_selected) {
                 ImGui::EndDisabled();
             }
-            else if (!pipeline_ready) {
+            else if (!pipeline_ready && !shader_active) {
                 ImGui::Spacing();
                 ImGui::PushStyleColor(ImGuiCol_Text, MutedLight(GetWindowsAccentColor()));
                 ImGui::TextWrapped("Connect Input to Output");

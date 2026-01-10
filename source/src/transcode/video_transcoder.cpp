@@ -1,4 +1,5 @@
 #include "video_transcoder.h"
+#include "ocio_lut_baker.h"
 #include "../player/image_loaders.h"
 #include "../player/media_background_extractor.h"  // For ConversionStrategy
 #include "../metadata/video_metadata.h"
@@ -259,6 +260,9 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
     AVFormatContext* source_format_ctx = nullptr;
     std::vector<int> audio_stream_indices;
 
+    // Flag for LUT-based encoding (video files with OCIO)
+    bool use_lut_encoding = false;
+
     try {
         // ===================================================================
         // STEP 1: Initialize OCIO Transform (if needed)
@@ -266,9 +270,54 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         progress.status = "Initializing";
 
         // Check if OCIO transform is requested
-        bool use_ocio = !config.src_colorspace.empty() || !config.display.empty() || !config.view.empty();
+        bool use_ocio = !config.src_colorspace.empty() && !config.display.empty() && !config.view.empty();
 
-        if (use_ocio) {
+        // For VIDEO_FILE mode with OCIO: use LUT-based encoding (more efficient)
+        // For IMAGE_SEQUENCE or no OCIO: use existing per-frame OCIO transform
+        if (use_ocio && config.input_mode == InputMode::VIDEO_FILE) {
+            // LUT-based encoding for video files
+            progress.current_status_text = "Generating color transform LUT...";
+            UpdateProgress(progress);
+            if (callback) callback(progress);
+
+            // Build LUT configuration from OCIO settings
+            OCIOLutBaker::BakeConfig lut_config;
+            lut_config.src_colorspace = config.src_colorspace;
+            lut_config.display = config.display;
+            lut_config.view = config.view;
+            lut_config.looks = config.looks;
+            lut_config.scene_luts = config.scene_luts;
+            lut_config.display_luts = config.display_luts;
+            lut_config.cube_size = 65;  // 65^3 = 274625 samples (good quality/size tradeoff)
+
+            // Generate or get cached LUT
+            std::string lut_path = OCIOLutBaker::BakeOrGetCached(
+                lut_config,
+                [&progress, &callback, this](float p) {
+                    progress.progress_percent = p * 5.0;  // 0-5% for LUT generation
+                    progress.current_status_text = "Generating color transform LUT... " +
+                                                   std::to_string(static_cast<int>(p * 100)) + "%";
+                    UpdateProgress(progress);
+                    if (callback) callback(progress);
+                },
+                &cancel_requested_
+            );
+
+            if (lut_path.empty()) {
+                throw std::runtime_error("Failed to generate OCIO LUT file");
+            }
+
+            // Configure encoder to use LUT filter
+            config.encoder_settings.lut_file_path = lut_path;
+            config.encoder_settings.use_lut_filter = true;
+            use_lut_encoding = true;
+
+            // Create passthrough transform (no CPU OCIO needed - FFmpeg applies LUT)
+            color_transform_ = std::make_unique<OCIOCPUTransform>();
+            Debug::Log("VideoTranscoder: Using LUT-based encoding: " + lut_path);
+
+        } else if (use_ocio) {
+            // Per-frame OCIO transform for image sequences
             progress.current_status_text = "Initializing OCIO color transform...";
             UpdateProgress(progress);
             if (callback) callback(progress);
@@ -280,7 +329,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
                 throw std::runtime_error("Failed to initialize OCIO transform");
             }
 
-            Debug::Log("VideoTranscoder: OCIO transform initialized");
+            Debug::Log("VideoTranscoder: OCIO CPU transform initialized (per-frame)");
         } else {
             // Create passthrough transform (no color conversion)
             color_transform_ = std::make_unique<OCIOCPUTransform>();

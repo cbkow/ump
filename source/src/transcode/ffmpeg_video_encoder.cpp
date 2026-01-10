@@ -87,6 +87,15 @@ bool FFMPEGVideoEncoder::Open(const EncoderSettings& settings) {
         return false;
     }
 
+    // Initialize filter graph if LUT is enabled
+    if (settings_.use_lut_filter && !settings_.lut_file_path.empty()) {
+        if (!InitializeFilterGraph(settings_.lut_file_path)) {
+            Debug::Log("ERROR: FFMPEGVideoEncoder - Failed to initialize filter graph");
+            Close();
+            return false;
+        }
+    }
+
     is_open_ = true;
     frame_count_ = 0;
 
@@ -393,16 +402,239 @@ bool FFMPEGVideoEncoder::InitializeCodec() {
     return true;
 }
 
+std::string FFMPEGVideoEncoder::EscapePathForFFmpeg(const std::string& path) {
+    // Windows paths need escaping for FFmpeg filter strings
+    // C:\path\to\file.cube → C\\:\\path\\to\\file.cube
+    std::string result;
+    result.reserve(path.size() * 2);
+    for (char c : path) {
+        if (c == ':' || c == '\\') {
+            result += '\\';
+        }
+        result += c;
+    }
+    return result;
+}
+
+bool FFMPEGVideoEncoder::InitializeFilterGraph(const std::string& lut_path) {
+    Debug::Log("FFMPEGVideoEncoder: Initializing filter graph with LUT: " + lut_path);
+
+    // Create filter graph
+    filter_graph_ = avfilter_graph_alloc();
+    if (!filter_graph_) {
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate filter graph");
+        return false;
+    }
+
+    // Get buffer source and sink filters
+    const AVFilter* buffersrc = avfilter_get_by_name("buffer");
+    const AVFilter* buffersink = avfilter_get_by_name("buffersink");
+    const AVFilter* lut3d = avfilter_get_by_name("lut3d");
+
+    if (!buffersrc || !buffersink || !lut3d) {
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not find required filters");
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Create buffer source (input)
+    // Format: video_size=WxH:pix_fmt=N:time_base=1/FPS:sar=1/1
+    char src_args[256];
+    snprintf(src_args, sizeof(src_args),
+             "video_size=%dx%d:pix_fmt=%d:time_base=1/%d:pixel_aspect=1/1",
+             settings_.width, settings_.height,
+             AV_PIX_FMT_RGBA,
+             static_cast<int>(settings_.fps));
+
+    int ret = avfilter_graph_create_filter(&buffersrc_ctx_, buffersrc, "in",
+                                            src_args, nullptr, filter_graph_);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not create buffer source: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Create buffer sink (output)
+    ret = avfilter_graph_create_filter(&buffersink_ctx_, buffersink, "out",
+                                        nullptr, nullptr, filter_graph_);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not create buffer sink: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Create LUT3D filter
+    AVFilterContext* lut3d_ctx = nullptr;
+    std::string escaped_path = EscapePathForFFmpeg(lut_path);
+    std::string lut_args = "file=" + escaped_path;
+
+    ret = avfilter_graph_create_filter(&lut3d_ctx, lut3d, "lut3d",
+                                        lut_args.c_str(), nullptr, filter_graph_);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not create lut3d filter: " + std::string(errbuf));
+        Debug::Log("  LUT path: " + lut_path);
+        Debug::Log("  Escaped: " + escaped_path);
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Create format filter to ensure RGBA output
+    const AVFilter* format_filter = avfilter_get_by_name("format");
+    if (!format_filter) {
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not find format filter");
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    AVFilterContext* format_ctx = nullptr;
+    ret = avfilter_graph_create_filter(&format_ctx, format_filter, "format",
+                                        "pix_fmts=rgba", nullptr, filter_graph_);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not create format filter: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Link filters: buffersrc -> lut3d -> format -> buffersink
+    ret = avfilter_link(buffersrc_ctx_, 0, lut3d_ctx, 0);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not link buffersrc to lut3d: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    ret = avfilter_link(lut3d_ctx, 0, format_ctx, 0);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not link lut3d to format: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    ret = avfilter_link(format_ctx, 0, buffersink_ctx_, 0);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not link format to buffersink: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Configure the filter graph
+    ret = avfilter_graph_config(filter_graph_, nullptr);
+    if (ret < 0) {
+        char errbuf[128];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not configure filter graph: " + std::string(errbuf));
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    // Allocate filtered frame
+    filtered_frame_ = av_frame_alloc();
+    if (!filtered_frame_) {
+        Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate filtered frame");
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        return false;
+    }
+
+    use_filter_graph_ = true;
+    Debug::Log("FFMPEGVideoEncoder: Filter graph initialized successfully");
+    return true;
+}
+
 bool FFMPEGVideoEncoder::EncodeFrame(const uint8_t* rgba_pixels, int stride) {
     if (!is_open_) {
         Debug::Log("ERROR: FFMPEGVideoEncoder::EncodeFrame - Encoder not open");
         return false;
     }
 
-    // Allocate frame
+    int ret;
+    const uint8_t* pixels_to_encode = rgba_pixels;
+    int stride_to_encode = stride;
+
+    // If filter graph is enabled, process through LUT filter
+    if (use_filter_graph_) {
+        // Create input frame for filter graph (RGBA)
+        AVFrame* input_frame = av_frame_alloc();
+        if (!input_frame) {
+            Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate input frame");
+            return false;
+        }
+
+        input_frame->format = AV_PIX_FMT_RGBA;
+        input_frame->width = settings_.width;
+        input_frame->height = settings_.height;
+        input_frame->pts = frame_count_;
+
+        ret = av_frame_get_buffer(input_frame, 0);
+        if (ret < 0) {
+            char errbuf[128];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate input frame data: " + std::string(errbuf));
+            av_frame_free(&input_frame);
+            return false;
+        }
+
+        // Copy RGBA data to input frame
+        for (int y = 0; y < settings_.height; ++y) {
+            memcpy(input_frame->data[0] + y * input_frame->linesize[0],
+                   rgba_pixels + y * stride,
+                   settings_.width * 4);
+        }
+
+        // Push frame into filter graph
+        ret = av_buffersrc_add_frame_flags(buffersrc_ctx_, input_frame, AV_BUFFERSRC_FLAG_KEEP_REF);
+        av_frame_free(&input_frame);
+
+        if (ret < 0) {
+            char errbuf[128];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("ERROR: FFMPEGVideoEncoder - Error feeding filter graph: " + std::string(errbuf));
+            return false;
+        }
+
+        // Pull filtered frame from filter graph
+        ret = av_buffersink_get_frame(buffersink_ctx_, filtered_frame_);
+        if (ret < 0) {
+            char errbuf[128];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("ERROR: FFMPEGVideoEncoder - Error getting filtered frame: " + std::string(errbuf));
+            return false;
+        }
+
+        // Use filtered frame data for encoding
+        pixels_to_encode = filtered_frame_->data[0];
+        stride_to_encode = filtered_frame_->linesize[0];
+    }
+
+    // Allocate output frame (YUV for encoder)
     AVFrame* frame = av_frame_alloc();
     if (!frame) {
         Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate frame");
+        if (use_filter_graph_) av_frame_unref(filtered_frame_);
         return false;
     }
 
@@ -411,23 +643,29 @@ bool FFMPEGVideoEncoder::EncodeFrame(const uint8_t* rgba_pixels, int stride) {
     frame->height = codec_ctx_->height;
     frame->pts = frame_count_;
 
-    int ret = av_frame_get_buffer(frame, 0);
+    ret = av_frame_get_buffer(frame, 0);
     if (ret < 0) {
         char errbuf[128];
         av_strerror(ret, errbuf, sizeof(errbuf));
         Debug::Log("ERROR: FFMPEGVideoEncoder - Could not allocate frame data: " + std::string(errbuf));
         av_frame_free(&frame);
+        if (use_filter_graph_) av_frame_unref(filtered_frame_);
         return false;
     }
 
     // Convert RGBA → YUV
-    const uint8_t* src_data[1] = { rgba_pixels };
-    int src_linesize[1] = { stride };
+    const uint8_t* src_data[1] = { pixels_to_encode };
+    int src_linesize[1] = { stride_to_encode };
 
     ret = sws_scale(sws_ctx_,
                     src_data, src_linesize,
                     0, codec_ctx_->height,
                     frame->data, frame->linesize);
+
+    // Clean up filtered frame if used
+    if (use_filter_graph_) {
+        av_frame_unref(filtered_frame_);
+    }
 
     if (ret < 0) {
         char errbuf[128];
@@ -578,6 +816,20 @@ bool FFMPEGVideoEncoder::Close() {
         }
     }
     audio_streams_.clear();
+
+    // Cleanup filter graph
+    if (filtered_frame_) {
+        av_frame_free(&filtered_frame_);
+        filtered_frame_ = nullptr;
+    }
+
+    if (filter_graph_) {
+        avfilter_graph_free(&filter_graph_);
+        filter_graph_ = nullptr;
+        buffersrc_ctx_ = nullptr;
+        buffersink_ctx_ = nullptr;
+    }
+    use_filter_graph_ = false;
 
     // Cleanup
     if (sws_ctx_) {

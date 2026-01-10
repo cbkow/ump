@@ -457,10 +457,15 @@ void TranscodeQueueWindow::RenderJobRow(TranscodeJob* job, int row_index) {
     auto status = job->GetStatus();
 
     // Define status-based highlight colors
-    // Green for running, Red for cancelled/failed, Neutral grey for others
+    // Yellow for LUT generation, Green for encoding, Red for cancelled/failed, Neutral grey for others
     ImVec4 highlight_color;
     ImVec4 active_color;
     switch (status) {
+        case TranscodeJob::Status::GENERATING_LUT:
+            // Dark yellow for LUT generation phase
+            highlight_color = ImVec4(0.6f, 0.5f, 0.1f, 0.3f);
+            active_color = ImVec4(0.6f, 0.5f, 0.1f, 0.5f);
+            break;
         case TranscodeJob::Status::ENCODING:
             // Green for active/running
             highlight_color = ImVec4(0.2f, 0.6f, 0.3f, 0.3f);
@@ -568,7 +573,13 @@ void TranscodeQueueWindow::RenderJobRow(TranscodeJob* job, int row_index) {
         progress_text += " (" + std::to_string(progress.current_frame) + "/" +
                         std::to_string(progress.total_frames) + ")";
     }
-    RenderProgressBar(progress_frac, progress_text);
+    // Use yellow progress bar for LUT generation, green for encoding
+    if (status == TranscodeJob::Status::GENERATING_LUT) {
+        ImVec4 yellow_color(0.8f, 0.65f, 0.2f, 1.0f);
+        RenderProgressBar(progress_frac, progress_text, &yellow_color);
+    } else {
+        RenderProgressBar(progress_frac, progress_text);
+    }
 
     // Speed column
     ImGui::TableSetColumnIndex(4);
@@ -711,7 +722,7 @@ void TranscodeQueueWindow::RenderStatusIndicator(const std::string& label, const
     ImGui::EndGroup();
 }
 
-void TranscodeQueueWindow::RenderProgressBar(float progress, const std::string& text) {
+void TranscodeQueueWindow::RenderProgressBar(float progress, const std::string& text, const ImVec4* color) {
     char overlay_text[64];
     if (text.empty()) {
         snprintf(overlay_text, sizeof(overlay_text), "%.0f%%", progress * 100.0f);
@@ -719,8 +730,9 @@ void TranscodeQueueWindow::RenderProgressBar(float progress, const std::string& 
         snprintf(overlay_text, sizeof(overlay_text), "%s", text.c_str());
     }
 
-    // Use green for progress bar
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.2f, 0.6f, 0.3f, 1.0f));
+    // Use provided color or default green
+    ImVec4 bar_color = color ? *color : ImVec4(0.2f, 0.6f, 0.3f, 1.0f);
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, bar_color);
     ImGui::ProgressBar(progress, ImVec2(-1, 0), overlay_text);
     ImGui::PopStyleColor();
 }
@@ -901,6 +913,7 @@ void TranscodeQueueWindow::ApplyFilters() {
         bool show = false;
         switch (job->GetStatus()) {
             case TranscodeJob::Status::QUEUED: show = filter_show_queued_; break;
+            case TranscodeJob::Status::GENERATING_LUT: show = filter_show_encoding_; break;  // Show with encoding filter
             case TranscodeJob::Status::ENCODING: show = filter_show_encoding_; break;
             case TranscodeJob::Status::PAUSED: show = filter_show_paused_; break;
             case TranscodeJob::Status::COMPLETED: show = filter_show_completed_; break;

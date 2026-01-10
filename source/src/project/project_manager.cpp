@@ -198,7 +198,18 @@ namespace ump {
         #endif
 
         transcode_queue_->SetAutoSavePath(queue_save_path);
-        transcode_queue_->LoadQueue(queue_save_path);
+
+        // Clear old queue file on startup (async, fire-and-forget)
+        std::thread([queue_save_path]() {
+            try {
+                if (std::filesystem::exists(queue_save_path)) {
+                    std::filesystem::remove(queue_save_path);
+                    Debug::Log("ProjectManager: Cleared old transcode queue file");
+                }
+            } catch (...) {
+                // Ignore errors - not critical
+            }
+        }).detach();
 
         // Start worker pool
         transcode_worker_pool_->Start();
@@ -1309,6 +1320,7 @@ namespace ump {
         if (!show_project_panel || !*show_project_panel) return;
 
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // Transparent border
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.106f, 0.106f, 0.106f, 1.0f));  // #1b1b1b background
         if (ImGui::Begin("Project", show_project_panel)) {
             // Header with icon
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
@@ -1349,7 +1361,7 @@ namespace ump {
             CreateMediaPool();
         }
         ImGui::End();
-        ImGui::PopStyleColor();  // Transparent border
+        ImGui::PopStyleColor(2);  // Transparent border + #1b1b1b background
     }
 
     void ProjectManager::CreateNewProjectFromMenu() {

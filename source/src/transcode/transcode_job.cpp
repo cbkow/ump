@@ -25,7 +25,7 @@ TranscodeJob::TranscodeJob(const Config& config)
 }
 
 TranscodeJob::~TranscodeJob() {
-    if (status_ == Status::ENCODING) {
+    if (status_ == Status::ENCODING || status_ == Status::GENERATING_LUT) {
         Cancel();
     }
 }
@@ -86,7 +86,7 @@ void TranscodeJob::Resume() {
 }
 
 void TranscodeJob::Cancel() {
-    if (status_ != Status::ENCODING && status_ != Status::PAUSED) {
+    if (status_ != Status::ENCODING && status_ != Status::GENERATING_LUT && status_ != Status::PAUSED) {
         Debug::Log("WARNING: TranscodeJob::Cancel - Not active");
         return;
     }
@@ -110,6 +110,7 @@ double TranscodeJob::GetProgressPercent() const {
 std::string TranscodeJob::GetStatusString() const {
     switch (status_) {
         case Status::QUEUED: return "Queued";
+        case Status::GENERATING_LUT: return "Generating LUT...";
         case Status::ENCODING: return "Encoding";
         case Status::PAUSED: return "Paused";
         case Status::COMPLETED: return "Completed";
@@ -156,6 +157,20 @@ void TranscodeJob::ProgressCallback(const VideoTranscoder::Progress& progress) {
         completed_time_ = std::chrono::system_clock::now();
         error_message_ = progress.error_message;
         Debug::Log("ERROR: TranscodeJob failed - " + config_.job_name + ": " + error_message_);
+    } else {
+        // Update status based on current phase (for row color in queue window)
+        // LUT generation phase: status="Initializing" with "LUT" in status text
+        // Encoding phase: status="Encoding"
+        if (progress.status == "Initializing" &&
+            progress.current_status_text.find("LUT") != std::string::npos) {
+            if (status_ != Status::GENERATING_LUT) {
+                UpdateStatus(Status::GENERATING_LUT);
+            }
+        } else if (progress.status == "Encoding") {
+            if (status_ != Status::ENCODING) {
+                UpdateStatus(Status::ENCODING);
+            }
+        }
     }
 }
 

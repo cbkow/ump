@@ -40,7 +40,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
 
     ImGui::Begin("Annotations", p_open);
 
-    // Header row with icon, title, menu buttons, and close button
+    // Header row with icon, title, and close button
     {
         #define ICON_NOTES u8"\uE873"  // Material icon for notes/description
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
@@ -50,51 +50,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
             ImGui::PopFont();
             ImGui::SameLine();
         }
-        ImGui::Text("Notes");
-        ImGui::PopStyleColor();
-
-        // Export/Import buttons with spacing after title
-        ImGui::SameLine(0.0f, 20.0f);
-        bool has_notes = annotation_manager_->GetNoteCount() > 0;
-
-        ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-
-        // Export button with popup
-        if (ImGui::SmallButton("Export")) {
-            ImGui::OpenPopup("ExportPopup");
-        }
-        if (ImGui::BeginPopup("ExportPopup")) {
-            if (!has_notes) {
-                ImGui::BeginDisabled();
-            }
-            if (ImGui::MenuItem("Markdown")) {
-                if (export_callback_) export_callback_("markdown");
-            }
-            if (ImGui::MenuItem("HTML")) {
-                if (export_callback_) export_callback_("html");
-            }
-            if (ImGui::MenuItem("PDF")) {
-                if (export_callback_) export_callback_("pdf");
-            }
-            if (!has_notes) {
-                ImGui::EndDisabled();
-            }
-            ImGui::EndPopup();
-        }
-
-        ImGui::SameLine();
-
-        // Import button with popup
-        if (ImGui::SmallButton("Import")) {
-            ImGui::OpenPopup("ImportPopup");
-        }
-        if (ImGui::BeginPopup("ImportPopup")) {
-            if (ImGui::MenuItem("From Frame.io")) {
-                if (frameio_import_callback_) frameio_import_callback_();
-            }
-            ImGui::EndPopup();
-        }
-
+        ImGui::Text("Annotations");
         ImGui::PopStyleColor();
 
         // Close button on the right
@@ -118,6 +74,8 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         }
         #undef ICON_NOTES
     }
+
+    ImGui::Separator();
 
     RenderHeader();
 
@@ -171,83 +129,86 @@ void AnnotationPanel::RenderHeader() {
     }
 }
 
-void AnnotationPanel::RenderMenuBar(bool* p_open) {
-    bool has_notes = annotation_manager_->GetNoteCount() > 0;
 
-    // Export button with popup
-    if (ImGui::SmallButton("Export")) {
-        ImGui::OpenPopup("ExportPopup");
+void AnnotationPanel::RenderNotesList() {
+    const auto& notes = annotation_manager_->GetNotes();
+
+    // Track if we right-clicked on a note (set by RenderNote)
+    right_clicked_note_timecode_.clear();
+
+    if (notes.empty()) {
+        ImGui::TextDisabled("No annotations yet");
+        ImGui::TextDisabled("Click 'Add Note' to create your first annotation");
+    } else {
+        int note_index = 0;
+        for (auto& note : annotation_manager_->GetNotes()) {
+            // Use index-based ID to handle multiple notes at same timecode
+            ImGui::PushID(note_index++);
+
+            // Note: This is casting away const, which is necessary for editing
+            // In production, we'd want a better pattern here
+            RenderNote(const_cast<AnnotationNote&>(note));
+
+            ImGui::PopID();
+
+            // Add spacing between notes (no separator needed since each note has its own border)
+            ImGui::Spacing();
+        }
     }
-    if (ImGui::BeginPopup("ExportPopup")) {
-        if (!has_notes) {
+
+    // Context menu - right-click anywhere in the list area or on a note
+    if (right_clicked_note_timecode_.empty() && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) &&
+        ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        ImGui::OpenPopup("AnnotationsContextMenu");
+    }
+
+    if (!right_clicked_note_timecode_.empty()) {
+        ImGui::OpenPopup("AnnotationsContextMenu");
+    }
+
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
+
+    if (ImGui::BeginPopup("AnnotationsContextMenu")) {
+        bool has_notes = annotation_manager_->GetNoteCount() > 0;
+
+        if (ImGui::BeginMenu("Export")) {
+            if (!has_notes) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::MenuItem("Markdown")) {
+                if (export_callback_) export_callback_("markdown");
+            }
+            if (ImGui::MenuItem("HTML")) {
+                if (export_callback_) export_callback_("html");
+            }
+            if (ImGui::MenuItem("PDF")) {
+                if (export_callback_) export_callback_("pdf");
+            }
+            if (!has_notes) {
+                ImGui::EndDisabled();
+            }
+            ImGui::EndMenu();
+        }
+
+        // Import requires media to be loaded
+        bool has_media = !annotation_manager_->GetImagesFolder().empty();
+        if (!has_media) {
             ImGui::BeginDisabled();
         }
-
-        if (ImGui::MenuItem("Markdown")) {
-            if (export_callback_) {
-                export_callback_("markdown");
+        if (ImGui::BeginMenu("Import")) {
+            if (ImGui::MenuItem("From Frame.io")) {
+                if (frameio_import_callback_) frameio_import_callback_();
             }
+            ImGui::EndMenu();
         }
-
-        if (ImGui::MenuItem("HTML")) {
-            if (export_callback_) {
-                export_callback_("html");
-            }
-        }
-
-        if (ImGui::MenuItem("PDF")) {
-            if (export_callback_) {
-                export_callback_("pdf");
-            }
-        }
-
-        if (!has_notes) {
+        if (!has_media) {
             ImGui::EndDisabled();
         }
 
         ImGui::EndPopup();
     }
 
-    ImGui::SameLine();
-
-    // Import button with popup
-    if (ImGui::SmallButton("Import")) {
-        ImGui::OpenPopup("ImportPopup");
-    }
-    if (ImGui::BeginPopup("ImportPopup")) {
-        if (ImGui::MenuItem("From Frame.io")) {
-            if (frameio_import_callback_) {
-                frameio_import_callback_();
-            }
-        }
-
-        ImGui::EndPopup();
-    }
-}
-
-void AnnotationPanel::RenderNotesList() {
-    const auto& notes = annotation_manager_->GetNotes();
-
-    if (notes.empty()) {
-        ImGui::TextDisabled("No annotations yet");
-        ImGui::TextDisabled("Click 'Add Note' to create your first annotation");
-        return;
-    }
-
-    int note_index = 0;
-    for (auto& note : annotation_manager_->GetNotes()) {
-        // Use index-based ID to handle multiple notes at same timecode
-        ImGui::PushID(note_index++);
-
-        // Note: This is casting away const, which is necessary for editing
-        // In production, we'd want a better pattern here
-        RenderNote(const_cast<AnnotationNote&>(note));
-
-        ImGui::PopID();
-
-        // Add spacing between notes (no separator needed since each note has its own border)
-        ImGui::Spacing();
-    }
+    ImGui::PopStyleColor();
 }
 
 void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
@@ -544,6 +505,16 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
             ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
             wash_color,
             rounding);
+    }
+
+    // Right-click detection for context menu
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    ImVec2 note_max = ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y);
+    bool mouse_in_note = mouse_pos.x >= group_start_pos.x && mouse_pos.x <= note_max.x &&
+                         mouse_pos.y >= group_start_pos.y && mouse_pos.y <= note_max.y;
+
+    if (mouse_in_note && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+        right_clicked_note_timecode_ = note.timecode;
     }
 }
 

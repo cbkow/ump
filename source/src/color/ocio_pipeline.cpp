@@ -11,6 +11,7 @@ OCIOPipeline::OCIOPipeline()
     , vertex_shader(0)
     , fragment_shader(0)
     , is_valid(false)
+    , is_passthrough(false)
     , needs_lut(false) {
 }
 
@@ -415,6 +416,7 @@ bool OCIOPipeline::CreatePassthroughPipeline() {
     }
 
     is_valid = true;
+    is_passthrough = true;
     Debug::Log("Fallback tint pipeline created successfully");
     return true;
 }
@@ -712,6 +714,7 @@ bool OCIOPipeline::GenerateAndCompileShader() {
         }
 
         is_valid = true;
+        is_passthrough = false;  // Real OCIO transform, not passthrough
         //Debug::Log("OCIO shader compiled and linked successfully");
 
         return true;

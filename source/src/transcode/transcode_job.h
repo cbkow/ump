@@ -21,12 +21,27 @@ namespace ump {
 class TranscodeJob {
 public:
     enum class Status {
-        QUEUED,      // Waiting to start
-        ENCODING,    // Currently being processed
-        PAUSED,      // Paused by user
-        COMPLETED,   // Finished successfully
-        FAILED,      // Encountered error
-        CANCELLED    // Cancelled by user
+        QUEUED,          // Waiting to start
+        GENERATING_LUT,  // Generating OCIO LUT for video (yellow row)
+        ENCODING,        // Currently being processed (green row)
+        PAUSED,          // Paused by user
+        COMPLETED,       // Finished successfully
+        FAILED,          // Encountered error
+        CANCELLED        // Cancelled by user
+    };
+
+    /**
+     * OCIO settings snapshot (captured at job creation time).
+     * Used for LUT-based video encoding to ensure consistent color transform.
+     */
+    struct OCIOSnapshot {
+        bool enabled = false;
+        std::string src_colorspace;
+        std::string display;
+        std::string view;
+        std::string looks;
+        std::vector<std::string> scene_luts;
+        std::vector<std::string> display_luts;
     };
 
     enum class Priority {
@@ -56,6 +71,12 @@ public:
 
         // Dependencies (optional)
         std::vector<std::string> dependency_job_ids;  // Wait for these jobs to complete
+
+        // OCIO snapshot (captured at job creation for LUT-based encoding)
+        OCIOSnapshot ocio_snapshot;
+
+        // Path to generated/cached LUT file (set during encoding for video files)
+        std::string lut_path;
     };
 
     explicit TranscodeJob(const Config& config);

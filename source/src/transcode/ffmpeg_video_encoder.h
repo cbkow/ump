@@ -12,6 +12,9 @@ extern "C" {
 #include <libavutil/imgutils.h>
 #include <libavutil/parseutils.h>
 #include <libavutil/audio_fifo.h>
+#include <libavfilter/avfilter.h>
+#include <libavfilter/buffersrc.h>
+#include <libavfilter/buffersink.h>
 }
 
 namespace ump {
@@ -52,8 +55,12 @@ public:
         // Performance
         int thread_count = 0;  // 0 = auto (use all CPU cores), 1-32 = manual thread count
 
-        // Audio settings (NEW)
+        // Audio settings
         bool copy_audio = true;  // Copy audio streams from source (stream copy mode)
+
+        // LUT-based color transform (for video file encoding)
+        std::string lut_file_path;   // Path to .cube LUT file (empty = no LUT)
+        bool use_lut_filter = false; // Enable FFmpeg lut3d filter
     };
 
     struct AudioStreamInfo {
@@ -182,6 +189,12 @@ private:
     // Create output format context
     bool CreateOutputContext();
 
+    // Initialize filter graph for LUT-based color transform
+    bool InitializeFilterGraph(const std::string& lut_path);
+
+    // Escape path for FFmpeg filter string (Windows paths need escaping)
+    static std::string EscapePathForFFmpeg(const std::string& path);
+
     // Encode and write packet
     bool EncodeAndWrite(AVFrame* frame);
 
@@ -206,6 +219,13 @@ private:
     int frame_count_ = 0;
     bool is_open_ = false;
     bool header_written_ = false;
+
+    // Filter graph for LUT-based color transform
+    AVFilterGraph* filter_graph_ = nullptr;
+    AVFilterContext* buffersrc_ctx_ = nullptr;
+    AVFilterContext* buffersink_ctx_ = nullptr;
+    AVFrame* filtered_frame_ = nullptr;  // Frame after filter processing
+    bool use_filter_graph_ = false;
 };
 
 } // namespace ump

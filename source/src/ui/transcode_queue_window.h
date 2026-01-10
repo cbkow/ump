@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <imgui.h>
 #include "../transcode/transcode_queue.h"
 #include "../transcode/transcode_worker_pool.h"
 
@@ -53,7 +54,7 @@ private:
 
     // Helper rendering
     void RenderStatusIndicator(const std::string& label, const char* status, float r, float g, float b);
-    void RenderProgressBar(float progress, const std::string& text = "");
+    void RenderProgressBar(float progress, const std::string& text = "", const ImVec4* color = nullptr);
     void RenderWorkerBox(const TranscodeWorkerPool::WorkerInfo& worker);
     void RenderJobRow(TranscodeJob* job, int row_index);
 
