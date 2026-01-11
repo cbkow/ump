@@ -914,7 +914,7 @@ public:
 #ifdef _WIN32
         // Set window icon using Windows API
         HWND hwnd = glfwGetWin32Window(window);
-        HICON hIcon = (HICON)LoadImage(NULL, TEXT("assets/icons/ump.ico"), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
+        HICON hIcon = (HICON)LoadImage(NULL, TEXT("assets/icons/umpn.ico"), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
         if (hIcon) {
             SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
             SendMessage(hwnd, WM_SETICON, ICON_BIG, (LPARAM)hIcon);
@@ -4530,7 +4530,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.3");
+                ImGui::TextDisabled("About u.m.p. v0.6.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
