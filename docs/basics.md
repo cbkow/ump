@@ -48,12 +48,6 @@ You can resize panels by simply dragging the borders.
 
 ![ump image](images/ump_uIaUcsUKkk.png)
 
-If you click the tiny triangle in the top-left corner, you can reveal the panel as a movable object. You can then drag and drop the panel elsewhere. This arrangement will be saved in your personal settings and remembered the next time you open the app. Reset Layiout `Ctrl + R` will reset the panels if you change your mind.
-
-![ump image](images/ump_yuRO26TvAb.png)
-
-![ump image](images/ump_scZlQcKSb8.png)
-
 ---
 
 ## Backgrounds and Overlays
