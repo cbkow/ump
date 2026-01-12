@@ -942,6 +942,13 @@ public:
         // Setup ImGui and OCIO
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
+
+        // Change docking tooltip since undocking is disabled
+        static const ImGuiLocEntry loc_entries[] = {
+            { ImGuiLocKey_DockingDragToUndockOrMoveNode, "Click and drag to reorder tabs" },
+        };
+        ImGui::LocalizeRegisterEntries(loc_entries, IM_ARRAYSIZE(loc_entries));
+
         ImPlot::CreateContext();
         ImNodes::CreateContext();
         NodeEditorTheme::ApplyDarkTheme();
@@ -3435,7 +3442,10 @@ private:
         ImGui::PopStyleVar(3);
 
         ImGuiID dockspace_id = ImGui::GetID("MainDockspace");
-        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_AutoHideTabBar);
+        ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f),
+            ImGuiDockNodeFlags_NoTabBar |
+            ImGuiDockNodeFlags_NoUndocking |
+            ImGuiDockNodeFlags_NoDockingSplit);
 
         if (first_time_setup) {
 
@@ -4530,7 +4540,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.4");
+                ImGui::TextDisabled("About u.m.p. v0.6.5");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);

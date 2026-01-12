@@ -1321,7 +1321,7 @@ namespace ump {
         if (!show_project_panel || !*show_project_panel) return;
 
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));  // Transparent border
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.106f, 0.106f, 0.106f, 1.0f));  // #1b1b1b background
+        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));  // #121212 background
         if (ImGui::Begin("Project", show_project_panel)) {
             // Header with icon
             ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
