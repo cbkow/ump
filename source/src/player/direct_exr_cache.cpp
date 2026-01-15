@@ -257,7 +257,7 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     //           " frames, cache=" + std::to_string(config_.cacheGB) + "GB");
 
     // Start preloading from initial position (fill cache around playhead)
-    Debug::Log("DirectEXRCache: [INIT] Starting cache fill from position " + std::to_string(initial_position) + "s");
+    //Debug::Log("DirectEXRCache: [INIT] Starting cache fill from position " + std::to_string(initial_position) + "s");
     UpdateCurrentPosition(initial_position);
 
     return true;
@@ -1612,51 +1612,42 @@ std::shared_ptr<PixelData> DirectEXRCache::LoadPixels(const std::string& path) {
 
 std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& path,
                                                              const std::string& layer) {
-    // Memory-mapped stream 
+    // Memory-mapped stream
     auto stream = std::make_unique<MemoryMappedIStream>(path);
     Imf::MultiPartInputFile file(*stream);
 
-    // Get header and dimensions (check both windows)
-    const Imf::Header& header = file.header(0);
+    // Find the correct part for the requested layer
+    int numParts = file.parts();
+    int targetPartIndex = 0;  // Default to part 0
+
+    if (numParts > 1 && !layer.empty()) {
+        // Multi-part EXR: find the part that matches the layer name
+        for (int p = 0; p < numParts; ++p) {
+            const Imf::Header& partHeader = file.header(p);
+            if (partHeader.hasName()) {
+                std::string partName = partHeader.name();
+                if (partName == layer) {
+                    targetPartIndex = p;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Get header and dimensions from the target part
+    const Imf::Header& header = file.header(targetPartIndex);
     const Imath::Box2i displayWindow = header.displayWindow();
     const Imath::Box2i dataWindow = header.dataWindow();
 
     //Detect fast path when windows match
     const bool fastPath = (displayWindow == dataWindow);
 
-    // Use display window for output dimensions 
+    // Use display window for output dimensions
     int width = displayWindow.max.x - displayWindow.min.x + 1;
     int height = displayWindow.max.y - displayWindow.min.y + 1;
 
     // Setup frame buffer
     const Imf::ChannelList& channels = header.channels();
-
-    // Debug logging 
-    static bool loggedFileInfo = false;
-    if (!loggedFileInfo) {
-        const char* compressionNames[] = {
-            "NO_COMPRESSION", "RLE", "ZIPS", "ZIP", "PIZ", "PXR24",
-            "B44", "B44A", "DWAA", "DWAB"
-        };
-        int compressionType = static_cast<int>(header.compression());
-        const char* compressionName = (compressionType >= 0 && compressionType < 10)
-            ? compressionNames[compressionType] : "UNKNOWN";
-
-        // Count total channels in file
-        int totalChannels = 0;
-        for (auto it = channels.begin(); it != channels.end(); ++it) {
-            totalChannels++;
-        }
-
-       /* Debug::Log("DirectEXRCache: EXR file info - " +
-                   std::to_string(width) + "x" + std::to_string(height) +
-                   ", Compression: " + std::string(compressionName) +
-                   ", Path: " + (fastPath ? "FAST" : "SLOW") +
-                   " (display " + (fastPath ? "==" : "!=") + " data window)" +
-                   ", Total channels: " + std::to_string(totalChannels) +
-                   ", Requested layer: '" + layer + "'");*/
-        loggedFileInfo = true;
-    }
 
     // Allocate pixel buffer with optimizations
     auto data = std::make_shared<EXRPixelData>();
@@ -1731,7 +1722,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
     int numChannels = hasAlpha ? 4 : 3;
 
     // Read pixels using using the dual-path approach
-    Imf::InputPart part(file, 0);
+    Imf::InputPart part(file, targetPartIndex);
 
     if (fastPath) {
         // FAST PATH: Direct read when display window == data window

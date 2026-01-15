@@ -12,6 +12,7 @@
 
 // OpenEXR includes - using direct API as per lessons learned
 #include <ImfInputFile.h>
+#include <ImfMultiPartInputFile.h>
 #include <ImfChannelList.h>
 #include <ImfHeader.h>
 #include <ImfPixelType.h>
@@ -58,64 +59,148 @@ namespace ump {
                 last_error_ = "Cannot open file: " + file_path;
                 return false;
             }
-            CloseHandle(fileHandle); // Just checking existence, InputFile will open it
+            CloseHandle(fileHandle); // Just checking existence, MultiPartInputFile will open it
 #endif
 
-            Imf::InputFile input_file(file_path.c_str());
-            const Imf::Header& header = input_file.header();
-            const Imf::ChannelList& channel_list = header.channels();
+            // Use MultiPartInputFile to scan all parts
+            Imf::MultiPartInputFile input_file(file_path.c_str());
+            int numParts = input_file.parts();
 
-            // Collect all channels
-            std::vector<EXRChannel> channels;
+            // For multi-part EXRs, each part is typically a separate layer
+            if (numParts > 1) {
+                // Multi-part EXR: each part is a layer
+                for (int partIndex = 0; partIndex < numParts; ++partIndex) {
+                    const Imf::Header& partHeader = input_file.header(partIndex);
+                    const Imf::ChannelList& partChannels = partHeader.channels();
 
-            for (Imf::ChannelList::ConstIterator it = channel_list.begin(); it != channel_list.end(); ++it) {
-                try {
-                    const std::string& channel_name = it.name();
-                    const Imf::Channel& channel = it.channel();
-
-                    EXRChannel exr_channel;
-                    exr_channel.name = channel_name;
-
-                    // Get pixel type
-                    switch (channel.type) {
-                        case Imf::HALF:
-                            exr_channel.pixel_type = "half";
-                            break;
-                        case Imf::FLOAT:
-                            exr_channel.pixel_type = "float";
-                            break;
-                        case Imf::UINT:
-                            exr_channel.pixel_type = "uint";
-                            break;
-                        default:
-                            exr_channel.pixel_type = "unknown";
-                            break;
+                    // Get part name (this is the layer name)
+                    std::string partName;
+                    if (partHeader.hasName()) {
+                        partName = partHeader.name();
+                    } else {
+                        partName = "Part " + std::to_string(partIndex);
                     }
 
-                    exr_channel.x_sampling = channel.xSampling;
-                    exr_channel.y_sampling = channel.ySampling;
-                    exr_channel.linear = channel.pLinear;
+                    // Collect channels for this part
+                    std::vector<EXRChannel> channels;
+                    bool has_r = false, has_g = false, has_b = false, has_a = false;
 
-                    channels.push_back(exr_channel);
-                } catch (const std::exception& e) {
-                    // Silently skip problematic channels
-                    continue;
+                    for (Imf::ChannelList::ConstIterator it = partChannels.begin(); it != partChannels.end(); ++it) {
+                        try {
+                            const std::string& channel_name = it.name();
+                            const Imf::Channel& channel = it.channel();
+
+                            EXRChannel exr_channel;
+                            exr_channel.name = channel_name;
+
+                            switch (channel.type) {
+                                case Imf::HALF:
+                                    exr_channel.pixel_type = "half";
+                                    break;
+                                case Imf::FLOAT:
+                                    exr_channel.pixel_type = "float";
+                                    break;
+                                case Imf::UINT:
+                                    exr_channel.pixel_type = "uint";
+                                    break;
+                                default:
+                                    exr_channel.pixel_type = "unknown";
+                                    break;
+                            }
+
+                            exr_channel.x_sampling = channel.xSampling;
+                            exr_channel.y_sampling = channel.ySampling;
+                            exr_channel.linear = channel.pLinear;
+
+                            channels.push_back(exr_channel);
+
+                            // Check for RGBA (case-insensitive for last component)
+                            std::string component = ExtractChannelComponent(channel_name);
+                            std::string comp_upper = component;
+                            std::transform(comp_upper.begin(), comp_upper.end(), comp_upper.begin(), ::toupper);
+                            if (comp_upper == "R") has_r = true;
+                            else if (comp_upper == "G") has_g = true;
+                            else if (comp_upper == "B") has_b = true;
+                            else if (comp_upper == "A") has_a = true;
+                        } catch (const std::exception&) {
+                            continue;
+                        }
+                    }
+
+                    // Skip parts with no channels
+                    if (channels.empty()) continue;
+
+                    // Create layer for this part
+                    EXRLayer layer;
+                    layer.name = partName;
+                    layer.display_name = GetLayerDisplayName(partName);
+                    layer.channels = channels;
+                    layer.has_rgba = has_r && has_g && has_b;
+                    layer.has_alpha = has_a;
+                    layer.priority = GetLayerPriority(partName);
+                    layer.part_index = partIndex;
+
+                    // Count cryptomatte before filtering
+                    if (IsCryptomatteLayer(partName)) {
+                        cryptomatte_count++;
+                        continue; // Skip cryptomatte layers
+                    }
+
+                    layers.push_back(layer);
                 }
-            }
+            } else {
+                // Single-part EXR: use original channel grouping logic
+                const Imf::Header& header = input_file.header(0);
+                const Imf::ChannelList& channel_list = header.channels();
 
-            if (channels.empty()) {
-                // No standard channels found - create fallback layer
-                CreateFallbackLayer(channels, layers);
-                return true;
-            }
+                std::vector<EXRChannel> channels;
 
-            // Group channels into logical layers
-            GroupChannelsIntoLayers(channels, layers);
+                for (Imf::ChannelList::ConstIterator it = channel_list.begin(); it != channel_list.end(); ++it) {
+                    try {
+                        const std::string& channel_name = it.name();
+                        const Imf::Channel& channel = it.channel();
 
-            // Count Cryptomattes before filtering them out
-            for (const EXRLayer& layer : layers) {
-                if (IsCryptomatteLayer(layer.name)) {
-                    cryptomatte_count++;
+                        EXRChannel exr_channel;
+                        exr_channel.name = channel_name;
+
+                        switch (channel.type) {
+                            case Imf::HALF:
+                                exr_channel.pixel_type = "half";
+                                break;
+                            case Imf::FLOAT:
+                                exr_channel.pixel_type = "float";
+                                break;
+                            case Imf::UINT:
+                                exr_channel.pixel_type = "uint";
+                                break;
+                            default:
+                                exr_channel.pixel_type = "unknown";
+                                break;
+                        }
+
+                        exr_channel.x_sampling = channel.xSampling;
+                        exr_channel.y_sampling = channel.ySampling;
+                        exr_channel.linear = channel.pLinear;
+
+                        channels.push_back(exr_channel);
+                    } catch (const std::exception&) {
+                        continue;
+                    }
+                }
+
+                if (channels.empty()) {
+                    CreateFallbackLayer(channels, layers);
+                    return true;
+                }
+
+                // Group channels into logical layers (original logic)
+                GroupChannelsIntoLayers(channels, layers);
+
+                // Count Cryptomattes before filtering them out
+                for (const EXRLayer& layer : layers) {
+                    if (IsCryptomatteLayer(layer.name)) {
+                        cryptomatte_count++;
+                    }
                 }
             }
 
@@ -134,6 +219,7 @@ namespace ump {
             fallback_layer.has_alpha = true;
             fallback_layer.is_default = true;
             fallback_layer.priority = 0;
+            fallback_layer.part_index = 0;
             layers.push_back(fallback_layer);
             return true; // Return true with fallback to allow processing
         }

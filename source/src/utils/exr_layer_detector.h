@@ -24,6 +24,9 @@ namespace ump {
 
         // For UI sorting
         int priority = 100;         // Lower numbers appear first (beauty=0, diffuse=10, etc.)
+
+        // Multi-part EXR support
+        int part_index = 0;         // Which part of a multi-part EXR contains this layer
     };
 
     class EXRLayerDetector {

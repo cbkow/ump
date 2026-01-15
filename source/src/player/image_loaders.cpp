@@ -1043,7 +1043,21 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadFrame(
         auto stream = std::make_unique<MemoryMappedIStream>(path);
         Imf::MultiPartInputFile file(*stream);
 
-        const Imf::Header& header = file.header(0);
+        // Find the correct part for the requested layer (multi-part EXR support)
+        int numParts = file.parts();
+        int targetPartIndex = 0;
+
+        if (numParts > 1 && !layer.empty()) {
+            for (int p = 0; p < numParts; ++p) {
+                const Imf::Header& partHeader = file.header(p);
+                if (partHeader.hasName() && partHeader.name() == layer) {
+                    targetPartIndex = p;
+                    break;
+                }
+            }
+        }
+
+        const Imf::Header& header = file.header(targetPartIndex);
         const Imath::Box2i displayWindow = header.displayWindow();
         const Imath::Box2i dataWindow = header.dataWindow();
 
@@ -1100,7 +1114,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadFrame(
         std::string fullChannelNames[4] = { channelR, channelG, channelB, channelA };
         int numChannels = hasAlpha ? 4 : 3;
 
-        Imf::InputPart part(file, 0);
+        Imf::InputPart part(file, targetPartIndex);
 
         if (fastPath) {
             // FAST PATH: Direct read
@@ -1198,7 +1212,21 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
         auto stream = std::make_unique<MemoryMappedIStream>(path);
         Imf::MultiPartInputFile file(*stream);
 
-        const Imf::Header& header = file.header(0);
+        // Find the correct part for the requested layer (multi-part EXR support)
+        int numParts = file.parts();
+        int targetPartIndex = 0;
+
+        if (numParts > 1 && !layer_name_.empty()) {
+            for (int p = 0; p < numParts; ++p) {
+                const Imf::Header& partHeader = file.header(p);
+                if (partHeader.hasName() && partHeader.name() == layer_name_) {
+                    targetPartIndex = p;
+                    break;
+                }
+            }
+        }
+
+        const Imf::Header& header = file.header(targetPartIndex);
         const Imath::Box2i displayWindow = header.displayWindow();
         const Imath::Box2i dataWindow = header.dataWindow();
 
@@ -1289,7 +1317,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
 
         bool hasAlpha = (chA != nullptr);
 
-        Imf::InputPart part(file, 0);
+        Imf::InputPart part(file, targetPartIndex);
 
         // NOTE: Tiled EXRs could be optimized further by reading only needed tiles
         // For now, we use scanline-based reading which works for both formats
