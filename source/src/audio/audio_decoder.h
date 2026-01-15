@@ -206,6 +206,10 @@ private:
 
     // EOF tracking
     std::atomic<bool> eof_reached_{false};
+
+public:
+    // Check if decoder has reached end of file
+    bool IsEOF() const { return eof_reached_.load(); }
 };
 
 } // namespace ump

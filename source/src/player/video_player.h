@@ -430,6 +430,12 @@ public:
     // Get the dual view audio player (for volume control, etc.)
     ump::AudioPlayer* GetDualViewAudio() const { return dual_view_audio_.get(); }
 
+    // Image sequence audio support
+    bool LoadSequenceAudio(const std::string& audio_path);
+    void UnloadSequenceAudio();
+    bool HasSequenceAudio() const;
+    ump::AudioPlayer* GetSequenceAudio() const { return sequence_audio_.get(); }
+
     // Screenshot functionality - captures final rendered frame with all FBO processing
     bool CaptureScreenshotToClipboard();
     bool CaptureScreenshotToDesktop(const std::string& filename = "");
@@ -622,6 +628,7 @@ private:
     std::unique_ptr<ump::PlaybackTimer> dual_view_timer_;  // Manual timer for virtual timeline playback
     std::unique_ptr<ump::AudioPlayer> dual_view_audio_;    // Independent audio for dual view mode (left video)
     std::unique_ptr<ump::PlaybackTimer> image_sequence_timer_;  // Timer for image sequence playback (no dummy video)
+    std::unique_ptr<ump::AudioPlayer> sequence_audio_;         // Audio playback for image sequences
     std::string comparison_drop_pending_id_;  // Pending media ID from drag-drop (comparison video)
     std::string viewport_drop_pending_id_;  // Pending media ID from drag-drop (main viewport)
     std::string original_video_path_before_difference_;  // Stores original video to restore when exiting difference mode

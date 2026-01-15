@@ -1004,6 +1004,10 @@ void VideoPlayer::Play() {
         if (exr_cache_) {
             exr_cache_->UpdatePlaybackState(true);
         }
+        // Start sequence audio playback
+        if (sequence_audio_) {
+            sequence_audio_->Play();
+        }
         return;
     }
 
@@ -1059,6 +1063,10 @@ void VideoPlayer::Pause() {
         is_playing = false;
         if (exr_cache_) {
             exr_cache_->UpdatePlaybackState(false);
+        }
+        // Pause sequence audio playback
+        if (sequence_audio_) {
+            sequence_audio_->Pause();
         }
         return;
     }
@@ -1124,6 +1132,10 @@ void VideoPlayer::Seek(double pos) {
         if (pos > timer_duration) pos = timer_duration;
         image_sequence_timer_->Seek(pos);
         cached_position = pos;
+        // Sync sequence audio position
+        if (sequence_audio_) {
+            sequence_audio_->Seek(pos);
+        }
         return;
     }
 
@@ -2141,6 +2153,11 @@ void VideoPlayer::UpdateVideoTexture() {
             image_sequence_timer_->Update();
         }
         cached_position = image_sequence_timer_->GetPosition();
+
+        // Update sequence audio sync
+        if (sequence_audio_) {
+            sequence_audio_->Update();
+        }
     }
 
     // 🔧 EXR INJECTION POINT: Replace dummy video with current EXR frame
@@ -2517,6 +2534,9 @@ void VideoPlayer::ResetState() {
             image_sequence_timer_.reset();
             Debug::Log("ResetState: Image sequence timer cleaned up");
         }
+
+        // Clean up sequence audio
+        UnloadSequenceAudio();
 
         is_exr_mode = false;
         exr_sequence_files.clear();
@@ -8796,5 +8816,65 @@ void VideoPlayer::OnTranscodeComplete() {
     } else {
         Debug::Log("VideoPlayer: Difference sequence loaded successfully - using DirectEXRCache!");
     }
+}
+
+// ============================================================================
+// Image Sequence Audio Support
+// ============================================================================
+
+bool VideoPlayer::LoadSequenceAudio(const std::string& audio_path) {
+    Debug::Log("LoadSequenceAudio: Loading audio from " + audio_path);
+
+    // Clean up existing audio player
+    UnloadSequenceAudio();
+
+    // Check if we have an image sequence timer to sync with
+    if (!image_sequence_timer_) {
+        Debug::Log("LoadSequenceAudio: No image sequence timer available - cannot sync audio");
+        return false;
+    }
+
+    // Create and initialize audio player
+    sequence_audio_ = std::make_unique<ump::AudioPlayer>();
+    if (!sequence_audio_->Initialize()) {
+        Debug::Log("LoadSequenceAudio: Failed to initialize audio player");
+        sequence_audio_.reset();
+        return false;
+    }
+
+    // Configure audio clip - start at beginning, play entire file
+    ump::AudioClipConfig audio_config;
+    audio_config.source_in = 0.0;           // Start from beginning
+    audio_config.source_out = -1.0;         // Play to end
+    audio_config.position_offset = 0.0;     // Start at frame 1 (time 0)
+    audio_config.source_duration = 0.0;     // Will be detected from file
+
+    // Load the audio clip
+    if (!sequence_audio_->LoadClip(audio_path, audio_config)) {
+        Debug::Log("LoadSequenceAudio: Failed to load audio clip from " + audio_path);
+        sequence_audio_->Shutdown();
+        sequence_audio_.reset();
+        return false;
+    }
+
+    // Link audio to the image sequence timer for sync
+    sequence_audio_->SetTimer(image_sequence_timer_.get());
+
+    Debug::Log("LoadSequenceAudio: Audio loaded successfully and synced to image sequence timer");
+    return true;
+}
+
+void VideoPlayer::UnloadSequenceAudio() {
+    if (sequence_audio_) {
+        Debug::Log("UnloadSequenceAudio: Unloading sequence audio");
+        sequence_audio_->Stop();
+        sequence_audio_->UnloadClip();
+        sequence_audio_->Shutdown();
+        sequence_audio_.reset();
+    }
+}
+
+bool VideoPlayer::HasSequenceAudio() const {
+    return sequence_audio_ != nullptr && sequence_audio_->HasClip();
 }
 

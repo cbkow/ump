@@ -275,6 +275,7 @@ namespace ump {
         void OpenTimelineInEditor(const std::string& timeline_id);
         MediaItem* GetTimelineItem(const std::string& timeline_id_or_path);  // Accepts timeline_id or file path
         MediaItem* GetCurrentTimelineItem();  // Returns current active timeline's MediaItem
+        MediaItem* GetCurrentPlayingMediaItem();  // Returns MediaItem for currently playing file (works for single items and sequences)
         std::string GetCurrentTimelineId() const { return current_timeline_id; }
         int GetTimelineCount() const;
 

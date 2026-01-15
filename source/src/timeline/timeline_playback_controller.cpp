@@ -72,6 +72,24 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
     const auto& tracks = timeline_view->GetTracks();
     cache_->Initialize(tracks, &timeline_view->GetFlattener(), fps_);
 
+    // Register sequence metadata for any image sequence clips
+    // This must happen after cache is created but before it starts loading frames
+    for (const auto& track : tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
+                SequenceMetadata seq_meta;
+                seq_meta.directory = clip.sequence_directory;
+                seq_meta.pattern = clip.sequence_pattern;
+                seq_meta.start_frame = clip.sequence_start_frame;
+                seq_meta.end_frame = clip.sequence_end_frame;
+                seq_meta.exr_layer = clip.sequence_exr_layer;
+                seq_meta.pipeline_mode = PipelineMode::NORMAL;  // TODO: detect from format
+                seq_meta.valid = true;
+                cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+            }
+        }
+    }
+
     // Set gap texture and canvas dimensions to match timeline content
     // This prevents OpenGL corruption on gap transitions and flickering with mixed resolutions
     if (width_ > 0 && height_ > 0) {
@@ -272,6 +290,27 @@ void TimelinePlaybackController::NotifyTracksEdited() {
     // Notify the cache to clear and refresh (this queues old textures for deletion)
     if (cache_) {
         cache_->NotifyTracksEdited();
+    }
+
+    // Register sequence metadata for any new image sequence clips
+    // This must happen before audio mixer preloads to ensure cache knows about sequences
+    if (cache_ && timeline_view_) {
+        const auto& tracks = timeline_view_->GetTracks();
+        for (const auto& track : tracks) {
+            for (const auto& clip : track.clips) {
+                if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
+                    SequenceMetadata seq_meta;
+                    seq_meta.directory = clip.sequence_directory;
+                    seq_meta.pattern = clip.sequence_pattern;
+                    seq_meta.start_frame = clip.sequence_start_frame;
+                    seq_meta.end_frame = clip.sequence_end_frame;
+                    seq_meta.exr_layer = clip.sequence_exr_layer;
+                    seq_meta.pipeline_mode = PipelineMode::NORMAL;
+                    seq_meta.valid = true;
+                    cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                }
+            }
+        }
     }
 
     // Refresh audio mixer with any new clips

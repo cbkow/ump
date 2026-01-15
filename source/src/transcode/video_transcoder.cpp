@@ -126,8 +126,15 @@ void VideoTranscoder::UpdateProgress(const Progress& progress) {
 // Helper: Check if audio codec is compatible with output container
 // ============================================================================
 static bool IsAudioCodecCompatible(const std::string& audio_codec, const std::string& video_codec) {
-    // MP4 container (H.264/H.265) has strict audio codec requirements
-    if (video_codec == "libx264" || video_codec == "libx265") {
+    // Check if this is an H.264 or H.265 encoder (MP4 container)
+    // Includes software encoders (libx264, libx265) and hardware encoders (nvenc, qsv, amf, videotoolbox)
+    bool is_h264 = (video_codec.find("264") != std::string::npos) ||
+                   (video_codec.find("h264") != std::string::npos);
+    bool is_h265 = (video_codec.find("265") != std::string::npos) ||
+                   (video_codec.find("hevc") != std::string::npos);
+
+    if (is_h264 || is_h265) {
+        // MP4 container has strict audio codec requirements
         // Compatible codecs for MP4
         if (audio_codec == "aac" ||
             audio_codec == "mp3" ||
@@ -140,7 +147,7 @@ static bool IsAudioCodecCompatible(const std::string& audio_codec, const std::st
         return false;
     }
 
-    // Other containers (MOV, MKV) accept most codecs
+    // Other containers (MOV with ProRes, MKV) accept most codecs
     return true;
 }
 
@@ -476,15 +483,30 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
         Debug::Log("VideoTranscoder: Encoder opened");
 
         // ===================================================================
-        // NEW: STEP 5.5: Add Audio Streams (if source is video and copy_audio is enabled)
+        // NEW: STEP 5.5: Add Audio Streams
+        // - For VIDEO_FILE: extract audio from source video (if copy_audio enabled)
+        // - For IMAGE_SEQUENCE: use separate audio_file if provided
         // ===================================================================
+        std::string audio_source_path;
+        bool should_add_audio = false;
+
         if (config.input_mode == InputMode::VIDEO_FILE && config.encoder_settings.copy_audio) {
+            audio_source_path = config.input_video_path;
+            should_add_audio = true;
+            Debug::Log("VideoTranscoder: Audio source is input video file");
+        } else if (config.input_mode == InputMode::IMAGE_SEQUENCE && !config.audio_file.empty()) {
+            audio_source_path = config.audio_file;
+            should_add_audio = true;
+            Debug::Log("VideoTranscoder: Audio source is separate audio file: " + config.audio_file);
+        }
+
+        if (should_add_audio) {
             progress.current_status_text = "Detecting audio streams...";
             UpdateProgress(progress);
             if (callback) callback(progress);
 
-            // Open source video file to detect audio streams
-            if (avformat_open_input(&source_format_ctx, config.input_video_path.c_str(), nullptr, nullptr) == 0) {
+            // Open audio source file to detect audio streams
+            if (avformat_open_input(&source_format_ctx, audio_source_path.c_str(), nullptr, nullptr) == 0) {
                 if (avformat_find_stream_info(source_format_ctx, nullptr) >= 0) {
                     // Find all audio streams
                     for (unsigned int i = 0; i < source_format_ctx->nb_streams; i++) {
@@ -494,7 +516,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
                     }
 
                     if (audio_stream_indices.empty()) {
-                        Debug::Log("VideoTranscoder: No audio streams found in source video");
+                        Debug::Log("VideoTranscoder: No audio streams found in source");
                     } else {
                         Debug::Log("VideoTranscoder: Found " + std::to_string(audio_stream_indices.size()) + " audio stream(s)");
 
@@ -526,7 +548,7 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
                     Debug::Log("WARNING: Failed to find stream info for audio detection");
                 }
             } else {
-                Debug::Log("WARNING: Failed to open source file for audio detection");
+                Debug::Log("WARNING: Failed to open audio source file: " + audio_source_path);
             }
         }
 
@@ -618,16 +640,29 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             Debug::Log("VideoTranscoder: Copying audio packets from source");
 
             // Calculate time range for audio trimming (to match video trim)
-            // Note: frame_paths contains the trimmed range, so we need to extract actual frame numbers
-            int actual_start_frame = (config.start_frame >= 0) ? config.start_frame : 0;
-            int actual_end_frame = (config.start_frame >= 0) ? (actual_start_frame + total_frames - 1) : (total_frames - 1);
+            double start_time_sec = 0.0;
+            double end_time_sec = 0.0;
 
-            double start_time_sec = actual_start_frame / config.fps;
-            double end_time_sec = (actual_end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
+            if (config.input_mode == InputMode::VIDEO_FILE) {
+                // VIDEO_FILE mode: trim based on video's start_frame/end_frame
+                // Note: frame_paths contains the trimmed range, so we need to extract actual frame numbers
+                int actual_start_frame = (config.start_frame >= 0) ? config.start_frame : 0;
+                int actual_end_frame = (config.start_frame >= 0) ? (actual_start_frame + total_frames - 1) : (total_frames - 1);
 
-            Debug::Log("VideoTranscoder: Trimming audio to match video range: " +
+                start_time_sec = actual_start_frame / config.fps;
+                end_time_sec = (actual_end_frame + 1) / config.fps;  // +1 because end_frame is inclusive
+            } else {
+                // IMAGE_SEQUENCE mode: audio starts at 0 and matches sequence duration
+                // The audio_file is expected to be synced with frame 1 of the sequence
+                // If in/out points were applied, the sequence was pre-trimmed, so audio should
+                // be trimmed to match the output duration (0 to total_frames/fps)
+                start_time_sec = 0.0;
+                end_time_sec = total_frames / config.fps;
+            }
+
+            Debug::Log("VideoTranscoder: Audio time range: " +
                        std::to_string(start_time_sec) + "s to " + std::to_string(end_time_sec) + "s" +
-                       " (frames " + std::to_string(actual_start_frame) + " to " + std::to_string(actual_end_frame) + ")");
+                       " (" + std::to_string(total_frames) + " frames at " + std::to_string(config.fps) + " fps)");
 
             // Set audio trim offset in encoder (for timestamp adjustment)
             encoder_->SetAudioTrimOffset(start_time_sec);
@@ -645,6 +680,14 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
             AVPacket* packet = av_packet_alloc();
             int audio_packet_count = 0;
             int skipped_packet_count = 0;
+
+            // Track running timestamp for packets without pts/dts (like raw PCM in WAV)
+            double running_audio_time_sec = 0.0;
+            AVStream* first_audio_stream = source_format_ctx->streams[audio_stream_indices[0]];
+            int bytes_per_second = first_audio_stream->codecpar->sample_rate *
+                                   first_audio_stream->codecpar->ch_layout.nb_channels *
+                                   av_get_bytes_per_sample(static_cast<AVSampleFormat>(first_audio_stream->codecpar->format));
+            if (bytes_per_second <= 0) bytes_per_second = 48000 * 2 * 2;  // Fallback: 48kHz stereo 16-bit
 
             while (av_read_frame(source_format_ctx, packet) >= 0) {
                 if (cancel_requested_) {
@@ -672,6 +715,14 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
                         packet_time_sec = packet->pts * av_q2d(stream->time_base);
                     } else if (packet->dts != AV_NOPTS_VALUE) {
                         packet_time_sec = packet->dts * av_q2d(stream->time_base);
+                    } else {
+                        // No timestamp - use running time estimate (common for WAV/PCM)
+                        packet_time_sec = running_audio_time_sec;
+                    }
+
+                    // Update running time based on packet size (for formats without timestamps)
+                    if (packet->size > 0 && bytes_per_second > 0) {
+                        running_audio_time_sec += static_cast<double>(packet->size) / bytes_per_second;
                     }
 
                     // Only copy packets within our time range

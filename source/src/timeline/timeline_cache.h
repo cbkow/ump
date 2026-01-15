@@ -20,6 +20,7 @@
 #include "../player/pipeline_mode.h"
 #include "../player/shared_memory_pool.h"
 #include "../player/streaming_video_decoder.h"  // For SeekQuality enum
+#include "../player/image_sequence_decoder.h"   // For ImageSequenceDecoder
 
 namespace ump {
 
@@ -119,7 +120,10 @@ struct ClipLoaderInfo {
     // For VIDEO clips: use streaming decoder (continuous decode + buffer)
     std::unique_ptr<StreamingVideoDecoder> video_decoder;
 
-    // For IMAGE_SEQUENCE/EXR clips: use image loader (random access)
+    // For IMAGE_SEQUENCE/EXR clips: use sequence decoder (ring buffer like video)
+    std::unique_ptr<ImageSequenceDecoder> sequence_decoder;
+
+    // Legacy: For image sequences without full metadata (falls back to per-file loading)
     std::unique_ptr<IImageLoader> image_loader;
 
     ClipMediaType media_type = ClipMediaType::UNKNOWN;
@@ -131,6 +135,82 @@ struct ClipLoaderInfo {
 
     // Grace period tracking - prevent aggressive cleanup/recreate cycles
     std::chrono::steady_clock::time_point last_used_time;
+
+    //=========================================================================
+    // Helper methods for unified decoder access
+    //=========================================================================
+
+    // Get frame from appropriate decoder
+    std::shared_ptr<PixelData> GetFrame(int frame) {
+        if (video_decoder) return video_decoder->GetFrame(frame);
+        if (sequence_decoder) return sequence_decoder->GetFrame(frame);
+        return nullptr;
+    }
+
+    // Get closest frame (for scrubbing fallback)
+    std::shared_ptr<PixelData> GetClosestFrame(int frame, int* actual = nullptr) {
+        if (video_decoder) return video_decoder->GetClosestFrame(frame, actual);
+        if (sequence_decoder) return sequence_decoder->GetClosestFrame(frame, actual);
+        return nullptr;
+    }
+
+    // Update playhead position
+    void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false) {
+        if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
+        if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
+    }
+
+    // Check if frame is buffered
+    bool HasFrame(int frame) const {
+        if (video_decoder) return video_decoder->HasFrame(frame);
+        if (sequence_decoder) return sequence_decoder->HasFrame(frame);
+        return false;
+    }
+
+    // Get buffered range
+    void GetBufferedRange(int& start, int& end) const {
+        if (video_decoder) { video_decoder->GetBufferedRange(start, end); return; }
+        if (sequence_decoder) { sequence_decoder->GetBufferedRange(start, end); return; }
+        start = end = -1;
+    }
+
+    // Get buffer size
+    int GetBufferSize() const {
+        if (video_decoder) return video_decoder->GetBufferSize();
+        if (sequence_decoder) return sequence_decoder->GetBufferSize();
+        return 0;
+    }
+
+    // Clear buffer
+    void ClearBuffer() {
+        if (video_decoder) video_decoder->ClearBuffer();
+        if (sequence_decoder) sequence_decoder->ClearBuffer();
+    }
+
+    // Hard reset
+    void HardReset(int frame) {
+        if (video_decoder) video_decoder->HardReset(frame);
+        if (sequence_decoder) sequence_decoder->HardReset(frame);
+    }
+
+    // Check if this is a buffered decoder (vs legacy per-file loader)
+    bool HasBufferedDecoder() const {
+        return video_decoder != nullptr || sequence_decoder != nullptr;
+    }
+};
+
+//=============================================================================
+// Sequence Metadata - Stored per source path for creating ImageSequenceDecoder
+//=============================================================================
+
+struct SequenceMetadata {
+    std::string directory;
+    std::string pattern;
+    int start_frame = 1;
+    int end_frame = 1;
+    std::string exr_layer;
+    PipelineMode pipeline_mode = PipelineMode::NORMAL;
+    bool valid = false;
 };
 
 //=============================================================================
@@ -298,6 +378,12 @@ public:
     GLuint GetSourceFrame(const std::string& source_path, int source_frame,
                           int& width, int& height);
 
+    // Register sequence metadata for a source path
+    // Call this when linking a clip to an image sequence
+    // This enables ImageSequenceDecoder creation with proper buffering
+    void RegisterSequenceMetadata(const std::string& source_path,
+                                   const SequenceMetadata& metadata);
+
     // Request a specific source frame to be loaded (for slip/trim preview)
     void RequestSourceFrame(const std::string& source_path, int source_frame);
 
@@ -381,6 +467,11 @@ private:
     // Using shared_ptr so I/O workers can hold a reference that keeps loader alive
     std::map<std::string, std::shared_ptr<ClipLoaderInfo>> loaders_;
     mutable std::mutex loaders_mutex_;
+
+    // Sequence metadata (for creating ImageSequenceDecoder with proper buffering)
+    // Registered via RegisterSequenceMetadata() when linking clips to sequences
+    std::map<std::string, SequenceMetadata> sequence_metadata_;
+    mutable std::mutex sequence_metadata_mutex_;
 
     // Frame cache (key -> texture)
     std::map<TimelineCacheKey, CachedFrame> frame_cache_;

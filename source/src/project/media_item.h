@@ -45,6 +45,9 @@ namespace ump {
         std::string layer;             // Selected EXR layer (e.g., "beauty", "diffuse")
         std::string layer_display;     // Display name for EXR layer
 
+        // Audio support
+        std::string audio_file;        // Path to associated audio file for sync playback
+
         // Helper to check if data is valid/populated
         bool IsValid() const {
             return frame_count > 0 && frame_rate > 0 && duration > 0;

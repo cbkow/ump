@@ -414,6 +414,7 @@ namespace ump {
                     image_seq_obj["format"] = item.image_seq.format;
                     image_seq_obj["layer"] = item.image_seq.layer;
                     image_seq_obj["layer_display"] = item.image_seq.layer_display;
+                    image_seq_obj["audio_file"] = item.image_seq.audio_file;
                     item_obj["image_seq"] = image_seq_obj;
                     Debug::Log("SaveProject: Saved ImageSequenceData for " + item.name +
                                " (duration=" + std::to_string(item.image_seq.duration) + "s)");
@@ -856,6 +857,7 @@ namespace ump {
                         item.image_seq.format = seq_json.value("format", "");
                         item.image_seq.layer = seq_json.value("layer", "");
                         item.image_seq.layer_display = seq_json.value("layer_display", "");
+                        item.image_seq.audio_file = seq_json.value("audio_file", "");
 
                         Debug::Log("LoadProject: Restored ImageSequenceData for " + item.name +
                                    " (duration=" + std::to_string(item.image_seq.duration) + "s, " +
@@ -2998,6 +3000,11 @@ namespace ump {
                         }
                     }
 
+                    // Load sequence audio if configured
+                    if (!item.image_seq.audio_file.empty() && video_player) {
+                        video_player->LoadSequenceAudio(item.image_seq.audio_file);
+                    }
+
                     // Select this item and extract metadata
                     SelectMediaItem(item.id, false, false);
                     NotifyVideoChanged(item.path);
@@ -3076,6 +3083,11 @@ namespace ump {
                                                        item.view_state.scroll_offset,
                                                        item.view_state.playhead_position);
                                 }
+                            }
+
+                            // Load sequence audio if configured
+                            if (!item.image_seq.audio_file.empty() && video_player) {
+                                video_player->LoadSequenceAudio(item.image_seq.audio_file);
                             }
 
                             // Select this item and extract metadata
@@ -4031,6 +4043,10 @@ namespace ump {
     MediaItem* ProjectManager::GetCurrentTimelineItem() {
         if (current_timeline_id.empty()) return nullptr;
         return GetTimelineItem(current_timeline_id);
+    }
+
+    MediaItem* ProjectManager::GetCurrentPlayingMediaItem() {
+        return GetMediaItemFromCurrentPath();
     }
 
     int ProjectManager::GetTimelineCount() const {

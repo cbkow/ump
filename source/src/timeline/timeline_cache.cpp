@@ -423,14 +423,14 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                 loader_info = loader_it->second;
             }
         }
-        if (loader_info && loader_info->video_decoder) {
+        if (loader_info && loader_info->HasBufferedDecoder()) {
             // Try exact frame first
-            auto pixels = loader_info->video_decoder->GetFrame(key.source_frame);
+            auto pixels = loader_info->GetFrame(key.source_frame);
             bool is_exact_frame = (pixels != nullptr);
 
             // If exact not available, get closest
             if (!pixels) {
-                pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
+                pixels = loader_info->GetClosestFrame(key.source_frame);
             }
 
             if (pixels) {
@@ -505,14 +505,14 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                 loader_info = loader_it->second;
             }
         }
-        if (loader_info && loader_info->video_decoder) {
+        if (loader_info && loader_info->HasBufferedDecoder()) {
             // Try exact frame first
-            auto pixels = loader_info->video_decoder->GetFrame(key.source_frame);
+            auto pixels = loader_info->GetFrame(key.source_frame);
             bool is_exact_frame = (pixels != nullptr);
 
             // If not available, get closest frame (like scrubbing does)
             if (!pixels) {
-                pixels = loader_info->video_decoder->GetClosestFrame(key.source_frame);
+                pixels = loader_info->GetClosestFrame(key.source_frame);
             }
 
             if (pixels) {
@@ -646,9 +646,9 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
                             loader_info = it->second;
                         }
                     }
-                    if (loader_info && loader_info->video_decoder) {
+                    if (loader_info && loader_info->HasBufferedDecoder()) {
                         // Force seek to exact frame before playback starts
-                        loader_info->video_decoder->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+                        loader_info->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
                         Debug::Log("TimelineCache: Play-from-scrub force seek to source frame " +
                                    std::to_string(coords.source_frame));
                     }
@@ -947,7 +947,7 @@ void TimelineCache::NotifyTracksEdited() {
         {
             std::lock_guard<std::mutex> lock(loaders_mutex_);
             for (auto& [path, loader_info] : loaders_) {
-                if (loader_info && loader_info->video_decoder) {
+                if (loader_info && loader_info->HasBufferedDecoder()) {
                     loaders_to_flush.push_back(loader_info);
                 }
             }
@@ -957,7 +957,7 @@ void TimelineCache::NotifyTracksEdited() {
         for (auto& loader_info : loaders_to_flush) {
             // Force a hard reset on each decoder to completely clear its buffer
             // Use frame 0 as a placeholder - it will be re-seeked when needed
-            loader_info->video_decoder->HardReset(0);
+            loader_info->HardReset(0);
             flushed_count++;
         }
         if (flushed_count > 0) {
@@ -975,8 +975,8 @@ void TimelineCache::NotifyTracksEdited() {
                 loader_info = it->second;
             }
         }
-        if (loader_info && loader_info->video_decoder) {
-            loader_info->video_decoder->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+        if (loader_info && loader_info->HasBufferedDecoder()) {
+            loader_info->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
             Debug::Log("TimelineCache: Forced decoder seek to " + coords.source_path +
                        " frame " + std::to_string(coords.source_frame) + " after edit");
         }
@@ -1223,10 +1223,10 @@ bool TimelineCache::HasFrameReady(int timeline_frame) const {
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
         auto it = loaders_.find(key.source_path);
-        if (it != loaders_.end() && it->second && it->second->video_decoder) {
+        if (it != loaders_.end() && it->second && it->second->HasBufferedDecoder()) {
             // Check if the exact frame is in the decoder's frame buffer
             // This does NOT trigger decoding - it just checks the ring buffer
-            if (it->second->video_decoder->HasFrame(key.source_frame)) {
+            if (it->second->HasFrame(key.source_frame)) {
                 return true;
             }
         }
@@ -1428,6 +1428,19 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
     return coords;
 }
 
+//=============================================================================
+// Sequence Metadata Registration
+//=============================================================================
+
+void TimelineCache::RegisterSequenceMetadata(const std::string& source_path,
+                                              const SequenceMetadata& metadata) {
+    std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+    sequence_metadata_[source_path] = metadata;
+    Debug::Log("TimelineCache: Registered sequence metadata for " + source_path +
+               " (pattern: " + metadata.pattern + ", frames: " +
+               std::to_string(metadata.start_frame) + "-" + std::to_string(metadata.end_frame) + ")");
+}
+
 std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::string& source_path) {
     // FAST PATH: Check if loader already exists (brief lock)
     {
@@ -1440,6 +1453,16 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         }
     }
     // Lock released - allows other threads to proceed during slow initialization
+
+    // Check for registered sequence metadata
+    SequenceMetadata seq_meta;
+    {
+        std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+        auto it = sequence_metadata_.find(source_path);
+        if (it != sequence_metadata_.end()) {
+            seq_meta = it->second;
+        }
+    }
 
     // SLOW PATH: Create new loader WITHOUT holding lock
     // This is critical for avoiding contention during FFmpeg decoder initialization (50-500ms)
@@ -1468,6 +1491,37 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         }
 
         case ClipMediaType::EXR_SEQUENCE: {
+            // Check if we have sequence metadata for buffered playback
+            if (seq_meta.valid) {
+                auto decoder = std::make_unique<ImageSequenceDecoder>(
+                    seq_meta.directory, seq_meta.pattern);
+
+                if (decoder->Initialize(
+                    seq_meta.start_frame, seq_meta.end_frame,
+                    config_.fps,  // Use timeline FPS
+                    seq_meta.pipeline_mode,
+                    seq_meta.exr_layer
+                )) {
+                    // Configure decoder to match timeline cache settings
+                    StreamingDecoderConfig dec_config;
+                    dec_config.readAheadFrames = config_.readAheadFrames;
+                    dec_config.readBehindFrames = static_cast<int>(config_.readBehindSeconds * config_.fps);
+                    decoder->SetConfig(dec_config);
+
+                    info->sequence_decoder = std::move(decoder);
+                    info->pipeline_mode = seq_meta.pipeline_mode;
+                    info->width = info->sequence_decoder->GetWidth();
+                    info->height = info->sequence_decoder->GetHeight();
+                    info->fps = info->sequence_decoder->GetFPS();
+                    info->frame_count = info->sequence_decoder->GetFrameCount();
+                    Debug::Log("TimelineCache: ImageSequenceDecoder created for EXR sequence " + source_path +
+                               " (readAhead=" + std::to_string(dec_config.readAheadFrames) + ")");
+                    break;
+                }
+                Debug::Log("TimelineCache: ImageSequenceDecoder init failed, falling back to per-file loader");
+            }
+
+            // Fallback: per-file loader (legacy behavior)
             auto exr_loader = std::make_unique<EXRImageLoader>();
             info->image_loader = std::move(exr_loader);
             info->pipeline_mode = PipelineMode::ULTRA_HIGH_RES;  // Half-float for EXR
@@ -1476,7 +1530,37 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         }
 
         case ClipMediaType::IMAGE_SEQUENCE: {
-            // Detect specific format
+            // Check if we have sequence metadata for buffered playback
+            if (seq_meta.valid) {
+                auto decoder = std::make_unique<ImageSequenceDecoder>(
+                    seq_meta.directory, seq_meta.pattern);
+
+                if (decoder->Initialize(
+                    seq_meta.start_frame, seq_meta.end_frame,
+                    config_.fps,  // Use timeline FPS
+                    seq_meta.pipeline_mode,
+                    ""  // No EXR layer for non-EXR sequences
+                )) {
+                    // Configure decoder to match timeline cache settings
+                    StreamingDecoderConfig dec_config;
+                    dec_config.readAheadFrames = config_.readAheadFrames;
+                    dec_config.readBehindFrames = static_cast<int>(config_.readBehindSeconds * config_.fps);
+                    decoder->SetConfig(dec_config);
+
+                    info->sequence_decoder = std::move(decoder);
+                    info->pipeline_mode = seq_meta.pipeline_mode;
+                    info->width = info->sequence_decoder->GetWidth();
+                    info->height = info->sequence_decoder->GetHeight();
+                    info->fps = info->sequence_decoder->GetFPS();
+                    info->frame_count = info->sequence_decoder->GetFrameCount();
+                    Debug::Log("TimelineCache: ImageSequenceDecoder created for image sequence " + source_path +
+                               " (readAhead=" + std::to_string(dec_config.readAheadFrames) + ")");
+                    break;
+                }
+                Debug::Log("TimelineCache: ImageSequenceDecoder init failed, falling back to per-file loader");
+            }
+
+            // Fallback: per-file loader (legacy behavior)
             std::string ext = fs::path(source_path).extension().string();
             std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
@@ -1524,6 +1608,11 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         // Log creation (moved here to only log the winner)
         if (info->media_type == ClipMediaType::VIDEO && info->video_decoder) {
             Debug::Log("TimelineCache: StreamingVideoDecoder created for " + source_path +
+                       " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
+                       " @ " + std::to_string(info->fps) + " fps, " +
+                       std::to_string(info->frame_count) + " frames)");
+        } else if (info->sequence_decoder) {
+            Debug::Log("TimelineCache: ImageSequenceDecoder ready for " + source_path +
                        " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
                        " @ " + std::to_string(info->fps) + " fps, " +
                        std::to_string(info->frame_count) + " frames)");
@@ -1694,9 +1783,9 @@ void TimelineCache::IOWorkerThread() {
         if (post_edit_pending_.load()) {
             // Get loader to check decoder buffer range
             auto loader_info = GetOrCreateLoader(key.source_path);
-            if (loader_info && loader_info->video_decoder) {
+            if (loader_info && loader_info->HasBufferedDecoder()) {
                 int buffer_start = -1, buffer_end = -1;
-                loader_info->video_decoder->GetBufferedRange(buffer_start, buffer_end);
+                loader_info->GetBufferedRange(buffer_start, buffer_end);
 
                 // If buffer has frames and requested frame is before buffer start,
                 // this request is unreachable - skip it
@@ -1752,9 +1841,9 @@ void TimelineCache::IOWorkerThread() {
                 // Re-check if frame is reachable before re-queuing
                 bool should_requeue = true;
                 auto loader_info = GetOrCreateLoader(key.source_path);
-                if (loader_info && loader_info->video_decoder) {
+                if (loader_info && loader_info->HasBufferedDecoder()) {
                     int buffer_start = -1, buffer_end = -1;
-                    loader_info->video_decoder->GetBufferedRange(buffer_start, buffer_end);
+                    loader_info->GetBufferedRange(buffer_start, buffer_end);
                     if (buffer_start >= 0 && key.source_frame < buffer_start) {
                         // Frame is before buffer start - unreachable, don't re-queue
                         should_requeue = false;
@@ -1905,8 +1994,8 @@ void TimelineCache::CacheManagementThread() {
                             loader_to_reset = it->second;
                         }
                     }
-                    if (loader_to_reset && loader_to_reset->video_decoder) {
-                        loader_to_reset->video_decoder->HardReset(coords.source_frame);
+                    if (loader_to_reset && loader_to_reset->HasBufferedDecoder()) {
+                        loader_to_reset->HardReset(coords.source_frame);
                     }
                 }
             }
@@ -1933,8 +2022,8 @@ void TimelineCache::CacheManagementThread() {
                         loader_to_update = it->second;
                     }
                 }
-                if (loader_to_update && loader_to_update->video_decoder) {
-                    loader_to_update->video_decoder->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL);
+                if (loader_to_update && loader_to_update->HasBufferedDecoder()) {
+                    loader_to_update->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL);
                 }
             }
         } else {
@@ -1972,9 +2061,9 @@ void TimelineCache::CacheManagementThread() {
                             loader_to_refine = it->second;
                         }
                     }
-                    if (loader_to_refine && loader_to_refine->video_decoder) {
+                    if (loader_to_refine && loader_to_refine->HasBufferedDecoder()) {
                         // force_seek=true bypasses all tolerance checks (buffer proximity, 24-frame threshold)
-                        loader_to_refine->video_decoder->UpdatePlayhead(refine_coords.source_frame, SeekQuality::NORMAL, true);
+                        loader_to_refine->UpdatePlayhead(refine_coords.source_frame, SeekQuality::NORMAL, true);
                     }
                 }
 
@@ -2027,8 +2116,8 @@ void TimelineCache::CacheManagementThread() {
                     std::lock_guard<std::mutex> lock(loaders_mutex_);
                     auto loader_it = loaders_.find(key.source_path);
                     if (loader_it != loaders_.end() && loader_it->second &&
-                        loader_it->second->video_decoder) {
-                        frame_ready = loader_it->second->video_decoder->HasFrame(key.source_frame);
+                        loader_it->second->HasBufferedDecoder()) {
+                        frame_ready = loader_it->second->HasFrame(key.source_frame);
                     }
                 }
             }
@@ -2286,10 +2375,10 @@ void TimelineCache::CacheManagementThread() {
                 for (const auto& [path, info] : loaders_) {
                     if (active_sources.find(path) == active_sources.end()) {
                         // This loader is NOT needed for visible clips - clear its buffer
-                        if (info->video_decoder) {
-                            int buffer_size = info->video_decoder->GetBufferSize();
+                        if (info->HasBufferedDecoder()) {
+                            int buffer_size = info->GetBufferSize();
                             if (buffer_size > 0) {
-                                info->video_decoder->ClearBuffer();
+                                info->ClearBuffer();
                                 Debug::Log("TimelineCache: Cleared buffer (" + std::to_string(buffer_size) +
                                            " frames) for inactive source: " + path);
                             }
@@ -2430,14 +2519,14 @@ void TimelineCache::CacheManagementThread() {
             }
 
             for (auto& [loader_info, target_frame] : decoder_updates) {
-                if (loader_info->video_decoder && !skip_playhead_update) {
+                if (loader_info->HasBufferedDecoder() && !skip_playhead_update) {
                     // DEBUG: Log what target we're setting (rate-limited)
                     static int update_log_count = 0;
              /*       if (++update_log_count <= 5 || update_log_count % 100 == 0) {
                         Debug::Log("TimelineCache: CacheThread UpdatePlayhead target=" +
                                    std::to_string(target_frame) + " for decoder");
                     }*/
-                    loader_info->video_decoder->UpdatePlayhead(target_frame, seek_quality);
+                    loader_info->UpdatePlayhead(target_frame, seek_quality);
                 }
             }
         }
@@ -2621,25 +2710,18 @@ std::shared_ptr<PixelData> TimelineCache::LoadPixels(const TimelineCacheKey& key
 
     std::shared_ptr<PixelData> result;
 
-    if (loader_info->media_type == ClipMediaType::VIDEO) {
-        // For VIDEO clips: use streaming decoder
-        if (!loader_info->video_decoder) {
-            return nullptr;
-        }
-
+    // Check for buffered decoders first (video or sequence)
+    if (loader_info->HasBufferedDecoder()) {
+        // For VIDEO and SEQUENCE clips: use buffered decoder
         // NOTE: Don't call UpdatePlayhead here - that's done by CacheManagementThread
         // to avoid seek thrashing from multiple I/O threads.
         // Just get the frame from buffer (instant if buffered).
-        result = loader_info->video_decoder->GetFrame(key.source_frame);
+        result = loader_info->GetFrame(key.source_frame);
 
         // Frame not yet buffered - will be retried. This is normal during buffer fill.
-    } else {
-        // For IMAGE_SEQUENCE/EXR clips: use image loader
-        if (!loader_info->image_loader) {
-            //Debug::Log("TimelineCache::LoadPixels: No image loader for " + key.source_path);
-            return nullptr;
-        }
-
+    } else if (loader_info->image_loader) {
+        // Fallback: For IMAGE_SEQUENCE/EXR clips without sequence metadata
+        // Use legacy per-file image loader
         result = loader_info->image_loader->LoadFrame(
             key.source_path,
             "",  // layer (used by EXR)

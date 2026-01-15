@@ -461,8 +461,21 @@ bool AudioDecoder::DecodeNextPacket() {
         if (samples_converted > 0) {
             size_t bytes_to_write = samples_converted * output_format_.channels * sizeof(float);
 
-            // Write to ring buffer
-            size_t written = ring_buffer_->Write(output_buffer.data(), bytes_to_write);
+            // Write to ring buffer - wait if buffer is full to avoid dropping samples
+            // This is critical for WAV files which decode very fast
+            size_t total_written = 0;
+            const uint8_t* write_ptr = output_buffer.data();
+
+            while (total_written < bytes_to_write && running_ && !seek_requested_) {
+                size_t remaining = bytes_to_write - total_written;
+                size_t written = ring_buffer_->Write(write_ptr + total_written, remaining);
+                total_written += written;
+
+                if (total_written < bytes_to_write) {
+                    // Buffer full - wait a bit for consumer to drain some
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            }
 
             // Update decode position
             if (decode_frame_->pts != AV_NOPTS_VALUE) {

@@ -1009,9 +1009,27 @@ bool FFMPEGVideoEncoder::AddAudioStreamWithEncoding(AVFormatContext* source_form
         return false;
     }
 
-    // Copy basic parameters from source
-    encoder_ctx->sample_rate = decoder_ctx->sample_rate;
-    encoder_ctx->ch_layout = decoder_ctx->ch_layout;
+    // Use standard sample rate (AAC supports: 8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000, 64000, 88200, 96000)
+    // Prefer 48kHz or 44.1kHz for best compatibility
+    int source_rate = decoder_ctx->sample_rate;
+    if (source_rate == 44100 || source_rate == 48000 || source_rate == 96000 || source_rate == 88200) {
+        encoder_ctx->sample_rate = source_rate;
+    } else if (source_rate > 48000) {
+        encoder_ctx->sample_rate = 48000;
+    } else if (source_rate >= 44100) {
+        encoder_ctx->sample_rate = 44100;
+    } else {
+        encoder_ctx->sample_rate = source_rate;  // Keep original for lower rates
+    }
+
+    // Use stereo for maximum compatibility (AAC encoders can be picky about channel layouts)
+    int source_channels = decoder_ctx->ch_layout.nb_channels;
+    if (source_channels >= 2) {
+        av_channel_layout_default(&encoder_ctx->ch_layout, 2);  // Stereo
+    } else {
+        av_channel_layout_default(&encoder_ctx->ch_layout, 1);  // Mono
+    }
+
     encoder_ctx->bit_rate = target_bitrate_kbps * 1000;
 
     // AAC requires specific sample format (usually planar float)
@@ -1028,6 +1046,10 @@ bool FFMPEGVideoEncoder::AddAudioStreamWithEncoding(AVFormatContext* source_form
     if (format_ctx_->oformat->flags & AVFMT_GLOBALHEADER) {
         encoder_ctx->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
+
+    Debug::Log("FFMPEGVideoEncoder: AAC encoder config - rate=" + std::to_string(encoder_ctx->sample_rate) +
+               ", channels=" + std::to_string(encoder_ctx->ch_layout.nb_channels) +
+               ", format=" + std::to_string(encoder_ctx->sample_fmt));
 
     ret = avcodec_open2(encoder_ctx, encoder, nullptr);
     if (ret < 0) {

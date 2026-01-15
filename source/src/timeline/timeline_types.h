@@ -35,6 +35,14 @@ struct OTIOClip {
     double source_duration = 0.0; // Full duration of source media (for trim limits)
     bool has_audio = false;       // True if source media contains audio track
 
+    // Image sequence metadata (for IMAGE_SEQUENCE/EXR_SEQUENCE clips)
+    bool is_sequence = false;          // True if this is an image sequence
+    std::string sequence_directory;    // Base directory for sequence files
+    std::string sequence_pattern;      // Printf pattern (e.g., "shot_%04d.exr")
+    int sequence_start_frame = 1;      // First frame number in sequence
+    int sequence_end_frame = 1;        // Last frame number in sequence
+    std::string sequence_exr_layer;    // EXR layer name (for multi-layer EXR)
+
     // Clip-level audio control
     bool audio_muted = false;     // Per-clip audio mute (speaker icon on clip)
 

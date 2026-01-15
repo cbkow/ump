@@ -636,6 +636,7 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             tc.fps = item.frame_rate;  // Use frame rate from MediaItem
             tc.pipeline_mode = item.pipeline_mode;  // Use auto-detected pipeline mode
             tc.exr_layer = item.exr_layer;  // Use EXR layer from MediaItem
+            tc.audio_file = item.image_seq.audio_file;  // Include audio if configured
             tc.start_frame = 0;  // Always start from first frame in the file list
             tc.end_frame = -1;   // -1 means process all frames in the list
 
@@ -691,7 +692,8 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             Debug::Log("Transcode config (sequence): fps=" + std::to_string(tc.fps) +
                        ", frames=" + std::to_string(tc.input_files.size()) +
                        ", pipeline_mode=" + std::string(PipelineModeToString(tc.pipeline_mode)) +
-                       (tc.exr_layer.empty() ? "" : ", exr_layer=" + tc.exr_layer));
+                       (tc.exr_layer.empty() ? "" : ", exr_layer=" + tc.exr_layer) +
+                       (tc.audio_file.empty() ? "" : ", audio=" + tc.audio_file));
         } else {
             Debug::Log("WARNING: Skipping unsupported media type: " + item.name);
             continue;

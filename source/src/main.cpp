@@ -4540,7 +4540,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.6");
+                ImGui::TextDisabled("About u.m.p. v0.6.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6604,9 +6604,14 @@ private:
                                      bottom_row_h;
                 } else {
                     // Standard timeline: transport + ruler + timeline + bottom toolbar
+                    // Check if this is an image sequence (needs extra height for audio track)
+                    bool is_image_sequence = video_player &&
+                        (video_player->IsImageSequence() || video_player->IsInEXRMode());
+                    float track_area_height = is_image_sequence ? 64.0f : 40.0f;  // Extra 24px for audio track
+
                     timeline_height = transport_row_h +
                                      OTIOTimeline::TIMELINE_RULER_HEIGHT +
-                                     40.0f +  // Timeline track area
+                                     track_area_height +
                                      bottom_row_h;
                     // Add extra space for playlist timeline when in sequence mode with clips
                     if (project_manager && project_manager->IsInSequenceMode()) {
@@ -7262,9 +7267,14 @@ private:
                                  bottom_row_h;
             } else {
                 // Standard timeline: transport + ruler + timeline + bottom toolbar
+                // Check if this is an image sequence (needs extra height for audio track)
+                bool is_image_sequence = video_player &&
+                    (video_player->IsImageSequence() || video_player->IsInEXRMode());
+                float track_area_height = is_image_sequence ? 64.0f : 40.0f;
+
                 timeline_height = transport_row_h +
                                  OTIOTimeline::TIMELINE_RULER_HEIGHT +
-                                 40.0f +  // Timeline track area
+                                 track_area_height +
                                  bottom_row_h;
                 if (project_manager && project_manager->IsInSequenceMode()) {
                     auto* sequence = project_manager->GetCurrentSequence();
@@ -9387,11 +9397,29 @@ private:
             const float TRACK_HEADER_WIDTH = 60.0f * tl_scale_factor;
             const float CACHE_BAR_HEIGHT = 6.0f;
             const float TRACK_HEIGHT = 30.0f;      // Single track height for clip
+            const float AUDIO_TRACK_HEIGHT = 24.0f; // Audio track height (smaller than video)
             const float RULER_HEIGHT = 42.0f;      // Taller ruler
+
+            // Check if current sequence has audio loaded
+            bool is_sequence = video_player && (video_player->IsImageSequence() || video_player->IsInEXRMode());
+            std::string seq_audio_file;
+            if (is_sequence && project_manager) {
+                ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                if (current_item && (current_item->type == ump::MediaType::IMAGE_SEQUENCE ||
+                                     current_item->type == ump::MediaType::EXR_SEQUENCE)) {
+                    seq_audio_file = current_item->image_seq.audio_file;
+                }
+            }
+            bool has_sequence_audio = !seq_audio_file.empty();
 
             ImVec2 full_canvas_pos = ImGui::GetCursorScreenPos();
             ImVec2 full_canvas_size = ImGui::GetContentRegionAvail();
-            full_canvas_size.y = TRACK_HEIGHT + CACHE_BAR_HEIGHT + RULER_HEIGHT;  // Clip + Cache bar + Ruler
+            // Add audio track height for sequences (always show for drop target)
+            float total_track_height = TRACK_HEIGHT;
+            if (is_sequence) {
+                total_track_height += AUDIO_TRACK_HEIGHT;  // Always show audio track for sequences
+            }
+            full_canvas_size.y = total_track_height + CACHE_BAR_HEIGHT + RULER_HEIGHT;
 
             ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
@@ -9403,8 +9431,7 @@ private:
             int total_frames = video_player->GetTotalFrames();
             int current_frame = video_player->GetCurrentFrame();
 
-            // Determine media type for track header
-            bool is_sequence = video_player->IsImageSequence() || video_player->IsInEXRMode();
+            // Determine media type for track header (is_sequence already defined above)
             const char* track_label = is_sequence ? "Seq." : "Video";
 
             // === TRACK HEADER AREA ===
@@ -9429,6 +9456,17 @@ private:
                 float label_x = header_pos.x + (header_size.x - label_size.x) * 0.5f;
                 float label_y = header_pos.y + (TRACK_HEIGHT - label_size.y) * 0.5f;
                 draw_list->AddText(ImVec2(label_x, label_y), IM_COL32(180, 180, 180, 255), track_label);
+
+                // Audio track label in header (for sequences)
+                if (is_sequence) {
+                    const char* audio_label = "Audio";
+                    ImVec2 audio_label_size = ImGui::CalcTextSize(audio_label);
+                    float audio_label_x = header_pos.x + (header_size.x - audio_label_size.x) * 0.5f;
+                    float audio_label_y = header_pos.y + TRACK_HEIGHT + (AUDIO_TRACK_HEIGHT - audio_label_size.y) * 0.5f;
+                    ImU32 audio_label_color = has_sequence_audio ? IM_COL32(180, 180, 180, 255) : IM_COL32(100, 100, 100, 255);
+                    draw_list->AddText(ImVec2(audio_label_x, audio_label_y), audio_label_color, audio_label);
+                }
+
                 ImGui::PopFont();
             }
 
@@ -9456,10 +9494,18 @@ private:
                 ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y),
                 timeline_border_color, 1.0f);
 
-            // Clip/Ruler separator line
+            // Video/Audio track separator line (for sequences)
+            if (is_sequence) {
+                draw_list->AddLine(
+                    ImVec2(canvas_pos.x, canvas_pos.y + TRACK_HEIGHT),
+                    ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + TRACK_HEIGHT),
+                    IM_COL32(50, 50, 50, 255), 1.0f);
+            }
+
+            // Tracks/Ruler separator line
             draw_list->AddLine(
-                ImVec2(canvas_pos.x, canvas_pos.y + TRACK_HEIGHT),
-                ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + TRACK_HEIGHT),
+                ImVec2(canvas_pos.x, canvas_pos.y + total_track_height),
+                ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + total_track_height),
                 IM_COL32(60, 60, 60, 255), 1.0f);
 
             if (duration > 0 && total_frames > 0) {
@@ -9503,9 +9549,9 @@ private:
                 float clip_y_top = clip_track_y + 2.0f;
                 float clip_y_bottom = clip_track_y + TRACK_HEIGHT - 2.0f;
 
-                // === RULER (below clip track) ===
+                // === RULER (below all tracks) ===
                 // Layout: [Cache Bar 6px] [Ruler 35px with ticks at bottom]
-                float cache_bar_y = canvas_pos.y + TRACK_HEIGHT;
+                float cache_bar_y = canvas_pos.y + total_track_height;
                 float ruler_y = cache_bar_y + CACHE_BAR_HEIGHT;
 
                 // Cache bar background (ABOVE ruler)
@@ -9742,6 +9788,248 @@ private:
                         }
                         ImGui::Text("Zoom: %.1fx", std_timeline_zoom);
                         ImGui::EndTooltip();
+                    }
+                }
+
+                // === AUDIO TRACK (for sequences) ===
+                if (is_sequence) {
+                    float audio_track_y = canvas_pos.y + TRACK_HEIGHT;
+                    float audio_y_top = audio_track_y + 2.0f;
+                    float audio_y_bottom = audio_track_y + AUDIO_TRACK_HEIGHT - 2.0f;
+
+                    if (has_sequence_audio) {
+                        // Audio clip color using system accent (warmer/orange tint for audio tracks)
+                        ImVec4 accent = GetWindowsAccentColor();
+                        ImU32 audio_clip_color = IM_COL32(
+                            (int)(accent.x * 70 + 55),   // More warm/orange
+                            (int)(accent.y * 55 + 40),   // Less green
+                            (int)(accent.z * 50 + 35), 255);  // Less blue
+                        ImU32 audio_clip_border = IM_COL32(
+                            (int)(accent.x * 90 + 75),
+                            (int)(accent.y * 75 + 60),
+                            (int)(accent.z * 70 + 55), 255);
+
+                        // Draw clip background
+                        draw_list->AddRectFilled(
+                            ImVec2(clip_x_start, audio_y_top),
+                            ImVec2(clip_x_end, audio_y_bottom),
+                            audio_clip_color, clip_rounding);
+
+                        // Draw border
+                        draw_list->AddRect(
+                            ImVec2(clip_x_start, audio_y_top),
+                            ImVec2(clip_x_end, audio_y_bottom),
+                            audio_clip_border, clip_rounding, 0, 1.5f);
+
+                        // X button area (right side)
+                        float x_button_size = 16.0f;
+                        float x_button_padding = 4.0f;
+                        float x_button_x = clip_x_end - x_button_size - x_button_padding;
+                        float x_button_y = audio_y_top + (audio_y_bottom - audio_y_top - x_button_size) * 0.5f;
+
+                        // Draw X button background (subtle)
+                        ImVec2 x_btn_min(x_button_x, x_button_y);
+                        ImVec2 x_btn_max(x_button_x + x_button_size, x_button_y + x_button_size);
+                        bool x_hovered = ImGui::IsMouseHoveringRect(x_btn_min, x_btn_max);
+
+                        if (x_hovered) {
+                            draw_list->AddRectFilled(x_btn_min, x_btn_max, IM_COL32(200, 60, 60, 200), 3.0f);
+                        }
+
+                        // Draw X icon
+                        float x_margin = 4.0f;
+                        ImU32 x_color = x_hovered ? IM_COL32(255, 255, 255, 255) : IM_COL32(200, 200, 200, 200);
+                        draw_list->AddLine(
+                            ImVec2(x_button_x + x_margin, x_button_y + x_margin),
+                            ImVec2(x_button_x + x_button_size - x_margin, x_button_y + x_button_size - x_margin),
+                            x_color, 2.0f);
+                        draw_list->AddLine(
+                            ImVec2(x_button_x + x_button_size - x_margin, x_button_y + x_margin),
+                            ImVec2(x_button_x + x_margin, x_button_y + x_button_size - x_margin),
+                            x_color, 2.0f);
+
+                        // Handle X button click
+                        if (x_hovered && ImGui::IsMouseClicked(0)) {
+                            ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                            if (current_item) {
+                                current_item->image_seq.audio_file.clear();
+                                if (video_player) {
+                                    video_player->UnloadSequenceAudio();
+                                }
+                                Debug::Log("Audio track: Removed audio via X button");
+                            }
+                        }
+
+                        // Extract audio filename for display (centered)
+                        std::filesystem::path audio_path(seq_audio_file);
+                        std::string audio_name = audio_path.filename().string();
+
+                        if (font_mono && !audio_name.empty()) {
+                            ImGui::PushFont(font_mono);
+                            float audio_clip_width = clip_x_end - clip_x_start;
+                            float audio_clip_height = audio_y_bottom - audio_y_top;
+                            float available_text_width = audio_clip_width - x_button_size - 20.0f;
+
+                            // Truncate with ellipsis if needed
+                            std::string audio_display_name = audio_name;
+                            ImVec2 audio_text_size = ImGui::CalcTextSize(audio_display_name.c_str());
+                            if (audio_text_size.x > available_text_width) {
+                                while (audio_display_name.length() > 3 &&
+                                       ImGui::CalcTextSize((audio_display_name.substr(0, audio_display_name.length() - 3) + "...").c_str()).x > available_text_width) {
+                                    audio_display_name.pop_back();
+                                }
+                                if (audio_display_name.length() > 3) {
+                                    audio_display_name = audio_display_name.substr(0, audio_display_name.length() - 3) + "...";
+                                }
+                                audio_text_size = ImGui::CalcTextSize(audio_display_name.c_str());
+                            }
+
+                            // Centered text (accounting for X button on right)
+                            float text_area_width = x_button_x - clip_x_start;
+                            ImVec2 audio_text_pos(
+                                clip_x_start + (text_area_width - audio_text_size.x) * 0.5f,
+                                audio_y_top + (audio_clip_height - audio_text_size.y) * 0.5f
+                            );
+
+                            draw_list->AddText(ImVec2(audio_text_pos.x + 1, audio_text_pos.y + 1), IM_COL32(0, 0, 0, 180), audio_display_name.c_str());
+                            draw_list->AddText(audio_text_pos, IM_COL32(255, 255, 255, 255), audio_display_name.c_str());
+                            ImGui::PopFont();
+                        }
+                    } else {
+                        // Empty audio track - show placeholder with drop hint
+                        ImU32 empty_audio_color = IM_COL32(35, 35, 35, 200);
+                        draw_list->AddRectFilled(
+                            ImVec2(clip_x_start, audio_y_top),
+                            ImVec2(clip_x_end, audio_y_bottom),
+                            empty_audio_color, clip_rounding);
+
+                        // Dashed border for drop target hint
+                        draw_list->AddRect(
+                            ImVec2(clip_x_start, audio_y_top),
+                            ImVec2(clip_x_end, audio_y_bottom),
+                            IM_COL32(80, 80, 80, 150), clip_rounding, 0, 1.0f);
+
+                        // "Drop audio file" text
+                        if (font_regular) {
+                            ImGui::PushFont(font_regular);
+                            const char* drop_hint = "Drop audio file";
+                            ImVec2 hint_size = ImGui::CalcTextSize(drop_hint);
+                            float audio_clip_width = clip_x_end - clip_x_start;
+                            float audio_clip_height = audio_y_bottom - audio_y_top;
+                            ImVec2 hint_pos(
+                                clip_x_start + (audio_clip_width - hint_size.x) * 0.5f,
+                                audio_y_top + (audio_clip_height - hint_size.y) * 0.5f
+                            );
+                            draw_list->AddText(hint_pos, IM_COL32(100, 100, 100, 200), drop_hint);
+                            ImGui::PopFont();
+                        }
+                    }
+
+                    // === AUDIO TRACK DROP TARGET & CONTEXT MENU ===
+                    // Create invisible button for drag-drop target and right-click menu
+                    ImGui::SetCursorScreenPos(ImVec2(clip_x_start, audio_y_top));
+                    ImGui::InvisibleButton("##audio_track_target", ImVec2(clip_x_end - clip_x_start, audio_y_bottom - audio_y_top));
+
+                    // Right-click context menu for audio track
+                    if (ImGui::BeginPopupContextItem("##audio_track_context")) {
+                        if (has_sequence_audio) {
+                            if (ImGui::MenuItem("Remove Audio")) {
+                                // Clear the audio file from the media item
+                                ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                                if (current_item) {
+                                    current_item->image_seq.audio_file.clear();
+                                    // Notify video player to unload audio
+                                    if (video_player) {
+                                        video_player->UnloadSequenceAudio();
+                                    }
+                                }
+                            }
+                            ImGui::Separator();
+                        }
+                        if (ImGui::MenuItem("Load Audio File...")) {
+                            // Open file dialog for audio
+                            nfdchar_t* outPath = nullptr;
+                            nfdfilteritem_t filterItem[2] = {
+                                { "Audio Files", "wav,mp3,aiff,m4a,aac,flac,ogg" },
+                                { "Video Files (extract audio)", "mp4,mov,mkv,avi,webm" }
+                            };
+                            nfdresult_t result = NFD_OpenDialog(&outPath, filterItem, 2, nullptr);
+                            if (result == NFD_OKAY && outPath) {
+                                ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                                if (current_item) {
+                                    current_item->image_seq.audio_file = outPath;
+                                    // Notify video player to load new audio
+                                    if (video_player) {
+                                        video_player->LoadSequenceAudio(outPath);
+                                    }
+                                }
+                                NFD_FreePath(outPath);
+                            }
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    // Drag-drop target for audio files from project bin
+                    if (ImGui::BeginDragDropTarget()) {
+                        Debug::Log("Audio track: BeginDragDropTarget active");
+
+                        // Accept single MEDIA_ITEM
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+                            std::string media_id(static_cast<const char*>(payload->Data), payload->DataSize - 1);
+                            Debug::Log("Audio track: Received MEDIA_ITEM drop, id=" + media_id);
+
+                            if (project_manager) {
+                                ump::MediaItem* dropped_item = project_manager->GetMediaItem(media_id);
+                                if (dropped_item) {
+                                    Debug::Log("Audio track: Found item type=" + std::to_string(static_cast<int>(dropped_item->type)) +
+                                              " path=" + dropped_item->path);
+
+                                    if (dropped_item->type == ump::MediaType::AUDIO ||
+                                        dropped_item->type == ump::MediaType::VIDEO) {
+                                        // Audio or video file - use for sequence audio
+                                        // Get the current playing media item (works for both timeline and single items)
+                                        ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                                        if (current_item) {
+                                            current_item->image_seq.audio_file = dropped_item->path;
+                                            if (video_player) {
+                                                bool result = video_player->LoadSequenceAudio(dropped_item->path);
+                                                Debug::Log("Audio track: LoadSequenceAudio result=" + std::string(result ? "true" : "false"));
+                                            }
+                                        } else {
+                                            Debug::Log("Audio track: No current media item found!");
+                                        }
+                                    } else {
+                                        Debug::Log("Audio track: Item is not AUDIO or VIDEO type");
+                                    }
+                                } else {
+                                    Debug::Log("Audio track: Could not find item with id=" + media_id);
+                                }
+                            }
+                        }
+
+                        // Accept multi-selection (use first audio/video item)
+                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEMS_MULTI")) {
+                            std::string payload_str(static_cast<const char*>(payload->Data), payload->DataSize - 1);
+                            // Get first item from semicolon-separated list
+                            size_t sep_pos = payload_str.find(';');
+                            std::string first_id = (sep_pos != std::string::npos) ? payload_str.substr(0, sep_pos) : payload_str;
+
+                            if (project_manager && !first_id.empty()) {
+                                ump::MediaItem* dropped_item = project_manager->GetMediaItem(first_id);
+                                if (dropped_item && (dropped_item->type == ump::MediaType::AUDIO ||
+                                                     dropped_item->type == ump::MediaType::VIDEO)) {
+                                    ump::MediaItem* current_item = project_manager->GetCurrentPlayingMediaItem();
+                                    if (current_item) {
+                                        current_item->image_seq.audio_file = dropped_item->path;
+                                        if (video_player) {
+                                            video_player->LoadSequenceAudio(dropped_item->path);
+                                        }
+                                        Debug::Log("Audio track: Loaded audio from multi-drop: " + dropped_item->path);
+                                    }
+                                }
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
                     }
                 }
 
@@ -14053,12 +14341,19 @@ private:
         // Track colors - matching playlist style (grey base)
         // Linked clips get accent-tinted colors, unlinked get plain grey
         // Video clips with audio get a slight hue shift to distinguish them
-        auto GetTrackColor = [this](bool is_video, int index, bool is_linked, bool has_audio) -> ImU32 {
+        // Image sequences get a cooler/purple tint to distinguish from video
+        auto GetTrackColor = [this](bool is_video, int index, bool is_linked, bool has_audio, bool is_sequence) -> ImU32 {
             if (is_linked) {
                 // Linked clips: subtle accent-tinted colors
                 ImVec4 accent = GetWindowsAccentColor();
                 if (is_video) {
-                    if (has_audio) {
+                    if (is_sequence) {
+                        // IMAGE SEQUENCE: cooler/purple tint to distinguish from video
+                        return IM_COL32(
+                            (int)(accent.x * 55 + 40),   // Less red
+                            (int)(accent.y * 50 + 35),   // Less green
+                            (int)(accent.z * 85 + 55), 255);  // More blue/purple
+                    } else if (has_audio) {
                         // Video WITH audio: shift hue slightly towards green/teal
                         // This visually indicates the clip carries embedded audio
                         return IM_COL32(
@@ -14259,8 +14554,8 @@ private:
                             bool is_selected = timeline_view && timeline_view->GetSelection().IsSelected(clip.id);
                             ImVec4 accent = GetWindowsAccentColor();
 
-                            // Get clip color based on link status and audio presence
-                            ImU32 fill_color = GetTrackColor(track.is_video, i, clip.is_linked, clip.has_audio);
+                            // Get clip color based on link status, audio presence, and sequence type
+                            ImU32 fill_color = GetTrackColor(track.is_video, i, clip.is_linked, clip.has_audio, clip.is_sequence);
 
                             // Apply fade for hidden tracks
                             if (!track.visible) {
@@ -14291,7 +14586,13 @@ private:
                             if (is_selected && track.visible) {
                                 // Maintain clip type color differentiation while making it brighter
                                 if (track.is_video) {
-                                    if (clip.has_audio) {
+                                    if (clip.is_sequence) {
+                                        // IMAGE SEQUENCE: brighter cooler/purple tint
+                                        fill_color = IM_COL32(
+                                            (int)(accent.x * 110 + 60),
+                                            (int)(accent.y * 100 + 55),
+                                            (int)(accent.z * 170 + 80), 255);
+                                    } else if (clip.has_audio) {
                                         // Video WITH audio: brighter green/teal tint
                                         fill_color = IM_COL32(
                                             (int)(accent.x * 120 + 60),
@@ -15710,6 +16011,16 @@ private:
                         // Determine file path based on media type
                         if (item->type == ump::MediaType::IMAGE_SEQUENCE || item->type == ump::MediaType::EXR_SEQUENCE) {
                             clip.file_path = item->ffmpeg_pattern;  // Use FFmpeg pattern for sequences
+
+                            // Mark as sequence and populate sequence metadata
+                            clip.is_sequence = true;
+                            clip.sequence_directory = item->image_seq.directory;
+                            clip.sequence_pattern = item->image_seq.pattern;
+                            clip.sequence_start_frame = item->image_seq.start_frame;
+                            clip.sequence_end_frame = item->image_seq.end_frame;
+                            if (item->type == ump::MediaType::EXR_SEQUENCE) {
+                                clip.sequence_exr_layer = item->image_seq.layer;
+                            }
                         } else {
                             clip.file_path = item->path;
                         }
@@ -15729,8 +16040,24 @@ private:
                         clip.source_height = (item->sequence_height > 0) ? item->sequence_height : item->timeline_height;
                         clip.source_duration = item->duration;
 
+                        // Register sequence metadata with timeline cache for ImageSequenceDecoder
+                        if (clip.is_sequence) {
+                            auto* ctrl = timeline_view->GetPlaybackController();
+                            if (ctrl && ctrl->GetCache()) {
+                                ump::SequenceMetadata seq_meta;
+                                seq_meta.directory = clip.sequence_directory;
+                                seq_meta.pattern = clip.sequence_pattern;
+                                seq_meta.start_frame = clip.sequence_start_frame;
+                                seq_meta.end_frame = clip.sequence_end_frame;
+                                seq_meta.exr_layer = clip.sequence_exr_layer;
+                                seq_meta.pipeline_mode = item->image_seq.pipeline_mode;
+                                seq_meta.valid = true;
+                                ctrl->GetCache()->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                            }
+                        }
+
                         // Probe for audio presence (for UI indicator on video clips)
-                        if (ump::MediaLinker::IsVideoFile(clip.file_path)) {
+                        if (!clip.is_sequence && ump::MediaLinker::IsVideoFile(clip.file_path)) {
                             ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
                             if (probe.valid) {
                                 clip.has_audio = probe.has_audio;
@@ -15775,6 +16102,16 @@ private:
 
                             if (item->type == ump::MediaType::IMAGE_SEQUENCE || item->type == ump::MediaType::EXR_SEQUENCE) {
                                 clip.file_path = item->ffmpeg_pattern;
+
+                                // Mark as sequence and populate sequence metadata
+                                clip.is_sequence = true;
+                                clip.sequence_directory = item->image_seq.directory;
+                                clip.sequence_pattern = item->image_seq.pattern;
+                                clip.sequence_start_frame = item->image_seq.start_frame;
+                                clip.sequence_end_frame = item->image_seq.end_frame;
+                                if (item->type == ump::MediaType::EXR_SEQUENCE) {
+                                    clip.sequence_exr_layer = item->image_seq.layer;
+                                }
                             } else {
                                 clip.file_path = item->path;
                             }
@@ -15792,8 +16129,24 @@ private:
                             clip.source_height = (item->sequence_height > 0) ? item->sequence_height : item->timeline_height;
                             clip.source_duration = item->duration;
 
+                            // Register sequence metadata with timeline cache for ImageSequenceDecoder
+                            if (clip.is_sequence) {
+                                auto* ctrl = timeline_view->GetPlaybackController();
+                                if (ctrl && ctrl->GetCache()) {
+                                    ump::SequenceMetadata seq_meta;
+                                    seq_meta.directory = clip.sequence_directory;
+                                    seq_meta.pattern = clip.sequence_pattern;
+                                    seq_meta.start_frame = clip.sequence_start_frame;
+                                    seq_meta.end_frame = clip.sequence_end_frame;
+                                    seq_meta.exr_layer = clip.sequence_exr_layer;
+                                    seq_meta.pipeline_mode = item->image_seq.pipeline_mode;
+                                    seq_meta.valid = true;
+                                    ctrl->GetCache()->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                                }
+                            }
+
                             // Probe for audio presence (for UI indicator on video clips)
-                            if (ump::MediaLinker::IsVideoFile(clip.file_path)) {
+                            if (!clip.is_sequence && ump::MediaLinker::IsVideoFile(clip.file_path)) {
                                 ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
                                 if (probe.valid) {
                                     clip.has_audio = probe.has_audio;

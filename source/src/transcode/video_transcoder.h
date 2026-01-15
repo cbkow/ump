@@ -44,6 +44,9 @@ public:
         std::string input_video_path;  // Path to video file
         double video_duration = 0.0;   // Video duration in seconds (for frame count calculation)
 
+        // Input - Audio for image sequences
+        std::string audio_file;        // Optional audio file to mux with image sequence output
+
         // Common input settings
         double fps = 24.0;
         int start_frame = 0;
