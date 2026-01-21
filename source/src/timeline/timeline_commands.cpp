@@ -698,4 +698,183 @@ std::string MoveMultipleClipsCommand::GetDescription() const {
     return "Move " + std::to_string(moves_.size()) + " clips";
 }
 
+//-----------------------------------------------------------------------------
+// OverwriteEditCommand
+//-----------------------------------------------------------------------------
+
+OverwriteEditCommand::OverwriteEditCommand(TimelineView* view, int track_index,
+                                           const OTIOClip& clip)
+    : view_(view), track_index_(track_index), clip_(clip), is_move_(false) {
+    // Ensure clip has a valid ID
+    if (clip_.id.empty()) {
+        clip_.id = GenerateClipId();
+    }
+}
+
+OverwriteEditCommand::OverwriteEditCommand(TimelineView* view, int track_index,
+                                           const OTIOClip& clip,
+                                           const std::string& moving_clip_id)
+    : view_(view), track_index_(track_index), clip_(clip),
+      moving_clip_id_(moving_clip_id), is_move_(true) {
+}
+
+void OverwriteEditCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+
+    // Snapshot original state for undo (only on first execution)
+    if (!executed_) {
+        original_clips_ = track.clips;
+        // For moves, also store the original position
+        if (is_move_) {
+            for (const auto& c : track.clips) {
+                if (c.id == moving_clip_id_) {
+                    original_move_start_time_ = c.start_time;
+                    break;
+                }
+            }
+        }
+    }
+
+    double new_start = clip_.start_time;
+    double new_end = clip_.start_time + clip_.duration;
+    constexpr double EPSILON = 0.001;
+
+    // Collect clips to process (we'll modify the vector, so collect IDs first)
+    struct OverlapInfo {
+        size_t index;
+        std::string clip_id;
+        double start;
+        double end;
+        double source_in;
+        OTIOClip full_clip;
+    };
+    std::vector<OverlapInfo> overlaps;
+
+    for (size_t i = 0; i < track.clips.size(); ++i) {
+        const auto& existing = track.clips[i];
+        if (is_move_ && existing.id == moving_clip_id_) continue;
+        if (existing.is_gap) continue;
+
+        double existing_start = existing.start_time;
+        double existing_end = existing.start_time + existing.duration;
+
+        bool has_overlap = (new_start < existing_end - EPSILON) &&
+                          (new_end > existing_start + EPSILON);
+
+        if (has_overlap) {
+            OverlapInfo info;
+            info.index = i;
+            info.clip_id = existing.id;
+            info.start = existing_start;
+            info.end = existing_end;
+            info.source_in = existing.source_in;
+            info.full_clip = existing;
+            overlaps.push_back(info);
+        }
+    }
+
+    // Process overlaps - collect clips to delete and clips to add
+    std::vector<std::string> clips_to_delete;
+    std::vector<OTIOClip> clips_to_add;
+
+    for (const auto& info : overlaps) {
+        // Case 1: Fully covered - mark for deletion
+        if (info.start >= new_start - EPSILON && info.end <= new_end + EPSILON) {
+            clips_to_delete.push_back(info.clip_id);
+        }
+        // Case 2: Straddle - trim end and create tail
+        else if (info.start < new_start - EPSILON && info.end > new_end + EPSILON) {
+            // Find and modify the clip directly
+            for (auto& c : track.clips) {
+                if (c.id == info.clip_id) {
+                    // Trim end to new_start
+                    c.duration = new_start - c.start_time;
+                    c.source_out = c.source_in + c.duration;
+                    break;
+                }
+            }
+            // Create tail clip
+            OTIOClip tail_clip = info.full_clip;
+            tail_clip.id = GenerateClipId();
+            tail_clip.start_time = new_end;
+            tail_clip.duration = info.end - new_end;
+            tail_clip.source_in = info.source_in + (new_end - info.start);
+            clips_to_add.push_back(tail_clip);
+        }
+        // Case 3: End overlaps - trim end
+        else if (info.start < new_start - EPSILON && info.end > new_start + EPSILON) {
+            for (auto& c : track.clips) {
+                if (c.id == info.clip_id) {
+                    c.duration = new_start - c.start_time;
+                    c.source_out = c.source_in + c.duration;
+                    break;
+                }
+            }
+        }
+        // Case 4: Start overlaps - trim start
+        else if (info.start < new_end - EPSILON && info.end > new_end + EPSILON) {
+            for (auto& c : track.clips) {
+                if (c.id == info.clip_id) {
+                    double trim_amount = new_end - c.start_time;
+                    c.source_in += trim_amount;
+                    c.duration -= trim_amount;
+                    c.start_time = new_end;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Delete marked clips
+    for (const auto& id : clips_to_delete) {
+        track.clips.erase(
+            std::remove_if(track.clips.begin(), track.clips.end(),
+                [&id](const OTIOClip& c) { return c.id == id; }),
+            track.clips.end());
+    }
+
+    // Add tail clips
+    for (const auto& c : clips_to_add) {
+        track.clips.push_back(c);
+    }
+
+    // Insert or move the new clip
+    if (is_move_) {
+        for (auto& c : track.clips) {
+            if (c.id == moving_clip_id_) {
+                c.start_time = clip_.start_time;
+                break;
+            }
+        }
+    } else {
+        track.clips.push_back(clip_);
+    }
+
+    // Single sync at the end
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void OverwriteEditCommand::Undo() {
+    if (!executed_ || !view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    // Restore original clips
+    tracks[track_index_].clips = original_clips_;
+
+    // Single sync
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string OverwriteEditCommand::GetDescription() const {
+    return is_move_ ? "Move Clip (Overwrite)" : "Insert Clip (Overwrite)";
+}
+
 } // namespace ump

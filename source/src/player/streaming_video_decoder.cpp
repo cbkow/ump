@@ -1,4 +1,5 @@
 #include "streaming_video_decoder.h"
+#include "hw_context_manager.h"
 #include "../utils/debug_utils.h"
 
 extern "C" {
@@ -42,11 +43,11 @@ bool StreamingVideoDecoder::Initialize() {
         return true;
     }
 
-    Debug::Log("StreamingVideoDecoder: Initializing for " + video_path_);
+    //Debug::Log("StreamingVideoDecoder: Initializing for " + video_path_);
 
     // Open video file
     if (!OpenVideo()) {
-        Debug::Log("StreamingVideoDecoder: Failed to open video");
+        //Debug::Log("StreamingVideoDecoder: Failed to open video");
         return false;
     }
 
@@ -54,14 +55,14 @@ bool StreamingVideoDecoder::Initialize() {
     int buffer_size = config_.readAheadFrames + config_.readBehindFrames;
     ring_buffer_.clear();
 
-    Debug::Log("StreamingVideoDecoder: Video opened - " +
+    /*Debug::Log("StreamingVideoDecoder: Video opened - " +
                std::to_string(width_) + "x" + std::to_string(height_) +
                " @ " + std::to_string(fps_) + " fps, duration=" +
                std::to_string(duration_) + "s, " +
                std::to_string(frame_count_) + " frames (dur*fps=" +
                std::to_string(duration_ * fps_) + "), buffer size " +
                std::to_string(buffer_size) + ", decode: " +
-               std::string(HWAccelTypeToString(hw_accel_type_)));
+               std::string(HWAccelTypeToString(hw_accel_type_)));*/
 
     // Build keyframe index for H.264/inter-frame scrubbing
     BuildKeyframeIndex();
@@ -71,7 +72,7 @@ bool StreamingVideoDecoder::Initialize() {
     decode_thread_ = std::thread(&StreamingVideoDecoder::DecodeThread, this);
 
     initialized_ = true;
-    Debug::Log("StreamingVideoDecoder: Initialized successfully");
+    //Debug::Log("StreamingVideoDecoder: Initialized successfully");
     return true;
 }
 
@@ -80,7 +81,7 @@ void StreamingVideoDecoder::Shutdown() {
         return;
     }
 
-    Debug::Log("StreamingVideoDecoder: Shutting down...");
+    //Debug::Log("StreamingVideoDecoder: Shutting down...");
 
     // Stop decode thread
     running_ = false;
@@ -98,11 +99,11 @@ void StreamingVideoDecoder::Shutdown() {
     CloseVideo();
 
     initialized_ = false;
-    Debug::Log("StreamingVideoDecoder: Shutdown complete");
+    //Debug::Log("StreamingVideoDecoder: Shutdown complete");
 }
 
 void StreamingVideoDecoder::HardReset(int target_frame) {
-    Debug::Log("StreamingVideoDecoder: HardReset to frame " + std::to_string(target_frame));
+    //Debug::Log("StreamingVideoDecoder: HardReset to frame " + std::to_string(target_frame));
 
     // Stop decode thread
     running_ = false;
@@ -123,7 +124,7 @@ void StreamingVideoDecoder::HardReset(int target_frame) {
     CloseVideo();
 
     if (!OpenVideo()) {
-        Debug::Log("StreamingVideoDecoder: HardReset failed to reopen video");
+        //Debug::Log("StreamingVideoDecoder: HardReset failed to reopen video");
         initialized_ = false;
         return;
     }
@@ -145,7 +146,7 @@ void StreamingVideoDecoder::HardReset(int target_frame) {
     }
     seek_cv_.notify_one();
 
-    Debug::Log("StreamingVideoDecoder: HardReset complete");
+    //Debug::Log("StreamingVideoDecoder: HardReset complete");
 }
 
 //=============================================================================
@@ -156,13 +157,13 @@ bool StreamingVideoDecoder::OpenVideo() {
     // Open input file
     format_ctx_ = avformat_alloc_context();
     if (avformat_open_input(&format_ctx_, video_path_.c_str(), nullptr, nullptr) < 0) {
-        Debug::Log("StreamingVideoDecoder: Failed to open input: " + video_path_);
+        //Debug::Log("StreamingVideoDecoder: Failed to open input: " + video_path_);
         return false;
     }
 
     // Find stream info
     if (avformat_find_stream_info(format_ctx_, nullptr) < 0) {
-        Debug::Log("StreamingVideoDecoder: Failed to find stream info");
+        //Debug::Log("StreamingVideoDecoder: Failed to find stream info");
         avformat_close_input(&format_ctx_);
         return false;
     }
@@ -170,7 +171,7 @@ bool StreamingVideoDecoder::OpenVideo() {
     // Find video stream
     video_stream_idx_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (video_stream_idx_ < 0) {
-        Debug::Log("StreamingVideoDecoder: No video stream found");
+        //Debug::Log("StreamingVideoDecoder: No video stream found");
         avformat_close_input(&format_ctx_);
         return false;
     }
@@ -206,7 +207,7 @@ bool StreamingVideoDecoder::OpenVideo() {
     // successfully opened the file, there's at least one frame to decode
     if (frame_count_ <= 0 && duration_ > 0) {
         frame_count_ = 1;
-        Debug::Log("StreamingVideoDecoder: Adjusted frame_count from 0 to 1 (single-frame video)");
+        //Debug::Log("StreamingVideoDecoder: Adjusted frame_count from 0 to 1 (single-frame video)");
     }
 
     // Get start time offset (for HEVC and other formats with non-zero start)
@@ -219,16 +220,18 @@ bool StreamingVideoDecoder::OpenVideo() {
     // Find decoder
     const AVCodec* codec = avcodec_find_decoder(video_stream->codecpar->codec_id);
     if (!codec) {
-        Debug::Log("StreamingVideoDecoder: No decoder found for codec");
+        //Debug::Log("StreamingVideoDecoder: No decoder found for codec");
         avformat_close_input(&format_ctx_);
         return false;
     }
 
-    Debug::Log("StreamingVideoDecoder: Found decoder: " + std::string(codec->name));
+    //Debug::Log("StreamingVideoDecoder: Found decoder: " + std::string(codec->name));
 
     // Try hardware acceleration if enabled
     bool hw_success = false;
-    if (config_.useHardwareAccel) {
+    // TEMP DISABLED FOR TESTING - force software decode
+    Debug::Log("StreamingVideoDecoder: *** HW ACCEL DISABLED FOR TESTING ***");
+    if (false && config_.useHardwareAccel) {
         // Priority order: CUDA (NVDEC) > D3D11VA > QSV > DXVA2
         // CUDA is NVIDIA-specific and generally fastest
         // D3D11VA works on NVIDIA/Intel/AMD on Windows 8+
@@ -249,25 +252,25 @@ bool StreamingVideoDecoder::OpenVideo() {
         };
 
         for (const auto& opt : hw_options) {
-            Debug::Log("StreamingVideoDecoder: Trying " + std::string(opt.name) + "...");
+            //Debug::Log("StreamingVideoDecoder: Trying " + std::string(opt.name) + "...");
 
             if (TryHardwareAccel(codec, opt.av_type)) {
                 hw_accel_type_ = opt.our_type;
                 hw_success = true;
-                Debug::Log("StreamingVideoDecoder: Hardware acceleration enabled: " + std::string(opt.name));
+                //Debug::Log("StreamingVideoDecoder: Hardware acceleration enabled: " + std::string(opt.name));
                 break;
             }
         }
 
         if (!hw_success) {
-            Debug::Log("StreamingVideoDecoder: No hardware acceleration available, using software decode");
+            //Debug::Log("StreamingVideoDecoder: No hardware acceleration available, using software decode");
         }
     }
 
     // Allocate codec context
     codec_ctx_ = avcodec_alloc_context3(codec);
     if (!codec_ctx_) {
-        Debug::Log("StreamingVideoDecoder: Failed to allocate codec context");
+        //Debug::Log("StreamingVideoDecoder: Failed to allocate codec context");
         if (hw_device_ctx_) av_buffer_unref(&hw_device_ctx_);
         avformat_close_input(&format_ctx_);
         return false;
@@ -275,7 +278,7 @@ bool StreamingVideoDecoder::OpenVideo() {
 
     // Copy codec parameters
     if (avcodec_parameters_to_context(codec_ctx_, video_stream->codecpar) < 0) {
-        Debug::Log("StreamingVideoDecoder: Failed to copy codec parameters");
+        //Debug::Log("StreamingVideoDecoder: Failed to copy codec parameters");
         avcodec_free_context(&codec_ctx_);
         if (hw_device_ctx_) av_buffer_unref(&hw_device_ctx_);
         avformat_close_input(&format_ctx_);
@@ -288,8 +291,8 @@ bool StreamingVideoDecoder::OpenVideo() {
         codec_ctx_->hw_device_ctx = av_buffer_ref(hw_device_ctx_);
         codec_ctx_->get_format = GetHWFormatCallback;
 
-        Debug::Log("StreamingVideoDecoder: Configured hardware decode with " +
-                   std::string(HWAccelTypeToString(hw_accel_type_)));
+        /*Debug::Log("StreamingVideoDecoder: Configured hardware decode with " +
+                   std::string(HWAccelTypeToString(hw_accel_type_)));*/
     } else {
         // Software decode configuration
         hw_accel_type_ = HWAccelType::NONE;
@@ -302,13 +305,13 @@ bool StreamingVideoDecoder::OpenVideo() {
         codec_ctx_->thread_count = thread_count;
         codec_ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
 
-        Debug::Log("StreamingVideoDecoder: Using software decode with " +
-                   std::to_string(thread_count) + " threads");
+        /*Debug::Log("StreamingVideoDecoder: Using software decode with " +
+                   std::to_string(thread_count) + " threads");*/
     }
 
     // Open codec
     if (avcodec_open2(codec_ctx_, codec, nullptr) < 0) {
-        Debug::Log("StreamingVideoDecoder: Failed to open codec");
+        //Debug::Log("StreamingVideoDecoder: Failed to open codec");
         avcodec_free_context(&codec_ctx_);
         if (hw_device_ctx_) av_buffer_unref(&hw_device_ctx_);
         avformat_close_input(&format_ctx_);
@@ -331,13 +334,16 @@ void StreamingVideoDecoder::CloseVideo() {
         codec_ctx_ = nullptr;
     }
 
-    // Free hardware device context
+    // Free hardware device context reference
+    // Note: If using shared context from HWContextManager, this just decrements refcount
+    // The actual CUDA context stays alive in HWContextManager (no nvcuvid.dll unload)
     if (hw_device_ctx_) {
         av_buffer_unref(&hw_device_ctx_);
         hw_device_ctx_ = nullptr;
     }
     hw_accel_type_ = HWAccelType::NONE;
     hw_pix_fmt_ = AV_PIX_FMT_NONE;
+    uses_shared_hw_ctx_ = false;
 
     // Close format context
     if (format_ctx_) {
@@ -365,7 +371,7 @@ static AVPixelFormat GetHWFormatCallback(AVCodecContext* ctx, const AVPixelForma
         }
     }
     // Fallback to software if hardware format not available
-    Debug::Log("StreamingVideoDecoder: Hardware format not available, falling back to software");
+    //Debug::Log("StreamingVideoDecoder: Hardware format not available, falling back to software");
     return pix_fmts[0];
 }
 
@@ -387,30 +393,33 @@ bool StreamingVideoDecoder::TryHardwareAccel(const AVCodec* codec, int hw_type_i
         if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
             config->device_type == hw_type) {
 
-            // Found a matching hw config - try to create device context
-            int ret = av_hwdevice_ctx_create(&hw_device_ctx_, hw_type, nullptr, nullptr, 0);
-            if (ret < 0) {
-                char errbuf[256];
-                av_strerror(ret, errbuf, sizeof(errbuf));
-                Debug::Log("StreamingVideoDecoder: Failed to create " +
-                           std::string(av_hwdevice_get_type_name(hw_type)) +
-                           " device: " + errbuf);
-                return false;
+            // Use shared hardware context from HWContextManager
+            // This prevents DLL load/unload cycling which causes GPU contention
+            // Supports: CUDA (NVDEC), D3D11VA, QSV, DXVA2
+            AVBufferRef* shared_ctx = HWContextManager::Instance().GetContext(hw_type_int);
+            int shared_pix_fmt = HWContextManager::Instance().GetPixelFormat(hw_type_int);
+
+            if (shared_ctx && shared_pix_fmt >= 0) {
+                // Reference the shared context (increases refcount)
+                hw_device_ctx_ = av_buffer_ref(shared_ctx);
+                if (!hw_device_ctx_) {
+                    return false;
+                }
+                uses_shared_hw_ctx_ = true;
+
+                // Store the hardware pixel format
+                hw_pix_fmt_ = shared_pix_fmt;
+                g_hw_pix_fmt = static_cast<AVPixelFormat>(hw_pix_fmt_);
+
+                return true;
             }
 
-            // Store the hardware pixel format
-            hw_pix_fmt_ = static_cast<int>(config->pix_fmt);
-            g_hw_pix_fmt = static_cast<AVPixelFormat>(hw_pix_fmt_);  // Set thread-local for callback
-
-            Debug::Log("StreamingVideoDecoder: Created " +
-                       std::string(av_hwdevice_get_type_name(hw_type)) +
-                       " device context, hw_pix_fmt=" + std::to_string(hw_pix_fmt_));
-            return true;
+            // Shared context not available for this hardware type
+            // This can happen if the hardware isn't present or failed to initialize
+            return false;
         }
     }
 
-    Debug::Log("StreamingVideoDecoder: Codec doesn't support " +
-               std::string(av_hwdevice_get_type_name(hw_type)));
     return false;
 }
 
@@ -422,7 +431,7 @@ bool StreamingVideoDecoder::TransferHWFrame(AVFrame* hw_frame, AVFrame* sw_frame
     if (ret < 0) {
         char errbuf[256];
         av_strerror(ret, errbuf, sizeof(errbuf));
-        Debug::Log("StreamingVideoDecoder: Failed to transfer hw frame: " + std::string(errbuf));
+        //Debug::Log("StreamingVideoDecoder: Failed to transfer hw frame: " + std::string(errbuf));
         return false;
     }
 
@@ -446,21 +455,6 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::GetFrame(int frame_number) {
         return pixels;
     }
 
-    // DEBUG: Log buffer state when frame not found (rate-limited)
-    // Use instance counter (not static) to track per-decoder misses
-    miss_log_count_++;
-    if (miss_log_count_ <= 10 || miss_log_count_ % 30 == 0) {
-        int buf_start = -1, buf_end = -1;
-        GetBufferedRange(buf_start, buf_end);
-        // Extract just filename for readability
-        std::string filename = video_path_;
-        size_t pos = filename.find_last_of("/\\");
-        if (pos != std::string::npos) filename = filename.substr(pos + 1);
-       /* Debug::Log("StreamingVideoDecoder::GetFrame MISS [" + filename + "]: frame " + std::to_string(frame_number) +
-                   ", buffer=[" + std::to_string(buf_start) + "," + std::to_string(buf_end) + "]" +
-                   ", playhead=" + std::to_string(playhead_frame_.load()));*/
-    }
-
     // Frame not in buffer - will be decoded soon (or need seek)
     return nullptr;
 }
@@ -471,15 +465,6 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::GetClosestFrame(int frame_numb
     std::lock_guard<std::mutex> lock(buffer_mutex_);
 
     if (ring_buffer_.empty()) {
-        // DEBUG: Log when buffer is empty (with filename)
-        static int empty_count = 0;
-        if (++empty_count <= 5 || empty_count % 30 == 0) {
-            std::string filename = video_path_;
-            size_t pos = filename.find_last_of("/\\");
-            if (pos != std::string::npos) filename = filename.substr(pos + 1);
- /*           Debug::Log("StreamingVideoDecoder::GetClosestFrame [" + filename + "]: buffer EMPTY, requested frame " +
-                       std::to_string(frame_number));*/
-        }
         return nullptr;
     }
 
@@ -548,43 +533,22 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
         }
     }
 
-    // PROACTIVE EVICTION: Always evict frames outside window on every playhead update
-    // This prevents memory accumulation during rapid scrubbing
-    // Previous threshold (movement > readBehindFrames) was too conservative
+    // NOTE: Linear eviction removed - it conflicts with circular/looping caching.
+    // The linear logic (window_start = playhead - behind, window_end = playhead + ahead)
+    // doesn't handle wrap-around at boundaries. When playhead wraps from frame 146 to 0,
+    // linear eviction would incorrectly evict frames 100-146 as "too far ahead".
+    //
+    // Eviction is now handled externally by TimelineCache via EvictOutsideWindow(),
+    // which uses CacheWindowEngine for correct circular window calculation.
+    //
+    // The decoder just buffers frames; TimelineCache manages the circular window.
     {
-        int window_start = frame_number - config_.readBehindFrames;
-        int window_end = frame_number + config_.readAheadFrames;
-        int evicted = 0;
-
         std::lock_guard<std::mutex> lock(buffer_mutex_);
-
-        // Evict frames too far BEHIND (from front)
-        while (!ring_buffer_.empty()) {
-            int front_frame = ring_buffer_.front().frame_number;
-            if (front_frame < window_start) {
-                buffer_frame_set_.erase(front_frame);
-                ring_buffer_.pop_front();
-                evicted++;
-            } else {
-                break;
-            }
-        }
-
-        // Evict frames too far AHEAD (from back) - handles backward seeks
-        while (!ring_buffer_.empty()) {
-            int back_frame = ring_buffer_.back().frame_number;
-            if (back_frame > window_end) {
-                buffer_frame_set_.erase(back_frame);
-                ring_buffer_.pop_back();
-                evicted++;
-            } else {
-                break;
-            }
-        }
-
         buffer_size_ = static_cast<int>(ring_buffer_.size());
 
-        // Recalculate ahead count after eviction
+        // Recalculate ahead count (still useful for NeedsMoreFrames check)
+        // NOTE: This is still linear - frames >= playhead count as "ahead"
+        // For circular caching, the external EvictOutsideWindow handles correctness
         int ahead = 0;
         for (const auto& bf : ring_buffer_) {
             if (bf.frame_number >= frame_number) ahead++;
@@ -596,7 +560,7 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
     // Used when entering REFINING state to ensure exact frame decode
     if (force_seek) {
         std::lock_guard<std::mutex> lock(seek_mutex_);
-        Debug::Log("StreamingVideoDecoder: FORCE seek to frame " + std::to_string(frame_number));
+        //Debug::Log("StreamingVideoDecoder: FORCE seek to frame " + std::to_string(frame_number));
         seek_target_frame_ = frame_number;
         seek_quality_ = quality;
         seek_requested_ = true;
@@ -612,6 +576,10 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
     // Get current decode position
     int current_decode = decode_frame_;
 
+    // CRITICAL: If buffer is empty, we MUST seek to start buffering
+    // This handles fresh decoders for upcoming clips during timeline seeks
+    bool buffer_empty = (buffer_start < 0);
+
     bool in_buffer = (buffer_start >= 0 && frame_number >= buffer_start && frame_number <= buffer_end);
 
     // More generous tolerance - wait for decode if we're within reasonable range
@@ -619,7 +587,8 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
                         frame_number - buffer_end < config_.readAheadFrames / 2);  // Half buffer
 
     // Also consider "close to decode position" - decoder is working towards this frame
-    bool close_to_decode = (frame_number >= current_decode &&
+    // BUT: only if buffer is not empty (otherwise decoder hasn't actually started)
+    bool close_to_decode = !buffer_empty && (frame_number >= current_decode &&
                             frame_number - current_decode < config_.readAheadFrames);  // Full buffer tolerance
 
     // Only request seek if:
@@ -747,13 +716,13 @@ void StreamingVideoDecoder::SetConfig(const StreamingDecoderConfig& config) {
 //=============================================================================
 
 void StreamingVideoDecoder::DecodeThread() {
-    Debug::Log("StreamingVideoDecoder: Decode thread started");
+    //Debug::Log("StreamingVideoDecoder: Decode thread started");
 
     AVFrame* frame = av_frame_alloc();
     AVPacket* packet = av_packet_alloc();
 
     if (!frame || !packet) {
-        Debug::Log("StreamingVideoDecoder: Failed to allocate frame/packet");
+        //Debug::Log("StreamingVideoDecoder: Failed to allocate frame/packet");
         if (frame) av_frame_free(&frame);
         if (packet) av_packet_free(&packet);
         return;
@@ -817,7 +786,7 @@ void StreamingVideoDecoder::DecodeThread() {
 
                 // Log progress rarely to avoid I/O overhead during playback
                /* if (frames_decoded == 1 || frames_decoded % 100 == 0) {
-                    Debug::Log("StreamingVideoDecoder: Decoded frame " +
+                    //Debug::Log("StreamingVideoDecoder: Decoded frame " +
                                std::to_string(actual_frame) + " (" +
                                std::to_string(frames_decoded) + " total, ahead=" +
                                std::to_string(buffer_ahead_count_.load()) + ")");
@@ -831,8 +800,8 @@ void StreamingVideoDecoder::DecodeThread() {
             if (decode_frame_ >= frame_count_) {
                 // Reached end - set EOF flag to prevent spin loop
                 if (!eof_reached_.load()) {
-                    Debug::Log("StreamingVideoDecoder: Reached end of video at frame " +
-                               std::to_string(decode_frame_));
+                    /*Debug::Log("StreamingVideoDecoder: Reached end of video at frame " +
+                               std::to_string(decode_frame_));*/
                     eof_reached_ = true;
                 }
             }
@@ -853,7 +822,7 @@ void StreamingVideoDecoder::DecodeThread() {
     av_frame_free(&frame);
     av_packet_free(&packet);
 
-    Debug::Log("StreamingVideoDecoder: Decode thread stopped");
+    //Debug::Log("StreamingVideoDecoder: Decode thread stopped");
 }
 
 bool StreamingVideoDecoder::DecodeNextFrame(AVFrame* frame) {
@@ -950,14 +919,14 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
         // Allocate a software frame for the transfer
         sw_frame = av_frame_alloc();
         if (!sw_frame) {
-            Debug::Log("StreamingVideoDecoder: Failed to allocate sw_frame for hw transfer");
+            //Debug::Log("StreamingVideoDecoder: Failed to allocate sw_frame for hw transfer");
             return nullptr;
         }
 
         // Transfer from GPU to CPU
         if (!TransferHWFrame(frame, sw_frame)) {
             av_frame_free(&sw_frame);
-            Debug::Log("StreamingVideoDecoder: Hardware frame transfer failed");
+            //Debug::Log("StreamingVideoDecoder: Hardware frame transfer failed");
             return nullptr;
         }
 
@@ -982,8 +951,8 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 
         if (!sws_ctx_) {
-            Debug::Log("StreamingVideoDecoder: Failed to create sws context for format " +
-                       std::to_string(src_frame->format));
+            //Debug::Log("StreamingVideoDecoder: Failed to create sws context for format " +
+            //           std::to_string(src_frame->format));
             if (sw_frame) av_frame_free(&sw_frame);
             return nullptr;
         }
@@ -992,10 +961,10 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
         sws_src_height_ = src_frame->height;
         sws_src_format_ = src_frame->format;
 
-        Debug::Log("StreamingVideoDecoder: Created sws context for " +
-                   std::to_string(src_frame->width) + "x" + std::to_string(src_frame->height) +
-                   " format=" + std::to_string(src_frame->format) +
-                   (is_hw_frame ? " (hw accelerated)" : " (software)"));
+        //Debug::Log("StreamingVideoDecoder: Created sws context for " +
+        //           std::to_string(src_frame->width) + "x" + std::to_string(src_frame->height) +
+        //           " format=" + std::to_string(src_frame->format) +
+        //           (is_hw_frame ? " (hw accelerated)" : " (software)"));
     }
 
     // Allocate output buffer
@@ -1085,7 +1054,7 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
     // Seek to target
     int ret = av_seek_frame(format_ctx_, video_stream_idx_, target_pts, seek_flags);
     if (ret < 0) {
-        Debug::Log("StreamingVideoDecoder: Seek failed, error " + std::to_string(ret));
+        //Debug::Log("StreamingVideoDecoder: Seek failed, error " + std::to_string(ret));
     }
 
     // CRITICAL FIX: After seeking, decode the first frame and determine actual position from PTS
@@ -1150,7 +1119,7 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
                 }
 
       /*          if (decoded_count > 1) {
-                    Debug::Log("StreamingVideoDecoder: Decoded " + std::to_string(decoded_count) +
+                    //Debug::Log("StreamingVideoDecoder: Decoded " + std::to_string(decoded_count) +
                                " frames to reach target " + std::to_string(target_frame));
                 }*/
             } else {
@@ -1203,38 +1172,12 @@ void StreamingVideoDecoder::AddToBuffer(int frame_number, std::shared_ptr<PixelD
         ring_buffer_.push_back(std::move(bf));
         buffer_frame_set_.insert(frame_number);
 
-        // Evict frames outside the valid window around playhead
-        // Window is [playhead - readBehindFrames, playhead + readAheadFrames]
-        int max_size = config_.readAheadFrames + config_.readBehindFrames;
-        int window_start = playhead - config_.readBehindFrames;
-        int window_end = playhead + config_.readAheadFrames;
-
-        // First pass: evict frames too far BEHIND (from front)
-        while (!ring_buffer_.empty()) {
-            int front_frame = ring_buffer_.front().frame_number;
-            if (front_frame < window_start) {
-                buffer_frame_set_.erase(front_frame);
-                ring_buffer_.pop_front();
-                evicted++;
-            } else {
-                break;  // Front frame is in valid range
-            }
-        }
-
-        // Second pass: evict frames too far AHEAD (from back)
-        // This handles backward seeks where old frames are now past the window
-        while (!ring_buffer_.empty()) {
-            int back_frame = ring_buffer_.back().frame_number;
-            if (back_frame > window_end) {
-                buffer_frame_set_.erase(back_frame);
-                ring_buffer_.pop_back();
-                evicted++;
-            } else {
-                break;  // Back frame is in valid range
-            }
-        }
-
-        // Safety: if still over max size, evict from front
+        // NOTE: Linear eviction removed - conflicts with circular/looping caching.
+        // Eviction is now handled externally by TimelineCache via EvictOutsideWindow(),
+        // which uses CacheWindowEngine for correct circular window calculation.
+        //
+        // Safety limit only: prevent unbounded memory growth
+        int max_size = config_.readAheadFrames + config_.readBehindFrames + 48;  // Some slack
         while (ring_buffer_.size() > static_cast<size_t>(max_size) && !ring_buffer_.empty()) {
             buffer_frame_set_.erase(ring_buffer_.front().frame_number);
             ring_buffer_.pop_front();
@@ -1277,6 +1220,10 @@ bool StreamingVideoDecoder::NeedsMoreFrames() const {
     if (eof_reached_.load()) {
         return false;
     }
+    // In shuttle mode, always decode as fast as possible (no throttling)
+    if (shuttle_mode_.load()) {
+        return true;
+    }
     // O(1) check using atomic counter
     return buffer_ahead_count_.load() < config_.readAheadFrames;
 }
@@ -1308,15 +1255,15 @@ void StreamingVideoDecoder::BuildKeyframeIndex() {
         codec_id == AV_CODEC_ID_HUFFYUV) {
         is_intra_frame_codec_ = true;
         keyframe_index_built_ = true;
-        Debug::Log("StreamingVideoDecoder: Codec '" + std::string(codec_name) +
-                   "' is intra-frame - every frame is a keyframe, skipping index build");
+        //Debug::Log("StreamingVideoDecoder: Codec '" + std::string(codec_name) +
+        //           "' is intra-frame - every frame is a keyframe, skipping index build");
         return;
     }
 
     // Scan file for keyframes
     AVPacket* packet = av_packet_alloc();
     if (!packet) {
-        Debug::Log("StreamingVideoDecoder: Failed to allocate packet for keyframe scan");
+        //Debug::Log("StreamingVideoDecoder: Failed to allocate packet for keyframe scan");
         return;
     }
 
@@ -1347,8 +1294,8 @@ void StreamingVideoDecoder::BuildKeyframeIndex() {
 
         // Safety limit - don't scan forever on corrupted files
         if (frame_num > frame_count_ + 1000) {
-            Debug::Log("StreamingVideoDecoder: Keyframe scan hit safety limit at frame " +
-                       std::to_string(frame_num));
+            //Debug::Log("StreamingVideoDecoder: Keyframe scan hit safety limit at frame " +
+            //           std::to_string(frame_num));
             break;
         }
     }
@@ -1368,11 +1315,11 @@ void StreamingVideoDecoder::BuildKeyframeIndex() {
     double avg_gop = keyframe_count > 1 ?
         static_cast<double>(frame_num) / keyframe_count : frame_num;
 
-    Debug::Log("StreamingVideoDecoder: Built keyframe index - " +
-               std::to_string(keyframe_count) + " keyframes in " +
-               std::to_string(frame_num) + " frames (avg GOP: " +
-               std::to_string(static_cast<int>(avg_gop)) + " frames, " +
-               std::to_string(elapsed_ms) + "ms)");
+    //Debug::Log("StreamingVideoDecoder: Built keyframe index - " +
+    //           std::to_string(keyframe_count) + " keyframes in " +
+    //           std::to_string(frame_num) + " frames (avg GOP: " +
+    //           std::to_string(static_cast<int>(avg_gop)) + " frames, " +
+    //           std::to_string(elapsed_ms) + "ms)");
 }
 
 int StreamingVideoDecoder::GetNearestKeyframePosition(int target_frame) const {
@@ -1476,7 +1423,7 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::DecodeSingleKeyframe(int keyfr
     // Seek to keyframe (BACKWARD finds the keyframe at or before target)
     int ret = av_seek_frame(format_ctx_, video_stream_idx_, target_pts, AVSEEK_FLAG_BACKWARD);
     if (ret < 0) {
-        Debug::Log("StreamingVideoDecoder: DecodeSingleKeyframe seek failed");
+        //Debug::Log("StreamingVideoDecoder: DecodeSingleKeyframe seek failed");
         return nullptr;
     }
 
@@ -1531,7 +1478,7 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::DecodeSingleKeyframe(int keyfr
                     sw_frame->pts = frame->pts;
                     final_frame = sw_frame;
                 } else {
-                    Debug::Log("StreamingVideoDecoder: HW transfer failed in DecodeSingleKeyframe");
+                    //Debug::Log("StreamingVideoDecoder: HW transfer failed in DecodeSingleKeyframe");
                     break;
                 }
             }
@@ -1549,6 +1496,84 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::DecodeSingleKeyframe(int keyfr
     av_frame_free(&sw_frame);
 
     return result;
+}
+
+//=============================================================================
+// Demand-Driven Decode API
+//=============================================================================
+
+void StreamingVideoDecoder::SetNeededFrames(const std::vector<int>& frames_by_priority) {
+    std::lock_guard<std::mutex> lock(needed_mutex_);
+    needed_frames_ = frames_by_priority;
+
+    // Update playhead to first frame in priority list (if any)
+    // This ensures the decoder focuses on the right area
+    if (!frames_by_priority.empty()) {
+        int target = frames_by_priority[0];
+        playhead_frame_ = target;
+
+        // Wake up decode thread
+        decode_cv_.notify_one();
+    }
+}
+
+StreamingVideoDecoder::DecodeStatus StreamingVideoDecoder::GetDecodeStatus() const {
+    DecodeStatus status;
+
+    // Get what we have in buffer
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+        for (const auto& bf : ring_buffer_) {
+            status.have.push_back(bf.frame_number);
+        }
+    }
+
+    // Get what we need but don't have
+    {
+        std::lock_guard<std::mutex> lock(needed_mutex_);
+        std::lock_guard<std::mutex> buf_lock(buffer_mutex_);
+
+        for (int frame : needed_frames_) {
+            if (buffer_frame_set_.count(frame) == 0) {
+                status.missing.push_back(frame);
+            }
+        }
+    }
+
+    status.currently_decoding = currently_decoding_.load();
+    return status;
+}
+
+void StreamingVideoDecoder::EvictOutsideWindow(const std::set<int>& keep_frames) {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+    // Remove frames not in keep set
+    auto it = ring_buffer_.begin();
+    while (it != ring_buffer_.end()) {
+        if (keep_frames.count(it->frame_number) == 0) {
+            // Frame not in keep set - evict it
+            buffer_frame_set_.erase(it->frame_number);
+            it = ring_buffer_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // Update buffer size
+    buffer_size_ = static_cast<int>(ring_buffer_.size());
+
+    // Recalculate ahead count
+    int playhead = playhead_frame_.load();
+    int ahead = 0;
+    for (const auto& bf : ring_buffer_) {
+        if (bf.frame_number >= playhead) ahead++;
+    }
+    buffer_ahead_count_ = ahead;
+}
+
+std::set<int> StreamingVideoDecoder::GetBufferedFramesSet() const {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    return std::set<int>(buffer_frame_set_.begin(), buffer_frame_set_.end());
 }
 
 } // namespace ump

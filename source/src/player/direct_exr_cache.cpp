@@ -1846,6 +1846,10 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
         return 0;
     }
 
+    // Save current GL state to avoid corrupting ImGui during render
+    GLint previous_texture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+
     GLuint texId = 0;
     glGenTextures(1, &texId);
     glBindTexture(GL_TEXTURE_2D, texId);
@@ -1869,7 +1873,8 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Restore previous texture binding (critical for ImGui compatibility)
+    glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texId;
 }

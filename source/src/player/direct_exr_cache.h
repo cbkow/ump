@@ -522,7 +522,7 @@ private:
     int previousFrame_ = -1;  // Track previous frame to detect direction
     CacheDirection cacheDirection_ = CacheDirection::Forward;
     bool isPlaying_ = false;
-    bool is_looping_ = false;  // Wrap-around caching enabled
+    bool is_looping_ = true;  // Wrap-around caching always enabled for seamless looping
 
     // Loop range for In/Out point constrained playback
     int loop_in_frame_ = -1;   // -1 = use start of sequence (frame 0)

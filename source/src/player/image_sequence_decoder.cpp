@@ -1,5 +1,6 @@
 #include "image_sequence_decoder.h"
 #include "image_loaders.h"
+#include "../utils/debug_utils.h"
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -315,11 +316,12 @@ void ImageSequenceDecoder::SetConfig(const StreamingDecoderConfig& config) {
 
 void ImageSequenceDecoder::IOThread() {
     while (running_) {
-        // Wait for work
+        // Wait for work (short timeout to poll completed async tasks)
         {
             std::unique_lock<std::mutex> lock(io_mutex_);
-            io_cv_.wait_for(lock, std::chrono::milliseconds(10), [this] {
-                return !running_ || seek_requested_ || NeedsMoreFrames();
+            io_cv_.wait_for(lock, std::chrono::milliseconds(5), [this] {
+                return !running_ || seek_requested_ || NeedsMoreFrames() ||
+                       !async_requests_.empty();
             });
         }
 
@@ -335,41 +337,105 @@ void ImageSequenceDecoder::IOThread() {
             // Reset I/O position to seek target
             io_frame_ = seek_target_frame_;
 
-            // Clear in-flight tracking
+            // Clear in-flight tracking (async tasks will complete but results ignored)
             {
                 std::lock_guard<std::mutex> lock(in_flight_mutex_);
                 frames_in_flight_.clear();
+                async_requests_.clear();
             }
         }
 
-        // Load frames if needed
-        while (running_ && !seek_requested_ && NeedsMoreFrames()) {
-            int next_frame = GetNextFrameToLoad();
-            if (next_frame < 0) break;
+        // CRITICAL: Evict frames outside window EVERY iteration
+        EvictOutsideWindow();
 
-            // Mark as in-flight
-            {
-                std::lock_guard<std::mutex> lock(in_flight_mutex_);
+        // Step 1: Spawn async load tasks (up to MAX_CONCURRENT_LOADS)
+        {
+            std::lock_guard<std::mutex> lock(in_flight_mutex_);
+
+            while (async_requests_.size() < MAX_CONCURRENT_LOADS &&
+                   NeedsMoreFrames() && !seek_requested_ && running_) {
+
+                int next_frame = GetNextFrameToLoad();
+                if (next_frame < 0) break;
+
+                // Skip if already in-flight
                 if (frames_in_flight_.count(next_frame)) {
-                    continue;  // Already loading this frame
+                    continue;
                 }
                 frames_in_flight_.insert(next_frame);
+
+                // Spawn async load task with FRESH loader (thread-safe)
+                // Capture by value for thread safety
+                std::string dir = directory_;
+                std::string pat = pattern_;
+                int start = start_frame_;
+                std::string layer = exr_layer_;
+                PipelineMode mode = pipeline_mode_;
+
+                AsyncLoadRequest request;
+                request.frame = next_frame;
+                request.future = std::async(std::launch::async,
+                    [dir, pat, start, next_frame, layer, mode]() -> std::shared_ptr<PixelData> {
+                        // Create fresh loader for this task (no shared state)
+                        std::string ext = GetExtensionFromPattern(pat);
+                        auto loader = CreateLoaderForExtension(ext);
+                        if (!loader) return nullptr;
+
+                        // Build frame path
+                        int file_frame = next_frame + start;
+                        char buffer[1024];
+                        snprintf(buffer, sizeof(buffer), pat.c_str(), file_frame);
+                        std::filesystem::path full_path = std::filesystem::path(dir) / buffer;
+
+                        return loader->LoadFrame(full_path.string(), layer, mode);
+                    });
+
+                async_requests_.push_back(std::move(request));
             }
+        }
 
-            // Load the frame (this is the slow I/O operation)
-            auto pixels = LoadFrame(next_frame);
+        // Step 2: Poll for completed async tasks (non-blocking)
+        {
+            std::lock_guard<std::mutex> lock(in_flight_mutex_);
 
-            // Remove from in-flight
-            {
-                std::lock_guard<std::mutex> lock(in_flight_mutex_);
-                frames_in_flight_.erase(next_frame);
-            }
+            auto it = async_requests_.begin();
+            while (it != async_requests_.end()) {
+                // Check if task is complete (non-blocking)
+                if (it->future.valid() &&
+                    it->future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
 
-            if (pixels && running_ && !seek_requested_) {
-                AddToBuffer(next_frame, pixels);
+                    int frame = it->frame;
+
+                    try {
+                        auto pixels = it->future.get();
+
+                        // Remove from in-flight
+                        frames_in_flight_.erase(frame);
+
+                        // Add to buffer if valid and not stale
+                        if (pixels && running_ && !seek_requested_) {
+                            AddToBuffer(frame, pixels);
+                        }
+                    } catch (const std::exception& e) {
+                        Debug::Log("ImageSequenceDecoder: Async load failed: " + std::string(e.what()));
+                        frames_in_flight_.erase(frame);
+                    }
+
+                    it = async_requests_.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
     }
+
+    // Cleanup: wait for remaining async tasks before exit
+    for (auto& req : async_requests_) {
+        if (req.future.valid()) {
+            req.future.wait();
+        }
+    }
+    async_requests_.clear();
 }
 
 std::shared_ptr<PixelData> ImageSequenceDecoder::LoadFrame(int frame_number) {
@@ -377,6 +443,16 @@ std::shared_ptr<PixelData> ImageSequenceDecoder::LoadFrame(int frame_number) {
 
     std::string path = GetFramePath(frame_number);
     return loader_->LoadFrame(path, exr_layer_, pipeline_mode_);
+}
+
+std::shared_ptr<PixelData> ImageSequenceDecoder::LoadFrameWithFreshLoader(int frame_number) {
+    // Create a fresh loader instance (thread-safe, no shared state)
+    std::string ext = GetExtensionFromPattern(pattern_);
+    auto loader = CreateLoaderForExtension(ext);
+    if (!loader) return nullptr;
+
+    std::string path = GetFramePath(frame_number);
+    return loader->LoadFrame(path, exr_layer_, pipeline_mode_);
 }
 
 std::string ImageSequenceDecoder::GetFramePath(int frame_number) const {
@@ -460,34 +536,35 @@ bool ImageSequenceDecoder::NeedsMoreFrames() const {
 }
 
 int ImageSequenceDecoder::GetNextFrameToLoad() {
+    // NOTE: Caller must hold in_flight_mutex_
     int playhead = playhead_frame_.load();
 
     std::lock_guard<std::mutex> lock(buffer_mutex_);
 
-    // Prioritize frames ahead of playhead
+    // Helper to wrap frame index for seamless looping
+    auto wrapFrame = [this](int frame) -> int {
+        if (frame_count_ <= 0) return 0;
+        return ((frame % frame_count_) + frame_count_) % frame_count_;
+    };
+
+    // Prioritize frames ahead of playhead (with wrap-around for seamless looping)
     for (int offset = 0; offset <= config_.readAheadFrames; offset++) {
-        int frame = playhead + offset;
-        if (frame >= 0 && frame < frame_count_) {
-            if (buffer_frame_set_.count(frame) == 0) {
-                // Check not in-flight
-                std::lock_guard<std::mutex> ifl(in_flight_mutex_);
-                if (frames_in_flight_.count(frame) == 0) {
-                    return frame;
-                }
+        int frame = wrapFrame(playhead + offset);
+        if (buffer_frame_set_.count(frame) == 0) {
+            // Check not in-flight (caller holds in_flight_mutex_)
+            if (frames_in_flight_.count(frame) == 0) {
+                return frame;
             }
         }
     }
 
-    // Then fill behind playhead
+    // Then fill behind playhead (with wrap-around)
     for (int offset = 1; offset <= config_.readBehindFrames; offset++) {
-        int frame = playhead - offset;
-        if (frame >= 0 && frame < frame_count_) {
-            if (buffer_frame_set_.count(frame) == 0) {
-                // Check not in-flight
-                std::lock_guard<std::mutex> ifl(in_flight_mutex_);
-                if (frames_in_flight_.count(frame) == 0) {
-                    return frame;
-                }
+        int frame = wrapFrame(playhead - offset);
+        if (buffer_frame_set_.count(frame) == 0) {
+            // Check not in-flight (caller holds in_flight_mutex_)
+            if (frames_in_flight_.count(frame) == 0) {
+                return frame;
             }
         }
     }
@@ -497,15 +574,29 @@ int ImageSequenceDecoder::GetNextFrameToLoad() {
 
 void ImageSequenceDecoder::EvictOutsideWindow() {
     int playhead = playhead_frame_.load();
-    int window_start = playhead - config_.readBehindFrames;
-    int window_end = playhead + config_.readAheadFrames;
 
     std::lock_guard<std::mutex> lock(buffer_mutex_);
 
+    // Helper to calculate forward and backward distances with wrap-around
+    auto getDistances = [this, playhead](int frame) -> std::pair<int, int> {
+        if (frame_count_ <= 0) {
+            int diff = frame - playhead;
+            return {std::max(0, diff), std::max(0, -diff)};
+        }
+        int forward = ((frame - playhead) % frame_count_ + frame_count_) % frame_count_;
+        int backward = ((playhead - frame) % frame_count_ + frame_count_) % frame_count_;
+        return {forward, backward};
+    };
+
     // Remove frames outside window
+    // Keep frame if: forward_distance <= readAheadFrames OR backward_distance <= readBehindFrames
     auto it = ring_buffer_.begin();
     while (it != ring_buffer_.end()) {
-        if (it->frame_number < window_start || it->frame_number > window_end) {
+        auto [forward, backward] = getDistances(it->frame_number);
+        bool in_ahead_window = (forward <= config_.readAheadFrames);
+        bool in_behind_window = (backward <= config_.readBehindFrames);
+
+        if (!in_ahead_window && !in_behind_window) {
             buffer_frame_set_.erase(it->frame_number);
             it = ring_buffer_.erase(it);
         } else {
@@ -518,7 +609,8 @@ void ImageSequenceDecoder::EvictOutsideWindow() {
 
     int ahead = 0;
     for (const auto& f : ring_buffer_) {
-        if (f.frame_number >= playhead) ahead++;
+        auto [forward, backward] = getDistances(f.frame_number);
+        if (forward <= backward) ahead++;  // Frame is ahead if forward distance is shorter
     }
     buffer_ahead_count_ = ahead;
 }

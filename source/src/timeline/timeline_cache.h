@@ -20,7 +20,9 @@
 #include "../player/pipeline_mode.h"
 #include "../player/shared_memory_pool.h"
 #include "../player/streaming_video_decoder.h"  // For SeekQuality enum
+#include "../player/managed_video_decoder.h"    // For ManagedVideoDecoder (spawn-and-abandon)
 #include "../player/image_sequence_decoder.h"   // For ImageSequenceDecoder
+#include "cache_window_engine.h"                // Central circular cache engine
 
 namespace ump {
 
@@ -31,30 +33,27 @@ class TimelineFlattener;
 class IImageLoader;
 
 //=============================================================================
-// Timeline Cache Key - Identifies a frame from a source clip
+// Timeline Cache Key - Identifies a frame by timeline position
+// Using timeline_frame (not source_path+source_frame) ensures unique cache
+// entries when the same source clip appears multiple times on the timeline
 //=============================================================================
 
 struct TimelineCacheKey {
-    std::string source_path;    // Linked media file path
-    int source_frame;           // Frame number within the source
+    int timeline_frame;             // Frame number on the timeline (unique per position)
 
     bool operator<(const TimelineCacheKey& other) const {
-        if (source_path != other.source_path) return source_path < other.source_path;
-        return source_frame < other.source_frame;
+        return timeline_frame < other.timeline_frame;
     }
 
     bool operator==(const TimelineCacheKey& other) const {
-        return source_path == other.source_path && source_frame == other.source_frame;
+        return timeline_frame == other.timeline_frame;
     }
 };
 
 // Hash function for TimelineCacheKey (for unordered containers)
 struct TimelineCacheKeyHash {
     std::size_t operator()(const TimelineCacheKey& key) const {
-        // Combine path hash and frame number
-        std::size_t h1 = std::hash<std::string>{}(key.source_path);
-        std::size_t h2 = std::hash<int>{}(key.source_frame);
-        return h1 ^ (h2 << 1);  // Simple hash combination
+        return std::hash<int>{}(key.timeline_frame);
     }
 };
 
@@ -117,8 +116,8 @@ struct CachedFrame {
 //=============================================================================
 
 struct ClipLoaderInfo {
-    // For VIDEO clips: use streaming decoder (continuous decode + buffer)
-    std::unique_ptr<StreamingVideoDecoder> video_decoder;
+    // For VIDEO clips: use managed decoder (spawn-and-abandon for seek responsiveness)
+    std::unique_ptr<ManagedVideoDecoder> video_decoder;
 
     // For IMAGE_SEQUENCE/EXR clips: use sequence decoder (ring buffer like video)
     std::unique_ptr<ImageSequenceDecoder> sequence_decoder;
@@ -155,9 +154,16 @@ struct ClipLoaderInfo {
     }
 
     // Update playhead position
-    void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false) {
-        if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
+    // is_prefetch: when true, treat as prefetch for upcoming clip (don't respawn aggressively)
+    void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false, bool is_prefetch = false) {
+        if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force, is_prefetch);
         if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
+    }
+
+    // Set playback mode (affects decoder spawn behavior)
+    void SetPlaybackMode(bool playing) {
+        if (video_decoder) video_decoder->SetPlaybackMode(playing);
+        // ImageSequenceDecoder doesn't need this - it handles frames independently
     }
 
     // Check if frame is buffered
@@ -197,6 +203,65 @@ struct ClipLoaderInfo {
     bool HasBufferedDecoder() const {
         return video_decoder != nullptr || sequence_decoder != nullptr;
     }
+
+    //=========================================================================
+    // Demand-Driven Decode API (for CacheWindowEngine integration)
+    //=========================================================================
+
+    // Set which source frames are needed, in priority order
+    void SetNeededFrames(const std::vector<int>& frames_by_priority) {
+        if (video_decoder) video_decoder->SetNeededFrames(frames_by_priority);
+        // ImageSequenceDecoder doesn't need this - it decodes on demand
+    }
+
+    // Evict frames outside the given keep set
+    void EvictOutsideWindow(const std::set<int>& keep_frames) {
+        if (video_decoder) video_decoder->EvictOutsideWindow(keep_frames);
+        // ImageSequenceDecoder doesn't need this - it manages its own buffer
+    }
+
+    // Get frames currently in buffer as a set
+    std::set<int> GetBufferedFramesSet() const {
+        if (video_decoder) return video_decoder->GetBufferedFramesSet();
+        return std::set<int>{};
+    }
+
+    //=========================================================================
+    // Shuttle Mode (FF/RW) - Video decoder only
+    //=========================================================================
+
+    void SetShuttleMode(bool enabled, int direction) {
+        if (video_decoder) video_decoder->SetShuttleMode(enabled, direction);
+        // ImageSequenceDecoder doesn't need shuttle mode - it's fast enough
+    }
+
+    bool IsShuttleMode() const {
+        if (video_decoder) return video_decoder->IsShuttleMode();
+        return false;
+    }
+
+    std::shared_ptr<PixelData> UpdateShuttle(int frame) {
+        if (video_decoder) return video_decoder->UpdateShuttle(frame);
+        return nullptr;
+    }
+
+    int ExitShuttle() {
+        if (video_decoder) return video_decoder->ExitShuttle();
+        return 0;
+    }
+
+    //=========================================================================
+    // Loop Prefetching - Forward to decoder
+    //=========================================================================
+
+    void SetLoopBoundaries(int loop_start, int loop_end) {
+        if (video_decoder) video_decoder->SetLoopBoundaries(loop_start, loop_end);
+        // ImageSequenceDecoder doesn't need loop prefetch - it's fast enough
+    }
+
+    void ClearLoopBoundaries() {
+        if (video_decoder) video_decoder->ClearLoopBoundaries();
+    }
 };
 
 //=============================================================================
@@ -222,7 +287,7 @@ struct TimelineCacheConfig {
     int readAheadFrames = 72;       // ~3 seconds ahead @ 24fps (was prefetch_ahead)
 
     // Read-behind for instant backward scrubbing
-    double readBehindSeconds = 0.5; // Keep 0.5s behind playhead 
+    double readBehindSeconds = 0.5; // Keep 0.5s behind playhead
 
     int io_threads = 8;             // Number of background I/O threads
     double fps = 24.0;              // Timeline frame rate
@@ -286,7 +351,9 @@ struct TimelineCacheSegment {
     float density = 1.0f;       // 0.0 = sparse, 1.0 = full coverage
 
     enum Type {
-        TIMELINE_CACHE      // Green - cached frames
+        TIMELINE_CACHE,     // Filled - actually cached frames
+        TARGET_WINDOW,      // Outline - frames the cache is trying to fill
+        BOUNDARY_REGION     // Background - the loop boundary region (In/Out range)
     } type = TIMELINE_CACHE;
 };
 
@@ -352,11 +419,26 @@ public:
     void SetLooping(bool enabled);
     bool IsLooping() const { return config_.enable_looping; }
 
+    // Loop boundaries - defines the circular cache window region
+    // When set: cache wraps within [start, end]
+    // When not set: cache wraps within [0, total_frames-1]
+    void SetLoopBoundaries(int start_frame, int end_frame);
+    void ClearLoopBoundaries();
+
     // Statistics
     TimelineCacheStats GetStats() const;
 
     // Cache visualization (for progress bar)
+    // Returns segments of actually cached frames (within boundary range)
     std::vector<TimelineCacheSegment> GetCacheSegments() const;
+
+    // Returns the target cache window segments (what the cache is trying to fill)
+    // Handles wrap-around: may return 2 segments if window crosses boundary edge
+    std::vector<TimelineCacheSegment> GetTargetWindowSegments(int current_frame) const;
+
+    // Returns the boundary region segment (In/Out loop range)
+    // Returns empty if no custom boundaries set
+    std::vector<TimelineCacheSegment> GetBoundarySegments() const;
 
     // Check if initialized
     bool IsInitialized() const { return initialized_; }
@@ -366,6 +448,15 @@ public:
 
     // Get source coordinates for a timeline frame (for debugging/UI)
     SourceCoords GetSourceCoords(int timeline_frame) const;
+
+    // Get pipeline mode for the clip at given timeline frame
+    // Returns PipelineMode::NORMAL if no clip or clip not loaded
+    PipelineMode GetClipPipelineMode(int timeline_frame) const;
+
+    // Get resolution of the clip at given timeline frame
+    // Returns 0 if no clip or clip not loaded
+    int GetClipWidth(int timeline_frame) const;
+    int GetClipHeight(int timeline_frame) const;
 
     // Check if a specific frame is ready for display (in cache or decoder buffer)
     // This is a lightweight check - doesn't trigger loading or modify state
@@ -401,10 +492,47 @@ public:
     int GetCanvasWidth() const { return canvas_width_; }
     int GetCanvasHeight() const { return canvas_height_; }
 
+    //=========================================================================
+    // Shuttle Mode (FF/RW) - For responsive UI during fast seek
+    //=========================================================================
+
+    // Enable/disable shuttle mode on all decoders
+    // direction: -1 = rewind, +1 = fast forward
+    void SetShuttleMode(bool enabled, int direction);
+    bool IsShuttleMode() const { return shuttle_active_; }
+
+    // Get frame during shuttle mode - returns best available frame
+    // Uses shuttle queue logic instead of normal cache lookup
+    GLuint GetShuttleFrame(int timeline_frame, int& width, int& height);
+
+    // Exit shuttle mode - returns snap frame, triggers exact decode
+    int ExitShuttleMode();
+
+    // Get effective boundary start (custom or 0)
+    int GetBoundaryStart() const;
+
+    // Get effective boundary end (custom or total_frames-1)
+    int GetBoundaryEnd() const;
+
+    // Get frames ahead of current position for throttle calculation
+    // Returns frames in playback order, respecting boundary wrapping
+    std::vector<int> GetAheadFrames(int current_frame, int count) const;
+
+    // Get priority-sorted frame window from engine (for buffer-wait checks)
+    // Returns [current, ahead1, ahead2, ..., behind1, behind2, ...]
+    std::vector<int> GetPriorityFrameWindow() const;
+
+    // Get number of read-ahead frames configured
+    int GetReadAheadFrames() const { return config_.readAheadFrames; }
+
 private:
     //=========================================================================
     // Loop-around Helpers
     //=========================================================================
+
+    // Get the circular cache window - single source of truth for what frames to cache
+    // Returns set of frame numbers that should be in cache for given playhead position
+    std::set<int> GetCacheWindow(int current_frame) const;
 
     // Wrap or clamp frame index based on looping mode
     int WrapFrame(int frame) const;
@@ -462,6 +590,14 @@ private:
     TimelineFlattener* flattener_ = nullptr;
     double timeline_duration_ = 0.0;
     int total_timeline_frames_ = 0;
+
+    // Central cache window engine - owns all circular math
+    CacheWindowEngine cache_engine_;
+
+    // Loop boundaries - defines the circular cache window region
+    // -1 means "use default" (0 for start, total_frames-1 for end)
+    std::atomic<int> loop_start_frame_{-1};
+    std::atomic<int> loop_end_frame_{-1};
 
     // Source clip loaders (one per unique source path)
     // Using shared_ptr so I/O workers can hold a reference that keeps loader alive
@@ -541,6 +677,7 @@ private:
     int last_good_width_ = 0;
     int last_good_height_ = 0;
     int last_good_frame_ = -1;  // Timeline frame number of last_good_texture_
+    std::string last_good_source_path_;  // Source path - invalidate on clip boundary cross
 
     // Post-edit state: After an edit, disable "closest frame" fallback briefly
     // This prevents showing stale frames from the decoder's pre-edit buffer
@@ -570,6 +707,18 @@ private:
 
     int canvas_width_ = 0;
     int canvas_height_ = 0;
+
+    //=========================================================================
+    // Shuttle Mode State
+    //=========================================================================
+
+    bool shuttle_active_ = false;
+    int shuttle_direction_ = 0;  // -1 = RW, +1 = FF
+    GLuint shuttle_last_texture_ = 0;       // Raw frame from decoder
+    int shuttle_last_width_ = 0;
+    int shuttle_last_height_ = 0;
+    GLuint shuttle_composited_texture_ = 0; // Final composited result (aspect ratio corrected)
+    std::chrono::steady_clock::time_point shuttle_last_texture_time_;  // Rate limit texture updates
 
     //=========================================================================
     // Letterbox Compositing - GPU-side aspect ratio preservation
@@ -615,6 +764,10 @@ private:
     mutable std::atomic<bool> segments_dirty_{true};
     mutable std::vector<TimelineCacheSegment> cached_segments_;
     mutable std::mutex segments_mutex_;
+
+    // Tape timecode handling: minimum source_in per source file
+    // Used to calculate relative offsets when source_in contains tape timecode
+    std::map<std::string, double> min_source_in_per_file_;
 };
 
 } // namespace ump

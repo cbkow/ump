@@ -22,6 +22,12 @@ std::string GetImagesFolder(const std::string& media_path);
 std::string SanitizeMediaName(const std::string& filename);
 std::string GenerateImageFilename(const std::string& timecode);
 
+// Project-relative path helpers (for timelines without media source)
+// Returns: {project_dir}/.ump/{timeline_name}/notes.json
+std::string GetProjectAnnotationPath(const std::string& project_path, const std::string& timeline_name);
+std::string GetProjectImagesFolder(const std::string& project_path, const std::string& timeline_name);
+bool CreateProjectUMPFolder(const std::string& project_path, const std::string& timeline_name);
+
 // Folder management
 bool CreateUMPFolder(const std::string& media_path);
 bool EnsureImagesFolderExists(const std::string& media_path);

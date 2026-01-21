@@ -34,11 +34,6 @@ find_package(Threads REQUIRED)
 
 # Set paths for dependencies on Windows
 if(WIN32)
-    # Adjust these paths based on where you install the libraries
-    set(MPV_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/include")
-    set(MPV_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/lib")
-    set(MPV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/bin")
-
     # FFmpeg paths
     set(FFMPEG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/include")
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
@@ -69,8 +64,6 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/project/media_item.h"
     "src/project/project_manager.h"
     "src/project/project_manager.cpp"
-    "src/utils/gpu_scheduler.h"
-    "src/utils/gpu_scheduler.cpp"
     "src/utils/system_pressure_monitor.h"
     "src/utils/system_pressure_monitor.cpp"
     "src/metadata/video_metadata.cpp"
@@ -95,14 +88,16 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/image_loaders.cpp"
     "src/player/streaming_video_decoder.h"
     "src/player/streaming_video_decoder.cpp"
+    "src/player/image_sequence_decoder.h"
+    "src/player/image_sequence_decoder.cpp"
+    "src/player/managed_video_decoder.h"
+    "src/player/managed_video_decoder.cpp"
+    "src/player/decoder_cleanup_queue.h"
+    "src/player/decoder_cleanup_queue.cpp"
+    "src/player/hw_context_manager.h"
+    "src/player/hw_context_manager.cpp"
     "src/player/thumbnail_cache.h"
     "src/player/thumbnail_cache.cpp"
-    "src/player/comparison_video_player.h"
-    "src/player/comparison_video_player.cpp"
-    "src/player/difference_cache.h"
-    "src/player/difference_cache.cpp"
-    "src/player/lavfi_filter_generator.h"
-    "src/player/lavfi_filter_generator.cpp"
     "src/player/playback_timer.h"
     "src/player/playback_timer.cpp"
     "src/annotations/annotation_note.h"
@@ -135,6 +130,8 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/transcode/sequential_frame_loader.cpp"
     "src/transcode/ocio_cpu_transform.h"
     "src/transcode/ocio_cpu_transform.cpp"
+    "src/transcode/ocio_lut_baker.h"
+    "src/transcode/ocio_lut_baker.cpp"
     "src/transcode/ffmpeg_video_encoder.h"
     "src/transcode/ffmpeg_video_encoder.cpp"
     "src/transcode/video_transcoder.h"
@@ -145,10 +142,6 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/transcode/transcode_queue.cpp"
     "src/transcode/transcode_worker_pool.h"
     "src/transcode/transcode_worker_pool.cpp"
-    "src/transcode/difference_sequence_transcoder.h"
-    "src/transcode/difference_sequence_transcoder.cpp"
-    "src/transcode/transcode_manager.h"
-    "src/transcode/transcode_manager.cpp"
     "src/ui/transcode_queue_window.h"
     "src/ui/transcode_queue_window.cpp"
     "src/project/project_manager_transcode.cpp"
@@ -167,7 +160,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/backends
     ${CMAKE_CURRENT_SOURCE_DIR}/external/implot
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
-    ${MPV_INCLUDE_DIR}
     ${FFMPEG_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include
@@ -187,7 +179,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Link directories for Windows
 if(WIN32)
     target_link_directories(${PROJECT_NAME} PRIVATE
-        ${MPV_LIB_DIR}
         ${FFMPEG_LIB_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/external/tiff/lib
@@ -241,7 +232,6 @@ target_link_libraries(${PROJECT_NAME}
 # Platform-specific libraries
 if(WIN32)
     target_link_libraries(${PROJECT_NAME}
-        ${MPV_LIB_DIR}/libmpv.dll.a  # Use the .dll.a import library
         opengl32
         winmm
         dwmapi
@@ -254,14 +244,11 @@ elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     find_library(IOKIT_LIBRARY IOKit)
     find_library(COREVIDEO_LIBRARY CoreVideo)
-    target_link_libraries(${PROJECT_NAME} 
-        mpv
-        ${COCOA_LIBRARY} 
-        ${IOKIT_LIBRARY} 
+    target_link_libraries(${PROJECT_NAME}
+        ${COCOA_LIBRARY}
+        ${IOKIT_LIBRARY}
         ${COREVIDEO_LIBRARY}
     )
-else()
-    target_link_libraries(${PROJECT_NAME} mpv)
 endif()
 
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
@@ -287,14 +274,8 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMENT "Copying assets to output directory"
 )
 
-# MPV DLL copy (this should work fine)
+# Copy FFmpeg and other runtime dependencies
 if(WIN32)
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${MPV_BIN_DIR}/libmpv-2.dll"
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    )
-    
     # Copy FFmpeg executable and DLLs
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different

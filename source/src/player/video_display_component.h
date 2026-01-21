@@ -1,0 +1,429 @@
+#pragma once
+
+// Fix Windows min/max macro conflicts with OpenEXR
+#ifdef WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#undef min
+#undef max
+#endif
+
+#include <glad/gl.h>
+#include <imgui.h>
+
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "pipeline_mode.h"
+#include "dual_view_types.h"
+#include "../overlay/safety_overlay_system.h"
+#include "../overlay/svg_overlay_renderer.h"
+
+// Include actual headers to avoid forward declaration conflicts
+#include "direct_exr_cache.h"
+
+// Forward declarations
+class OCIOPipeline;
+
+namespace ump {
+    class ThumbnailCache;
+    class TimelinePlaybackController;
+    class AudioPlayer;
+    struct ThumbnailConfig;
+}
+
+/**
+ * VideoDisplayComponent - Minimal video display layer
+ *
+ * This class provides:
+ * - OpenGL texture management for video display
+ * - OCIO color pipeline integration
+ * - Safety/SVG overlay rendering
+ * - Timeline frame injection (receives frames from TimelinePlaybackController)
+ * - EXR sequence cache integration
+ * - Screenshot capture
+ * - Passthrough playback controls
+ *
+ * It does NOT:
+ * - Load media files (that's TimelinePlaybackController's job)
+ * - Manage MPV or any decoder
+ * - Handle comparison/dual view modes
+ * - Parse playlists or EDL files
+ */
+class VideoDisplayComponent {
+public:
+    VideoDisplayComponent();
+    ~VideoDisplayComponent();
+
+    //=========================================================================
+    // Core Lifecycle
+    //=========================================================================
+
+    bool Initialize();
+    void Cleanup();
+
+    //=========================================================================
+    // Texture Management
+    //=========================================================================
+
+    GLuint GetCurrentVideoTexture() const { return video_texture_; }
+    bool HasValidTexture() const { return has_video_ && video_texture_ != 0; }
+    int GetVideoWidth() const { return video_width_; }
+    int GetVideoHeight() const { return video_height_; }
+
+    //=========================================================================
+    // Rendering
+    //=========================================================================
+
+    void ProcessPendingTextureUploads();  // Call BEFORE ImGui::NewFrame()
+    void RenderVideoFrame();
+    void UpdateVideoTexture();
+    void RenderPlaceholder();
+
+    //=========================================================================
+    // OCIO Color Pipeline
+    //=========================================================================
+
+    void SetColorPipeline(std::unique_ptr<OCIOPipeline> pipeline);
+    void ClearColorPipeline();
+    bool HasColorPipeline() const;
+    bool HasActiveColorTransform() const;
+    GLuint CreateColorCorrectedTexture(GLuint input_texture_id, int tex_width, int tex_height,
+                                       int output_width, int output_height);
+    void ForceFrameRefresh();
+
+    //=========================================================================
+    // Overlay Rendering
+    //=========================================================================
+
+    void RenderSVGOverlays(ImDrawList* draw_list, ImVec2 video_pos, ImVec2 video_size,
+                          float opacity = 0.7f, ImU32 color = IM_COL32(255, 255, 255, 255),
+                          float line_width = 2.0f);
+    SVGOverlayRenderer* GetSVGRenderer() const { return svg_overlay_renderer_.get(); }
+    bool IsSafetyOverlaysEnabled() const { return svg_overlays_enabled_; }
+    void EnableSafetyOverlays(bool enabled) { svg_overlays_enabled_ = enabled; }
+    void SetSafetyOverlaySettings(const SafetyGuideSettings& settings);
+    SafetyGuideSettings& GetSafetyOverlaySettings() { return safety_settings_; }
+    const SafetyGuideSettings& GetSafetyOverlaySettings() const { return safety_settings_; }
+
+    //=========================================================================
+    // EXR/Image Sequence Cache
+    //=========================================================================
+
+    bool IsInEXRMode() const { return is_exr_mode_; }
+    void InitializeEXRCache(const std::vector<std::string>& sequence_files,
+                           const std::string& layer_name, double fps,
+                           double initial_position = -1.0);
+    ump::DirectEXRCache* GetEXRCache() const { return exr_cache_.get(); }
+    const std::vector<std::string>& GetEXRSequenceFiles() const { return exr_sequence_files_; }
+    double GetEXRFrameRate() const { return exr_frame_rate_; }
+    int GetEXRSequenceStartFrame() const { return exr_sequence_start_frame_; }
+    void ClearEXRCache();
+    void SetEXRCacheConfig(const ump::DirectEXRCacheConfig& config);
+    std::vector<ump::CacheSegment> GetEXRCacheSegments() const;
+    bool HasEXRCache() const;
+
+    // Thumbnail cache access
+    ump::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }
+    GLuint GetThumbnailForFrame(int frame, bool allow_fallback = false, int* out_actual_frame = nullptr);
+    bool HasThumbnailCache() const;
+    void ClearThumbnailCache();
+
+    //=========================================================================
+    // Timeline Integration
+    //=========================================================================
+
+    void SetTimelineMode(bool enabled, ump::TimelinePlaybackController* controller = nullptr);
+    bool IsInTimelineMode() const { return is_timeline_mode_; }
+    void InjectCurrentTimelineFrame();
+    void SetContentDimensions(int width, int height);
+
+    //=========================================================================
+    // Playback Control (Passthrough to TimelinePlaybackController)
+    //=========================================================================
+
+    void Play();
+    void Pause();
+    void Seek(double position);
+    void StepFrame(int direction);
+    void GoToStart();
+    void GoToEnd();
+    bool IsPlaying() const;
+
+    //=========================================================================
+    // Media Info (Cached Values)
+    //=========================================================================
+
+    double GetPosition() const;
+    double GetDuration() const;
+    double GetFrameRate() const;
+    int GetTotalFrames() const;
+    int GetCurrentFrame() const;
+    std::string GetFilePath() const;
+    bool HasVideo() const { return has_video_; }
+
+    // Loop control
+    void SetLoop(bool enabled);
+    bool IsLooping() const { return loop_enabled_; }
+
+    //=========================================================================
+    // Screenshot Capture
+    //=========================================================================
+
+    bool CaptureScreenshotToClipboard();
+    bool CaptureScreenshotToDesktop(const std::string& filename = "");
+    bool CaptureScreenshotToPath(const std::string& directory_path, const std::string& filename);
+
+    //=========================================================================
+    // Pipeline Mode
+    //=========================================================================
+
+    void SetPipelineMode(PipelineMode mode);
+    PipelineMode GetPipelineMode() const { return current_pipeline_mode_; }
+    const PipelineConfig& GetCurrentPipelineConfig() const;
+
+    //=========================================================================
+    // Callbacks
+    //=========================================================================
+
+    void SetDimensionChangeCallback(std::function<void(int, int)> callback) {
+        dimension_change_callback_ = callback;
+    }
+
+    //=========================================================================
+    // Backward Compatibility Stubs (MPV-specific methods now deprecated)
+    // These methods exist to maintain compilation compatibility during migration
+    //=========================================================================
+
+    // MPV-specific initialization - no-op in display component
+    void SetupPropertyObservation() {}
+    void UpdateFromMPVEvents() {}
+
+    // Cache settings - now handled by TimelinePlaybackController
+    void SetCacheSettings(int, int) {}
+    void SetCacheSettings(const std::string&, int, int, bool) {}
+    void SetCacheClearCallback(std::function<void()>) {}
+
+    // State management
+    void ResetState();
+
+    // Fast seek methods - passthrough to TimelinePlaybackController
+    void UpdateFastSeek();
+    void UpdateFastSeek(double) { UpdateFastSeek(); }  // Legacy overload
+    void StartRewind();
+    void StartFastForward();
+    void StopFastSeek();
+
+    // Volume control - now handled by AudioMixer
+    void SetVolume(double) {}
+    ump::AudioPlayer* GetDualViewAudio() { return nullptr; }
+
+    // File loading - now handled via timeline
+    bool LoadFile(const std::string&, bool = false, double = -1.0) { return false; }
+    bool LoadFileTrimmed(const std::string&, double, double) { return false; }
+
+    // EXR methods
+    std::string GetEXRLayerName() const { return exr_layer_name_; }
+    size_t ClearEXRDiskCache();
+    // EXRCacheStats maps to DirectEXRCache::Stats for compatibility
+    struct EXRCacheStats {
+        int total_frames = 0;
+        int cached_frames = 0;
+        int pending_requests = 0;
+        size_t cache_bytes = 0;
+    };
+    EXRCacheStats GetEXRCacheStats() const;
+
+    // Image sequence methods
+    std::string GetImageSequenceFormat() const { return is_exr_mode_ ? "exr" : ""; }
+    bool SupportsPipelineMode(PipelineMode) const { return true; }
+    bool IsImageSequence() const { return is_exr_mode_; }
+    int GetImageSequenceStartFrame() const { return exr_sequence_start_frame_; }
+
+    // Comparison mode - deleted, always disabled
+    bool IsComparisonModeEnabled() const { return false; }
+    ComparisonMode GetComparisonMode() const { return ComparisonMode::DISABLED; }
+    bool IsLavfiMode() const { return false; }
+
+    // Audio methods - now handled via AudioMixer
+    bool IsAudioOnly() const { return false; }
+    bool LoadSequenceAudio(const std::string&) { return false; }
+    void LoadSequenceAudio(const std::string&, double) {}
+    void UnloadSequenceAudio() {}
+
+    // Dual view methods - deprecated, always return disabled/empty
+    void UpdateDualViewClipFromPrimary() {}
+    void UpdateDualViewClipFromSecondary() {}
+    void UpdateDualViewTimer() {}
+    ump::DualViewTimeline& GetDualViewTimeline();
+    double GetVirtualTimelinePosition() const { return GetPosition(); }
+    double GetVirtualTimelineDuration() const { return GetDuration(); }
+    bool IsDualViewTimerActive() const { return false; }
+    // Stub timer struct for compatibility
+    struct DualViewTimerStub {
+        bool IsLooping() const { return false; }
+        void SetLooping(bool) {}
+    };
+    DualViewTimerStub* GetDualViewTimer() { return nullptr; }
+    void RevertToEditMode() {}
+    void SetPrimaryTrimPoints(double, double) {}
+    void SetSecondaryTrimPoints(double, double) {}
+    bool IsLavfiMode(ComparisonMode) const { return false; }
+    void OnVirtualTimelineDurationChanged() {}
+
+    // Thumbnail methods
+    std::pair<int, int> GetThumbnailSize() const { return {192, 108}; }
+    void GetThumbnailSize(int* w, int* h, int* = nullptr) const { if (w) *w = 192; if (h) *h = 108; }
+    bool GetThumbnailSize(int, int& w, int& h) const { w = 192; h = 108; return true; }
+
+    // Timecode formatting
+    static std::string FormatTimecode(double seconds, double fps);
+
+    // Dual view seeking - no-op
+    void SeekDualView(double) {}
+
+    // Additional stubs for compatibility
+    bool HasAudio() const { return false; }
+    void SetLoopMode(bool enabled) { loop_enabled_ = enabled; }
+    void Stop() { Pause(); }
+    template<typename T> void SetPlaylistPositionCallback(T) {}
+    template<typename T> void SetMetadataCallback(T) {}
+    void SetMFFrameRate(double) {}
+    void SetImageSequenceFrameRate(double) {}
+    void SetImageSequenceFrameRate(double, bool) {}
+    void LoadPlaylist(const std::string&) {}
+    void OnPlaylistItemChanged(int) {}
+    void OnPlaylistItemChanged(const std::string&) {}
+
+    // Dual view loading
+    void LoadPrimaryVideoInDualView(const std::string&) {}
+
+    // EXR cache control
+    void SetEXRCacheEnabled(bool) {}
+    void SetEXRPosition(double) {}
+
+    // Texture reference clearing
+    void ClearVideoTextureReference() {}
+
+    // Fast seek methods - query passthrough to TimelinePlaybackController
+    bool IsFastSeeking() const;
+    bool IsFastForward() const;
+    double GetFastSeekSpeed() const;
+    bool IsReadyToRender() const { return has_video_; }
+
+private:
+    //=========================================================================
+    // OpenGL Resources
+    //=========================================================================
+
+    GLuint video_texture_ = 0;
+    GLuint fbo_ = 0;
+
+    // Color processing resources
+    GLuint color_fbo_ = 0;
+    GLuint color_texture_ = 0;
+    int color_texture_width_ = 0;
+    int color_texture_height_ = 0;
+    GLuint quad_vao_ = 0;
+    GLuint quad_vbo_ = 0;
+
+    // Transition placeholder texture
+    GLuint transition_placeholder_texture_ = 0;
+    int transition_placeholder_width_ = 64;
+    int transition_placeholder_height_ = 64;
+
+    // Gap placeholder texture (for timeline gaps/cache misses)
+    GLuint gap_placeholder_texture_ = 0;
+    int gap_placeholder_width_ = 0;
+    int gap_placeholder_height_ = 0;
+
+    //=========================================================================
+    // Video Properties
+    //=========================================================================
+
+    int video_width_ = 0;
+    int video_height_ = 0;
+    double cached_position_ = 0.0;
+    double cached_duration_ = 0.0;
+    double cached_fps_ = 24.0;
+
+    // Content dimensions (independent of video dimensions for overlay modes)
+    int content_width_ = 0;
+    int content_height_ = 0;
+    bool use_content_dimensions_ = false;
+
+    //=========================================================================
+    // State
+    //=========================================================================
+
+    bool has_video_ = false;
+    bool loop_enabled_ = true;
+
+    //=========================================================================
+    // OCIO Pipeline
+    //=========================================================================
+
+    std::unique_ptr<OCIOPipeline> color_pipeline_;
+
+    //=========================================================================
+    // Pipeline Mode
+    //=========================================================================
+
+    PipelineMode current_pipeline_mode_ = PipelineMode::NORMAL;
+    GLenum current_internal_format_ = GL_RGBA8;
+
+    //=========================================================================
+    // Safety/SVG Overlays
+    //=========================================================================
+
+    std::unique_ptr<SVGOverlayRenderer> svg_overlay_renderer_;
+    bool svg_overlays_enabled_ = false;
+    SafetyGuideSettings safety_settings_;
+
+    //=========================================================================
+    // EXR Cache
+    //=========================================================================
+
+    bool is_exr_mode_ = false;
+    std::string exr_layer_name_;
+    double exr_frame_rate_ = 24.0;
+    int exr_sequence_start_frame_ = 0;
+    std::vector<std::string> exr_sequence_files_;
+    std::shared_ptr<ump::DirectEXRCache> exr_cache_;
+    std::unique_ptr<ump::ThumbnailCache> thumbnail_cache_;
+
+    //=========================================================================
+    // Timeline Mode
+    //=========================================================================
+
+    bool is_timeline_mode_ = false;
+    ump::TimelinePlaybackController* timeline_controller_ = nullptr;
+    GLuint timeline_texture_ = 0;
+    int timeline_texture_width_ = 0;
+    int timeline_texture_height_ = 0;
+    int last_timeline_frame_ = -1;
+
+    //=========================================================================
+    // Callbacks
+    //=========================================================================
+
+    std::function<void(int, int)> dimension_change_callback_;
+
+    //=========================================================================
+    // Private Methods
+    //=========================================================================
+
+    void CreateVideoTextures(int width, int height);
+    void CreateVideoTexturesForMode(int width, int height, PipelineMode mode);
+    void CreateColorProcessingResourcesForMode(int width, int height, PipelineMode mode);
+    void CreateTransitionPlaceholder();
+    void ClearVideoTextureToBackground();
+    void ClearColorTextureToBackground();
+    void SetupColorProcessingResources();
+    void ApplyColorPipeline();
+    void RenderVideoTexture();
+};

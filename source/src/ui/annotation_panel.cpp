@@ -79,6 +79,31 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
 
     ImGui::Separator();
 
+    // Check availability state - show appropriate message if disabled
+    if (availability_ == AnnotationAvailability::NO_PROJECT_SAVED) {
+        ImGui::Spacing();
+        ImGui::TextWrapped("Annotations for timelines require a saved project.");
+        ImGui::Spacing();
+        ImGui::TextDisabled("Save your project first:");
+        ImGui::TextDisabled("  File > Project > Save Project");
+        ImGui::Spacing();
+        ImGui::BeginDisabled();
+        ImGui::Button("Add Note", ImVec2(-1, 0));
+        ImGui::EndDisabled();
+        ImGui::End();
+        ImGui::PopStyleColor(2);  // Transparent border + window background
+        return;
+    }
+
+    if (availability_ == AnnotationAvailability::DUAL_VIEW_DISABLED) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Annotations are not available");
+        ImGui::TextDisabled("in Dual View comparison mode.");
+        ImGui::End();
+        ImGui::PopStyleColor(2);  // Transparent border + window background
+        return;
+    }
+
     RenderHeader();
 
     ImGui::Separator();

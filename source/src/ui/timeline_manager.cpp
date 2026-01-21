@@ -200,6 +200,13 @@ void TimelineManager::UpdateScrubbing(double new_position, VideoPlayer* video_pl
         return;
     }
 
+    // TIMELINE MODE: Seek through video player which routes to TimelinePlaybackController
+    // The playhead moves immediately, frames catch up as they decode (decoupled like FF/RW)
+    if (video_player && video_player->IsInTimelineMode()) {
+        video_player->Seek(ui_position);
+        return;
+    }
+
     // VIDEO MODE: Normal scrubbing behavior with cache
     // Update frame cache scrub position for background caching
     if (project_manager) {

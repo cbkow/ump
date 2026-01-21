@@ -47,6 +47,15 @@ void AnnotationManager::UnloadNotes() {
     NotifyNotesChanged();
 }
 
+void AnnotationManager::ClearNotes() {
+    std::lock_guard<std::mutex> lock(notes_mutex_);
+    notes_.clear();
+    current_media_path_.clear();
+    if (notes_changed_callback_) {
+        notes_changed_callback_();
+    }
+}
+
 void AnnotationManager::AddNote(double timestamp_seconds, const std::string& timecode, int frame, const std::string& text) {
     {
         std::lock_guard<std::mutex> lock(notes_mutex_);

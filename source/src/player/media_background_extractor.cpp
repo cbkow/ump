@@ -11,6 +11,7 @@
 #include "media_background_extractor.h"
 #include "frame_cache.h"
 #include "video_player.h"  // For PIPELINE_CONFIGS
+#include "hw_context_manager.h"  // Shared hardware decode contexts
 #include "../metadata/video_metadata.h"
 #include "../utils/debug_utils.h"
 #include <algorithm>
@@ -146,6 +147,7 @@ bool MediaBackgroundExtractor::Initialize(const std::string& video_path, const V
 }
 
 // Helper function to try hardware acceleration for a specific device type
+// Uses shared HWContextManager to avoid CUDA context cycling
 static bool TryHardwareAccelType(const AVCodec* codec, AVHWDeviceType hw_type,
                                   AVBufferRef** hw_device_ctx, int* hw_pix_fmt) {
     // Check if this codec supports this hardware acceleration
@@ -158,29 +160,33 @@ static bool TryHardwareAccelType(const AVCodec* codec, AVHWDeviceType hw_type,
         if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
             config->device_type == hw_type) {
 
-            // Found matching config - try to create device context
-            int ret = av_hwdevice_ctx_create(hw_device_ctx, hw_type, nullptr, nullptr, 0);
-            if (ret < 0) {
-                char errbuf[256];
-                av_strerror(ret, errbuf, sizeof(errbuf));
-                Debug::Log("MediaBackgroundExtractor: Failed to create " +
+            // Use shared hardware context from HWContextManager
+            // This prevents DLL load/unload cycling which causes GPU contention
+            AVBufferRef* shared_ctx = ump::HWContextManager::Instance().GetContext(static_cast<int>(hw_type));
+            int shared_pix_fmt = ump::HWContextManager::Instance().GetPixelFormat(static_cast<int>(hw_type));
+
+            if (shared_ctx && shared_pix_fmt >= 0) {
+                // Reference the shared context (increases refcount)
+                *hw_device_ctx = av_buffer_ref(shared_ctx);
+                if (!*hw_device_ctx) {
+                    return false;
+                }
+
+                *hw_pix_fmt = shared_pix_fmt;
+
+                Debug::Log("MediaBackgroundExtractor: Using shared " +
                            std::string(av_hwdevice_get_type_name(hw_type)) +
-                           " device: " + errbuf);
-                return false;
+                           " context, hw_pix_fmt=" + std::to_string(*hw_pix_fmt));
+                return true;
             }
 
-            // Store the hardware pixel format
-            *hw_pix_fmt = static_cast<int>(config->pix_fmt);
-
-            Debug::Log("MediaBackgroundExtractor: Created " +
-                       std::string(av_hwdevice_get_type_name(hw_type)) +
-                       " device context, hw_pix_fmt=" + std::to_string(*hw_pix_fmt));
-            return true;
+            // Shared context not available
+            Debug::Log("MediaBackgroundExtractor: Shared context not available for " +
+                       std::string(av_hwdevice_get_type_name(hw_type)));
+            return false;
         }
     }
 
-    Debug::Log("MediaBackgroundExtractor: Codec doesn't support " +
-               std::string(av_hwdevice_get_type_name(hw_type)));
     return false;
 }
 
@@ -198,7 +204,9 @@ bool MediaBackgroundExtractor::SetupHardwareDecode() {
 
     // Try hardware acceleration if enabled
     bool hw_success = false;
-    if (config.hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
+    // TEMP DISABLED FOR TESTING - force software decode
+    Debug::Log("MediaBackgroundExtractor::SetupHardwareDecode: *** HW ACCEL DISABLED FOR TESTING ***");
+    if (false && config.hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
         // Define hardware options to try in priority order
         struct HWOption {
             AVHWDeviceType av_type;
@@ -1666,8 +1674,11 @@ bool MediaBackgroundExtractor::WorkerContext::Initialize(const std::string& vide
     Debug::Log("WorkerContext: Found decoder: " + std::string(decoder->name));
 
     // Try hardware acceleration if enabled
+    // Uses shared HWContextManager to avoid CUDA context cycling
     bool hw_success = false;
-    if (hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
+    // TEMP DISABLED FOR TESTING - force software decode
+    Debug::Log("MediaBackgroundExtractor::WorkerContext: *** HW ACCEL DISABLED FOR TESTING ***");
+    if (false && hw_config.mode != HardwareDecodeMode::SOFTWARE_ONLY) {
         // Define hardware options to try in priority order
         struct HWOption {
             AVHWDeviceType av_type;
@@ -1695,15 +1706,21 @@ bool MediaBackgroundExtractor::WorkerContext::Initialize(const std::string& vide
                 if (config->methods & AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX &&
                     config->device_type == opt.av_type) {
 
-                    // Found matching config - try to create device context
-                    int ret = av_hwdevice_ctx_create(&hw_device_ctx, opt.av_type, nullptr, nullptr, 0);
-                    if (ret >= 0) {
-                        hw_pix_fmt = static_cast<int>(config->pix_fmt);
-                        using_hw_decode = true;
-                        hw_success = true;
-                        Debug::Log("WorkerContext: Hardware acceleration enabled: " + std::string(opt.name) +
-                                   ", hw_pix_fmt=" + std::to_string(hw_pix_fmt));
-                        break;
+                    // Use shared hardware context from HWContextManager
+                    AVBufferRef* shared_ctx = ump::HWContextManager::Instance().GetContext(static_cast<int>(opt.av_type));
+                    int shared_pix_fmt = ump::HWContextManager::Instance().GetPixelFormat(static_cast<int>(opt.av_type));
+
+                    if (shared_ctx && shared_pix_fmt >= 0) {
+                        // Reference the shared context
+                        hw_device_ctx = av_buffer_ref(shared_ctx);
+                        if (hw_device_ctx) {
+                            hw_pix_fmt = shared_pix_fmt;
+                            using_hw_decode = true;
+                            hw_success = true;
+                            Debug::Log("WorkerContext: Using shared " + std::string(opt.name) +
+                                       " context, hw_pix_fmt=" + std::to_string(hw_pix_fmt));
+                            break;
+                        }
                     }
                 }
             }

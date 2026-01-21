@@ -9,6 +9,13 @@
 
 namespace ump {
 
+// Annotation availability states for different modes
+enum class AnnotationAvailability {
+    AVAILABLE,           // Normal operation
+    NO_PROJECT_SAVED,    // Multi-track timeline but no project saved
+    DUAL_VIEW_DISABLED   // Dual view mode - annotations not supported
+};
+
 /**
  * AnnotationPanel - UI panel for displaying and editing annotations
  *
@@ -71,6 +78,10 @@ public:
     // Annotations enabled/disabled state
     void SetAnnotationsEnabled(bool* enabled_ptr) { annotations_enabled_ptr_ = enabled_ptr; }
 
+    // Availability state (for disabled modes like DUAL_VIEW or unsaved project)
+    void SetAvailability(AnnotationAvailability availability) { availability_ = availability; }
+    AnnotationAvailability GetAvailability() const { return availability_; }
+
     // Video aspect ratio for proper thumbnail display
     void SetVideoAspectRatio(float aspect_ratio) { video_aspect_ratio_ = aspect_ratio; }
     float GetVideoAspectRatio() const { return video_aspect_ratio_; }
@@ -97,6 +108,7 @@ private:
     bool is_editing_;
     bool* annotations_enabled_ptr_;
     float video_aspect_ratio_ = 16.0f / 9.0f;  // Default to 16:9, updated when media loads
+    AnnotationAvailability availability_ = AnnotationAvailability::AVAILABLE;
 
     // UI helpers
     void RenderHeader();

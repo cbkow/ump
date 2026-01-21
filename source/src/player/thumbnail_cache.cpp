@@ -343,11 +343,16 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
 
 // Create GL texture from pixels (runs on main thread only)
 GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
+    // Save current GL state to avoid corrupting ImGui during render
+    GLint previous_texture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+
     GLuint texture_id = 0;
     glGenTextures(1, &texture_id);
     if (texture_id == 0) {
         Debug::Log("ThumbnailCache: Failed to create GL texture for frame " + std::to_string(pending.frame));
         generation_failures_++;
+        glBindTexture(GL_TEXTURE_2D, previous_texture);  // Restore even on failure
         return 0;
     }
 
@@ -363,7 +368,8 @@ GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Restore previous texture binding (critical for ImGui compatibility)
+    glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texture_id;
 }

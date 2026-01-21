@@ -1,7 +1,83 @@
-﻿  audio_mixer.cpp
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/CMakeLists.txt
+  annotation_exporter.cpp
+  annotation_io.cpp
+  annotation_manager.cpp
+  annotation_renderer.cpp
+  annotation_serializer.cpp
+  annotation_toolbar.cpp
+  stroke_smoother.cpp
+  viewport_annotator.cpp
+  audio_decoder.cpp
+  audio_mixer.cpp
+  audio_player.cpp
+  ocio_config_manager.cpp
+  ocio_pipeline.cpp
+  texture_pool.cpp
+  imnodes.cpp
+  frameio_client.cpp
+  frameio_converter.cpp
+  frameio_url_parser.cpp
   main.cpp
+  adobe_metadata.cpp
+  Generating Code...
+  Compiling...
+  exr_metadata.cpp
+  ffmpeg_metadata_extractor.cpp
+  video_metadata.cpp
+  node_base.cpp
+  node_manager.cpp
+  safety_overlay_system.cpp
+  svg_overlay_renderer.cpp
   conversion_strategy.cpp
+  decoder_cleanup_queue.cpp
   direct_exr_cache.cpp
   exr_transcoder.cpp
   frame_cache.cpp
+  hw_context_manager.cpp
   image_loaders.cpp
+  image_sequence_config.cpp
+  image_sequence_decoder.cpp
+  managed_video_decoder.cpp
+  media_background_extractor.cpp
+  playback_timer.cpp
+  shared_memory_pool.cpp
+  Generating Code...
+  Compiling...
+  streaming_video_decoder.cpp
+  thumbnail_cache.cpp
+  video_display_component.cpp
+  project_manager.cpp
+  project_manager_transcode.cpp
+  cache_window_engine.cpp
+  edl_parser.cpp
+  media_linker.cpp
+  nested_timeline_manager.cpp
+  python_adapter_bridge.cpp
+  timeline_cache.cpp
+  timeline_commands.cpp
+  timeline_playback_controller.cpp
+  timeline_thumbnail_cache.cpp
+  timeline_view.cpp
+  ffmpeg_video_encoder.cpp
+  ocio_cpu_transform.cpp
+  ocio_lut_baker.cpp
+  sequential_frame_loader.cpp
+  transcode_job.cpp
+  Generating Code...
+  Compiling...
+  transcode_queue.cpp
+  transcode_worker_pool.cpp
+  video_sequence_transcoder.cpp
+  video_transcoder.cpp
+  annotation_panel.cpp
+  node_editor_theme.cpp
+  timeline_manager.cpp
+  transcode_queue_window.cpp
+  exiftool_helper.cpp
+  exr_layer_detector.cpp
+  system_pressure_monitor.cpp
+  Generating Code...
+  ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe
+  'pwsh.exe' is not recognized as an internal or external command,
+  operable program or batch file.
+  Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_3.dll	Copying required DLL: IlmThread-3_3.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_3.dll	Copying required DLL: OpenEXRCore-3_3.dll	Copying required DLL: OpenEXRUtil-3_3.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script

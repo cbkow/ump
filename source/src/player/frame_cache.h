@@ -13,7 +13,8 @@
 #include <vector>
 #include <set>
 
-class VideoPlayer;
+// Include VideoPlayer (alias to VideoDisplayComponent)
+#include "video_player.h"
 class GPUFrameCache;
 class MediaBackgroundExtractor;
 struct VideoMetadata;

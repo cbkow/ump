@@ -95,9 +95,9 @@ void CachedFrame::CreateTexture(int w, int h, const void* data, PipelineMode pip
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    
+
     glBindTexture(GL_TEXTURE_2D, 0);
-    
+
     width = w;
     height = h;
     // Removed: memory_size calculation (memory-based eviction removed)

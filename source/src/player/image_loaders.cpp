@@ -1659,8 +1659,8 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     // Convert timestamp to stream timebase
     int64_t target_pts = av_rescale_q(timestamp * AV_TIME_BASE, AV_TIME_BASE_Q, stream->time_base);
 
-    Debug::Log("VideoImageLoader::SeekAndDecodeFrame: timestamp=" + std::to_string(timestamp) +
-               "s, target_pts=" + std::to_string(target_pts));
+    /*Debug::Log("VideoImageLoader::SeekAndDecodeFrame: timestamp=" + std::to_string(timestamp) +
+               "s, target_pts=" + std::to_string(target_pts));*/
 
     // Seek to target timestamp
     if (av_seek_frame(format_context_, video_stream_index_, target_pts, AVSEEK_FLAG_BACKWARD) < 0) {
@@ -1725,12 +1725,12 @@ bool VideoImageLoader::SeekAndDecodeFrame(double timestamp, AVFrame* output_fram
     // Copy best frame to output
     if (found_frame) {
         av_frame_ref(output_frame, best_frame);
-        Debug::Log("VideoImageLoader::SeekAndDecodeFrame: Found frame after " +
+       /* Debug::Log("VideoImageLoader::SeekAndDecodeFrame: Found frame after " +
                    std::to_string(frames_decoded) + " decodes, best_pts=" +
-                   std::to_string(best_frame->pts) + ", diff=" + std::to_string(best_diff));
+                   std::to_string(best_frame->pts) + ", diff=" + std::to_string(best_diff));*/
     } else {
-        Debug::Log("VideoImageLoader::SeekAndDecodeFrame: FAILED - decoded " +
-                   std::to_string(frames_decoded) + " frames but found none");
+        /*Debug::Log("VideoImageLoader::SeekAndDecodeFrame: FAILED - decoded " +
+                   std::to_string(frames_decoded) + " frames but found none");*/
     }
 
     av_frame_free(&best_frame);

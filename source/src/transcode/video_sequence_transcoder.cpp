@@ -1,6 +1,7 @@
 #include "video_sequence_transcoder.h"
 #include "../metadata/video_metadata.h"
 #include "../player/media_background_extractor.h"  // For ConversionStrategy and HardwareDecodeMode
+#include "../player/hw_context_manager.h"  // Shared hardware decode contexts
 #include "../utils/debug_utils.h"
 #include <sstream>
 #include <iomanip>
@@ -512,7 +513,10 @@ bool VideoSequenceTranscoder::WorkerContext::Initialize(const std::string& video
     }
 
     // Setup hardware decode
-    if (hw_mode != HardwareDecodeMode::SOFTWARE_ONLY) {
+    // Try hardware decode using shared HWContextManager
+    // TEMP DISABLED FOR TESTING - force software decode
+    Debug::Log("VideoSequenceTranscoder::WorkerContext: *** HW ACCEL DISABLED FOR TESTING ***");
+    if (false && hw_mode != HardwareDecodeMode::SOFTWARE_ONLY) {
         AVHWDeviceType hw_type = AV_HWDEVICE_TYPE_NONE;
 
         if (hw_mode == HardwareDecodeMode::D3D11VA || hw_mode == HardwareDecodeMode::AUTO) {
@@ -522,12 +526,17 @@ bool VideoSequenceTranscoder::WorkerContext::Initialize(const std::string& video
         }
 
         if (hw_type != AV_HWDEVICE_TYPE_NONE) {
-            if (av_hwdevice_ctx_create(&hw_device_ctx, hw_type, nullptr, nullptr, 0) >= 0) {
-                codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
-                Debug::Log("VideoSequenceTranscoder: Hardware decode enabled: " +
-                          std::string(av_hwdevice_get_type_name(hw_type)));
+            // Use shared hardware context from HWContextManager
+            AVBufferRef* shared_ctx = HWContextManager::Instance().GetContext(static_cast<int>(hw_type));
+            if (shared_ctx) {
+                hw_device_ctx = av_buffer_ref(shared_ctx);
+                if (hw_device_ctx) {
+                    codec_ctx->hw_device_ctx = av_buffer_ref(hw_device_ctx);
+                    Debug::Log("VideoSequenceTranscoder: Using shared hardware context: " +
+                              std::string(av_hwdevice_get_type_name(hw_type)));
+                }
             } else {
-                Debug::Log("VideoSequenceTranscoder: Hardware decode failed, using software");
+                Debug::Log("VideoSequenceTranscoder: Hardware decode not available, using software");
             }
         }
     }

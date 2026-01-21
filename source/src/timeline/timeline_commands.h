@@ -232,4 +232,32 @@ private:
     bool executed_ = false;
 };
 
+// Overwrite edit - insert/move a clip and handle overlapping clips on the same track
+// Performs all modifications inline and syncs once for performance
+class OverwriteEditCommand : public ITimelineCommand {
+public:
+    // Insert a new clip with overwrite behavior
+    OverwriteEditCommand(TimelineView* view, int track_index, const OTIOClip& clip);
+
+    // Move an existing clip with overwrite behavior (excludes the moving clip from overlap checks)
+    OverwriteEditCommand(TimelineView* view, int track_index, const OTIOClip& clip,
+                         const std::string& moving_clip_id);
+
+    void Execute() override;
+    void Undo() override;
+    std::string GetDescription() const override;
+
+private:
+    TimelineView* view_;
+    int track_index_;
+    OTIOClip clip_;                      // The clip being inserted/moved
+    std::string moving_clip_id_;         // If moving, the ID of the clip (to exclude from overlap)
+    bool is_move_ = false;               // True if this is a move operation
+
+    // Undo state - snapshot of track before modifications
+    std::vector<OTIOClip> original_clips_;
+    double original_move_start_time_ = 0.0;  // For move: original position
+    bool executed_ = false;
+};
+
 } // namespace ump

@@ -494,6 +494,90 @@ bool MediaLinker::LinkClip(OTIOClip& clip, const std::string& media_path) {
                        std::to_string(probe.height) + " @ " + std::to_string(probe.fps) + " fps, " +
                        std::to_string(probe.duration) + "s, has_audio=" + (probe.has_audio ? "yes" : "no"));
         }
+    } else {
+        // Check if this is an image file that might be part of a sequence
+        std::string ext = fs::path(media_path).extension().string();
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+        static const std::set<std::string> image_extensions = {
+            ".exr", ".dpx", ".tif", ".tiff", ".png", ".jpg", ".jpeg"
+        };
+
+        if (image_extensions.count(ext) > 0) {
+            // Try to detect if this file is part of a sequence
+            fs::path path(media_path);
+            std::string filename = path.stem().string();
+            fs::path dir = path.parent_path();
+
+            // Look for frame number pattern at end of filename (e.g., "shot_0001" or "shot.0001")
+            std::regex frame_pattern(R"(^(.+?)[._]?(\d{2,8})$)");
+            std::smatch match;
+
+            if (std::regex_match(filename, match, frame_pattern)) {
+                std::string base_name = match[1].str();
+                std::string frame_str = match[2].str();
+                int padding = static_cast<int>(frame_str.length());
+                int first_frame = std::stoi(frame_str);
+
+                // Build pattern for sequence detection
+                std::string pattern_base = base_name;
+                if (filename[base_name.length()] == '.') {
+                    pattern_base += ".";
+                } else if (filename[base_name.length()] == '_') {
+                    pattern_base += "_";
+                }
+
+                // Scan directory for sequence files
+                int min_frame = first_frame;
+                int max_frame = first_frame;
+                int frame_count = 0;
+
+                try {
+                    for (const auto& entry : fs::directory_iterator(dir)) {
+                        if (!entry.is_regular_file()) continue;
+                        if (entry.path().extension() != path.extension()) continue;
+
+                        std::string other_stem = entry.path().stem().string();
+                        std::smatch other_match;
+                        if (std::regex_match(other_stem, other_match, frame_pattern)) {
+                            std::string other_base = other_match[1].str();
+                            if (other_base == base_name) {
+                                int frame_num = std::stoi(other_match[2].str());
+                                min_frame = std::min(min_frame, frame_num);
+                                max_frame = std::max(max_frame, frame_num);
+                                frame_count++;
+                            }
+                        }
+                    }
+                } catch (...) {
+                    // Ignore directory iteration errors
+                }
+
+                if (frame_count > 1) {
+                    // This is a sequence!
+                    clip.is_sequence = true;
+                    clip.sequence_directory = dir.string();
+
+                    // Build printf-style pattern
+                    char pattern_buf[512];
+                    snprintf(pattern_buf, sizeof(pattern_buf), "%s%%0%dd%s",
+                             pattern_base.c_str(), padding, ext.c_str());
+                    clip.sequence_pattern = pattern_buf;
+                    clip.sequence_start_frame = min_frame;
+                    clip.sequence_end_frame = max_frame;
+
+                    // Set source metadata for timeline calculations
+                    // Use a default fps (will be overridden by timeline fps if not set)
+                    double assumed_fps = 24.0;  // Default assumption
+                    clip.source_fps = assumed_fps;
+                    clip.source_duration = static_cast<double>(frame_count) / assumed_fps;
+
+                    Debug::Log("MediaLinker: Detected image sequence - " + clip.sequence_pattern +
+                               " frames " + std::to_string(min_frame) + "-" + std::to_string(max_frame) +
+                               " (" + std::to_string(frame_count) + " frames)");
+                }
+            }
+        }
     }
 
     Debug::Log("MediaLinker: Linked clip '" + clip.name + "' to " + media_path);

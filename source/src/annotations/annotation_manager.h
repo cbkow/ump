@@ -24,6 +24,7 @@ public:
     void SetMediaPath(const std::string& media_path);
     void LoadNotesForMedia(const std::string& media_path);
     void UnloadNotes();
+    void ClearNotes();  // Clear notes without saving (for switching to disabled states)
 
     // Note operations
     void AddNote(double timestamp_seconds, const std::string& timecode, int frame, const std::string& text = "");

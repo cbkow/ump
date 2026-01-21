@@ -81,6 +81,87 @@ std::string GenerateImageFilename(const std::string& timecode) {
     return filename;
 }
 
+std::string GetProjectAnnotationPath(const std::string& project_path, const std::string& timeline_name) {
+    if (project_path.empty() || timeline_name.empty()) {
+        return "";
+    }
+
+    fs::path proj_path(project_path);
+    fs::path project_dir = proj_path.parent_path();
+
+    // Sanitize timeline name for use as folder name
+    std::string sanitized_name = SanitizeMediaName(timeline_name);
+
+    // Build path: {project_dir}/.ump/{timeline_name}/notes.json
+    fs::path ump_folder = project_dir / ".ump";
+    fs::path timeline_folder = ump_folder / sanitized_name;
+    fs::path json_path = timeline_folder / "notes.json";
+
+    return json_path.string();
+}
+
+std::string GetProjectImagesFolder(const std::string& project_path, const std::string& timeline_name) {
+    if (project_path.empty() || timeline_name.empty()) {
+        return "";
+    }
+
+    fs::path proj_path(project_path);
+    fs::path project_dir = proj_path.parent_path();
+
+    // Sanitize timeline name for use as folder name
+    std::string sanitized_name = SanitizeMediaName(timeline_name);
+
+    // Build path: {project_dir}/.ump/{timeline_name}/images/
+    fs::path ump_folder = project_dir / ".ump";
+    fs::path timeline_folder = ump_folder / sanitized_name;
+    fs::path images_folder = timeline_folder / "images";
+
+    return images_folder.string();
+}
+
+bool CreateProjectUMPFolder(const std::string& project_path, const std::string& timeline_name) {
+    try {
+        if (project_path.empty() || timeline_name.empty()) {
+            Debug::Log("ERROR: Cannot create project UMP folder - empty project path or timeline name");
+            return false;
+        }
+
+        fs::path proj_path(project_path);
+        fs::path project_dir = proj_path.parent_path();
+
+        // Sanitize timeline name for use as folder name
+        std::string sanitized_name = SanitizeMediaName(timeline_name);
+
+        // Build path: {project_dir}/.ump/{timeline_name}/
+        fs::path ump_folder = project_dir / ".ump";
+        fs::path timeline_folder = ump_folder / sanitized_name;
+
+        // Create .ump folder
+        if (!fs::exists(ump_folder)) {
+            fs::create_directory(ump_folder);
+
+            // On Windows, set hidden attribute
+            #ifdef _WIN32
+            SetFileAttributesA(ump_folder.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
+            #endif
+
+            Debug::Log("Created project .ump folder: " + ump_folder.string());
+        }
+
+        // Create timeline-specific folder
+        if (!fs::exists(timeline_folder)) {
+            fs::create_directories(timeline_folder);
+            Debug::Log("Created timeline annotation folder: " + timeline_folder.string());
+        }
+
+        return true;
+    }
+    catch (const std::exception& e) {
+        Debug::Log("ERROR: Failed to create project UMP folder: " + std::string(e.what()));
+        return false;
+    }
+}
+
 bool CreateUMPFolder(const std::string& media_path) {
     try {
         fs::path path(media_path);

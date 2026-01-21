@@ -13,7 +13,8 @@ namespace ump {
         IMAGE_SEQUENCE,
         EXR_SEQUENCE,
         SEQUENCE,
-        TIMELINE        // OTIO/EDL multi-track timeline
+        TIMELINE,       // OTIO/EDL multi-track timeline
+        DUAL_VIEW       // Side-by-side comparison (LEFT/RIGHT tracks)
     };
 
     // Image sequence specific data (for IMAGE_SEQUENCE and EXR_SEQUENCE types)
@@ -30,7 +31,7 @@ namespace ump {
         int end_frame = 1;
 
         // Timing (critical for playback)
-        double frame_rate = 24.0;
+        double frame_rate = 23.976;
         double duration = 0.0;         // Calculated: frame_count / frame_rate
 
         // Dimensions (cached from first frame for instant loading)
@@ -67,6 +68,7 @@ namespace ump {
         std::string path;
         MediaType type = MediaType::VIDEO;
         double duration = 0.0;
+        bool has_audio = false;        // True if media contains audio track
         std::string thumbnail_path;
 
         // For sequence items (EDL timelines)
@@ -85,7 +87,7 @@ namespace ump {
         int frame_count = 0;          // LEGACY: use image_seq.frame_count
         int start_frame = 1;          // LEGACY: use image_seq.start_frame
         int end_frame = 1;            // LEGACY: use image_seq.end_frame
-        double frame_rate = 24.0;     // LEGACY: use image_seq.frame_rate
+        double frame_rate = 23.976;   // LEGACY: use image_seq.frame_rate
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // LEGACY: use image_seq.pipeline_mode
 
         // Cached dimensions from first frame (for instant loading without I/O)
@@ -128,13 +130,27 @@ namespace ump {
         // Cached clip links (for persistent media linking in timelines)
         struct CachedClipLink {
             std::string clip_id;
+            std::string track_id;        // Track ID (e.g., "V1", "A1")
+            std::string clip_name;       // Display name for the clip
             std::string linked_path;
             double source_fps = 0.0;
             int source_width = 0;
             int source_height = 0;
             double source_duration = 0.0;
+            double start_time = 0.0;     // Start time in timeline
+            double duration = 0.0;       // Duration of clip
+            double source_in = 0.0;      // Source in point
+            double source_out = 0.0;     // Source out point
             bool has_audio = false;
-            bool audio_muted = false;  // Per-clip audio mute state
+            bool audio_muted = false;    // Per-clip audio mute state
+            bool is_linked = false;      // Whether this clip is linked to source
+            // Image sequence fields
+            bool is_sequence = false;
+            std::string sequence_directory;
+            std::string sequence_pattern;
+            int sequence_start_frame = 0;
+            int sequence_end_frame = 0;
+            std::string sequence_exr_layer;
         };
         std::vector<CachedClipLink> clip_links;  // Saved media links for clips
 
@@ -183,7 +199,7 @@ namespace ump {
         std::string base_name;
         std::vector<TimelineClip> clips;
         double duration = 0.0;
-        double frame_rate = 24.0;
+        double frame_rate = 23.976;
 
         std::vector<TimelineClip> GetAllClipsSorted() const {
             std::vector<TimelineClip> sorted_clips = clips;

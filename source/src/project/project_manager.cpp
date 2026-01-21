@@ -2,9 +2,11 @@
 #include "../player/video_player.h"
 #include "../player/exr_transcoder.h"
 #include "../player/image_loaders.h"
+#include "../utils/exr_layer_detector.h"
 #include "../metadata/ffmpeg_metadata_extractor.h"
 #include "../timeline/timeline_view.h"
 #include "../timeline/edl_parser.h"
+#include "../annotations/annotation_io.h"
 #include <imgui.h>
 #include <iostream>
 #include <filesystem>
@@ -220,16 +222,10 @@ namespace ump {
         CreateNewBin("Videos");
         CreateNewBin("Audio");
         CreateNewBin("Images");
-        CreateNewBin("Playlists");
         CreateNewBin("Timelines");
-
-        CreateNewSequence("Main Playlist");
+        CreateNewBin("Dual Views");
 
         if (video_player) {
-            video_player->SetPlaylistPositionCallback([this]() {
-                this->SyncPlaylistPosition();
-                });
-
             // Set metadata callback to provide cached FFmpeg metadata
             video_player->SetMetadataCallback([this](const std::string& path) -> VideoMetadata {
                 const CombinedMetadata* cached = GetCachedMetadata(path);
@@ -289,24 +285,20 @@ namespace ump {
     void ProjectManager::CreateNewProject(const std::string& name, const std::string& path) {
         bins.clear();
         media_pool.clear();
-        sequences.clear();
 
         current_project_path = path + "/" + name + ".uproj";
 
         CreateNewBin("Videos");
         CreateNewBin("Audio");
         CreateNewBin("Images");
-        CreateNewBin("Playlists");
         CreateNewBin("Timelines");
-
-        CreateNewSequence("Main Playlist");
+        CreateNewBin("Dual Views");
     }
 
     void ProjectManager::SaveProject() {
         using json = nlohmann::json;
 
         Debug::Log("SaveProject: Called - current_project_path = " + (current_project_path.empty() ? "(empty)" : current_project_path));
-        Debug::Log("SaveProject: sequences.size() = " + std::to_string(sequences.size()));
         Debug::Log("SaveProject: media_pool.size() = " + std::to_string(media_pool.size()));
 
         // CRITICAL: Flush current timeline edits to MediaItem before saving
@@ -429,8 +421,15 @@ namespace ump {
                 item_obj["view_scroll"] = item.view_state.scroll_offset;
                 item_obj["view_playhead"] = item.view_state.playhead_position;
 
-                // Timeline-specific fields (for MediaType::TIMELINE)
-                if (item.type == MediaType::TIMELINE) {
+                // Video-specific fields: dimensions and frame rate (for VIDEO and AUDIO types)
+                if (item.type == MediaType::VIDEO || item.type == MediaType::AUDIO) {
+                    item_obj["timeline_width"] = item.timeline_width;
+                    item_obj["timeline_height"] = item.timeline_height;
+                    item_obj["frame_rate"] = item.frame_rate;
+                }
+
+                // Timeline-specific fields (for MediaType::TIMELINE and MediaType::DUAL_VIEW)
+                if (item.type == MediaType::TIMELINE || item.type == MediaType::DUAL_VIEW) {
                     item_obj["timeline_id"] = item.timeline_id;
                     item_obj["timeline_format"] = item.timeline_format;
                     item_obj["video_track_count"] = item.video_track_count;
@@ -613,48 +612,6 @@ namespace ump {
                 media_pool_array.push_back(item_obj);
             }
             project_data["media_pool"] = media_pool_array;
-
-            // Count SEQUENCE type MediaItems for debugging
-            int sequence_media_items = 0;
-            for (const auto& item : media_pool) {
-                if (item.type == MediaType::SEQUENCE) {
-                    sequence_media_items++;
-                    Debug::Log("SaveProject: Found SEQUENCE MediaItem '" + item.name + "' (id=" + item.id + ", sequence_id=" + item.sequence_id + ")");
-                }
-            }
-            Debug::Log("SaveProject: Total SEQUENCE MediaItems in media_pool: " + std::to_string(sequence_media_items));
-
-            // Serialize sequences (playlists)
-            json sequences_array = json::array();
-            Debug::Log("SaveProject: Saving " + std::to_string(sequences.size()) + " playlists");
-            for (const auto& seq : sequences) {
-                json seq_obj;
-                seq_obj["id"] = seq.id;
-                seq_obj["name"] = seq.name;
-                seq_obj["base_name"] = seq.base_name;
-                seq_obj["frame_rate"] = seq.frame_rate;
-                seq_obj["duration"] = seq.duration;
-
-                json clips_array = json::array();
-                for (const auto& clip : seq.clips) {
-                    json clip_obj;
-                    clip_obj["id"] = clip.id;
-                    clip_obj["media_id"] = clip.media_id;
-                    clip_obj["name"] = clip.name;
-                    clip_obj["file_path"] = clip.file_path;
-                    clip_obj["start_time"] = clip.start_time;
-                    clip_obj["duration"] = clip.duration;
-                    clip_obj["source_in"] = clip.source_in;
-                    clip_obj["source_out"] = clip.source_out;
-                    clip_obj["track_type"] = clip.track_type;
-                    clips_array.push_back(clip_obj);
-                }
-                seq_obj["clips"] = clips_array;
-                sequences_array.push_back(seq_obj);
-                Debug::Log("  - Playlist '" + seq.name + "' with " + std::to_string(seq.clips.size()) + " clips");
-            }
-            project_data["sequences"] = sequences_array;
-            project_data["current_sequence_id"] = current_sequence_id;
             project_data["current_timeline_id"] = current_timeline_id;
 
             // Write to file
@@ -669,6 +626,11 @@ namespace ump {
 
             current_project_path = save_path;
             Debug::Log("SaveProject: Project saved successfully to " + save_path);
+
+            // Notify listeners that project was saved (used to refresh annotation availability)
+            if (project_saved_callback) {
+                project_saved_callback();
+            }
 
         } catch (const std::exception& e) {
             Debug::Log("SaveProject: Error - " + std::string(e.what()));
@@ -741,18 +703,7 @@ namespace ump {
             Debug::Log("LoadProject: Exited comparison mode");
         }
 
-        // 3. Clear playlist state (if in playlist mode)
-        if (IsSequenceMode()) {
-            Sequence* seq = GetCurrentSequence();
-            if (seq && video_player && video_player->GetMPVHandle()) {
-                // Clear MPV playlist before clearing data structures
-                const char* cmd[] = { "playlist-clear", nullptr };
-                mpv_command(video_player->GetMPVHandle(), cmd);
-            }
-            Debug::Log("LoadProject: Cleared playlist state");
-        }
-
-        // 4. Stop any current playback (timeline/comparison callbacks already clear their respective states)
+        // 3. Stop any current playback (timeline/comparison callbacks already clear their respective states)
         if (video_player) {
             video_player->Stop();
             Debug::Log("LoadProject: Stopped video player");
@@ -797,13 +748,10 @@ namespace ump {
             // Clear existing project state
             bins.clear();
             media_pool.clear();
-            sequences.clear();
-            current_sequence_id.clear();
             current_timeline_id.clear();
             selected_media_items.clear();
-            selected_playlist_indices.clear();
 
-            // Load media_pool first (needed for bins and sequences)
+            // Load media_pool first (needed for bins)
             if (project_data.contains("media_pool")) {
                 for (const auto& item_json : project_data["media_pool"]) {
                     MediaItem item;
@@ -889,8 +837,15 @@ namespace ump {
                     item.view_state.scroll_offset = item_json.value("view_scroll", 0.0f);
                     item.view_state.playhead_position = item_json.value("view_playhead", 0.0);
 
-                    // Timeline-specific fields (for MediaType::TIMELINE)
-                    if (item.type == MediaType::TIMELINE) {
+                    // Video-specific fields: dimensions and frame rate (for VIDEO and AUDIO types)
+                    if (item.type == MediaType::VIDEO || item.type == MediaType::AUDIO) {
+                        item.timeline_width = item_json.value("timeline_width", 1920);
+                        item.timeline_height = item_json.value("timeline_height", 1080);
+                        item.frame_rate = item_json.value("frame_rate", 0.0);
+                    }
+
+                    // Timeline-specific fields (for MediaType::TIMELINE and MediaType::DUAL_VIEW)
+                    if (item.type == MediaType::TIMELINE || item.type == MediaType::DUAL_VIEW) {
                         item.timeline_id = item_json.value("timeline_id", "");
                         item.timeline_format = item_json.value("timeline_format", "");
                         item.video_track_count = item_json.value("video_track_count", 0);
@@ -1080,16 +1035,6 @@ namespace ump {
                 }
             }
 
-            // Count SEQUENCE type MediaItems for debugging
-            int sequence_media_items = 0;
-            for (const auto& item : media_pool) {
-                if (item.type == MediaType::SEQUENCE) {
-                    sequence_media_items++;
-                    Debug::Log("LoadProject: Found SEQUENCE MediaItem '" + item.name + "' (id=" + item.id + ", sequence_id=" + item.sequence_id + ")");
-                }
-            }
-            Debug::Log("LoadProject: Total SEQUENCE MediaItems loaded: " + std::to_string(sequence_media_items));
-
             // Load bins (references media_pool by ID)
             if (project_data.contains("bins")) {
                 for (const auto& bin_json : project_data["bins"]) {
@@ -1115,49 +1060,7 @@ namespace ump {
                 }
             }
 
-            // Log Playlists bin contents specifically
-            if (bins.size() > PLAYLISTS_BIN_INDEX) {
-                Debug::Log("LoadProject: Playlists bin (index " + std::to_string(PLAYLISTS_BIN_INDEX) + ") has " +
-                           std::to_string(bins[PLAYLISTS_BIN_INDEX].items.size()) + " items");
-            }
-
-            // Load sequences (playlists)
-            if (project_data.contains("sequences")) {
-                Debug::Log("LoadProject: Found sequences array in project file");
-                for (const auto& seq_json : project_data["sequences"]) {
-                    Sequence seq;
-                    seq.id = seq_json.value("id", "");
-                    seq.name = seq_json.value("name", "");
-                    seq.base_name = seq_json.value("base_name", "");
-                    seq.frame_rate = seq_json.value("frame_rate", 24.0);
-                    seq.duration = seq_json.value("duration", 0.0);
-
-                    // Load clips
-                    if (seq_json.contains("clips")) {
-                        for (const auto& clip_json : seq_json["clips"]) {
-                            TimelineClip clip;
-                            clip.id = clip_json.value("id", "");
-                            clip.media_id = clip_json.value("media_id", "");
-                            clip.name = clip_json.value("name", "");
-                            clip.file_path = clip_json.value("file_path", "");
-                            clip.start_time = clip_json.value("start_time", 0.0);
-                            clip.duration = clip_json.value("duration", 0.0);
-                            clip.source_in = clip_json.value("source_in", 0.0);
-                            clip.source_out = clip_json.value("source_out", 0.0);
-                            clip.track_type = clip_json.value("track_type", "");
-                            seq.clips.push_back(clip);
-                        }
-                    }
-
-                    sequences.push_back(seq);
-                    Debug::Log("  - Loaded playlist '" + seq.name + "' with " + std::to_string(seq.clips.size()) + " clips");
-                }
-            } else {
-                Debug::Log("LoadProject: No sequences array found in project file");
-            }
-
-            // Restore current sequence and timeline
-            current_sequence_id = project_data.value("current_sequence_id", "");
+            // Restore current timeline
             current_timeline_id = project_data.value("current_timeline_id", "");
 
             // Update project path
@@ -1166,36 +1069,12 @@ namespace ump {
             Debug::Log("LoadProject: Project loaded successfully from " + load_path);
             Debug::Log("  - " + std::to_string(media_pool.size()) + " media items");
             Debug::Log("  - " + std::to_string(bins.size()) + " bins");
-            Debug::Log("  - " + std::to_string(sequences.size()) + " sequences");
-
-            // Update sequence media items in bins
-            for (auto& seq : sequences) {
-                UpdateSequenceInBin(seq.id);
-            }
 
             // Update ID counter to prevent duplicate IDs when adding new items
             UpdateIDCounter();
 
-            // Load current sequence into player if exists (but don't auto-play)
-            if (!current_sequence_id.empty()) {
-                Sequence* seq = GetCurrentSequence();
-                if (seq && !seq->clips.empty()) {
-                    LoadSequenceIntoPlayer(*seq, false);  // false = don't auto-play when loading project
-
-                    // Ensure playback is paused after loading (in case MPV retained play state)
-                    if (video_player && video_player->IsPlaying()) {
-                        video_player->Pause();
-                        Debug::Log("LoadProject: Ensured playback paused after loading sequence");
-                    }
-
-                    // Initialize cache and thumbnails for the first clip
-                    auto sorted_clips = seq->GetAllClipsSorted();
-                    if (!sorted_clips.empty()) {
-                        OnVideoLoaded(sorted_clips[0].file_path);
-                        Debug::Log("LoadProject: Initialized cache and thumbnails for first clip");
-                    }
-                }
-            }
+            // Clear all runtime "active" states - nothing should be active when loading a project
+            ClearDualViewActiveStates();
 
         } catch (const std::exception& e) {
             Debug::Log("LoadProject: Error - " + std::string(e.what()));
@@ -1212,7 +1091,7 @@ namespace ump {
 
         // === CHECK IF CACHE WAS AUTO-DISABLED FOR PREVIOUS CODEC ===
         // If cache was disabled for H.264/H.265, check if new video has a safe codec and restore cache
-        if (!cache_enabled && cache_auto_disabled_for_codec && !IsInSequenceMode()) {
+        if (!cache_enabled && cache_auto_disabled_for_codec) {
             std::thread([this, file_path]() {
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
@@ -1268,9 +1147,7 @@ namespace ump {
         // === DEFER CACHE INITIALIZATION TO BACKGROUND ===
         // Previously blocked for 300ms before starting cache - this delayed viewport updates
         // Now we defer cache init to background thread, allowing immediate playback
-        // OPTIMIZATION: Only spawn thread if cache is actually enabled AND not in playlist mode
-        // Playlist mode has threading issues with extractor shutdown blocking, so disable cache there
-        else if (cache_enabled && !IsInSequenceMode()) {
+        else if (cache_enabled) {
             std::thread([this, file_path]() {
                 // Brief delay to let MPV start playback first
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -1371,11 +1248,8 @@ namespace ump {
         // Fresh start - clear everything
         bins.clear();
         media_pool.clear();
-        sequences.clear();
-        current_sequence_id.clear();
         current_timeline_id.clear();
         selected_media_items.clear();
-        selected_playlist_indices.clear();
         current_project_path.clear();
 
         // Stop playback and clear current media
@@ -1390,11 +1264,8 @@ namespace ump {
         CreateNewBin("Videos");
         CreateNewBin("Audio");
         CreateNewBin("Images");
-        CreateNewBin("Playlists");
         CreateNewBin("Timelines");
-
-        // Create default sequence
-        CreateNewSequence("Main Playlist");
+        CreateNewBin("Dual Views");
 
         Debug::Log("New Project: Fresh start - all project data cleared and media stopped");
     }
@@ -1477,9 +1348,6 @@ namespace ump {
             if (ImGui::MenuItem("New Timeline")) {
                 show_new_timeline_dialog = true;
             }
-            if (ImGui::MenuItem("New Playlist")) {
-                show_new_sequence_dialog = true;
-            }
             ImGui::EndPopup();
         }
         ImGui::PopStyleColor();
@@ -1520,17 +1388,17 @@ namespace ump {
 
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.0f));
         if (ImGui::BeginPopup(bin_context_id.c_str())) {
-            if (bin.name == "Playlists") {
-                if (ImGui::MenuItem("New Playlist")) {
-                    show_new_sequence_dialog = true;
-                }
-            }
-            else if (bin.name == "Timelines") {
+            if (bin.name == "Timelines") {
                 if (ImGui::MenuItem("Import Timeline...")) {
                     ImportTimelineFromMenu();
                 }
                 if (ImGui::MenuItem("New Timeline")) {
                     show_new_timeline_dialog = true;
+                }
+            }
+            else if (bin.name == "Dual Views") {
+                if (ImGui::MenuItem("New Dual View...")) {
+                    show_new_dual_view_dialog = true;
                 }
             }
             else {
@@ -1588,6 +1456,16 @@ namespace ump {
             }
             // Inactive timelines use default white text (metadata colored separately below)
         }
+        else if (item.type == MediaType::DUAL_VIEW) {
+            // Dual view display - show LEFT/RIGHT tracks
+            display_name += " [L/R]";
+
+            // Check if this dual view is active
+            if (item.is_active) {
+                display_name += " [ACTIVE]";
+                text_color = Bright(GetWindowsAccentColor());
+            }
+        }
         else {
             if (current_file_path && !current_file_path->empty() && item.path == *current_file_path) {
                 display_name += " [ACTIVE]";
@@ -1623,7 +1501,7 @@ namespace ump {
         HandleMediaItemDragDrop(item, is_selected);
 
         // Show duration info for media files
-        if (item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.duration > 0) {
+        if (item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE) {
             ImGui::SameLine();
             std::string type_str;
             switch (item.type) {
@@ -1639,25 +1517,25 @@ namespace ump {
                     type_str += " - " + item.exr_layer_display;
                 }
                 break;
+            case MediaType::DUAL_VIEW:
+                type_str = "comparison [" + std::to_string(item.timeline_width) + "x" + std::to_string(item.timeline_height) + "]";
+                break;
             default: type_str = "unknown"; break;
             }
 
-            if (font_mono) ImGui::PushFont(font_mono);
-            if (item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) {
-                ImGui::TextDisabled("[%s] %.2fs", type_str.c_str(), item.duration);
-            } else {
+            if (item.type == MediaType::DUAL_VIEW) {
+                // Dual views show type with resolution, no duration
+                ImGui::TextDisabled("[%s]", type_str.c_str());
+            } else if (item.duration > 0) {
                 ImGui::TextDisabled("[%s] %.2fs", type_str.c_str(), item.duration);
             }
-            if (font_mono) ImGui::PopFont();
         }
 
         // Show timeline-specific duration info
         if (item.type == MediaType::TIMELINE && item.duration > 0) {
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextDisabled("[%s @ %.0ffps] %.2fs",
                               item.timeline_format.c_str(), item.frame_rate, item.duration);
-            if (font_mono) ImGui::PopFont();
         }
 
         ImGui::PopID();
@@ -1712,48 +1590,6 @@ namespace ump {
             ImGui::EndPopup();
         }
 
-        // New Sequence Dialog
-        if (show_new_sequence_dialog) {
-            ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImVec2 center = viewport->GetCenter();
-            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-            ImGui::OpenPopup("New Playlist");
-            show_new_sequence_dialog = false;
-        }
-
-        float playlist_scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowSize(ImVec2(350 * playlist_scale + 50, 0), ImGuiCond_Always);
-        if (ImGui::BeginPopupModal("New Playlist", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            static char sequence_name[256] = "";
-            ImGui::Text("Create New Playlist");
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::Text("Playlist Name:");
-            ImGui::SetNextItemWidth(-1);
-            ImGui::InputText("##SequenceNameInput", sequence_name, sizeof(sequence_name));
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            // Create and Cancel buttons (flush right)
-            float btnPadding = 8.0f * 2;
-            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
-            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
-            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
-            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
-
-            if (ImGui::Button("Create")) {
-                CreateNewSequence(sequence_name);
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) {
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::EndPopup();
-        }
-
         // Rename Dialog
         if (show_rename_dialog) {
             ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1793,48 +1629,6 @@ namespace ump {
             ImGui::EndPopup();
         }
 
-        // Create Playlist Dialog
-        if (show_create_playlist_dialog) {
-            ImGuiViewport* viewport = ImGui::GetMainViewport();
-            ImVec2 center = viewport->GetCenter();
-            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-            ImGui::OpenPopup("Create Playlist from Selection");
-            show_create_playlist_dialog = false;
-        }
-
-        float create_playlist_scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowSize(ImVec2(400 * create_playlist_scale + 50, 0), ImGuiCond_Always);
-        if (ImGui::BeginPopupModal("Create Playlist from Selection", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Create new playlist from %d selected items", (int)pending_playlist_items.size());
-            ImGui::Separator();
-            ImGui::Spacing();
-            ImGui::Text("Playlist Name:");
-            ImGui::SetNextItemWidth(-1);
-            bool enter_pressed = ImGui::InputText("##PlaylistNameInput", new_playlist_name_buffer, sizeof(new_playlist_name_buffer), ImGuiInputTextFlags_EnterReturnsTrue);
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            // Create and Cancel buttons (flush right)
-            float btnPadding = 8.0f * 2;
-            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
-            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
-            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
-            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
-
-            if (ImGui::Button("Create") || enter_pressed) {
-                ProcessCreatePlaylistFromSelection();
-                ImGui::CloseCurrentPopup();
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Cancel")) {
-                pending_playlist_items.clear();
-                ImGui::CloseCurrentPopup();
-            }
-
-            ImGui::EndPopup();
-        }
-
         // New Timeline Dialog
         if (show_new_timeline_dialog) {
             ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -1844,78 +1638,74 @@ namespace ump {
             show_new_timeline_dialog = false;
             // Reset to defaults when opening
             memset(new_timeline_name_buffer, 0, sizeof(new_timeline_name_buffer));
+            new_timeline_resolution_preset = 0;  // 1080p
             new_timeline_width = 1920;
             new_timeline_height = 1080;
-            new_timeline_fps = 24.0;
+            new_timeline_fps = 23.976;
         }
 
         float scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowSize(ImVec2(550 * scale + 50, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(350 * scale, 0), ImGuiCond_Always);
         if (ImGui::BeginPopupModal("New Timeline", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Create New Timeline");
             ImGui::Separator();
             ImGui::Spacing();
 
             ImGui::TextDisabled("Timeline Name (optional):");
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::SetNextItemWidth(280 * scale);
             ImGui::InputText("##TimelineNameInput", new_timeline_name_buffer, sizeof(new_timeline_name_buffer));
-            if (font_mono) ImGui::PopFont();
 
             ImGui::Spacing();
-            ImGui::Spacing();
+
+            // Resolution preset dropdown
             ImGui::TextDisabled("Resolution:");
+            ImGui::SetNextItemWidth(280 * scale);
+            const char* resolution_presets[] = { "1920x1080 (HD)", "1080x1080 (Square)", "1080x1920 (Portrait)", "2048x1080 (2K)", "3840x2160 (4K UHD)", "4096x2160 (4K DCI)", "Custom" };
+            if (ImGui::Combo("##TimelineResolution", &new_timeline_resolution_preset, resolution_presets, IM_ARRAYSIZE(resolution_presets))) {
+                switch (new_timeline_resolution_preset) {
+                    case 0: new_timeline_width = 1920; new_timeline_height = 1080; break;
+                    case 1: new_timeline_width = 1080; new_timeline_height = 1080; break;
+                    case 2: new_timeline_width = 1080; new_timeline_height = 1920; break;
+                    case 3: new_timeline_width = 2048; new_timeline_height = 1080; break;
+                    case 4: new_timeline_width = 3840; new_timeline_height = 2160; break;
+                    case 5: new_timeline_width = 4096; new_timeline_height = 2160; break;
+                    // case 6: Custom - keep existing values
+                }
+            }
 
-            // Width and Height fields with room for 6 digits
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(70 * scale);
-            ImGui::InputInt("##TimelineWidth", &new_timeline_width, 0, 0);
-            if (font_mono) ImGui::PopFont();
-            ImGui::SameLine();
-            ImGui::Text("x");
-            ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(70 * scale);
-            ImGui::InputInt("##TimelineHeight", &new_timeline_height, 0, 0);
-            if (font_mono) ImGui::PopFont();
-
-            // Quick resolution presets on separate row
-            if (ImGui::Button("HD (1920x1080)")) { new_timeline_width = 1920; new_timeline_height = 1080; }
-            ImGui::SameLine();
-            if (ImGui::Button("2K (2048x1080)")) { new_timeline_width = 2048; new_timeline_height = 1080; }
-            ImGui::SameLine();
-            if (ImGui::Button("4K UHD (3840x2160)")) { new_timeline_width = 3840; new_timeline_height = 2160; }
-            ImGui::SameLine();
-            if (ImGui::Button("4K DCI (4096x2160)")) { new_timeline_width = 4096; new_timeline_height = 2160; }
+            // Custom resolution inputs (only shown when Custom is selected)
+            if (new_timeline_resolution_preset == 6) {
+                ImGui::SetNextItemWidth(135 * scale);
+                ImGui::InputInt("##TimelineWidth", &new_timeline_width);
+                ImGui::SameLine();
+                ImGui::Text("x");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(135 * scale);
+                ImGui::InputInt("##TimelineHeight", &new_timeline_height);
+            }
 
             ImGui::Spacing();
-            ImGui::Spacing();
+
+            // Frame rate dropdown
             ImGui::TextDisabled("Frame Rate:");
-            if (font_mono) ImGui::PushFont(font_mono);
-            ImGui::SetNextItemWidth(120 * scale);
-            ImGui::InputDouble("##TimelineFPS", &new_timeline_fps, 0.0, 0.0, "%.3f fps");
-            if (font_mono) ImGui::PopFont();
+            ImGui::SetNextItemWidth(280 * scale);
+            const char* fps_presets[] = { "23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60" };
+            double fps_values[] = { 23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0 };
+            int current_fps_idx = 0;  // Default to 23.976
+            for (int i = 0; i < IM_ARRAYSIZE(fps_values); i++) {
+                if (std::abs(new_timeline_fps - fps_values[i]) < 0.01) {
+                    current_fps_idx = i;
+                    break;
+                }
+            }
+            if (ImGui::Combo("##TimelineFPS", &current_fps_idx, fps_presets, IM_ARRAYSIZE(fps_presets))) {
+                new_timeline_fps = fps_values[current_fps_idx];
+            }
 
-            // Frame rate presets - below input box like resolution presets
-            if (ImGui::Button("23.976")) { new_timeline_fps = 23.976; }
-            ImGui::SameLine();
-            if (ImGui::Button("24")) { new_timeline_fps = 24.0; }
-            ImGui::SameLine();
-            if (ImGui::Button("25")) { new_timeline_fps = 25.0; }
-            ImGui::SameLine();
-            if (ImGui::Button("29.97")) { new_timeline_fps = 29.97; }
-            ImGui::SameLine();
-            if (ImGui::Button("30")) { new_timeline_fps = 30.0; }
-            ImGui::SameLine();
-            if (ImGui::Button("59.94")) { new_timeline_fps = 59.94; }
-            ImGui::SameLine();
-            if (ImGui::Button("60")) { new_timeline_fps = 60.0; }
-
-            ImGui::Spacing();
             ImGui::Spacing();
             ImGui::TextDisabled("Duration auto-extends as clips are added.");
 
-            // Clamp values
+            // Clamp values (for custom resolution)
             new_timeline_width = std::max(320, std::min(new_timeline_width, 8192));
             new_timeline_height = std::max(240, std::min(new_timeline_height, 8192));
             new_timeline_fps = std::max(1.0, std::min(new_timeline_fps, 120.0));
@@ -1923,13 +1713,6 @@ namespace ump {
             ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
-
-            // Create and Cancel buttons (flush right)
-            float btnPadding = 8.0f * 2;
-            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
-            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
-            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
-            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
 
             if (ImGui::Button("Create")) {
                 std::string timeline_id = CreateNewTimeline(
@@ -1946,6 +1729,105 @@ namespace ump {
                     if (item) {
                         timeline_editor_callback(timeline_id);  // Pass timeline_id for scratch timelines
                     }
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        // New Dual View Dialog
+        if (show_new_dual_view_dialog) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            ImGui::OpenPopup("New Dual View");
+            show_new_dual_view_dialog = false;
+            // Reset to defaults when opening
+            memset(new_dual_view_name_buffer, 0, sizeof(new_dual_view_name_buffer));
+            new_dual_view_resolution_preset = 0;  // 1080p
+            new_dual_view_width = 1920;
+            new_dual_view_height = 1080;
+            new_dual_view_fps = 23.976;
+        }
+
+        float dv_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(350 * dv_scale, 0), ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("New Dual View", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Create a new dual view comparison");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::TextDisabled("Dual View Name:");
+            ImGui::SetNextItemWidth(280 * dv_scale);
+            ImGui::InputText("##DualViewNameInput", new_dual_view_name_buffer, sizeof(new_dual_view_name_buffer));
+
+            ImGui::Spacing();
+
+            // Resolution preset dropdown
+            ImGui::TextDisabled("Resolution:");
+            ImGui::SetNextItemWidth(280 * dv_scale);
+            const char* resolution_presets[] = { "1920x1080 (1080p)", "3840x2160 (4K)", "1080x1080 (Square)", "1080x1920 (Portrait)", "Custom" };
+            if (ImGui::Combo("##DualViewResolution", &new_dual_view_resolution_preset, resolution_presets, IM_ARRAYSIZE(resolution_presets))) {
+                switch (new_dual_view_resolution_preset) {
+                    case 0: new_dual_view_width = 1920; new_dual_view_height = 1080; break;
+                    case 1: new_dual_view_width = 3840; new_dual_view_height = 2160; break;
+                    case 2: new_dual_view_width = 1080; new_dual_view_height = 1080; break;
+                    case 3: new_dual_view_width = 1080; new_dual_view_height = 1920; break;
+                    // case 4: Custom - keep existing values
+                }
+            }
+
+            // Custom resolution inputs (only shown when Custom is selected)
+            if (new_dual_view_resolution_preset == 4) {
+                ImGui::SetNextItemWidth(135 * dv_scale);
+                ImGui::InputInt("##DualViewWidth", &new_dual_view_width);
+                ImGui::SameLine();
+                ImGui::Text("x");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(135 * dv_scale);
+                ImGui::InputInt("##DualViewHeight", &new_dual_view_height);
+            }
+
+            ImGui::Spacing();
+
+            // Frame rate
+            ImGui::TextDisabled("Frame Rate:");
+            ImGui::SetNextItemWidth(280 * dv_scale);
+            const char* fps_presets[] = { "23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60" };
+            double fps_values[] = { 23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0 };
+            int current_fps_idx = 0;  // Default to 23.976
+            for (int i = 0; i < IM_ARRAYSIZE(fps_values); i++) {
+                if (std::abs(new_dual_view_fps - fps_values[i]) < 0.01) {
+                    current_fps_idx = i;
+                    break;
+                }
+            }
+            if (ImGui::Combo("##DualViewFPS", &current_fps_idx, fps_presets, IM_ARRAYSIZE(fps_presets))) {
+                new_dual_view_fps = fps_values[current_fps_idx];
+            }
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Drag media to LEFT and RIGHT tracks after creation.");
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::Button("Create")) {
+                std::string name = new_dual_view_name_buffer;
+                if (name.empty()) {
+                    name = "";  // CreateDualView will auto-generate name
+                }
+                std::string dual_view_id = CreateDualView(name, new_dual_view_width, new_dual_view_height, new_dual_view_fps);
+                // Open the dual view immediately
+                if (!dual_view_id.empty() && dual_view_editor_callback) {
+                    dual_view_editor_callback(dual_view_id);
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -1982,17 +1864,13 @@ namespace ump {
             ImGui::TextDisabled("Resolution:");
 
             // Width and Height fields
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::SetNextItemWidth(70);
             ImGui::InputInt("##EDLWidth", &edl_import_width, 0, 0);
-            if (font_mono) ImGui::PopFont();
             ImGui::SameLine();
             ImGui::Text("x");
             ImGui::SameLine();
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::SetNextItemWidth(70);
             ImGui::InputInt("##EDLHeight", &edl_import_height, 0, 0);
-            if (font_mono) ImGui::PopFont();
 
             // Quick resolution presets
             if (ImGui::Button("HD (1920x1080)##edl")) { edl_import_width = 1920; edl_import_height = 1080; }
@@ -2006,10 +1884,8 @@ namespace ump {
             ImGui::Spacing();
             ImGui::Spacing();
             ImGui::TextDisabled("Frame Rate:");
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::SetNextItemWidth(120);
             ImGui::InputDouble("##EDLFPS", &edl_import_fps, 0.0, 0.0, "%.3f fps");
-            if (font_mono) ImGui::PopFont();
 
             // Frame rate presets
             ImGui::SameLine();
@@ -2092,7 +1968,6 @@ namespace ump {
             }
 
             // Safety check for valid path
-            if (font_mono) ImGui::PushFont(font_mono);
             if (!pending_sequence_path.empty()) {
                 try {
                     ImGui::Text("%s", std::filesystem::path(pending_sequence_path).filename().string().c_str());
@@ -2102,7 +1977,6 @@ namespace ump {
             } else {
                 ImGui::Text("No sequence selected");
             }
-            if (font_mono) ImGui::PopFont();
             ImGui::Separator();
 
             // EXR Layer Selection (if applicable)
@@ -2143,20 +2017,16 @@ namespace ump {
                 }
                 ImGui::PopStyleColor();
 
-                if (font_mono) ImGui::PushFont(font_mono);
                 if (current_layer_index < layer_names_copy.size()) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Layer: %s", layer_names_copy[current_layer_index].c_str());
                 }
-                if (font_mono) ImGui::PopFont();
 
                 // Show hidden Cryptomatte layers feedback
                 if (hidden_cryptomatte_count > 0) {
-                    if (font_mono) ImGui::PushFont(font_mono);
-                    ImGui::TextDisabled("%d Cryptomatte layer%s hidden",
+                        ImGui::TextDisabled("%d Cryptomatte layer%s hidden",
                         hidden_cryptomatte_count,
                         hidden_cryptomatte_count == 1 ? "" : "s");
-                    if (font_mono) ImGui::PopFont();
-                }
+                    }
 
                 ImGui::Separator();
             }
@@ -2243,7 +2113,7 @@ namespace ump {
             // Disable FPS controls for single images
             if (is_single_image) {
                 ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frame rate: Not applicable (single image)");
-                selected_frame_rate = 24.0; // Use default FPS for single images
+                selected_frame_rate = 23.976; // Use default FPS for single images
             } else {
                 ImGui::Text("Please select a frame rate:");
 
@@ -2322,6 +2192,117 @@ namespace ump {
             Debug::Log("Frame rate dialog closed by user");
             show_frame_rate_dialog = false;
             frame_rate_dialog_opened = false;
+        }
+
+        // Create Timeline from Selection Dialog
+        if (show_create_timeline_from_selection_dialog) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            ImGui::OpenPopup("Create Timeline from Selection");
+            show_create_timeline_from_selection_dialog = false;
+            // Keep existing values that were set by CreateTimelineFromSelection()
+            // Reset resolution/fps to defaults
+            new_timeline_resolution_preset = 0;  // 1080p
+            new_timeline_width = 1920;
+            new_timeline_height = 1080;
+            new_timeline_fps = 23.976;
+        }
+
+        float cts_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(400 * cts_scale, 0), ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("Create Timeline from Selection", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Create Timeline from Selected Items");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Show info about items being added
+            ImGui::TextColored(ImVec4(0.7f, 0.9f, 0.7f, 1.0f), "%zu item%s will be placed on V1 track",
+                pending_timeline_items.size(),
+                pending_timeline_items.size() == 1 ? "" : "s");
+            ImGui::TextDisabled("Items will be separated by 10-frame gaps");
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::TextDisabled("Timeline Name:");
+            ImGui::SetNextItemWidth(330 * cts_scale);
+            ImGui::InputText("##TimelineFromSelectionName", new_timeline_name_buffer, sizeof(new_timeline_name_buffer));
+
+            ImGui::Spacing();
+
+            // Resolution preset dropdown
+            ImGui::TextDisabled("Resolution:");
+            ImGui::SetNextItemWidth(330 * cts_scale);
+            const char* resolution_presets[] = { "1920x1080 (HD)", "1080x1080 (Square)", "1080x1920 (Portrait)", "2048x1080 (2K)", "3840x2160 (4K UHD)", "4096x2160 (4K DCI)", "Custom" };
+            if (ImGui::Combo("##TimelineFromSelectionResolution", &new_timeline_resolution_preset, resolution_presets, IM_ARRAYSIZE(resolution_presets))) {
+                switch (new_timeline_resolution_preset) {
+                    case 0: new_timeline_width = 1920; new_timeline_height = 1080; break;
+                    case 1: new_timeline_width = 1080; new_timeline_height = 1080; break;
+                    case 2: new_timeline_width = 1080; new_timeline_height = 1920; break;
+                    case 3: new_timeline_width = 2048; new_timeline_height = 1080; break;
+                    case 4: new_timeline_width = 3840; new_timeline_height = 2160; break;
+                    case 5: new_timeline_width = 4096; new_timeline_height = 2160; break;
+                    // case 6: Custom - keep existing values
+                }
+            }
+
+            // Custom resolution inputs (only shown when Custom is selected)
+            if (new_timeline_resolution_preset == 6) {
+                ImGui::SetNextItemWidth(160 * cts_scale);
+                ImGui::InputInt("##TimelineFromSelectionWidth", &new_timeline_width);
+                ImGui::SameLine();
+                ImGui::Text("x");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(160 * cts_scale);
+                ImGui::InputInt("##TimelineFromSelectionHeight", &new_timeline_height);
+            }
+
+            ImGui::Spacing();
+
+            // Frame rate dropdown
+            ImGui::TextDisabled("Frame Rate:");
+            ImGui::SetNextItemWidth(330 * cts_scale);
+            const char* fps_presets[] = { "23.976", "24", "25", "29.97", "30", "48", "50", "59.94", "60" };
+            double fps_values[] = { 23.976, 24.0, 25.0, 29.97, 30.0, 48.0, 50.0, 59.94, 60.0 };
+            int current_fps_idx = 0;  // Default to 23.976
+            for (int i = 0; i < IM_ARRAYSIZE(fps_values); i++) {
+                if (std::abs(new_timeline_fps - fps_values[i]) < 0.01) {
+                    current_fps_idx = i;
+                    break;
+                }
+            }
+            if (ImGui::Combo("##TimelineFromSelectionFPS", &current_fps_idx, fps_presets, IM_ARRAYSIZE(fps_presets))) {
+                new_timeline_fps = fps_values[current_fps_idx];
+            }
+
+            // Clamp values (for custom resolution)
+            new_timeline_width = std::max(320, std::min(new_timeline_width, 8192));
+            new_timeline_height = std::max(240, std::min(new_timeline_height, 8192));
+            new_timeline_fps = std::max(1.0, std::min(new_timeline_fps, 120.0));
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            // Create and Cancel buttons (flush right)
+            float btnPadding = 8.0f * 2;
+            float createW = ImGui::CalcTextSize("Create").x + btnPadding;
+            float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
+            float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
+
+            if (ImGui::Button("Create")) {
+                ProcessCreateTimelineFromSelection();
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                pending_timeline_items.clear();
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
         }
 
         // Transcode Settings Dialog
@@ -2453,23 +2434,8 @@ namespace ump {
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextDisabled("Path:");
                         ImGui::TableSetColumnIndex(1);
-                        if (font_mono) ImGui::PushFont(font_mono);
-                        ImGui::TextWrapped("%s", seq_directory.c_str());
-                        if (font_mono) ImGui::PopFont();
-                        if (!seq_directory.empty()) {
-                            // Invert button background based on row alternation
-                            int row_idx = ImGui::TableGetRowIndex();
-                            bool is_alt_row = (row_idx % 2) == 1;
-                            ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
-                            if (ImGui::SmallButton("Open##SeqPath")) {
-                                ShowInExplorer(seq_directory);
-                            }
-                            ImGui::SameLine();
-                            if (ImGui::SmallButton("Copy##SeqPath")) {
-                                CopyToClipboard(seq_directory);
-                            }
-                            ImGui::PopStyleColor();
-                        }
+                                ImGui::TextWrapped("%s", seq_directory.c_str());
+                                RenderPathButtons(seq_directory, "SeqPath");
 
                         // Image type
                         std::string image_type = "Unknown";
@@ -2486,31 +2452,25 @@ namespace ump {
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextDisabled("Image Type:");
                         ImGui::TableSetColumnIndex(1);
-                        if (font_mono) ImGui::PushFont(font_mono);
-                        ImGui::Text("%s", image_type.c_str());
-                        if (font_mono) ImGui::PopFont();
-
+                                ImGui::Text("%s", image_type.c_str());
+        
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextDisabled("Resolution:");
                         ImGui::TableSetColumnIndex(1);
-                        if (font_mono) ImGui::PushFont(font_mono);
-                        ImGui::Text("%d x %d", video_player->GetVideoWidth(), video_player->GetVideoHeight());
-                        if (font_mono) ImGui::PopFont();
-
+                                ImGui::Text("%d x %d", video_player->GetVideoWidth(), video_player->GetVideoHeight());
+        
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextDisabled("Frame Rate:");
                         ImGui::TableSetColumnIndex(1);
                         double fps = video_player->GetFrameRate();
-                        if (font_mono) ImGui::PushFont(font_mono);
-                        if (fps > 0) {
+                                if (fps > 0) {
                             ImGui::Text("%.3f fps", fps);
                         } else {
                             ImGui::Text("Unknown");
                         }
-                        if (font_mono) ImGui::PopFont();
-
+        
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
                         ImGui::TextDisabled("Frame Range:");
@@ -2528,15 +2488,13 @@ namespace ump {
                             start_frame = video_player->GetImageSequenceStartFrame();
                         }
 
-                        if (font_mono) ImGui::PushFont(font_mono);
-                        if (total_frames > 0) {
+                                if (total_frames > 0) {
                             int end_frame = start_frame + total_frames - 1;
                             ImGui::Text("%d-%d", start_frame, end_frame);
                         } else {
                             ImGui::Text("Unknown");
                         }
-                        if (font_mono) ImGui::PopFont();
-
+        
                         ImGui::EndTable();
                     }
                     ImGui::PopStyleVar();  // CellPadding
@@ -2558,6 +2516,11 @@ namespace ump {
         // Show available metadata (no loading states or progress bars)
         if (cached_meta->video_meta) {
             DisplayVideoMetadata(cached_meta->video_meta.get());
+        }
+
+        // Queue Adobe metadata extraction if not yet done
+        if (!cached_meta->adobe_meta) {
+            QueueAdobeMetadata(*current_file_path);
         }
 
         if (cached_meta->adobe_meta) {
@@ -2582,12 +2545,13 @@ namespace ump {
 
         // Double-click - load the item
         if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-            if (item.type == MediaType::SEQUENCE) {
-                LoadSequenceFromBin(item.id);
-            }
-            else if (item.type == MediaType::TIMELINE) {
+            if (item.type == MediaType::TIMELINE) {
                 // Open timeline in editor mode
                 OpenTimelineInEditor(item.timeline_id);
+            }
+            else if (item.type == MediaType::DUAL_VIEW) {
+                // Open dual view in editor mode
+                OpenDualViewInEditor(item.timeline_id);
             }
             else {
                 // LoadSingleMediaItem handles exit_timeline_mode_callback internally
@@ -2672,20 +2636,25 @@ namespace ump {
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && (item.type == MediaType::SEQUENCE || item.type == MediaType::TIMELINE) && ImGui::MenuItem("Rename", "F2")) {
+        if (selection_count == 1 && (item.type == MediaType::SEQUENCE || item.type == MediaType::TIMELINE || item.type == MediaType::DUAL_VIEW) && ImGui::MenuItem("Rename", "F2")) {
             StartRenaming(item.id);
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && ImGui::MenuItem("Show in Explorer")) {
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && ImGui::MenuItem("Show in Explorer")) {
             ShowInExplorer(item.path);
+            ImGui::CloseCurrentPopup();
+        }
+
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && ImGui::MenuItem("Show in u.f.b.")) {
+            LaunchUFB(item.path);
             ImGui::CloseCurrentPopup();
         }
 
         if (selection_count > 1) {
             ImGui::Separator();
-            if (ImGui::MenuItem("Create Playlist from Selection")) {
-                CreatePlaylistFromSelection();
+            if (ImGui::MenuItem("Create Timeline from Selection")) {
+                CreateTimelineFromSelection();
                 ImGui::CloseCurrentPopup();
             }
             if (ImGui::MenuItem("Clear Selection")) {
@@ -2744,6 +2713,15 @@ namespace ump {
                     item.frame_rate = metadata.frame_rate;
                 }
 
+                // Store video dimensions for timeline creation
+                if (metadata.width > 0 && metadata.height > 0) {
+                    item.timeline_width = metadata.width;
+                    item.timeline_height = metadata.height;
+                }
+
+                // Check if media has audio track
+                item.has_audio = (metadata.audio_channels > 0);
+
                 Debug::Log("AddMediaFileToProject: Cached metadata for: " + file_path);
                 Debug::Log("  Resolution: " + std::to_string(metadata.width) + "x" + std::to_string(metadata.height));
                 Debug::Log("  Frame Rate: " + std::to_string(metadata.frame_rate) + " fps");
@@ -2794,6 +2772,19 @@ namespace ump {
         double detected_duration = 0.0;
         if (video_player && video_player->HasVideo()) {
             detected_duration = video_player->GetDuration();
+
+            // Get video dimensions and frame rate from loaded video
+            int vid_width = video_player->GetVideoWidth();
+            int vid_height = video_player->GetVideoHeight();
+            double vid_fps = video_player->GetFrameRate();
+
+            if (vid_width > 0 && vid_height > 0) {
+                item.timeline_width = vid_width;
+                item.timeline_height = vid_height;
+            }
+            if (vid_fps > 0) {
+                item.frame_rate = vid_fps;
+            }
         }
 
         if (detected_duration > 0) {
@@ -2872,239 +2863,144 @@ namespace ump {
 
         ClearSelection();
         // Clear all active states - loading a single file makes nothing else active
-        current_sequence_id.clear();
         current_timeline_id.clear();
-        UpdateSequenceActiveStates("");
 
         // Set frame rate for image sequences before loading
         if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) && item.frame_rate > 0.0) {
             // Set MPV frame rate for playback
             video_player->SetMFFrameRate(item.frame_rate);
-
-            // For regular image sequences, also store start frame for display
-            if (item.type == MediaType::IMAGE_SEQUENCE) {
-                video_player->SetImageSequenceFrameRate(item.frame_rate, item.start_frame);
-            }
         }
 
-        // === Image Sequence Handling ===
+        // === Image Sequence Handling (OTIO Timeline Mode) ===
         if (item.type == MediaType::IMAGE_SEQUENCE) {
-            Debug::Log("LoadSingleMediaItem: Loading image sequence: " + item.path);
-            Debug::Log("LoadSingleMediaItem: MediaItem details:");
-            Debug::Log("  - ffmpeg_pattern: " + (item.ffmpeg_pattern.empty() ? "(EMPTY)" : item.ffmpeg_pattern));
-            Debug::Log("  - sequence_pattern: " + (item.sequence_pattern.empty() ? "(EMPTY)" : item.sequence_pattern));
-            Debug::Log("  - frame_rate: " + std::to_string(item.frame_rate));
-            Debug::Log("  - start_frame: " + std::to_string(item.start_frame));
-            Debug::Log("  - end_frame: " + std::to_string(item.end_frame));
-            Debug::Log("  - frame_count: " + std::to_string(item.frame_count));
+            Debug::Log("LoadSingleMediaItem: Loading image sequence via OTIO timeline: " + item.path);
 
-            // Rebuild the file list using stored pattern
-            // item.path is an mf:// URL, so we need to use ffmpeg_pattern to reconstruct the file list
-            std::vector<std::string> sequence_files;
-
-            if (!item.ffmpeg_pattern.empty()) {
-                // Use ffmpeg_pattern to rebuild file list (e.g., "/path/shot_%04d.exr")
-                Debug::Log("LoadSingleMediaItem: Using ffmpeg_pattern: " + item.ffmpeg_pattern);
-
-                // Extract directory and pattern from ffmpeg_pattern
-                std::filesystem::path pattern_path(item.ffmpeg_pattern);
-                std::string directory = pattern_path.parent_path().string();
-
-                // Build file list using stored frame range
-                for (int frame = item.start_frame; frame <= item.end_frame; ++frame) {
-                    char frame_str[512];  // Increased buffer size to handle long filenames
-                    snprintf(frame_str, sizeof(frame_str), item.sequence_pattern.c_str(), frame);
-                    std::string file_path = directory + "/" + frame_str;
-                    sequence_files.push_back(file_path);
-                }
-
-                Debug::Log("LoadSingleMediaItem: Reconstructed " + std::to_string(sequence_files.size()) + " files from pattern");
-                if (!sequence_files.empty()) {
-                    Debug::Log("LoadSingleMediaItem: First file: " + sequence_files[0]);
-                    Debug::Log("LoadSingleMediaItem: Last file: " + sequence_files[sequence_files.size() - 1]);
-                }
-            } else {
-                // Fallback: Try to parse mf:// URL (should not happen, but just in case)
-                Debug::Log("LoadSingleMediaItem: Warning - No ffmpeg_pattern, attempting detection from path");
-                if (item.path.substr(0, 5) == "mf://") {
-                    // Extract first file path from mf:// URL
-                    std::string first_file = item.path.substr(5);
-                    size_t fps_pos = first_file.find(":fps=");
-                    if (fps_pos != std::string::npos) {
-                        first_file = first_file.substr(0, fps_pos);
-                    }
-                    Debug::Log("LoadSingleMediaItem: Attempting to detect sequence from: " + first_file);
-                    sequence_files = DetectImageSequence(first_file);
-                    Debug::Log("LoadSingleMediaItem: Detected " + std::to_string(sequence_files.size()) + " files");
-                }
-            }
-
-            Debug::Log("LoadSingleMediaItem: Checking conditions for loading:");
-            Debug::Log("  - sequence_files.empty() = " + std::string(sequence_files.empty() ? "TRUE" : "FALSE"));
-            Debug::Log("  - item.frame_rate = " + std::to_string(item.frame_rate));
-
-            if (!sequence_files.empty() && item.frame_rate > 0.0) {
-                // Use stored auto-detected pipeline mode from when sequence was added to project
-                PipelineMode pipeline_mode = item.pipeline_mode;
-
-                Debug::Log("LoadSingleMediaItem: Loading " + std::to_string(sequence_files.size()) +
-                           " files with stored pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
-
-                // Ensure paused state before loading to allow cache to build around playhead
-                video_player->Pause();
-
-                // Load through DirectEXRCache with universal loader
-                Debug::Log("LoadSingleMediaItem: Calling LoadImageSequenceWithCache()...");
-                // Pass cached dimensions and duration from ImageSequenceData for reliable reload
-                double cached_dur = item.image_seq.IsValid() ? item.image_seq.duration : item.duration;
-                // Get playhead position to initialize cache at correct position
-                // Look up fresh item from media_pool because bin copies may not have updated view_state
-                double initial_playhead = 0.0;
-                MediaItem* fresh_item = GetMediaItem(item.id);
-                if (fresh_item) {
-                    initial_playhead = fresh_item->view_state.playhead_position;
-                } else {
-                    initial_playhead = item.view_state.playhead_position;
-                }
-                Debug::Log("LoadSingleMediaItem: Using cached duration: " + std::to_string(cached_dur) + "s, initial playhead: " + std::to_string(initial_playhead) + "s");
-                bool success = video_player->LoadImageSequenceWithCache(
-                    sequence_files,
-                    item.frame_rate,
-                    pipeline_mode,
-                    item.sequence_width,
-                    item.sequence_height,
-                    cached_dur,  // Use stored duration for reliable reload
-                    initial_playhead  // Start cache from stored playhead position
-                );
-                Debug::Log("LoadSingleMediaItem: LoadImageSequenceWithCache() returned: " + std::string(success ? "TRUE (success)" : "FALSE (failed)"));
-
-                if (success) {
+            // Use OTIO timeline callback to load image sequence into timeline view
+            if (image_sequence_timeline_callback) {
+                // Get mutable pointer to the item in media_pool
+                MediaItem* media_item = GetMediaItem(item.id);
+                if (media_item) {
                     *current_file_path = item.path;
-                    Debug::Log("LoadSingleMediaItem: Successfully loaded image sequence - EARLY RETURN");
 
                     // Notify callbacks
                     if (video_change_callback) {
                         video_change_callback(item.path);
                     }
-                    // Restore view state from MediaItem (look up fresh to get latest cached values)
-                    if (view_state_callback) {
-                        MediaItem* fresh_item = GetMediaItem(item.id);
-                        if (fresh_item) {
-                            view_state_callback(fresh_item->view_state.zoom_level,
-                                               fresh_item->view_state.scroll_offset,
-                                               fresh_item->view_state.playhead_position);
-                        } else {
-                            view_state_callback(item.view_state.zoom_level,
-                                               item.view_state.scroll_offset,
-                                               item.view_state.playhead_position);
-                        }
-                    }
 
-                    // Load sequence audio if configured
-                    if (!item.image_seq.audio_file.empty() && video_player) {
-                        video_player->LoadSequenceAudio(item.image_seq.audio_file);
-                    }
-
-                    // Select this item and extract metadata
+                    // Select this item
                     SelectMediaItem(item.id, false, false);
-                    NotifyVideoChanged(item.path);
-                    QueueVideoMetadataExtraction(item.path, true);
-                    return;  // Early return - sequence loaded successfully
+
+                    // Load into OTIO timeline view
+                    image_sequence_timeline_callback(media_item);
+
+                    Debug::Log("LoadSingleMediaItem: Image sequence loaded via OTIO timeline - EARLY RETURN");
+                    return;  // Early return - handled by timeline view
                 } else {
-                    Debug::Log("LoadSingleMediaItem: ERROR - Failed to load image sequence, will fall through to LoadFile()");
+                    Debug::Log("LoadSingleMediaItem: ERROR - Could not find MediaItem in pool");
                 }
             } else {
-                Debug::Log("LoadSingleMediaItem: ERROR - Could not rebuild file list or frame_rate invalid");
-                Debug::Log("LoadSingleMediaItem: Will fall through to LoadFile() fallback");
+                Debug::Log("LoadSingleMediaItem: ERROR - No image_sequence_timeline_callback set");
             }
         }
 
-        Debug::Log("LoadSingleMediaItem: Reached fallback section (item.type = " + std::to_string(static_cast<int>(item.type)) + ")");
+        // === EXR Sequence Handling (OTIO Timeline Mode) ===
+        if (item.type == MediaType::EXR_SEQUENCE) {
+            Debug::Log("LoadSingleMediaItem: Loading EXR sequence via OTIO timeline: " + item.path);
 
-        // Special handling for EXR sequences
-        if (item.type == MediaType::EXR_SEQUENCE && !item.exr_layer.empty()) {
-            Debug::Log("LoadSingleMediaItem: Loading EXR sequence: " + item.path);
+            // Use OTIO timeline callback to load EXR sequence into timeline view
+            if (image_sequence_timeline_callback) {
+                // Get mutable pointer to the item in media_pool
+                MediaItem* media_item = GetMediaItem(item.id);
+                if (media_item) {
+                    *current_file_path = item.path;
 
-            // Parse the exr:// URL to get the original sequence path
-            std::string exr_path = item.path;
-            if (exr_path.substr(0, 6) == "exr://") {
-                size_t query_pos = exr_path.find("?layer=");
-                if (query_pos != std::string::npos) {
-                    std::string sequence_path = exr_path.substr(6, query_pos - 6); // Remove "exr://" prefix
-                    std::string layer_name = item.exr_layer;
-
-                    Debug::Log("LoadSingleMediaItem: Detected sequence path: " + sequence_path);
-                    Debug::Log("LoadSingleMediaItem: Detected layer: " + layer_name);
-
-                    // Rebuild the file list from the sequence path
-                    std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
-                    if (!sequence_files.empty()) {
-                        // Pass cached dimensions and duration from ImageSequenceData for reliable reload
-                        double cached_dur = item.image_seq.IsValid() ? item.image_seq.duration : item.duration;
-                        // Get playhead position to initialize cache at correct position
-                        // Look up fresh item from media_pool because bin copies may not have updated view_state
-                        double initial_playhead = 0.0;
-                        MediaItem* fresh_item_exr = GetMediaItem(item.id);
-                        if (fresh_item_exr) {
-                            initial_playhead = fresh_item_exr->view_state.playhead_position;
-                        } else {
-                            initial_playhead = item.view_state.playhead_position;
-                        }
-                        Debug::Log("LoadSingleMediaItem: EXR using cached duration: " + std::to_string(cached_dur) + "s, initial playhead: " + std::to_string(initial_playhead) + "s");
-
-                        // Ensure paused state before loading to allow cache to build around playhead
-                        video_player->Pause();
-
-                        if (video_player->LoadEXRSequenceWithDummy(
-                            sequence_files,
-                            layer_name,
-                            item.frame_rate,
-                            item.sequence_width,
-                            item.sequence_height,
-                            cached_dur,  // Use stored duration for reliable reload
-                            initial_playhead  // Start cache from stored playhead position
-                        )) {
-                            *current_file_path = item.path;
-                            Debug::Log("LoadSingleMediaItem: Successfully loaded EXR sequence");
-
-                            // Notify callbacks
-                            if (video_change_callback) {
-                                video_change_callback(item.path);
-                            }
-                            // Restore view state from MediaItem (look up fresh to get latest cached values)
-                            if (view_state_callback) {
-                                MediaItem* fresh_item = GetMediaItem(item.id);
-                                if (fresh_item) {
-                                    view_state_callback(fresh_item->view_state.zoom_level,
-                                                       fresh_item->view_state.scroll_offset,
-                                                       fresh_item->view_state.playhead_position);
-                                } else {
-                                    view_state_callback(item.view_state.zoom_level,
-                                                       item.view_state.scroll_offset,
-                                                       item.view_state.playhead_position);
-                                }
-                            }
-
-                            // Load sequence audio if configured
-                            if (!item.image_seq.audio_file.empty() && video_player) {
-                                video_player->LoadSequenceAudio(item.image_seq.audio_file);
-                            }
-
-                            // Select this item and extract metadata
-                            SelectMediaItem(item.id, false, false);
-                            NotifyVideoChanged(item.path);
-                            QueueVideoMetadataExtraction(item.path, true);
-                            return;  // Early return - EXR sequence loaded successfully
-                        } else {
-                            Debug::Log("LoadSingleMediaItem: ERROR - Failed to load EXR sequence");
-                        }
+                    // Notify callbacks
+                    if (video_change_callback) {
+                        video_change_callback(item.path);
                     }
+
+                    // Select this item
+                    SelectMediaItem(item.id, false, false);
+
+                    // Load into OTIO timeline view
+                    image_sequence_timeline_callback(media_item);
+
+                    Debug::Log("LoadSingleMediaItem: EXR sequence loaded via OTIO timeline - EARLY RETURN");
+                    return;  // Early return - handled by timeline view
+                } else {
+                    Debug::Log("LoadSingleMediaItem: ERROR - Could not find MediaItem in pool");
                 }
+            } else {
+                Debug::Log("LoadSingleMediaItem: ERROR - No image_sequence_timeline_callback set");
             }
         }
 
-        // === FALLBACK: Regular video/audio loading ===
-        // This handles regular MP4/MOV/etc files, OR fallback if image sequence loading failed
+        // === Video File Handling (OTIO Timeline Mode) ===
+        if (item.type == MediaType::VIDEO) {
+            Debug::Log("LoadSingleMediaItem: Loading video file via OTIO timeline: " + item.path);
+
+            // Use OTIO timeline callback to load video file into timeline view
+            if (video_file_timeline_callback) {
+                // Get mutable pointer to the item in media_pool
+                MediaItem* media_item = GetMediaItem(item.id);
+                if (media_item) {
+                    *current_file_path = item.path;
+
+                    // Notify callbacks
+                    if (video_change_callback) {
+                        video_change_callback(item.path);
+                    }
+
+                    // Select item in bin (visual feedback)
+                    SelectMediaItem(item.id, false, false);
+
+                    // Load into OTIO timeline view
+                    video_file_timeline_callback(media_item);
+
+                    Debug::Log("LoadSingleMediaItem: Video file loaded via OTIO timeline - EARLY RETURN");
+                    return;  // Early return - handled by timeline view
+                } else {
+                    Debug::Log("LoadSingleMediaItem: ERROR - Could not find MediaItem in pool");
+                }
+            } else {
+                Debug::Log("LoadSingleMediaItem: ERROR - No video_file_timeline_callback set");
+            }
+        }
+
+        // === Audio File Handling (OTIO Timeline Mode) ===
+        if (item.type == MediaType::AUDIO) {
+            Debug::Log("LoadSingleMediaItem: Loading audio file via OTIO timeline: " + item.path);
+
+            // Use OTIO timeline callback to load audio file into timeline view
+            if (audio_file_timeline_callback) {
+                // Get mutable pointer to the item in media_pool
+                MediaItem* media_item = GetMediaItem(item.id);
+                if (media_item) {
+                    *current_file_path = item.path;
+
+                    // Notify callbacks
+                    if (video_change_callback) {
+                        video_change_callback(item.path);
+                    }
+
+                    // Select item in bin (visual feedback)
+                    SelectMediaItem(item.id, false, false);
+
+                    // Load into OTIO timeline view (audio-only)
+                    audio_file_timeline_callback(media_item);
+
+                    Debug::Log("LoadSingleMediaItem: Audio file loaded via OTIO timeline - EARLY RETURN");
+                    return;  // Early return - handled by timeline view
+                } else {
+                    Debug::Log("LoadSingleMediaItem: ERROR - Could not find MediaItem in pool");
+                }
+            } else {
+                Debug::Log("LoadSingleMediaItem: ERROR - No audio_file_timeline_callback set");
+            }
+        }
+
+        // === FALLBACK: Legacy loading ===
+        // This handles audio files only now (videos are handled by OTIO timeline)
         Debug::Log("LoadSingleMediaItem: Loading as regular file: " + item.path);
 
         // Check if this is a GIF (disable cache for GIFs - they're fast enough without it)
@@ -3366,19 +3262,6 @@ namespace ump {
             }
         }
 
-        // Delete sequences
-        for (const std::string& sequence_id : sequence_ids_to_delete) {
-            sequences.erase(
-                std::remove_if(sequences.begin(), sequences.end(),
-                    [&sequence_id](const Sequence& seq) { return seq.id == sequence_id; }),
-                sequences.end()
-            );
-
-            if (current_sequence_id == sequence_id) {
-                current_sequence_id.clear();
-            }
-        }
-
         // Clean up video caches for deleted video files
         for (const std::string& video_path : video_paths_to_uncache) {
             RemoveVideoFromCache(video_path);
@@ -3436,60 +3319,155 @@ namespace ump {
         }
     }
 
-    void ProjectManager::CreatePlaylistFromSelection() {
+    void ProjectManager::CreateTimelineFromSelection() {
         if (selected_media_items.empty()) return;
 
-        // Filter out sequences and image sequences (EXR/TIFF/PNG/JPEG)
-        // Only videos and single images can be added to playlists
+        // Filter to valid media items (videos, images, image sequences, audio)
+        // Exclude existing timelines and dual views
         std::vector<MediaItem> media_items_only;
         for (const auto& item_id : selected_media_items) {
             auto media_item = GetMediaItem(item_id);
             if (media_item &&
-                media_item->type != MediaType::SEQUENCE &&
-                media_item->type != MediaType::EXR_SEQUENCE &&
-                media_item->type != MediaType::IMAGE_SEQUENCE) {
+                media_item->type != MediaType::TIMELINE &&
+                media_item->type != MediaType::DUAL_VIEW) {
                 media_items_only.push_back(*media_item);
             }
         }
 
         if (media_items_only.empty()) return;
 
-        pending_playlist_items = media_items_only;
-        show_create_playlist_dialog = true;
+        // Store items and show the timeline creation dialog
+        pending_timeline_items = media_items_only;
+        show_create_timeline_from_selection_dialog = true;
 
-        std::string default_name = "Playlist from " + std::to_string(media_items_only.size()) + " items";
-        strncpy_s(new_playlist_name_buffer, default_name.c_str(), sizeof(new_playlist_name_buffer) - 1);
+        // Pre-populate timeline name
+        std::string default_name = "Timeline from " + std::to_string(media_items_only.size()) + " items";
+        strncpy_s(new_timeline_name_buffer, default_name.c_str(), sizeof(new_timeline_name_buffer) - 1);
     }
 
-    void ProjectManager::ProcessCreatePlaylistFromSelection() {
-        std::string playlist_name = new_playlist_name_buffer;
-        if (playlist_name.empty()) {
-            playlist_name = "New Playlist";
+    void ProjectManager::ProcessCreateTimelineFromSelection() {
+        if (pending_timeline_items.empty()) return;
+
+        std::string timeline_name = new_timeline_name_buffer;
+        if (timeline_name.empty()) {
+            timeline_name = "New Timeline";
         }
 
-        CreateNewSequence(playlist_name);
+        // Create the timeline with current dialog settings
+        std::string timeline_id = CreateNewTimeline(
+            timeline_name,
+            new_timeline_width,
+            new_timeline_height,
+            new_timeline_fps,
+            0.0  // Duration will be calculated from clips
+        );
 
-        // Find and switch to the newly created playlist
-        for (const auto& seq : sequences) {
-            if (seq.name == playlist_name) {
-                SwitchToSequence(seq.id);
+        if (timeline_id.empty()) {
+            Debug::Log("ProcessCreateTimelineFromSelection: Failed to create timeline");
+            pending_timeline_items.clear();
+            return;
+        }
 
-                // Add all items to the playlist
-                for (const auto& media_item : pending_playlist_items) {
-                    AddToPlaylist(media_item.id);
+        // Get the timeline MediaItem
+        MediaItem* timeline_item = GetTimelineItem(timeline_id);
+        if (!timeline_item) {
+            Debug::Log("ProcessCreateTimelineFromSelection: Failed to find created timeline");
+            pending_timeline_items.clear();
+            return;
+        }
+
+        // Calculate gap in seconds (10 frames at timeline fps)
+        double gap_seconds = 10.0 / new_timeline_fps;
+
+        // Build proper OTIO track structure with clips on V1
+        OTIOTrack v1_track;
+        v1_track.id = "V1";
+        v1_track.name = "V1";
+        v1_track.is_video = true;
+        v1_track.visible = true;
+        v1_track.locked = false;
+        v1_track.z_index = 1;
+
+        // Also create an empty A1 track for audio
+        OTIOTrack a1_track;
+        a1_track.id = "A1";
+        a1_track.name = "A1";
+        a1_track.is_video = false;
+        a1_track.visible = true;
+        a1_track.locked = false;
+        a1_track.z_index = 0;
+
+        double current_time = 0.0;
+
+        for (const auto& media_item : pending_timeline_items) {
+            OTIOClip clip;
+            clip.id = GenerateUniqueID();
+            clip.name = media_item.name;
+            clip.start_time = current_time;
+            clip.duration = media_item.duration;
+            clip.source_in = 0.0;
+            clip.source_out = media_item.duration;
+            clip.is_gap = false;
+            clip.is_linked = true;
+
+            // Set source metadata
+            clip.source_fps = media_item.frame_rate > 0 ? media_item.frame_rate : new_timeline_fps;
+            clip.source_duration = media_item.duration;
+            clip.has_audio = media_item.has_audio;
+
+            // Handle different media types
+            if (media_item.type == MediaType::IMAGE_SEQUENCE || media_item.type == MediaType::EXR_SEQUENCE) {
+                // Image sequences use ffmpeg pattern as linked_path
+                clip.file_path = media_item.path;
+                clip.linked_path = media_item.ffmpeg_pattern;
+                clip.is_sequence = true;
+                clip.sequence_directory = media_item.image_seq.directory;
+                clip.sequence_pattern = media_item.image_seq.pattern;
+                clip.sequence_start_frame = media_item.image_seq.start_frame;
+                clip.sequence_end_frame = media_item.image_seq.end_frame;
+                clip.source_width = media_item.image_seq.width;
+                clip.source_height = media_item.image_seq.height;
+                if (media_item.type == MediaType::EXR_SEQUENCE) {
+                    clip.sequence_exr_layer = media_item.image_seq.layer;
                 }
-
-                // FIX: Load the playlist into MPV so files actually play!
-                // Previously, we created the sequence but never told MPV to load the files
-                // This caused empty viewport until manual seek
-                LoadSequenceIntoPlayer(seq, true);  // true = auto-play after loading
-
-                break;
+            } else {
+                // Video/Image files use path directly
+                clip.file_path = media_item.path;
+                clip.linked_path = media_item.path;
+                clip.is_sequence = false;
+                clip.source_width = media_item.sequence_width;
+                clip.source_height = media_item.sequence_height;
             }
+
+            v1_track.clips.push_back(clip);
+
+            // Advance time: clip duration + gap
+            current_time += media_item.duration + gap_seconds;
         }
 
+        // Calculate total duration (remove trailing gap)
+        double total_duration = current_time - gap_seconds;
+        if (total_duration < 0) total_duration = 0;
+
+        // Store tracks in cached_tracks (this is what the timeline editor loads)
+        timeline_item->cached_tracks.clear();
+        timeline_item->cached_tracks.push_back(v1_track);
+        timeline_item->cached_tracks.push_back(a1_track);
+        timeline_item->has_cached_edits = true;
+        timeline_item->duration = total_duration;
+        timeline_item->video_track_count = 1;
+        timeline_item->audio_track_count = 1;
+
+        Debug::Log("ProcessCreateTimelineFromSelection: Created timeline '" + timeline_name +
+                   "' with " + std::to_string(v1_track.clips.size()) + " clips on V1, duration=" +
+                   std::to_string(total_duration) + "s");
+
+        // Open the timeline in editor
+        OpenTimelineInEditor(timeline_id);
+
+        // Clean up
         ClearSelection();
-        pending_playlist_items.clear();
+        pending_timeline_items.clear();
     }
 
     void ProjectManager::ShowInExplorer(const std::string& file_path) {
@@ -3559,203 +3537,6 @@ namespace ump {
             system(command.c_str());
         }).detach();
 #endif
-    }
-
-    // ============================================================================
-    // SEQUENCE MANAGEMENT
-    // ============================================================================
-
-    void ProjectManager::CreateNewSequence(const std::string& name) {
-        Sequence new_sequence;
-        new_sequence.id = GenerateUniqueID();
-        new_sequence.name = name.empty() ? ("Sequence " + std::to_string(sequences.size() + 1)) : name;
-        new_sequence.frame_rate = 24.0;
-        new_sequence.duration = 0.0;
-
-        sequences.push_back(new_sequence);
-
-        // Don't auto-activate - playlist should only be active when actually loaded in viewport
-        AddSequenceToProject(new_sequence.id);
-    }
-
-    void ProjectManager::AddSequenceToProject(const std::string& sequence_id) {
-        auto seq_it = std::find_if(sequences.begin(), sequences.end(),
-            [&sequence_id](const Sequence& seq) { return seq.id == sequence_id; });
-
-        if (seq_it != sequences.end()) {
-            MediaItem sequence_item = CreateSequenceMediaItem(*seq_it);
-            media_pool.push_back(sequence_item);
-
-            if (bins.size() > PLAYLISTS_BIN_INDEX) {
-                bins[PLAYLISTS_BIN_INDEX].items.push_back(sequence_item);
-            }
-        }
-    }
-
-    MediaItem ProjectManager::CreateSequenceMediaItem(const Sequence& sequence) {
-        MediaItem item;
-        item.id = "seq_item_" + sequence.id;
-        item.name = sequence.name;
-        item.type = MediaType::SEQUENCE;
-        item.sequence_id = sequence.id;
-        item.duration = sequence.duration;
-        item.clip_count = sequence.clips.size();
-        item.is_active = (sequence.id == current_sequence_id);
-        return item;
-    }
-
-    void ProjectManager::LoadSequenceFromBin(const std::string& media_item_id) {
-        // Show loading modal and defer the actual loading
-        if (loading_modal_callback) {
-            loading_modal_callback("Loading Playlist...", [this, media_item_id]() {
-                LoadSequenceFromBinInternal(media_item_id);
-            });
-        } else {
-            // Fallback: load directly if no callback set
-            LoadSequenceFromBinInternal(media_item_id);
-        }
-    }
-
-    void ProjectManager::LoadSequenceFromBinInternal(const std::string& media_item_id) {
-        auto item_it = std::find_if(media_pool.begin(), media_pool.end(),
-            [&media_item_id](const MediaItem& item) { return item.id == media_item_id; });
-
-        if (item_it == media_pool.end() || item_it->type != MediaType::SEQUENCE) {
-            return;
-        }
-
-        // Exit timeline mode when loading sequence
-        if (exit_timeline_mode_callback) {
-            exit_timeline_mode_callback();
-        }
-
-        // Clean up EXR/image sequence state if active
-        if (video_player && video_player->IsInEXRMode()) {
-            video_player->ResetState();
-            Debug::Log("LoadSequenceFromBin: Cleaned up EXR/image sequence state");
-        }
-
-        if (show_inspector_panel) {
-            *show_inspector_panel = true;
-        }
-
-        SwitchToSequence(item_it->sequence_id);
-
-        Sequence* sequence = GetCurrentSequence();
-        if (sequence) {
-            if (sequence->clips.empty()) {
-                video_player->Stop();
-                if (current_file_path) {
-                    current_file_path->clear();
-                }
-                UpdateSequenceInBin(sequence->id);
-            }
-            else {
-                LoadSequenceIntoPlayer(*sequence);
-            }
-        }
-    }
-
-    void ProjectManager::LoadSequenceIntoPlayer(const Sequence& sequence, bool auto_play) {
-        if (sequence.clips.empty()) return;
-
-        std::string playlist_content;
-        auto sorted_clips = sequence.GetAllClipsSorted();
-
-        for (const auto& clip : sorted_clips) {
-            playlist_content += clip.file_path + "\n";
-        }
-
-        video_player->LoadPlaylist(playlist_content);
-
-        if (!sorted_clips.empty() && current_file_path) {
-            *current_file_path = sorted_clips[0].file_path;
-        }
-
-        // Request auto-play through callback (respects app-wide settings)
-        // Only request if auto_play is true (user-initiated, not project loading)
-        if (auto_play && auto_play_request_callback) {
-            auto_play_request_callback();
-        }
-
-        // Queue Adobe metadata for first clip (timecode, project links)
-        if (!sorted_clips.empty()) {
-            QueueAdobeMetadata(sorted_clips[0].file_path);
-        }
-    }
-
-    bool ProjectManager::IsSequenceMode() const {
-        return !current_sequence_id.empty();
-    }
-
-    Sequence* ProjectManager::GetCurrentSequence() const {
-        if (current_sequence_id.empty()) return nullptr;
-
-        for (const auto& sequence : sequences) {
-            if (sequence.id == current_sequence_id) {
-                return const_cast<Sequence*>(&sequence);
-            }
-        }
-        return nullptr;
-    }
-
-    void ProjectManager::SwitchToSequence(const std::string& sequence_id) {
-        // Clear other active states - only one thing can be active at a time
-        current_sequence_id = sequence_id;
-        current_timeline_id.clear();
-        UpdateSequenceActiveStates(sequence_id);
-    }
-
-    void ProjectManager::ClearSequenceMode() {
-        current_sequence_id.clear();
-        UpdateSequenceActiveStates("");
-    }
-
-    void ProjectManager::UpdateSequenceActiveStates(const std::string& active_sequence_id) {
-        // Update media_pool items
-        for (auto& item : media_pool) {
-            if (item.type == MediaType::SEQUENCE) {
-                item.is_active = (item.sequence_id == active_sequence_id);
-            }
-        }
-
-        // Update bin items
-        for (auto& bin : bins) {
-            for (auto& item : bin.items) {
-                if (item.type == MediaType::SEQUENCE) {
-                    item.is_active = (item.sequence_id == active_sequence_id);
-                }
-            }
-        }
-    }
-
-    void ProjectManager::UpdateSequenceInBin(const std::string& sequence_id) {
-        auto seq_it = std::find_if(sequences.begin(), sequences.end(),
-            [&sequence_id](const Sequence& seq) { return seq.id == sequence_id; });
-
-        if (seq_it == sequences.end()) return;
-
-        const Sequence& sequence = *seq_it;
-
-        // Update media_pool items
-        for (auto& item : media_pool) {
-            if (item.type == MediaType::SEQUENCE && item.sequence_id == sequence_id) {
-                item.clip_count = sequence.clips.size();
-                item.duration = sequence.duration;
-                item.is_active = (sequence_id == current_sequence_id);
-            }
-        }
-
-        // Update bin items
-        for (auto& bin : bins) {
-            for (auto& item : bin.items) {
-                if (item.type == MediaType::SEQUENCE && item.sequence_id == sequence_id) {
-                    item.clip_count = sequence.clips.size();
-                    item.duration = sequence.duration;
-                    item.is_active = (sequence_id == current_sequence_id);
-                }
-            }
-        }
     }
 
     // ============================================================================
@@ -4010,11 +3791,10 @@ namespace ump {
                     // Set active timeline for [ACTIVE] display in project panel
                     // Clear other active states - only one thing can be active at a time
                     current_timeline_id = timeline_id;
-                    current_sequence_id.clear();
                     if (current_file_path) {
                         current_file_path->clear();  // Clear video/image [ACTIVE] state
                     }
-                    UpdateSequenceActiveStates("");  // Clear is_active on all playlists
+                    ClearDualViewActiveStates();     // Clear is_active on all dual views
 
                     // For scratch timelines (no file), pass the timeline_id
                     // For file-based timelines, pass the file path
@@ -4055,6 +3835,122 @@ namespace ump {
             if (item.type == MediaType::TIMELINE) count++;
         }
         return count;
+    }
+
+    // ========================================================================
+    // DUAL VIEW MANAGEMENT
+    // ========================================================================
+
+    std::string ProjectManager::CreateDualView(const std::string& name,
+                                               int width, int height,
+                                               double fps) {
+        // Generate unique name
+        std::string dual_view_name = name;
+        if (dual_view_name.empty()) {
+            int dual_view_count = GetDualViewCount() + 1;
+            dual_view_name = "Dual View " + std::to_string(dual_view_count);
+        }
+
+        // Create MediaItem for the dual view
+        MediaItem item;
+        item.id = GenerateUniqueID();
+        item.name = dual_view_name;
+        item.path = "";  // No source file - this is a scratch dual view
+        item.type = MediaType::DUAL_VIEW;
+        item.duration = 0.0;  // Duration determined by loaded clips
+        item.frame_rate = fps;
+        item.timeline_id = item.id;  // Use same ID for dual view
+        item.timeline_format = "dual_view";
+        item.video_track_count = 2;  // LEFT and RIGHT tracks
+        item.audio_track_count = 0;  // No audio tracks initially
+        item.timeline_width = width;
+        item.timeline_height = height;
+
+        // Add to media pool and bin
+        media_pool.push_back(item);
+        int bin_index = GetBinIndexForMediaType(item.type);
+        if (bins.size() > static_cast<size_t>(bin_index)) {
+            bins[bin_index].items.push_back(item);
+        }
+
+        Debug::Log("CreateDualView: Created dual view '" + dual_view_name + "' with ID " + item.id);
+
+        return item.id;
+    }
+
+    int ProjectManager::GetDualViewCount() const {
+        int count = 0;
+        for (const auto& item : media_pool) {
+            if (item.type == MediaType::DUAL_VIEW) count++;
+        }
+        return count;
+    }
+
+    MediaItem* ProjectManager::GetDualViewItem(const std::string& dual_view_id) {
+        for (auto& item : media_pool) {
+            if (item.type == MediaType::DUAL_VIEW && item.timeline_id == dual_view_id) {
+                return &item;
+            }
+        }
+        return nullptr;
+    }
+
+    MediaItem* ProjectManager::GetActiveDualViewItem() {
+        // Return the dual view item that has is_active=true
+        for (auto& item : media_pool) {
+            if (item.type == MediaType::DUAL_VIEW && item.is_active) {
+                return &item;
+            }
+        }
+        return nullptr;
+    }
+
+    void ProjectManager::OpenDualViewInEditor(const std::string& dual_view_id) {
+        // Find the dual view item
+        MediaItem* item = GetDualViewItem(dual_view_id);
+        if (!item) {
+            Debug::Log("OpenDualViewInEditor: Dual view not found: " + dual_view_id);
+            return;
+        }
+
+        // Set is_active on the dual view, clear on others
+        // Must update both media_pool AND bin.items (UI reads from bins)
+        for (auto& pool_item : media_pool) {
+            pool_item.is_active = (pool_item.type == MediaType::DUAL_VIEW &&
+                                   pool_item.timeline_id == dual_view_id);
+        }
+        for (auto& bin : bins) {
+            for (auto& bin_item : bin.items) {
+                bin_item.is_active = (bin_item.type == MediaType::DUAL_VIEW &&
+                                      bin_item.timeline_id == dual_view_id);
+            }
+        }
+        current_timeline_id.clear();  // Not a regular timeline
+
+        // Call the dual view editor callback
+        if (dual_view_editor_callback) {
+            dual_view_editor_callback(dual_view_id);
+        } else {
+            Debug::Log("OpenDualViewInEditor: No dual_view_editor_callback set");
+        }
+    }
+
+    void ProjectManager::ClearDualViewActiveStates() {
+        // Clear is_active flag from all dual views
+        // Called when loading regular media (non-dual-view)
+        // Must update both media_pool AND bin.items (UI reads from bins)
+        for (auto& item : media_pool) {
+            if (item.type == MediaType::DUAL_VIEW) {
+                item.is_active = false;
+            }
+        }
+        for (auto& bin : bins) {
+            for (auto& item : bin.items) {
+                if (item.type == MediaType::DUAL_VIEW) {
+                    item.is_active = false;
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -4287,499 +4183,6 @@ namespace ump {
     }
 
     // ============================================================================
-    // PLAYLIST OPERATIONS
-    // ============================================================================
-
-    void ProjectManager::AddToPlaylist(const std::string& media_id) {
-        Sequence* seq = GetOrCreateCurrentSequence();
-        if (!seq) return;
-
-        MediaItem* media_item = GetMediaItem(media_id);
-        if (!media_item) return;
-
-        // Prevent image sequences from being added to playlists
-        // IMAGE_SEQUENCE (TIFF/PNG/JPEG) and EXR_SEQUENCE both use DirectEXRCache workflow incompatible with playlists
-        if (media_item->type == MediaType::EXR_SEQUENCE || media_item->type == MediaType::IMAGE_SEQUENCE) {
-            Debug::Log("WARNING: Cannot add image sequence to playlist - Image sequences use a pure cache workflow incompatible with playlists");
-            return;
-        }
-
-        // Prevent timelines from being added to playlists (use timeline editor instead)
-        if (media_item->type == MediaType::TIMELINE) {
-            return;  // Silent block
-        }
-
-        TimelineClip clip;
-        clip.id = GenerateUniqueID();
-        clip.media_id = media_id;
-        clip.name = media_item->name;
-        clip.file_path = media_item->path;
-        clip.duration = media_item->duration;
-        clip.start_time = seq->duration;
-        clip.track_type = "video";
-
-        seq->clips.push_back(clip);
-        seq->UpdateDuration();
-
-        // === SMART CACHING FOR PLAYLIST DRAG-DROP ===
-        bool should_cache_immediately = false;
-
-        // Case 1: First item in empty playlist (very likely to be accessed)
-        if (seq->clips.size() == 1) {
-            should_cache_immediately = true;
-            Debug::Log("AddToPlaylist: First item in playlist, enabling immediate cache");
-        }
-        // Case 2: Item added at current playlist position (user might scrub immediately)
-        else {
-            int current_playlist_pos = GetCurrentPlaylistIndex();
-            int new_item_index = static_cast<int>(seq->clips.size()) - 1; // Just added at end
-            if (current_playlist_pos == new_item_index) {
-                should_cache_immediately = true;
-                Debug::Log("AddToPlaylist: Item added at current position, enabling immediate cache");
-            }
-        }
-
-        if (should_cache_immediately) {
-            // Notify cache system about the new item
-            // Note: Image sequences (mf://) are automatically skipped by NotifyVideoChanged (they use DirectEXRCache only)
-            if (video_change_callback) {
-                video_change_callback(media_item->path);
-            }
-            NotifyVideoChanged(media_item->path);
-        }
-
-        RebuildPlaylistInMPV();
-        UpdateSequenceInBin(seq->id);
-    }
-
-    void ProjectManager::AddMultipleToPlaylist(const std::string& payload_string) {
-        std::vector<std::string> media_ids = ParsePayloadString(payload_string);
-
-        Sequence* seq = GetOrCreateCurrentSequence();
-        if (!seq) return;
-
-        bool was_empty = seq->clips.empty();
-        MediaItem* first_media_item = nullptr;
-        int image_seq_count = 0;  // Track how many image sequences were skipped
-
-        for (const auto& media_id : media_ids) {
-            MediaItem* media_item = GetMediaItem(media_id);
-            if (!media_item) continue;
-
-            // Prevent image sequences from being added to playlists
-            // IMAGE_SEQUENCE (TIFF/PNG/JPEG) and EXR_SEQUENCE both use DirectEXRCache workflow incompatible with playlists
-            if (media_item->type == MediaType::EXR_SEQUENCE || media_item->type == MediaType::IMAGE_SEQUENCE) {
-                image_seq_count++;
-                continue;  // Skip this item
-            }
-
-            // Prevent timelines from being added to playlists (use timeline editor instead)
-            if (media_item->type == MediaType::TIMELINE) {
-                continue;  // Silent block
-            }
-
-            // Remember first item for potential caching
-            if (!first_media_item) {
-                first_media_item = media_item;
-            }
-
-            TimelineClip clip;
-            clip.id = GenerateUniqueID();
-            clip.media_id = media_id;
-            clip.name = media_item->name;
-            clip.file_path = media_item->path;
-            clip.duration = media_item->duration;
-            clip.start_time = seq->duration;
-            clip.track_type = "video";
-
-            seq->clips.push_back(clip);
-            seq->UpdateDuration();
-        }
-
-        // === SMART CACHING FOR MULTIPLE DRAG-DROP ===
-        // Only cache the first item if playlist was empty (avoid cache spam)
-        if (was_empty && first_media_item) {
-            Debug::Log("AddMultipleToPlaylist: First item in empty playlist, enabling cache for: " + first_media_item->name);
-
-            // Notify cache system
-            // Note: Image sequences (mf://) are automatically skipped by NotifyVideoChanged (they use DirectEXRCache only)
-            if (video_change_callback) {
-                video_change_callback(first_media_item->path);
-            }
-            NotifyVideoChanged(first_media_item->path);
-        }
-
-        // Log warning if any image sequences were skipped
-        if (image_seq_count > 0) {
-            Debug::Log("WARNING: Skipped " + std::to_string(image_seq_count) + " image sequence(s) - Image sequences use a pure cache workflow incompatible with playlists");
-        }
-
-        RebuildPlaylistInMPV();
-        UpdateSequenceInBin(seq->id);
-    }
-
-    void ProjectManager::ClearCurrentPlaylist() {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) return;
-
-        seq->clips.clear();
-        seq->duration = 0.0;
-
-        if (video_player && video_player->GetMPVHandle()) {
-            const char* cmd[] = { "playlist-clear", nullptr };
-            mpv_command(video_player->GetMPVHandle(), cmd);
-            video_player->Stop();
-        }
-
-        UpdateSequenceInBin(seq->id);
-        cached_playlist_position = -1;
-    }
-
-    void ProjectManager::RemoveFromPlaylist(int index) {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq || index < 0 || index >= (int)seq->clips.size()) return;
-
-        auto sorted_clips = seq->GetAllClipsSorted();
-        seq->clips.erase(
-            std::remove_if(seq->clips.begin(), seq->clips.end(),
-                [&sorted_clips, index](const TimelineClip& clip) {
-                    return clip.id == sorted_clips[index].id;
-                }),
-            seq->clips.end());
-
-        seq->UpdateDuration();
-        RebuildPlaylistInMPV();
-        UpdateSequenceInBin(seq->id);
-        ReloadCurrentPlaylist();
-    }
-
-    void ProjectManager::RebuildPlaylistInMPV() {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq || !video_player) return;
-
-        if (seq->clips.empty()) {
-            if (video_player->GetMPVHandle()) {
-                const char* cmd[] = { "playlist-clear", nullptr };
-                mpv_command(video_player->GetMPVHandle(), cmd);
-            }
-            if (current_file_path) {
-                current_file_path->clear();
-            }
-            return;
-        }
-
-        std::string playlist_content;
-        auto sorted_clips = seq->GetAllClipsSorted();
-        for (const auto& clip : sorted_clips) {
-            playlist_content += clip.file_path + "\n";
-        }
-
-        video_player->LoadPlaylist(playlist_content);
-        cached_playlist_position = 0;
-
-        if (!sorted_clips.empty() && current_file_path) {
-            *current_file_path = sorted_clips[0].file_path;
-            QueueVideoMetadataExtraction(sorted_clips[0].file_path, true);  // High priority for first clip
-        }
-    }
-
-    void ProjectManager::ReloadCurrentPlaylist() {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) return;
-
-        if (seq->clips.empty()) {
-            if (video_player && video_player->GetMPVHandle()) {
-                const char* cmd[] = { "playlist-clear", nullptr };
-                mpv_command(video_player->GetMPVHandle(), cmd);
-                video_player->Stop();
-            }
-            return;
-        }
-
-        int old_position = GetCurrentPlaylistIndex();
-
-        if (video_player && video_player->GetMPVHandle()) {
-            const char* clear_cmd[] = { "playlist-clear", nullptr };
-            mpv_command(video_player->GetMPVHandle(), clear_cmd);
-        }
-
-        RebuildPlaylistInMPV();
-
-        int new_playlist_length = GetPlaylistLength();
-        int target_position = (std::min)(old_position, new_playlist_length - 1);
-        target_position = (std::max)(target_position, 0);
-
-        if (target_position >= 0 && target_position < new_playlist_length) {
-            JumpToPlaylistIndex(target_position);
-        }
-    }
-
-    Sequence* ProjectManager::GetOrCreateCurrentSequence() {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) {
-            CreateNewSequence("Main Playlist");
-            seq = GetCurrentSequence();
-        }
-        return seq;
-    }
-
-    // ============================================================================
-    // PLAYLIST PLAYBACK CONTROL
-    // ============================================================================
-
-    int ProjectManager::GetCurrentPlaylistIndex() const {
-        if (!video_player || !video_player->GetMPVHandle()) return -1;
-
-        int64_t playlist_pos = -1;
-        if (mpv_get_property(video_player->GetMPVHandle(), "playlist-pos", MPV_FORMAT_INT64, &playlist_pos) == 0) {
-            cached_playlist_position = (int)playlist_pos;
-            return (int)playlist_pos;
-        }
-        return cached_playlist_position;
-    }
-
-    int ProjectManager::GetPlaylistLength() const {
-        if (!video_player || !video_player->GetMPVHandle()) return 0;
-
-        int64_t playlist_count = 0;
-        if (mpv_get_property(video_player->GetMPVHandle(), "playlist-count", MPV_FORMAT_INT64, &playlist_count) == 0) {
-            return (int)playlist_count;
-        }
-        return 0;
-    }
-
-    std::string ProjectManager::GetCurrentClipName() const {
-        if (!IsInSequenceMode()) {
-            return current_file_path ? *current_file_path : "";
-        }
-
-        auto seq = GetCurrentSequence();
-        if (!seq || seq->clips.empty()) return "";
-
-        int current_index = GetCurrentPlaylistIndex();
-        if (current_index >= 0 && current_index < (int)seq->clips.size()) {
-            auto sorted_clips = seq->GetAllClipsSorted();
-            return sorted_clips[current_index].name;
-        }
-        return "";
-    }
-
-    void ProjectManager::GoToNextInPlaylist() {
-        if (!video_player || !video_player->GetMPVHandle() || !IsInSequenceMode()) return;
-
-        const char* cmd[] = { "playlist-next", nullptr };
-        if (mpv_command(video_player->GetMPVHandle(), cmd) >= 0) {
-            SyncPlaylistPosition();
-        }
-    }
-
-    void ProjectManager::GoToPreviousInPlaylist() {
-        if (!video_player || !video_player->GetMPVHandle() || !IsInSequenceMode()) return;
-
-        const char* cmd[] = { "playlist-prev", nullptr };
-        if (mpv_command(video_player->GetMPVHandle(), cmd) >= 0) {
-            SyncPlaylistPosition();
-        }
-    }
-
-    void ProjectManager::JumpToPlaylistIndex(int index) {
-        if (!video_player || !video_player->GetMPVHandle() || !IsInSequenceMode()) return;
-
-        auto seq = GetCurrentSequence();
-        if (!seq || index < 0 || index >= (int)seq->clips.size()) return;
-
-        // Use playlist-play-index command - lets MPV manage the transition
-        // Don't call SyncPlaylistPosition() here - let the playlist-pos event handler do it
-        // This makes manual switching follow the same code path as automatic playlist progression,
-        // avoiding race conditions between multiple UpdateProperties()/CreateVideoTextures() calls
-        std::string index_str = std::to_string(index);
-        const char* cmd[] = { "playlist-play-index", index_str.c_str(), nullptr };
-        mpv_command(video_player->GetMPVHandle(), cmd);
-    }
-
-    void ProjectManager::SyncPlaylistPosition() {
-        if (!video_player || !video_player->GetMPVHandle() || !current_file_path) return;
-
-        int64_t current_pos = -1;
-        if (mpv_get_property(video_player->GetMPVHandle(), "playlist-pos", MPV_FORMAT_INT64, &current_pos) == 0) {
-            cached_playlist_position = (int)current_pos;
-
-            if (IsInSequenceMode()) {
-                auto seq = GetCurrentSequence();
-                if (seq && !seq->clips.empty()) {
-                    auto sorted_clips = seq->GetAllClipsSorted();
-                    if (current_pos >= 0 && current_pos < (int)sorted_clips.size()) {
-                        std::string new_file_path = sorted_clips[current_pos].file_path;
-                        if (*current_file_path != new_file_path) {
-                            *current_file_path = new_file_path;
-
-                            // === NOTIFY VIDEO PLAYER OF PLAYLIST ITEM CHANGE ===
-                            // This handles thumbnail cache updates and audio filter switching
-                            if (video_player) {
-                                video_player->OnPlaylistItemChanged(new_file_path);
-                            }
-
-                            // === USE OnVideoLoaded FOR PROPER SEQUENCING ===
-                            // This ensures the 600ms delay before cache starts, preventing first frame competition
-                            // Note: Image sequences (mf://) are automatically skipped by NotifyVideoChanged (they use DirectEXRCache only)
-                            OnVideoLoaded(new_file_path);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ============================================================================
-    // PLAYLIST SELECTION MANAGEMENT
-    // ============================================================================
-
-    void ProjectManager::SelectPlaylistItem(int index, bool ctrl_held, bool shift_held) {
-        if (!ctrl_held && !shift_held) {
-            selected_playlist_indices.clear();
-            selected_playlist_indices.insert(index);
-            last_selected_playlist_index = index;
-        }
-        else if (ctrl_held) {
-            if (selected_playlist_indices.count(index)) {
-                selected_playlist_indices.erase(index);
-            }
-            else {
-                selected_playlist_indices.insert(index);
-                last_selected_playlist_index = index;
-            }
-        }
-        else if (shift_held && last_selected_playlist_index >= 0) {
-            int min_idx = (std::min)(last_selected_playlist_index, index);
-            int max_idx = (std::max)(last_selected_playlist_index, index);
-            for (int i = min_idx; i <= max_idx; i++) {
-                selected_playlist_indices.insert(i);
-            }
-        }
-    }
-
-    void ProjectManager::ClearPlaylistSelection() {
-        selected_playlist_indices.clear();
-        last_selected_playlist_index = -1;
-    }
-
-    bool ProjectManager::IsPlaylistItemSelected(int index) const {
-        return selected_playlist_indices.count(index) > 0;
-    }
-
-    int ProjectManager::GetSelectedPlaylistItemsCount() const {
-        return static_cast<int>(selected_playlist_indices.size());
-    }
-
-    void ProjectManager::DeleteSelectedPlaylistItems() {
-        if (selected_playlist_indices.empty()) return;
-
-        std::vector<int> indices_to_delete(selected_playlist_indices.begin(), selected_playlist_indices.end());
-        std::sort(indices_to_delete.rbegin(), indices_to_delete.rend());
-
-        for (int index : indices_to_delete) {
-            RemoveFromPlaylist(index);
-        }
-
-        ClearPlaylistSelection();
-        ReloadCurrentPlaylist();
-    }
-
-    void ProjectManager::MoveSelectedPlaylistItemsUp() {
-        if (selected_playlist_indices.empty()) return;
-
-        std::vector<int> indices(selected_playlist_indices.begin(), selected_playlist_indices.end());
-        std::sort(indices.begin(), indices.end());
-
-        for (int index : indices) {
-            if (index > 0) {
-                MovePlaylistItem(index, index - 1);
-            }
-        }
-
-        // Update selection
-        std::set<int> new_selection;
-        for (int index : selected_playlist_indices) {
-            new_selection.insert(index > 0 ? index - 1 : index);
-        }
-        selected_playlist_indices = new_selection;
-        ReloadCurrentPlaylist();
-    }
-
-    void ProjectManager::MoveSelectedPlaylistItemsDown() {
-        if (selected_playlist_indices.empty()) return;
-
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) return;
-
-        int max_index = (int)seq->clips.size() - 1;
-        std::vector<int> indices(selected_playlist_indices.begin(), selected_playlist_indices.end());
-        std::sort(indices.rbegin(), indices.rend());
-
-        for (int index : indices) {
-            if (index < max_index) {
-                MovePlaylistItem(index, index + 1);
-            }
-        }
-
-        // Update selection
-        std::set<int> new_selection;
-        for (int index : selected_playlist_indices) {
-            new_selection.insert(index < max_index ? index + 1 : index);
-        }
-        selected_playlist_indices = new_selection;
-        ReloadCurrentPlaylist();
-    }
-
-    void ProjectManager::MovePlaylistItem(int from_index, int to_index) {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) return;
-
-        auto sorted_clips = seq->GetAllClipsSorted();
-        if (from_index < 0 || from_index >= (int)sorted_clips.size() ||
-            to_index < 0 || to_index >= (int)sorted_clips.size()) {
-            return;
-        }
-
-        TimelineClip moving_clip = sorted_clips[from_index];
-        sorted_clips.erase(sorted_clips.begin() + from_index);
-        sorted_clips.insert(sorted_clips.begin() + to_index, moving_clip);
-
-        // Update start times
-        double current_time = 0.0;
-        for (auto& clip : sorted_clips) {
-            clip.start_time = current_time;
-            current_time += clip.duration;
-        }
-
-        seq->clips = sorted_clips;
-        seq->UpdateDuration();
-        ReloadCurrentPlaylist();
-    }
-
-    void ProjectManager::RemoveDuplicatesFromPlaylist() {
-        Sequence* seq = GetCurrentSequence();
-        if (!seq) return;
-
-        std::set<std::string> seen_paths;
-        std::vector<TimelineClip> unique_clips;
-
-        for (const auto& clip : seq->clips) {
-            if (seen_paths.find(clip.file_path) == seen_paths.end()) {
-                seen_paths.insert(clip.file_path);
-                unique_clips.push_back(clip);
-            }
-        }
-
-        if (unique_clips.size() != seq->clips.size()) {
-            seq->clips = unique_clips;
-            seq->UpdateDuration();
-            RebuildPlaylistInMPV();
-            UpdateSequenceInBin(seq->id);
-        }
-    }
-
-    // ============================================================================
     // DRAG & DROP OPERATIONS
     // ============================================================================
 
@@ -4830,9 +4233,74 @@ namespace ump {
         AddMediaFileToProject(file_path);
 
         // Clear all active states - loading a single file makes nothing else active
-        current_sequence_id.clear();
         current_timeline_id.clear();
-        UpdateSequenceActiveStates("");
+
+        // Find the MediaItem that was just added
+        MediaItem* media_item = nullptr;
+        for (auto& item : media_pool) {
+            if (item.path == file_path) {
+                media_item = &item;
+                break;
+            }
+        }
+
+        if (!media_item) {
+            Debug::Log("LoadSingleFileFromDrop: ERROR - Could not find MediaItem after AddMediaFileToProject");
+            return;
+        }
+
+        // Route VIDEO files through OTIO video timeline path
+        if (media_item->type == MediaType::VIDEO) {
+            Debug::Log("LoadSingleFileFromDrop: Routing VIDEO through OTIO timeline path");
+
+            if (video_file_timeline_callback) {
+                *current_file_path = file_path;
+
+                // Notify video change callback
+                if (video_change_callback) {
+                    video_change_callback(file_path);
+                }
+
+                // Select item in bin (visual feedback)
+                SelectMediaItem(media_item->id, false, false);
+
+                // Load into OTIO timeline view
+                video_file_timeline_callback(media_item);
+
+                Debug::Log("LoadSingleFileFromDrop: Video loaded via OTIO timeline");
+                return;
+            } else {
+                Debug::Log("LoadSingleFileFromDrop: WARNING - No video_file_timeline_callback, falling back to MPV");
+            }
+        }
+
+        // Route AUDIO files through OTIO audio timeline path
+        if (media_item->type == MediaType::AUDIO) {
+            Debug::Log("LoadSingleFileFromDrop: Routing AUDIO through OTIO audio timeline path");
+
+            if (audio_file_timeline_callback) {
+                *current_file_path = file_path;
+
+                // Notify video change callback (reuse for consistency)
+                if (video_change_callback) {
+                    video_change_callback(file_path);
+                }
+
+                // Select item in bin (visual feedback)
+                SelectMediaItem(media_item->id, false, false);
+
+                // Load into OTIO timeline view (audio-only)
+                audio_file_timeline_callback(media_item);
+
+                Debug::Log("LoadSingleFileFromDrop: Audio loaded via OTIO timeline");
+                return;
+            } else {
+                Debug::Log("LoadSingleFileFromDrop: WARNING - No audio_file_timeline_callback, falling back to MPV");
+            }
+        }
+
+        // FALLBACK: Legacy MPV path (for GIFs or if timeline callback not set)
+        Debug::Log("LoadSingleFileFromDrop: Using legacy MPV path");
 
         // Check if this is a GIF (disable cache for GIFs - they're fast enough without it)
         std::string extension = std::filesystem::path(file_path).extension().string();
@@ -4973,6 +4441,10 @@ namespace ump {
         auto adobe_meta = AdobeMetadataExtractor::ExtractAdobePaths(file_path);
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
+
+            // Remove from queued set (allows re-queueing if needed later)
+            adobe_metadata_queued.erase(file_path);
+
             auto it = metadata_cache.find(file_path);
             if (it != metadata_cache.end()) {
                 it->second.adobe_meta = std::move(adobe_meta);
@@ -4993,6 +4465,13 @@ namespace ump {
         }
 
         std::lock_guard<std::mutex> lock(queue_mutex);
+
+        // Deduplication: don't queue if already queued or in progress
+        if (adobe_metadata_queued.find(file_path) != adobe_metadata_queued.end()) {
+            return;
+        }
+
+        adobe_metadata_queued.insert(file_path);
         adobe_metadata_queue.push(file_path);
     }
 
@@ -5340,9 +4819,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("QT Start:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_start_timecode.c_str());
-                if (font_mono) ImGui::PopFont();
                 // Invert button background based on row alternation
                 int row_idx = ImGui::TableGetRowIndex();
                 bool is_alt_row = (row_idx % 2) == 1;
@@ -5359,9 +4836,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("QT TimeCode:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_timecode.c_str());
-                if (font_mono) ImGui::PopFont();
                 // Invert button background based on row alternation
                 int row_idx2 = ImGui::TableGetRowIndex();
                 bool is_alt_row2 = (row_idx2 % 2) == 1;
@@ -5378,9 +4853,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Created:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", adobe_meta->qt_creation_date.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             if (!adobe_meta->qt_media_create_date.empty()) {
@@ -5388,9 +4861,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Media Created:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", adobe_meta->qt_media_create_date.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
@@ -5441,9 +4912,7 @@ namespace ump {
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("Name:");
             ImGui::TableSetColumnIndex(1);
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", exr_meta->file_name.c_str());
-            if (font_mono) ImGui::PopFont();
 
             // Path (directory)
             std::string exr_directory;
@@ -5458,21 +4927,8 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Path:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextWrapped("%s", exr_directory.c_str());
-                if (font_mono) ImGui::PopFont();
-                // Invert button background based on row alternation
-                int row_idx = ImGui::TableGetRowIndex();
-                bool is_alt_row = (row_idx % 2) == 1;
-                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
-                if (ImGui::SmallButton("Open##EXRPath")) {
-                    ShowInExplorer(exr_directory);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Copy##EXRPath")) {
-                    CopyToClipboard(exr_directory);
-                }
-                ImGui::PopStyleColor();
+                RenderPathButtons(exr_directory, "EXRMetaPath");
             }
 
             // Sequence Pattern
@@ -5481,9 +4937,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Sequence:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->sequence_pattern.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             // Frame Range
@@ -5492,9 +4946,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Frame Range:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d-%d (%d frames)", exr_meta->start_frame, exr_meta->end_frame, exr_meta->total_frames);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Frame Rate
@@ -5503,9 +4955,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Frame Rate:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3f fps", exr_meta->frame_rate);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Duration
@@ -5515,9 +4965,7 @@ namespace ump {
                 ImGui::TextDisabled("Duration:");
                 ImGui::TableSetColumnIndex(1);
                 double duration = exr_meta->total_frames / exr_meta->frame_rate;
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.2f seconds", duration);
-                if (font_mono) ImGui::PopFont();
             }
 
             // File Size (first frame)
@@ -5526,10 +4974,8 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("File Size:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 double size_mb = exr_meta->file_size / (1024.0 * 1024.0);
                 ImGui::Text("%.2f MB (per frame)", size_mb);
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
@@ -5549,9 +4995,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Resolution:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->width, exr_meta->height);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Trigger lazy metadata extraction when properties are displayed
@@ -5566,9 +5010,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Display Window:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->display_width, exr_meta->display_height);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Data Window
@@ -5577,9 +5019,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Data Window:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d x %d", exr_meta->data_width, exr_meta->data_height);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Pixel Format
@@ -5588,9 +5028,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Pixel Format:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->pixel_format.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             // Bit Depth
@@ -5599,9 +5037,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Bit Depth:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d-bit", exr_meta->bit_depth);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Compression
@@ -5610,9 +5046,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Compression:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", exr_meta->compression.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             // Tiled format
@@ -5621,9 +5055,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Format:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("Tiled");
-                if (font_mono) ImGui::PopFont();
             }
 
             // Multi-part
@@ -5632,9 +5064,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Multi-Part:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("Yes (%d parts)", exr_meta->part_count);
-                if (font_mono) ImGui::PopFont();
             }
 
             // Selected Layer - Interactive dropdown for EXR sequences
@@ -5801,9 +5231,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Colorspace:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", exr_meta->colorspace.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
@@ -5814,9 +5242,7 @@ namespace ump {
     void ProjectManager::DisplayEXRChannelsTable(const EXRMetadata* exr_meta) {
         // Show layer summary above the table
         if (!exr_meta->layer_summary.empty()) {
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextDisabled("%s", exr_meta->layer_summary.c_str());
-            if (font_mono) ImGui::PopFont();
             ImGui::Spacing();
         }
 
@@ -5836,37 +5262,388 @@ namespace ump {
 
                 // Layer name/display name
                 ImGui::TableSetColumnIndex(0);
-                if (font_mono) ImGui::PushFont(font_mono);
                 if (layer.is_main_layer) {
                     // Highlight main layer
                     ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", layer.display_name.c_str());
                 } else {
                     ImGui::Text("%s", layer.display_name.c_str());
                 }
-                if (font_mono) ImGui::PopFont();
 
                 // Channel types (RGB, RGBA, etc.)
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", layer.channel_types.c_str());
-                if (font_mono) ImGui::PopFont();
 
                 // Pixel type
                 ImGui::TableSetColumnIndex(2);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", layer.pixel_type.c_str());
-                if (font_mono) ImGui::PopFont();
 
                 // Channel count
                 ImGui::TableSetColumnIndex(3);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d", layer.channel_count);
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();  // CellPadding
+    }
+
+    void ProjectManager::DisplayEXRPropertiesForItem(MediaItem* item, TimelineView* timeline_view) {
+        if (!item) {
+            ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No EXR sequence selected");
+            return;
+        }
+
+        // Try to get cached EXR metadata
+        const CombinedMetadata* cached_meta = GetCachedMetadata(item->path);
+        if (cached_meta && cached_meta->exr_meta) {
+            // Use the existing detailed EXR metadata display
+            DisplayEXRMetadata(cached_meta->exr_meta.get());
+        } else {
+            // No cached metadata - create display from MediaItem, TimelineView, and EXR file analysis
+
+            // Get source directory
+            std::string source_dir;
+            if (timeline_view) {
+                source_dir = timeline_view->GetSourceDirectory();
+            }
+            // Fallback: extract directory from item path (exr://path?layer=...)
+            if (source_dir.empty() && item->path.size() > 6 && item->path.substr(0, 6) == "exr://") {
+                std::string path_part = item->path.substr(6);
+                size_t query_pos = path_part.find('?');
+                if (query_pos != std::string::npos) {
+                    path_part = path_part.substr(0, query_pos);
+                }
+                size_t last_slash = path_part.find_last_of("/\\");
+                if (last_slash != std::string::npos) {
+                    source_dir = path_part.substr(0, last_slash);
+                }
+            }
+
+            // Find first EXR file for metadata extraction
+            std::string first_exr;
+            try {
+                namespace fs = std::filesystem;
+                for (const auto& entry : fs::directory_iterator(source_dir)) {
+                    if (entry.is_regular_file()) {
+                        std::string ext = entry.path().extension().string();
+                        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                        if (ext == ".exr") {
+                            first_exr = entry.path().string();
+                            break;
+                        }
+                    }
+                }
+            } catch (...) {}
+
+            // Get sequence pattern from item
+            std::string seq_pattern = !item->image_seq.pattern.empty() ? item->image_seq.pattern :
+                                      (!item->sequence_pattern.empty() ? item->sequence_pattern : "");
+
+            // === FILE INFORMATION SECTION ===
+            ImGui::Spacing();
+            ImGui::Text("File Information");
+            ImGui::Separator();
+
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
+            if (ImGui::BeginTable("EXRFileInfo", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
+                ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+
+                // File Name (from first EXR or pattern)
+                std::string file_name = !first_exr.empty() ?
+                    std::filesystem::path(first_exr).filename().string() :
+                    (!seq_pattern.empty() ? seq_pattern : item->name);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("Name:");
+                ImGui::TableSetColumnIndex(1);
+                ImGui::TextWrapped("%s", file_name.c_str());
+
+                // Path
+                if (!source_dir.empty()) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("Path:");
+                    ImGui::TableSetColumnIndex(1);
+                        ImGui::TextWrapped("%s", source_dir.c_str());
+                        RenderPathButtons(source_dir, "EXRPath");
+                }
+
+                // Sequence Pattern
+                if (!seq_pattern.empty()) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("Sequence:");
+                    ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%s", seq_pattern.c_str());
+                    }
+
+                // Frame Range
+                int start_frame = item->start_frame > 0 ? item->start_frame : item->image_seq.start_frame;
+                int end_frame = item->end_frame > 0 ? item->end_frame : item->image_seq.end_frame;
+                int frame_count = item->frame_count > 0 ? item->frame_count : item->image_seq.frame_count;
+                if (frame_count > 0) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("Frame Range:");
+                    ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%d - %d (%d frames)", start_frame, end_frame, frame_count);
+                    }
+
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+
+            // === IMAGE PROPERTIES SECTION ===
+            ImGui::Spacing();
+            ImGui::Text("Image Properties");
+            ImGui::Separator();
+
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
+            if (ImGui::BeginTable("EXRImageProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
+                ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
+                ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
+
+                // Resolution
+                int width = item->image_seq.width > 0 ? item->image_seq.width :
+                            (item->sequence_width > 0 ? item->sequence_width :
+                            (timeline_view ? timeline_view->GetCanvasWidth() : 0));
+                int height = item->image_seq.height > 0 ? item->image_seq.height :
+                             (item->sequence_height > 0 ? item->sequence_height :
+                             (timeline_view ? timeline_view->GetCanvasHeight() : 0));
+                if (width > 0 && height > 0) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("Resolution:");
+                    ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%d x %d", width, height);
+                    }
+
+                // Pixel Format (detect from first channel type)
+                std::string pixel_format = "16-bit half float";  // EXR default
+
+                // Frame Rate
+                double fps = item->frame_rate > 0 ? item->frame_rate :
+                            (item->image_seq.frame_rate > 0 ? item->image_seq.frame_rate :
+                            (timeline_view ? timeline_view->GetFrameRate() : 24.0));
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextDisabled("Frame Rate:");
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%.3f fps", fps);
+
+                // Duration
+                int frame_count_for_dur = item->frame_count > 0 ? item->frame_count : item->image_seq.frame_count;
+                double duration = timeline_view ? timeline_view->GetDuration() :
+                                  (frame_count_for_dur > 0 && fps > 0 ? frame_count_for_dur / fps : 0);
+                if (duration > 0) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextDisabled("Duration:");
+                    ImGui::TableSetColumnIndex(1);
+                        int total_secs = (int)duration;
+                    int mins = total_secs / 60;
+                    int secs = total_secs % 60;
+                    int frames = (int)((duration - total_secs) * fps);
+                    ImGui::Text("%02d:%02d:%02d (%.2fs)", mins, secs, frames, duration);
+                    }
+
+                ImGui::EndTable();
+            }
+            ImGui::PopStyleVar();
+
+            // === EXR LAYER PICKER ===
+            // Show layer selection combo box if we have detected layers
+            if (!first_exr.empty() && item->type == MediaType::EXR_SEQUENCE) {
+                // Cache detected layers (static to avoid re-detecting every frame)
+                static std::vector<std::string> available_layer_names;
+                static std::vector<std::string> available_layer_display_names;
+                static std::string last_exr_path;
+
+                // Re-detect layers if this is a different file
+                if (first_exr != last_exr_path) {
+                    available_layer_names.clear();
+                    available_layer_display_names.clear();
+                    last_exr_path = first_exr;
+
+                    EXRLayerDetector detector;
+                    std::vector<EXRLayer> layers;
+                    if (detector.DetectLayers(first_exr, layers)) {
+                        for (const EXRLayer& layer : layers) {
+                            available_layer_names.push_back(layer.name);
+                            available_layer_display_names.push_back(layer.display_name);
+                        }
+                    }
+
+                    // Fallback: If no layers detected, add current layer
+                    if (available_layer_names.empty() && !item->exr_layer.empty()) {
+                        available_layer_names.push_back(item->exr_layer);
+                        available_layer_display_names.push_back(
+                            !item->exr_layer_display.empty() ? item->exr_layer_display : item->exr_layer);
+                    }
+                }
+
+                // Find current layer index
+                int current_layer_index = 0;
+                for (int i = 0; i < (int)available_layer_names.size(); i++) {
+                    if (available_layer_names[i] == item->exr_layer ||
+                        available_layer_names[i] == item->image_seq.layer) {
+                        current_layer_index = i;
+                        break;
+                    }
+                }
+
+                // Show dropdown if we have layers
+                if (!available_layer_display_names.empty()) {
+                    ImGui::Spacing();
+                    ImGui::Text("Layer Selection");
+                    ImGui::Separator();
+
+                    ImGui::SetNextItemWidth(250.0f);
+                    if (font_regular) ImGui::PushFont(font_regular);
+                    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
+                    if (ImGui::BeginCombo("##layer_selector", available_layer_display_names[current_layer_index].c_str())) {
+                        for (int i = 0; i < (int)available_layer_display_names.size(); i++) {
+                            bool is_selected = (current_layer_index == i);
+                            if (ImGui::Selectable(available_layer_display_names[i].c_str(), is_selected)) {
+                                // Layer changed - update media item and reload
+                                if (i != current_layer_index) {
+                                    std::string item_id = item->id;
+
+                                    Debug::Log("EXR Layer Changed:");
+                                    Debug::Log("  Old layer: " + item->exr_layer_display);
+                                    Debug::Log("  New layer: " + available_layer_display_names[i]);
+
+                                    item->exr_layer = available_layer_names[i];
+                                    item->exr_layer_display = available_layer_display_names[i];
+                                    item->image_seq.layer = available_layer_names[i];
+                                    item->image_seq.layer_display = available_layer_display_names[i];
+
+                                    // Update path with new layer
+                                    std::string base_path = item->path;
+                                    size_t query_pos = base_path.find("?layer=");
+                                    if (query_pos != std::string::npos) {
+                                        base_path = base_path.substr(0, query_pos);
+                                    }
+                                    item->path = base_path + "?layer=" + item->exr_layer;
+
+                                    // Update item name to reflect new layer
+                                    std::string old_name = item->name;
+                                    size_t bracket_pos = old_name.find(" [");
+                                    if (bracket_pos != std::string::npos) {
+                                        std::string base_name = old_name.substr(0, bracket_pos);
+                                        item->name = base_name + " [" +
+                                            std::to_string(item->frame_count) + " frames " +
+                                            std::to_string(item->start_frame) + "-" +
+                                            std::to_string(item->end_frame) + "] - " +
+                                            item->exr_layer_display;
+                                    }
+
+                                    // Update the bin copy
+                                    for (auto& bin : bins) {
+                                        for (auto& bin_item : bin.items) {
+                                            if (bin_item.id == item_id) {
+                                                bin_item.exr_layer = available_layer_names[i];
+                                                bin_item.exr_layer_display = available_layer_display_names[i];
+                                                bin_item.image_seq.layer = available_layer_names[i];
+                                                bin_item.image_seq.layer_display = available_layer_display_names[i];
+                                                bin_item.path = item->path;
+                                                bin_item.name = item->name;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    // Reload the sequence with new layer
+                                    LoadSingleMediaItem(*item);
+                                }
+                            }
+                            if (is_selected) {
+                                ImGui::SetItemDefaultFocus();
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopStyleColor();
+                    if (font_regular) ImGui::PopFont();
+                }
+            }
+
+            // === EXR LAYERS SECTION ===
+            if (!first_exr.empty()) {
+                EXRLayerDetector detector;
+                std::vector<EXRLayer> layers;
+                if (detector.DetectLayers(first_exr, layers) && !layers.empty()) {
+                    ImGui::Spacing();
+                    ImGui::Text("EXR Layers");
+                    ImGui::Separator();
+
+                    // Layer summary
+                        ImGui::TextDisabled("%d layer%s detected", (int)layers.size(), layers.size() > 1 ? "s" : "");
+                        ImGui::Spacing();
+
+                    // Get selected layer for highlighting
+                    std::string selected_layer = !item->image_seq.layer.empty() ? item->image_seq.layer :
+                                                 (!item->exr_layer.empty() ? item->exr_layer : "");
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
+                    if (ImGui::BeginTable("EXRLayersTable", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
+                        ImGui::TableSetupColumn("Layer", ImGuiTableColumnFlags_WidthFixed, 200.0f);
+                        ImGui::TableSetupColumn("Channels", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+                        ImGui::TableSetupColumn("Count", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+                        ImGui::TableHeadersRow();
+
+                        for (const auto& layer : layers) {
+                            ImGui::TableNextRow();
+
+                            // Layer name
+                            ImGui::TableSetColumnIndex(0);
+                            bool is_selected = (layer.name == selected_layer) ||
+                                               (layer.is_default && selected_layer.empty());
+                                        if (is_selected) {
+                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", layer.display_name.c_str());
+                            } else {
+                                ImGui::Text("%s", layer.display_name.c_str());
+                            }
+            
+                            // Channel types (RGB, RGBA, etc.)
+                            ImGui::TableSetColumnIndex(1);
+                                        std::string channel_types;
+                            if (layer.has_rgba) {
+                                channel_types = layer.has_alpha ? "RGBA" : "RGB";
+                            } else {
+                                // Build from channel names
+                                for (const auto& ch : layer.channels) {
+                                    std::string ch_name = ch.name;
+                                    size_t dot_pos = ch_name.rfind('.');
+                                    if (dot_pos != std::string::npos) {
+                                        ch_name = ch_name.substr(dot_pos + 1);
+                                    }
+                                    channel_types += ch_name;
+                                }
+                            }
+                            ImGui::Text("%s", channel_types.c_str());
+            
+                            // Pixel type (half/float)
+                            ImGui::TableSetColumnIndex(2);
+                                        std::string pixel_type = "half";
+                            if (!layer.channels.empty()) {
+                                pixel_type = layer.channels[0].pixel_type;
+                            }
+                            ImGui::Text("%s", pixel_type.c_str());
+            
+                            // Channel count
+                            ImGui::TableSetColumnIndex(3);
+                                        ImGui::Text("%d", (int)layer.channels.size());
+                                    }
+
+                        ImGui::EndTable();
+                    }
+                    ImGui::PopStyleVar();
+                }
+            }
+        }
     }
 
     // ============================================================================
@@ -5884,39 +5661,21 @@ namespace ump {
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("Name:");
             ImGui::TableSetColumnIndex(1);
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", video_meta->file_name.c_str());
-            if (font_mono) ImGui::PopFont();
 
             // File Path
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("Path:");
             ImGui::TableSetColumnIndex(1);
-            if (font_mono) ImGui::PushFont(font_mono);
             ImGui::TextWrapped("%s", video_meta->file_path.c_str());
-            if (font_mono) ImGui::PopFont();
-            if (!video_meta->file_path.empty()) {
-                // Invert button background based on row alternation
-                int row_idx = ImGui::TableGetRowIndex();
-                bool is_alt_row = (row_idx % 2) == 1;
-                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
-                if (ImGui::SmallButton("Open##FilePath")) {
-                    OpenFileInExplorer(video_meta->file_path);
-                }
-                ImGui::SameLine();
-                if (ImGui::SmallButton("Copy##FilePath")) {
-                    CopyToClipboard(video_meta->file_path);
-                }
-                ImGui::PopStyleColor();
-            }
+            RenderPathButtons(video_meta->file_path, "FilePath");
 
             // File Size
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
             ImGui::TextDisabled("Size:");
             ImGui::TableSetColumnIndex(1);
-            if (font_mono) ImGui::PushFont(font_mono);
             if (video_meta->file_size > 0) {
                 double size_mb = video_meta->file_size / (1024.0 * 1024.0);
                 if (size_mb >= 1024.0) {
@@ -5929,7 +5688,6 @@ namespace ump {
             else {
                 ImGui::Text("Unknown");
             }
-            if (font_mono) ImGui::PopFont();
 
             ImGui::EndTable();
         }
@@ -5947,9 +5705,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Resolution:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%dx%d", video_meta->width, video_meta->height);
-                if (font_mono) ImGui::PopFont();
             }
 
             if (video_meta->frame_rate > 0) {
@@ -5957,9 +5713,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Frame Rate:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3f fps", video_meta->frame_rate);
-                if (font_mono) ImGui::PopFont();
             }
 
             if (video_meta->total_frames > 0) {
@@ -5967,9 +5721,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Total Frames:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d", video_meta->total_frames);
-                if (font_mono) ImGui::PopFont();
             }
 
             // NEW: Display total duration in multiple formats
@@ -5990,10 +5742,8 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Duration:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%.3fs | %lldms | %02d:%02d:%02d:%02d",
                     duration_seconds, duration_ms, hours, minutes, seconds, frames);
-                if (font_mono) ImGui::PopFont();
             }
 
             if (!video_meta->video_codec.empty() && video_meta->video_codec != "Unknown") {
@@ -6001,9 +5751,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Video Codec:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->video_codec.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             if (!video_meta->pixel_format.empty() && video_meta->pixel_format != "Unknown") {
@@ -6011,7 +5759,6 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Pixel Format:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
 
                 // Display pixel format with chroma subsampling indicator
                 if (video_meta->is_411_format) {
@@ -6026,7 +5773,6 @@ namespace ump {
                     ImGui::Text("%s", video_meta->pixel_format.c_str());
                 }
 
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
@@ -6050,9 +5796,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Colorspace:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->colorspace.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             if (!video_meta->color_primaries.empty() && video_meta->color_primaries != "Unknown") {
@@ -6060,9 +5804,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Primaries:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->color_primaries.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             if (!video_meta->color_transfer.empty() && video_meta->color_transfer != "Unknown") {
@@ -6070,9 +5812,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Transfer:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->color_transfer.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             // NEW: Display color range
@@ -6081,9 +5821,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Range:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->range_type.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             // NEW: Display NCLC tag (ColorPrimaries-TransferCharacteristics-MatrixCoefficients)
@@ -6092,7 +5830,6 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("NCLC Tag:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
 
                 // Highlight common NCLC tags
                 if (video_meta->nclc_tag == "1-1-1") {
@@ -6107,7 +5844,6 @@ namespace ump {
                     ImGui::Text("%s", video_meta->nclc_tag.c_str());
                 }
 
-                if (font_mono) ImGui::PopFont();
             }
 
             // NEW: Display color matrix status for 4444 formats
@@ -6120,13 +5856,11 @@ namespace ump {
             bool is_4444 = video_meta->Is4444Format();
            /* Debug::Log("Inspector: Is4444Format() returned " + std::string(is_4444 ? "true" : "false") +
                       " for pixel_format: '" + video_meta->pixel_format + "'");*/
-            if (font_mono) ImGui::PushFont(font_mono);
             if (is_4444) {
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "4444 Color Matrix Applied");
             } else {
                 ImGui::TextDisabled("Standard Processing");
             }
-            if (font_mono) ImGui::PopFont();
             ImGui::EndTable();
         }
         ImGui::PopStyleVar();  // CellPadding
@@ -6143,9 +5877,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Audio Codec:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%s", video_meta->audio_codec.c_str());
-                if (font_mono) ImGui::PopFont();
             }
 
             if (video_meta->audio_sample_rate > 0) {
@@ -6153,9 +5885,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Sample Rate:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d Hz", video_meta->audio_sample_rate);
-                if (font_mono) ImGui::PopFont();
             }
 
             if (video_meta->audio_channels > 0) {
@@ -6163,9 +5893,7 @@ namespace ump {
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextDisabled("Channels:");
                 ImGui::TableSetColumnIndex(1);
-                if (font_mono) ImGui::PushFont(font_mono);
                 ImGui::Text("%d", video_meta->audio_channels);
-                if (font_mono) ImGui::PopFont();
             }
 
             ImGui::EndTable();
@@ -6203,10 +5931,8 @@ namespace ump {
 
         ImGui::TableSetColumnIndex(1);
         std::string filename = std::filesystem::path(project_path).filename().string();
-        if (font_mono) ImGui::PushFont(font_mono);
         ImVec4 color = Bright(GetWindowsAccentColor());
         ImGui::TextColored(color, "%s", filename.c_str());
-        if (font_mono) ImGui::PopFont();
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("%s", project_path.c_str());
         }
@@ -6241,35 +5967,6 @@ namespace ump {
         return video_player ? video_player->GetPosition() : 0.0;
     }
 
-    ProjectManager::SequencePosition ProjectManager::CalculateSequencePosition(double global_position) const {
-        SequencePosition result;
-
-        if (!IsSequenceMode()) {
-            result.clip_index = 0;
-            result.clip_position = global_position;
-            return result;
-        }
-
-        Sequence* current_seq = const_cast<ProjectManager*>(this)->GetCurrentSequence();
-        if (!current_seq) return result;
-
-        auto sorted_clips = current_seq->GetAllClipsSorted();
-        double cumulative_time = 0.0;
-
-        for (size_t i = 0; i < sorted_clips.size(); i++) {
-            double clip_end = cumulative_time + sorted_clips[i].duration;
-            if (global_position < clip_end) {
-                result.clip_index = (int)i;
-                result.clip_position = global_position - cumulative_time;
-                result.clip_path = sorted_clips[i].file_path;
-                break;
-            }
-            cumulative_time = clip_end;
-        }
-
-        return result;
-    }
-
     void ProjectManager::CreateNewBin(const std::string& name) {
         ProjectBin new_bin;
         new_bin.name = name.empty() ? ("Bin " + std::to_string(bins.size() + 1)) : name;
@@ -6297,34 +5994,6 @@ namespace ump {
                     }
                 } catch (...) {
                     // Skip malformed IDs
-                }
-            }
-        }
-
-        // Scan sequence IDs
-        for (const auto& seq : sequences) {
-            if (seq.id.substr(0, 5) == "item_") {
-                try {
-                    int id_num = std::stoi(seq.id.substr(5));
-                    if (id_num > max_counter) {
-                        max_counter = id_num;
-                    }
-                } catch (...) {
-                    // Skip malformed IDs
-                }
-            }
-
-            // Also scan clip IDs within sequences
-            for (const auto& clip : seq.clips) {
-                if (clip.id.substr(0, 5) == "item_") {
-                    try {
-                        int id_num = std::stoi(clip.id.substr(5));
-                        if (id_num > max_counter) {
-                            max_counter = id_num;
-                        }
-                    } catch (...) {
-                        // Skip malformed IDs
-                    }
                 }
             }
         }
@@ -6407,7 +6076,7 @@ namespace ump {
 
         // Audio formats
         if (ext == ".wav" || ext == ".mp3" || ext == ".aac" || ext == ".flac" ||
-            ext == ".ogg" || ext == ".wma" || ext == ".m4a") {
+            ext == ".ogg" || ext == ".wma" || ext == ".m4a" || ext == ".aiff" || ext == ".aif") {
             return MediaType::AUDIO;
         }
 
@@ -6441,8 +6110,8 @@ namespace ump {
         case MediaType::IMAGE: return 2;
         case MediaType::IMAGE_SEQUENCE: return 2; // Put image sequences in Images bin as originally intended
         case MediaType::EXR_SEQUENCE: return 2; // Put EXR sequences in Images bin as originally intended
-        case MediaType::SEQUENCE: return PLAYLISTS_BIN_INDEX;
         case MediaType::TIMELINE: return TIMELINES_BIN_INDEX;
+        case MediaType::DUAL_VIEW: return DUAL_VIEWS_BIN_INDEX;
         default: return 0;
         }
     }
@@ -6508,21 +6177,89 @@ namespace ump {
         ImGui::SetClipboardText(text.c_str());
     }
 
-    // ============================================================================
-    // T
-    // ============================================================================
+    void ProjectManager::LaunchUFB(const std::string& path) {
+        if (path.empty()) return;
 
-    std::string ProjectManager::GenerateEDLFromSequence(const ump::Sequence& sequence) {
-        // This method duplicates the logic in RebuildPlaylistInMPV and LoadSequenceIntoPlayer
-        // Consider removing and using the simplified playlist approach instead
-        if (sequence.clips.empty()) return "";
-
-        std::string edl;
-        auto sorted_clips = sequence.GetAllClipsSorted();
-        for (const auto& clip : sorted_clips) {
-            edl += clip.file_path + "\n";
+        // Resolve special URL schemes to actual paths
+        std::string resolved_path = path;
+        if (path.substr(0, 5) == "mf://") {
+            resolved_path = path.substr(5);
+            // Remove fps parameter if present
+            size_t fps_pos = resolved_path.find(":fps=");
+            if (fps_pos != std::string::npos) {
+                resolved_path = resolved_path.substr(0, fps_pos);
+            }
+        } else if (path.substr(0, 6) == "exr://") {
+            resolved_path = path.substr(6);
+            size_t query_pos = resolved_path.find('?');
+            if (query_pos != std::string::npos) {
+                resolved_path = resolved_path.substr(0, query_pos);
+            }
         }
-        return edl;
+
+        // Normalize to Windows backslashes
+        std::string windows_path = resolved_path;
+        std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
+
+#ifdef _WIN32
+        // Launch ufb.exe with the file path as argument
+        std::thread([windows_path]() {
+            std::string ufb_exe = "C:\\Program Files\\ufb\\ufb.exe";
+            std::string command = "\"" + ufb_exe + "\" \"" + windows_path + "\"";
+
+            STARTUPINFOA si = { sizeof(si) };
+            PROCESS_INFORMATION pi;
+
+            if (CreateProcessA(
+                nullptr,
+                const_cast<char*>(command.c_str()),
+                nullptr,
+                nullptr,
+                FALSE,
+                CREATE_NO_WINDOW,
+                nullptr,
+                nullptr,
+                &si,
+                &pi
+            )) {
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+            }
+        }).detach();
+#endif
+    }
+
+    void ProjectManager::RenderPathButtons(const std::string& path, const char* id_suffix) {
+        if (path.empty()) return;
+
+        // Ensure unique IDs for each button set
+        std::string open_id = std::string("Open##") + id_suffix;
+        std::string copy_id = std::string("Copy##") + id_suffix;
+        std::string ufb_id = std::string("u.f.b.##") + id_suffix;
+
+        // Respect alt row button color logic
+        int row_idx = ImGui::TableGetRowIndex();
+        bool is_alt_row = (row_idx % 2) == 1;
+        ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+
+        if (ImGui::SmallButton(open_id.c_str())) {
+            ShowInExplorer(path);
+        }
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton(copy_id.c_str())) {
+            CopyToClipboard(path);
+        }
+        ImGui::SameLine();
+
+        if (ImGui::SmallButton(ufb_id.c_str())) {
+            LaunchUFB(path);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Open in Universal File Browser");
+        }
+
+        ImGui::PopStyleColor();
     }
 
     // ============================================================================
@@ -6778,10 +6515,8 @@ namespace ump {
             video_cache_manager->SetCachingEnabled(enabled);
         }
 
-        // Control EXR cache
-        if (video_player) {
-            video_player->SetEXRCacheEnabled(enabled);
-        }
+        // EXR cache is now controlled by VideoDisplayComponent/TimelinePlaybackController
+        // The timeline automatically manages cache based on current media
 
         // === AUTO-CLEAR WHEN DISABLING ===
         // User expects cache to be cleared when they disable it
@@ -6897,7 +6632,8 @@ namespace ump {
             std::string ext = video_path.substr(dot_pos);
             std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
             if (ext == ".wav" || ext == ".mp3" || ext == ".aac" ||
-                ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a") {
+                ext == ".flac" || ext == ".ogg" || ext == ".wma" || ext == ".m4a" ||
+                ext == ".aiff" || ext == ".aif") {
                 return nullptr;
             }
         }
@@ -7711,63 +7447,34 @@ namespace ump {
             bins[bin_index].items.push_back(item);
         }
 
-        // Load the sequence immediately
-        current_sequence_id.clear();
-        UpdateSequenceActiveStates("");
-
         // Clear previous selection and select this new item
         ClearSelection();
         SelectMediaItem(item.id, false, false);
 
-        if (video_player) {
-            Debug::Log("ProcessImageSequence: Step 10 - Loading in video player");
+        // === OTIO TIMELINE PATH ===
+        // Route through timeline callback for unified playback (same as LoadSingleMediaItem)
+        Debug::Log("ProcessImageSequence: Step 10 - Loading via OTIO timeline");
 
-            // === BRANCH B: MPV PLAYBACK PATH ===
+        if (image_sequence_timeline_callback) {
+            // Find the item we just added to media_pool
+            MediaItem* media_item = GetMediaItem(item.id);
+            if (media_item) {
+                *current_file_path = item.path;
 
-            // Check if this is an EXR sequence requiring custom processing
-            // Note: Both multi-layer (with layer name) and transcoded (empty layer) use EXR pipeline
-            if (item.type == MediaType::EXR_SEQUENCE) {
-                Debug::Log("EXR sequence detected - using EXR pipeline with DirectEXRCache");
-                Debug::Log("EXR layer: " + (item.exr_layer.empty() ? "(single-layer/transcoded)" : item.exr_layer));
-
-                // Use EXR hybrid dummy + overlay approach (works for both multi-layer and transcoded)
-                if (video_player->LoadEXRSequenceWithDummy(sequence_files, item.exr_layer, frame_rate)) {
-                    *current_file_path = "exr://" + sequence_path + "?layer=" + item.exr_layer;
-
-                    if (video_change_callback) {
-                        video_change_callback(*current_file_path);
-                    }
-
-                    Debug::Log("EXR sequence loaded successfully");
-                } else {
-                    Debug::Log("ERROR: Failed to load EXR sequence");
+                // Notify callbacks
+                if (video_change_callback) {
+                    video_change_callback(item.path);
                 }
+
+                // Load into OTIO timeline view
+                image_sequence_timeline_callback(media_item);
+
+                Debug::Log("ProcessImageSequence: Loaded via OTIO timeline successfully");
             } else {
-                Debug::Log("Regular image sequence - using DirectEXRCache with universal loader");
-                Debug::Log("Pipeline mode: " + std::string(PipelineModeToString(pipeline_mode)));
-
-                // Load image sequence through DirectEXRCache with universal loader
-                if (video_player->LoadImageSequenceWithCache(sequence_files, frame_rate, pipeline_mode)) {
-                    // Store start frame for display purposes
-                    video_player->SetImageSequenceFrameRate(frame_rate, start_frame);
-
-                    *current_file_path = mf_url;  // Keep mf:// URL for identification
-
-                    if (video_change_callback) {
-                        video_change_callback(mf_url);
-                    }
-
-                    Debug::Log("Image sequence loaded successfully via DirectEXRCache");
-                } else {
-                    Debug::Log("ERROR: Failed to load image sequence with DirectEXRCache");
-                }
+                Debug::Log("ProcessImageSequence: ERROR - Could not find MediaItem in pool after adding");
             }
-
-            // === SKIP VIDEO CACHE MANAGER FOR IMAGE SEQUENCES ===
-            // Image sequences (both EXR and TIFF/PNG/JPEG) now use DirectEXRCache, not FrameCache
-            // Only video files should go through FrameCache
-            // EXR sequences are handled above via LoadEXRSequenceWithDummy
-            // TIFF/PNG/JPEG sequences are handled above via LoadImageSequenceWithCache
+        } else {
+            Debug::Log("ProcessImageSequence: ERROR - No image_sequence_timeline_callback set");
         }
 
         Debug::Log("Processed image sequence: " + item.name + " (" + std::to_string(sequence_files.size()) +
@@ -7942,6 +7649,18 @@ namespace ump {
     }
 
     std::string ProjectManager::GetAnnotationPathForMedia(const std::string& media_path) const {
+        // For OTIO/EDL timelines, use project-based path
+        // Check if media_path matches a TIMELINE item in media_pool
+        for (const auto& item : media_pool) {
+            if (item.path == media_path && item.type == MediaType::TIMELINE) {
+                // Must have saved project
+                if (current_project_path.empty()) {
+                    return "";  // Signal that annotations aren't available
+                }
+                return AnnotationIO::GetProjectAnnotationPath(current_project_path, item.name);
+            }
+        }
+
         // For regular files (videos), return as-is
         if (media_path.find("mf://") != 0 && media_path.find("exr://") != 0) {
             return media_path;

@@ -7,6 +7,8 @@
 #include <unordered_map>
 #include <atomic>
 #include <mutex>
+#include <thread>
+#include <condition_variable>
 
 #include "audio_decoder.h"
 
@@ -142,12 +144,31 @@ private:
     // Get all audible clips at position (from all video and audio tracks)
     std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
 
+    // Get clips that will become audible within the lookahead window
+    std::vector<const OTIOClip*> GetUpcomingClips(double current_pos, double lookahead_seconds);
+
     // Update active sources based on current clips
     void UpdateActiveSources(const std::vector<const OTIOClip*>& clips, double timeline_pos);
+
+    // Pre-warm decoders for upcoming clips (seek and start filling buffer)
+    // NOTE: Now runs on background thread - do not call from main thread
+    void PrewarmUpcomingClips(double current_pos);
 
     // Get or create decoder for clip (keyed by clip_id to allow same source in multiple clips)
     std::shared_ptr<AudioDecoder> GetDecoderForClip(const std::string& source_path,
                                                      const std::string& clip_id);
+
+    //=========================================================================
+    // Background Preparation Thread
+    //=========================================================================
+
+    // Background thread that pre-loads and pre-seeks decoders for upcoming clips
+    // All expensive FFmpeg operations (Open, Seek) happen on this thread
+    void PreparationThreadFunc();
+
+    // Start/stop the background preparation thread
+    void StartPreparationThread();
+    void StopPreparationThread();
 
     //=========================================================================
     // State
@@ -182,6 +203,44 @@ private:
     double sync_check_interval_ms_ = 200.0;
     double sync_threshold_ms_ = 50.0;
     double last_sync_check_time_ = 0.0;
+
+    // Audio lookahead - pre-warm decoders for upcoming clips
+    double lookahead_seconds_ = 2.0;  // How far ahead to pre-warm
+    double last_prewarm_time_ = 0.0;
+    double prewarm_interval_ms_ = 100.0;  // Check for upcoming clips every 100ms
+
+    // Clip change detection - rate limited to reduce main thread work
+    double last_clip_check_time_ = 0.0;
+
+    // Warming decoders - being pre-filled before they become active
+    // Key: clip_id, Value: {decoder, target_source_position}
+    struct WarmingDecoder {
+        std::shared_ptr<AudioDecoder> decoder;
+        double source_position;  // Where it was seeked to
+        std::string source_path;
+        double clip_start_time;  // Timeline position where clip starts
+    };
+    std::unordered_map<std::string, WarmingDecoder> warming_decoders_;
+    std::mutex warming_mutex_;
+
+    //=========================================================================
+    // Background Preparation Thread State
+    //=========================================================================
+
+    std::thread preparation_thread_;
+    std::atomic<bool> preparation_thread_running_{false};
+    std::condition_variable preparation_cv_;
+    std::mutex preparation_mutex_;
+
+    // Pending clips to prepare (written by main thread, read by background thread)
+    struct PendingClipInfo {
+        std::string clip_id;
+        std::string source_path;
+        double clip_start_time;
+        double source_in;  // Where to seek in the source
+    };
+    std::vector<PendingClipInfo> pending_clips_;
+    std::mutex pending_mutex_;
 };
 
 } // namespace ump

@@ -9,6 +9,7 @@
 #include <atomic>
 #include <deque>
 #include <unordered_set>
+#include <set>
 
 #include "image_loader_interface.h"
 
@@ -62,7 +63,7 @@ enum class SeekQuality {
 struct StreamingDecoderConfig {
     int readAheadFrames = 120;     // ~5 seconds @ 24fps (larger buffer for 4K)
     int readBehindFrames = 48;     // ~2 seconds for backward scrub
-    bool useHardwareAccel = true;  // Enable hardware decode by default
+    bool useHardwareAccel = false;  // TEMP DISABLED for flicker testing (was true)
     int decodeThreads = 4;         // FFmpeg internal decode threads (for software fallback)
 
     // Tuning parameters
@@ -158,6 +159,30 @@ public:
     void UpdatePlayhead(int frame_number, SeekQuality quality = SeekQuality::NORMAL, bool force_seek = false);
 
     //=========================================================================
+    // Demand-Driven Decode API (for CacheWindowEngine integration)
+    //=========================================================================
+
+    // Set which frames are needed, in priority order
+    // The decoder will decode missing frames in this order
+    // Replaces UpdatePlayhead for decode decisions
+    void SetNeededFrames(const std::vector<int>& frames_by_priority);
+
+    // Report current decode status
+    struct DecodeStatus {
+        std::vector<int> have;              // Frames currently buffered
+        std::vector<int> missing;           // Frames needed but not buffered, in priority order
+        int currently_decoding = -1;        // Frame being decoded right now (-1 if idle)
+    };
+    DecodeStatus GetDecodeStatus() const;
+
+    // Evict frames outside the given keep set
+    // Simple eviction: anything not in keep_frames gets removed
+    void EvictOutsideWindow(const std::set<int>& keep_frames);
+
+    // Get frames currently in buffer as a set (for quick lookup)
+    std::set<int> GetBufferedFramesSet() const;
+
+    //=========================================================================
     // Buffer Status (for UI/debugging)
     //=========================================================================
 
@@ -205,6 +230,11 @@ public:
 
     void SetConfig(const StreamingDecoderConfig& config);
     const StreamingDecoderConfig& GetConfig() const { return config_; }
+
+    // Shuttle mode - disables window-based decode throttling
+    // When enabled, decoder runs as fast as possible without waiting
+    void SetShuttleMode(bool enabled) { shuttle_mode_ = enabled; }
+    bool IsShuttleMode() const { return shuttle_mode_.load(); }
 
 private:
     //=========================================================================
@@ -308,6 +338,7 @@ private:
     HWAccelType hw_accel_type_ = HWAccelType::NONE;
     ::AVBufferRef* hw_device_ctx_ = nullptr;
     int hw_pix_fmt_ = -1;  // AVPixelFormat, -1 = AV_PIX_FMT_NONE
+    bool uses_shared_hw_ctx_ = false;  // True if using shared context from HWContextManager
 
     //=========================================================================
     // Ring Buffer
@@ -326,9 +357,6 @@ private:
 
     // Current decode position (incremented by decode thread)
     int decode_frame_ = 0;
-
-    // Debug logging counter (per-instance)
-    mutable int miss_log_count_ = 0;
 
     //=========================================================================
     // Threading
@@ -351,6 +379,9 @@ private:
     // EOF state - prevents spin loop after reaching end of video
     std::atomic<bool> eof_reached_{false};
 
+    // Shuttle mode - decode as fast as possible without window throttling
+    std::atomic<bool> shuttle_mode_{false};
+
     //=========================================================================
     // Keyframe Index
     //=========================================================================
@@ -359,6 +390,14 @@ private:
     bool keyframe_index_built_ = false;        // True after BuildKeyframeIndex() completes
     bool is_intra_frame_codec_ = false;        // True for ProRes, DNxHD, MJPEG (every frame is keyframe)
     mutable std::mutex keyframe_mutex_;        // Protects keyframe access during scrubbing
+
+    //=========================================================================
+    // Demand-Driven Decode State
+    //=========================================================================
+
+    std::vector<int> needed_frames_;           // Frames needed, in priority order
+    mutable std::mutex needed_mutex_;          // Protects needed_frames_
+    std::atomic<int> currently_decoding_{-1};  // Frame currently being decoded
 };
 
 } // namespace ump

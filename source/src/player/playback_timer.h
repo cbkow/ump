@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <functional>
+#include <algorithm>  // for std::max in GetPosition()
 
 namespace ump {
 
@@ -80,8 +81,10 @@ public:
     void SetFrameRate(double fps);
     double GetFrameRate() const { return frame_rate_; }
 
-    void SetLooping(bool enabled);
-    bool IsLooping() const { return looping_; }
+    // DEPRECATED: Loop control moved to main.cpp using boundary system
+    // These are kept as no-ops for compatibility
+    void SetLooping(bool /*enabled*/) {}  // No-op
+    bool IsLooping() const { return false; }  // Always false - main.cpp handles looping
 
     void SetPlaybackSpeed(double speed);  // 1.0 = normal, 2.0 = 2x, 0.5 = half speed
     double GetPlaybackSpeed() const { return playback_speed_; }
@@ -90,7 +93,14 @@ public:
     // State Queries
     //=========================================================================
 
-    double GetPosition() const { return position_; }
+    // GetPosition() always returns a value in [0, duration)
+    // This prevents UI flicker when position briefly exceeds duration before loop wrap
+    double GetPosition() const {
+        if (duration_ <= 0.0) return 0.0;
+        if (position_ >= duration_) return duration_ - (1.0 / std::max(frame_rate_, 1.0));  // Clamp to last frame
+        if (position_ < 0.0) return 0.0;
+        return position_;
+    }
     bool IsPlaying() const { return is_playing_; }
     bool IsAtEnd() const { return position_ >= duration_; }
     bool IsAtStart() const { return position_ <= 0.0; }
@@ -103,8 +113,8 @@ public:
     // Callbacks
     //=========================================================================
 
-    // Called when playback loops back to start
-    void SetOnLoop(std::function<void()> callback) { on_loop_ = callback; }
+    // DEPRECATED: Loop callback removed - loop control handled by main.cpp
+    void SetOnLoop(std::function<void()> /*callback*/) {}  // No-op
 
     // Called when playback reaches end (non-looping mode)
     void SetOnEnd(std::function<void()> callback) { on_end_ = callback; }
@@ -121,7 +131,7 @@ private:
 
     // State
     bool is_playing_ = false;
-    bool looping_ = true;
+    // DEPRECATED: looping_ removed - loop control handled by main.cpp
 
     // High-resolution timing
     using Clock = std::chrono::steady_clock;
@@ -130,7 +140,6 @@ private:
     bool first_update_ = true;
 
     // Callbacks
-    std::function<void()> on_loop_;
     std::function<void()> on_end_;
     std::function<void(double)> on_position_changed_;
 

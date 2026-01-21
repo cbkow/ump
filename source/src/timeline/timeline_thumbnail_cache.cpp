@@ -370,8 +370,18 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
     // Create new loader based on file type
     auto info = std::make_shared<LoaderInfo>();
 
-    // Detect media type from extension
-    std::string ext = source_path.substr(source_path.find_last_of('.') + 1);
+    // Parse out ?layer= parameter if present (for EXR files)
+    std::string file_path = source_path;
+    std::string layer_name;
+    size_t layer_pos = source_path.find("?layer=");
+    if (layer_pos != std::string::npos) {
+        file_path = source_path.substr(0, layer_pos);
+        layer_name = source_path.substr(layer_pos + 7);  // Skip "?layer="
+    }
+
+    // Detect media type from extension (use file_path without query params)
+    size_t dot_pos = file_path.find_last_of('.');
+    std::string ext = (dot_pos != std::string::npos) ? file_path.substr(dot_pos + 1) : "";
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     bool is_video = (ext == "mov" || ext == "mp4" || ext == "mxf" ||
@@ -381,13 +391,19 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
         info->is_video = true;
         // Create and cache VideoImageLoader - will be reused for all frames from this source
         // This is safe because we only have a single worker thread
-        info->image_loader = std::make_unique<VideoImageLoader>(source_path, fps_, 0.0);
-        Debug::Log("TimelineThumbnailCache: Created VideoImageLoader for " + source_path);
+        info->image_loader = std::make_unique<VideoImageLoader>(file_path, fps_, 0.0);
+        Debug::Log("TimelineThumbnailCache: Created VideoImageLoader for " + file_path);
     } else {
         info->is_video = false;
         // Create appropriate image loader
         if (ext == "exr") {
-            info->image_loader = std::make_unique<EXRImageLoader>();
+            auto exr_loader = std::make_unique<EXRImageLoader>();
+            // Set layer if specified
+            if (!layer_name.empty()) {
+                exr_loader->SetLayer(layer_name);
+                Debug::Log("TimelineThumbnailCache: Created EXRImageLoader with layer '" + layer_name + "'");
+            }
+            info->image_loader = std::move(exr_loader);
         } else if (ext == "tiff" || ext == "tif") {
             info->image_loader = std::make_unique<TIFFImageLoader>();
         } else if (ext == "png") {
@@ -404,8 +420,15 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
 std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const TimelineThumbnailKey& key) {
     auto loader_info = GetOrCreateLoader(key.source_path);
     if (!loader_info || !loader_info->image_loader) {
-        Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: No loader for " + key.source_path);
+        //Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: No loader for " + key.source_path);
         return nullptr;
+    }
+
+    // Strip ?layer= from path for actual file loading (layer already set on loader)
+    std::string file_path = key.source_path;
+    size_t layer_pos = file_path.find("?layer=");
+    if (layer_pos != std::string::npos) {
+        file_path = file_path.substr(0, layer_pos);
     }
 
     // Use cached loader for both video and image sequences
@@ -413,24 +436,24 @@ std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const Tim
     // For images: image_loader is an EXRImageLoader/TIFFImageLoader/etc.
     int max_thumb_size = std::max(config_.width, config_.height);
 
-    Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: Loading frame " +
-               std::to_string(key.source_frame) + " from " + key.source_path +
-               " (is_video=" + std::to_string(loader_info->is_video) + ")");
+    /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: Loading frame " +
+               std::to_string(key.source_frame) + " from " + file_path +
+               " (is_video=" + std::to_string(loader_info->is_video) + ")");*/
 
     if (loader_info->is_video) {
         // Video: pass frame number as string to LoadThumbnail
         auto result = loader_info->image_loader->LoadThumbnail(std::to_string(key.source_frame), max_thumb_size);
         if (result) {
-            Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: SUCCESS - got " +
-                       std::to_string(result->width) + "x" + std::to_string(result->height));
+            /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: SUCCESS - got " +
+                       std::to_string(result->width) + "x" + std::to_string(result->height));*/
         } else {
-            Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: FAILED for frame " +
-                       std::to_string(key.source_frame));
+           /* Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: FAILED for frame " +
+                       std::to_string(key.source_frame));*/
         }
         return result;
     } else {
-        // Image sequence: pass the file path directly
-        return loader_info->image_loader->LoadThumbnail(key.source_path, max_thumb_size);
+        // Image sequence: pass the file path directly (layer already set on EXRImageLoader)
+        return loader_info->image_loader->LoadThumbnail(file_path, max_thumb_size);
     }
 }
 
@@ -439,9 +462,14 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
         return 0;
     }
 
+    // Save current GL state to avoid corrupting ImGui during render
+    GLint previous_texture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
+
     GLuint texture_id = 0;
     glGenTextures(1, &texture_id);
     if (texture_id == 0) {
+        glBindTexture(GL_TEXTURE_2D, previous_texture);  // Restore even on failure
         return 0;
     }
 
@@ -464,7 +492,8 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Restore previous texture binding (critical for ImGui compatibility)
+    glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texture_id;
 }

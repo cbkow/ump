@@ -3,8 +3,7 @@
 #include <chrono>
 #include <memory>
 #include "../player/frame_cache.h"
-
-class VideoPlayer;
+// VideoPlayer is now included via frame_cache.h -> video_player.h
 
 // Forward declaration to avoid circular dependency
 namespace ump {

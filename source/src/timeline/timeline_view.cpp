@@ -5,6 +5,7 @@
 #include "nested_timeline_manager.h"
 #include "python_adapter_bridge.h"
 #include "media_linker.h"
+#include "../project/media_item.h"
 #include "../utils/debug_utils.h"
 #include <imgui.h>
 #include <sstream>
@@ -104,16 +105,12 @@ static std::string ExtractFilename(const std::string& path) {
 // ============================================================================
 
 void TimelineFlattener::SetTracks(const std::vector<OTIOTrack>& tracks) {
-    tracks_ = tracks;
-    InvalidateCache();
-
-    // Debug: Log track and clip info (including nested clips)
+    // Debug counting (done before lock to minimize lock hold time)
     int linked_count = 0;
     int total_clips = 0;
     int nested_linked = 0;
     int nested_total = 0;
 
-    // Recursive lambda to count nested clips
     std::function<void(const std::vector<OTIOTrack>&, bool)> count_clips =
         [&](const std::vector<OTIOTrack>& trks, bool is_nested) {
         for (const auto& track : trks) {
@@ -128,7 +125,6 @@ void TimelineFlattener::SetTracks(const std::vector<OTIOTrack>& tracks) {
                     if (clip.is_linked) linked_count++;
                 }
 
-                // Recurse into nested tracks
                 if (clip.is_nested && clip.nested_loaded) {
                     count_clips(clip.nested_tracks, true);
                 }
@@ -136,7 +132,14 @@ void TimelineFlattener::SetTracks(const std::vector<OTIOTrack>& tracks) {
         }
     };
 
-    count_clips(tracks_, false);
+    count_clips(tracks, false);
+
+    // Update tracks with lock (brief)
+    {
+        std::lock_guard<std::mutex> lock(tracks_mutex_);
+        tracks_ = tracks;
+        cache_visible_clips_.clear();  // Invalidate cache
+    }
 
     std::string msg = "Flattener::SetTracks: " + std::to_string(linked_count) + "/" +
                       std::to_string(total_clips) + " clips linked";
@@ -147,16 +150,18 @@ void TimelineFlattener::SetTracks(const std::vector<OTIOTrack>& tracks) {
 }
 
 void TimelineFlattener::SetTrackVisibility(const std::string& track_id, bool visible) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
     for (auto& track : tracks_) {
         if (track.id == track_id) {
             track.visible = visible;
-            InvalidateCache();
+            cache_visible_clips_.clear();  // Invalidate cache
             break;
         }
     }
 }
 
 void TimelineFlattener::SetTrackMute(const std::string& track_id, bool muted) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
     for (auto& track : tracks_) {
         if (track.id == track_id) {
             track.muted = muted;
@@ -164,6 +169,37 @@ void TimelineFlattener::SetTrackMute(const std::string& track_id, bool muted) {
             break;
         }
     }
+}
+
+void TimelineFlattener::EnableVisibilityOverrides(bool enable) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+    use_visibility_overrides_ = enable;
+    cache_visible_clips_.clear();  // Invalidate cache
+}
+
+void TimelineFlattener::SetVisibilityOverride(const std::string& track_id, bool visible) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+    visibility_overrides_[track_id] = visible;
+    cache_visible_clips_.clear();  // Invalidate cache
+}
+
+bool TimelineFlattener::IsTrackVisible(const OTIOTrack& track) const {
+    // Must be called with lock held
+    if (use_visibility_overrides_) {
+        auto it = visibility_overrides_.find(track.id);
+        if (it != visibility_overrides_.end()) {
+            return it->second;
+        }
+        // No override for this track - default to false in override mode
+        // This ensures unknown tracks are hidden unless explicitly enabled
+        return false;
+    }
+    return track.visible;
+}
+
+std::vector<OTIOTrack> TimelineFlattener::GetTracks() const {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+    return tracks_;  // Return copy for thread safety
 }
 
 const OTIOClip* TimelineFlattener::FindClipInTrack(const OTIOTrack& track, double timestamp) {
@@ -189,6 +225,8 @@ const OTIOClip* TimelineFlattener::FindClipInTrack(const OTIOTrack& track, doubl
 }
 
 std::string TimelineFlattener::GetVisibleClipPathAtTime(double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
     // Check cache first
     if (cache_visible_clips_.count(timestamp)) {
         return cache_visible_clips_[timestamp];
@@ -221,13 +259,15 @@ std::string TimelineFlattener::GetVisibleClipPathAtTime(double timestamp) {
 }
 
 const OTIOClip* TimelineFlattener::GetVisibleClipAtTime(double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
     // Find the topmost visible clip using z_index for priority
     // Higher z_index = higher visual priority (V2 above V1)
     const OTIOClip* best_clip = nullptr;
     int best_z_index = -1;
 
     for (const auto& track : tracks_) {
-        if (!track.is_video || !track.visible) continue;
+        if (!track.is_video || !IsTrackVisible(track)) continue;
 
         const OTIOClip* clip = FindClipInTrack(track, timestamp);
         if (clip && !clip->is_gap) {
@@ -252,6 +292,32 @@ const OTIOClip* TimelineFlattener::GetVisibleClipAtTime(double timestamp) {
     }
 
     return best_clip;
+}
+
+const OTIOClip* TimelineFlattener::GetClipFromTrackAtTime(const std::string& track_id, double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
+    // Find the specified track
+    for (const auto& track : tracks_) {
+        if (track.id == track_id) {
+            // Found the track, now find clip at this time
+            const OTIOClip* clip = FindClipInTrack(track, timestamp);
+            if (clip && !clip->is_gap) {
+                // Handle nested clips
+                if (clip->is_nested && clip->nested_loaded && !clip->nested_tracks.empty()) {
+                    const OTIOClip* nested_clip = GetVisibleClipInNest(clip, timestamp);
+                    if (nested_clip && nested_clip->is_linked) {
+                        return nested_clip;
+                    }
+                    return nullptr;
+                } else if (clip->is_linked) {
+                    return clip;
+                }
+            }
+            return nullptr;  // Track found but no clip at this time
+        }
+    }
+    return nullptr;  // Track not found
 }
 
 const OTIOClip* TimelineFlattener::GetVisibleClipInNest(const OTIOClip* nest_clip, double timeline_timestamp) {
@@ -294,6 +360,8 @@ const OTIOClip* TimelineFlattener::GetVisibleClipInNest(const OTIOClip* nest_cli
 }
 
 const OTIOClip* TimelineFlattener::GetAudibleClipAtTime(double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
     // Find the topmost visible clip from a track that is NOT audio_muted
     // This is for audio playback - respects video track audio mute button AND clip-level mute
     const OTIOClip* best_clip = nullptr;
@@ -329,6 +397,8 @@ const OTIOClip* TimelineFlattener::GetAudibleClipAtTime(double timestamp) {
 }
 
 std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
     std::vector<std::string> audio_paths;
 
     for (const auto& track : tracks_) {
@@ -344,6 +414,8 @@ std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double tim
 }
 
 std::vector<const OTIOClip*> TimelineFlattener::GetAllAudibleClipsAtTime(double timestamp) {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
+
     std::vector<const OTIOClip*> audible_clips;
 
     for (const auto& track : tracks_) {
@@ -385,6 +457,7 @@ std::vector<const OTIOClip*> TimelineFlattener::GetAllAudibleClipsAtTime(double 
 }
 
 void TimelineFlattener::InvalidateCache() {
+    std::lock_guard<std::mutex> lock(tracks_mutex_);
     cache_visible_clips_.clear();
 }
 
@@ -513,8 +586,19 @@ void TimelineView::ClearTimelineInOutPoints() {
 //=============================================================================
 
 void TimelineView::SetZoomLevel(float zoom) {
-    // Clamp to reasonable range (2.5 - 1400 px/s)
-    if (zoom < 2.5f) zoom = 2.5f;
+    // Calculate minimum zoom so timeline fills the visible width exactly
+    // This prevents zooming out past the full timeline range
+    float min_zoom = 2.5f;
+    if (timeline_duration_ > 0 && last_visible_width_ > 0) {
+        // Minimum zoom = visible_width / duration (exactly fills the viewport)
+        min_zoom = last_visible_width_ / static_cast<float>(timeline_duration_);
+    } else if (timeline_duration_ > 0) {
+        // Fallback: ensure at least 200 pixels wide
+        min_zoom = std::max(min_zoom, 200.0f / static_cast<float>(timeline_duration_));
+    }
+
+    // Clamp to reasonable range
+    if (zoom < min_zoom) zoom = min_zoom;
     if (zoom > 1400.0f) zoom = 1400.0f;
     zoom_level_ = zoom;
 
@@ -526,8 +610,16 @@ void TimelineView::SetZoomLevel(float zoom) {
 }
 
 void TimelineView::SetZoomLevelAroundTime(float zoom, double time) {
-    // Clamp to reasonable range (2.5 - 1400 px/s)
-    if (zoom < 2.5f) zoom = 2.5f;
+    // Calculate minimum zoom so timeline fills the visible width exactly
+    float min_zoom = 2.5f;
+    if (timeline_duration_ > 0 && last_visible_width_ > 0) {
+        min_zoom = last_visible_width_ / static_cast<float>(timeline_duration_);
+    } else if (timeline_duration_ > 0) {
+        min_zoom = std::max(min_zoom, 200.0f / static_cast<float>(timeline_duration_));
+    }
+
+    // Clamp to reasonable range
+    if (zoom < min_zoom) zoom = min_zoom;
     if (zoom > 1400.0f) zoom = 1400.0f;
 
     float old_zoom = zoom_level_;
@@ -550,6 +642,41 @@ void TimelineView::SetZoomLevelAroundTime(float zoom, double time) {
     float max_offset = GetMaxScrollOffset();
     if (scroll_offset_x_ < 0) scroll_offset_x_ = 0;
     if (scroll_offset_x_ > max_offset) scroll_offset_x_ = max_offset;
+}
+
+void TimelineView::FitZoomToWidth(float visible_width) {
+    if (timeline_duration_ <= 0 || visible_width <= 0) {
+        return;
+    }
+
+    // Store visible width for zoom limit calculations
+    last_visible_width_ = visible_width;
+
+    // Calculate zoom so timeline duration exactly fills visible width
+    // No padding - viewport indicator should align with minimap clip bar
+    float new_zoom = visible_width / static_cast<float>(timeline_duration_);
+
+    // Clamp to reasonable range (min zoom = fit to width, can't zoom out further)
+    if (new_zoom > 1400.0f) new_zoom = 1400.0f;
+
+    zoom_level_ = new_zoom;
+    scroll_offset_x_ = 0.0f;  // Reset scroll to beginning
+
+    Debug::Log("FitZoomToWidth: duration=" + std::to_string(timeline_duration_) +
+               "s, width=" + std::to_string(visible_width) +
+               ", zoom=" + std::to_string(new_zoom) + " px/s");
+}
+
+void TimelineView::SetInitialZoomForDuration() {
+    // Set a reasonable initial zoom based on timeline duration
+    // Assumes ~1000px panel width - will be refined by FitZoomToWidth later
+    if (timeline_duration_ > 0) {
+        float estimated_width = 1000.0f * 0.95f;  // 5% padding like FitZoomToWidth
+        zoom_level_ = estimated_width / static_cast<float>(timeline_duration_);
+        if (zoom_level_ < 2.5f) zoom_level_ = 2.5f;
+        if (zoom_level_ > 1400.0f) zoom_level_ = 1400.0f;
+        scroll_offset_x_ = 0.0f;
+    }
 }
 
 void TimelineView::SetScrollOffset(float offset) {
@@ -1092,8 +1219,8 @@ void TimelineView::RenderCacheBar() {
 
         if (end_x <= start_x) continue;
 
-        // Green color for cached frames (similar to main timeline)
-        ImU32 cache_color = IM_COL32(80, 200, 120, 200);
+        // Green color for cached frames (30% opacity to be subtle)
+        ImU32 cache_color = IM_COL32(80, 200, 120, 77);
 
         draw_list->AddRectFilled(
             ImVec2(start_x, cache_bar_y),
@@ -1556,6 +1683,9 @@ bool TimelineView::CanDeleteTrack(int track_index) const {
 bool TimelineView::LoadOTIOFile(const std::string& file_path) {
     Debug::Log("Loading OTIO file: " + file_path);
 
+    // Reset source mode to MULTI_TRACK for normal timeline loading
+    ResetSourceMode();
+
     // Shutdown existing playback controller before loading new timeline
     // This ensures a fresh dummy video is generated for the new timeline
     ShutdownPlayback();
@@ -1569,6 +1699,9 @@ bool TimelineView::LoadOTIOFile(const std::string& file_path) {
 
 bool TimelineView::LoadEDLFile(const std::string& file_path) {
     Debug::Log("Loading EDL file: " + file_path);
+
+    // Reset source mode to MULTI_TRACK for normal timeline loading
+    ResetSourceMode();
 
     // Shutdown existing playback controller before loading new timeline
     // This ensures a fresh dummy video is generated for the new timeline
@@ -1598,6 +1731,9 @@ bool TimelineView::LoadEDLFile(const std::string& file_path) {
             }
         }
     }
+
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
 
     // Update flattener
     flattener_.SetTracks(tracks_);
@@ -1651,6 +1787,9 @@ bool TimelineView::LoadAAFFile(const std::string& file_path) {
     Debug::Log("Loading AAF file via Python adapter: " + file_path);
 
 #ifdef USE_PYTHON_ADAPTERS
+    // Reset source mode to MULTI_TRACK for normal timeline loading
+    ResetSourceMode();
+
     // Shutdown existing playback controller before loading new timeline
     ShutdownPlayback();
 
@@ -1704,6 +1843,9 @@ bool TimelineView::LoadXMLFile(const std::string& file_path) {
     Debug::Log("Loading XML file via Python adapter: " + file_path);
 
 #ifdef USE_PYTHON_ADAPTERS
+    // Reset source mode to MULTI_TRACK for normal timeline loading
+    ResetSourceMode();
+
     // Shutdown existing playback controller before loading new timeline
     ShutdownPlayback();
 
@@ -2009,6 +2151,9 @@ bool TimelineView::ParseTimelineFromJson(const std::string& json_string) {
         }
     }
 
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
+
     // Update flattener with new tracks
     flattener_.SetTracks(tracks_);
 
@@ -2029,6 +2174,9 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
                std::to_string(duration) + "s @ " + std::to_string(fps) + "fps, " +
                std::to_string(width) + "x" + std::to_string(height) + ")");
 
+    // Reset source mode to MULTI_TRACK for scratch timelines
+    ResetSourceMode();
+
     // Clear existing data
     tracks_.clear();
     source_file_path_.clear();  // No source file for scratch timelines
@@ -2039,6 +2187,9 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
     frame_rate_ = fps;
     canvas_width_ = width;
     canvas_height_ = height;
+
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
 
     // Create one empty video track and one empty audio track
     OTIOTrack video_track;
@@ -2063,6 +2214,655 @@ void TimelineView::InitializeForScratch(const std::string& name, double duration
     flattener_.SetTracks(tracks_);
 
     Debug::Log("Scratch timeline initialized: " + timeline_name_);
+}
+
+// ============================================================================
+// Image Sequence as Timeline
+// ============================================================================
+
+bool TimelineView::LoadImageSequenceAsTimeline(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadImageSequenceAsTimeline: null MediaItem");
+        return false;
+    }
+
+    Debug::Log("Loading image sequence as timeline: " + item->name);
+
+    // Set source mode
+    source_mode_ = TimelineSourceMode::IMAGE_SEQUENCE;
+    source_media_item_ = item;
+
+    // Clear existing data
+    tracks_.clear();
+    source_file_path_.clear();  // No OTIO source file
+
+    // Calculate timeline properties from sequence (use image_seq with legacy fallbacks)
+    double fps = item->image_seq.frame_rate;
+    if (fps <= 0) fps = item->frame_rate;  // Legacy fallback
+    if (fps <= 0) fps = 24.0;  // Default fallback
+
+    int start_frame = item->image_seq.start_frame;
+    if (start_frame <= 0) start_frame = item->start_frame;  // Legacy fallback
+    if (start_frame <= 0) start_frame = 1;
+
+    int end_frame = item->image_seq.end_frame;
+    if (end_frame <= 0) end_frame = item->end_frame;  // Legacy fallback
+
+    int total_frames = item->image_seq.frame_count;
+    if (total_frames <= 0) total_frames = item->frame_count;  // Legacy fallback
+    if (total_frames <= 0 && end_frame > 0) {
+        total_frames = end_frame - start_frame + 1;
+    }
+    if (total_frames <= 0) total_frames = 1;  // Safety
+
+    double duration = static_cast<double>(total_frames) / fps;
+
+    // Get dimensions (use image_seq with legacy fallbacks)
+    int width = item->image_seq.width;
+    if (width <= 0) width = item->sequence_width;  // Legacy fallback
+    if (width <= 0) width = 1920;
+
+    int height = item->image_seq.height;
+    if (height <= 0) height = item->sequence_height;  // Legacy fallback
+    if (height <= 0) height = 1080;
+
+    // Set timeline properties
+    timeline_name_ = item->name;
+    timeline_duration_ = duration;
+    frame_rate_ = fps;
+    canvas_width_ = width;
+    canvas_height_ = height;
+
+    Debug::Log("  fps=" + std::to_string(fps) + ", frames=" + std::to_string(total_frames) +
+               ", duration=" + std::to_string(duration) + "s, " +
+               std::to_string(width) + "x" + std::to_string(height));
+
+    // Create video track with single clip - LOCKED
+    OTIOTrack video_track;
+    video_track.id = "V1";
+    video_track.name = "V1";
+    video_track.is_video = true;
+    video_track.visible = true;
+    video_track.muted = false;
+    video_track.locked = true;  // Video track is locked in IMAGE_SEQUENCE mode
+    video_track.z_index = 1;
+
+    // Get sequence directory and pattern (with legacy fallbacks)
+    std::string seq_directory = item->image_seq.directory;
+    if (seq_directory.empty()) {
+        // Extract from path
+        std::string path = item->path;
+        if (path.substr(0, 5) == "mf://") path = path.substr(5);
+        else if (path.substr(0, 6) == "exr://") {
+            size_t query_pos = path.find("?layer=");
+            if (query_pos != std::string::npos) path = path.substr(6, query_pos - 6);
+            else path = path.substr(6);
+        }
+        size_t last_slash = path.find_last_of("/\\");
+        if (last_slash != std::string::npos) {
+            seq_directory = path.substr(0, last_slash);
+        }
+    }
+
+    std::string seq_pattern = item->image_seq.pattern;
+    if (seq_pattern.empty()) seq_pattern = item->sequence_pattern;  // Legacy fallback
+
+    std::string exr_layer = item->image_seq.layer;
+    if (exr_layer.empty()) exr_layer = item->exr_layer;  // Legacy fallback
+
+    // Create the sequence clip
+    OTIOClip clip;
+    clip.id = "seq_clip_1";
+    clip.name = item->name;
+    clip.file_path = item->path;  // mf:// or exr:// URL
+    clip.is_sequence = true;
+    clip.sequence_directory = seq_directory;
+    clip.sequence_pattern = seq_pattern;
+    clip.sequence_start_frame = start_frame;
+    clip.sequence_end_frame = end_frame;
+    clip.sequence_exr_layer = exr_layer;
+    clip.start_time = 0.0;
+    clip.duration = duration;
+    clip.source_in = 0.0;
+    clip.source_out = duration;
+    clip.source_duration = duration;
+    clip.source_fps = fps;
+    clip.source_width = width;
+    clip.source_height = height;
+    clip.is_linked = true;
+    clip.linked_path = item->path;
+    clip.is_gap = false;
+
+    video_track.clips.push_back(clip);
+    tracks_.push_back(video_track);
+
+    // Create empty audio track - EDITABLE
+    OTIOTrack audio_track;
+    audio_track.id = "A1";
+    audio_track.name = "A1";
+    audio_track.is_video = false;
+    audio_track.visible = true;
+    audio_track.muted = false;
+    audio_track.locked = false;  // Audio track is editable
+    audio_track.z_index = 0;
+    tracks_.push_back(audio_track);
+
+    // Update flattener with tracks
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("LoadImageSequenceAsTimeline: Created " + std::to_string(tracks_.size()) + " tracks");
+    for (size_t i = 0; i < tracks_.size(); i++) {
+        Debug::Log("  Track[" + std::to_string(i) + "]: " + tracks_[i].name +
+                   ", is_video=" + std::to_string(tracks_[i].is_video) +
+                   ", clips=" + std::to_string(tracks_[i].clips.size()));
+        for (const auto& c : tracks_[i].clips) {
+            Debug::Log("    Clip: " + c.name + ", duration=" + std::to_string(c.duration) +
+                       ", linked=" + std::to_string(c.is_linked) +
+                       ", path=" + c.linked_path.substr(0, 50));
+        }
+    }
+
+    // Reset view state
+    current_time_ = 0.0;
+    scroll_offset_x_ = 0.0f;
+    timeline_in_point_ = -1.0;
+    timeline_out_point_ = -1.0;
+
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
+
+    Debug::Log("Image sequence timeline created: " + timeline_name_ +
+               " (" + std::to_string(total_frames) + " frames @ " +
+               std::to_string(fps) + " fps = " + std::to_string(duration) + "s)" +
+               ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
+
+    return true;
+}
+
+bool TimelineView::LoadVideoFileAsTimeline(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadVideoFileAsTimeline: null MediaItem");
+        return false;
+    }
+
+    Debug::Log("Loading video file as timeline: " + item->name);
+
+    // Set source mode
+    source_mode_ = TimelineSourceMode::VIDEO_FILE;
+    source_media_item_ = item;
+
+    // Clear existing data
+    tracks_.clear();
+    source_file_path_.clear();  // No OTIO source file
+
+    // Get timeline properties from MediaItem (populated by FFmpegMetadataExtractor)
+    double fps = item->frame_rate;
+    if (fps <= 0) fps = 24.0;  // Default fallback
+
+    double duration = item->duration;
+    if (duration <= 0) duration = 1.0;  // Safety
+
+    // Get dimensions from MediaItem (populated when file was added to project)
+    int width = item->timeline_width;
+    int height = item->timeline_height;
+    if (width <= 0) width = 1920;   // Default fallback
+    if (height <= 0) height = 1080;
+
+    // Set timeline properties
+    timeline_name_ = item->name;
+    timeline_duration_ = duration;
+    frame_rate_ = fps;
+    canvas_width_ = width;
+    canvas_height_ = height;
+
+    Debug::Log("  fps=" + std::to_string(fps) + ", duration=" + std::to_string(duration) +
+               "s, " + std::to_string(width) + "x" + std::to_string(height));
+
+    // Create video track with single clip - LOCKED
+    OTIOTrack video_track;
+    video_track.id = "V1";
+    video_track.name = "V1";
+    video_track.is_video = true;
+    video_track.visible = true;
+    video_track.muted = false;
+    video_track.locked = true;  // Video track is locked in VIDEO_FILE mode
+    video_track.z_index = 1;
+
+    // Create the video clip
+    OTIOClip video_clip;
+    video_clip.id = "video_clip_1";
+    video_clip.name = item->name;
+    video_clip.file_path = item->path;
+    video_clip.start_time = 0.0;
+    video_clip.duration = duration;
+    video_clip.source_in = 0.0;
+    video_clip.source_out = duration;
+    video_clip.source_duration = duration;
+    video_clip.source_fps = fps;
+    video_clip.source_width = width;
+    video_clip.source_height = height;
+    video_clip.is_linked = true;
+    video_clip.linked_path = item->path;
+    video_clip.is_gap = false;
+    video_clip.is_sequence = false;  // Not an image sequence
+    video_clip.has_audio = item->has_audio;  // Show speaker icon only if video has audio
+
+    video_track.clips.push_back(video_clip);
+    tracks_.push_back(video_track);
+
+    // No separate audio track for VIDEO_FILE mode - audio comes from the video clip itself
+    // The speaker icon on the clip allows muting if needed
+
+    // Update flattener with tracks
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("LoadVideoFileAsTimeline: Created " + std::to_string(tracks_.size()) + " tracks");
+    for (size_t i = 0; i < tracks_.size(); i++) {
+        Debug::Log("  Track[" + std::to_string(i) + "]: " + tracks_[i].name +
+                   ", is_video=" + std::to_string(tracks_[i].is_video) +
+                   ", clips=" + std::to_string(tracks_[i].clips.size()));
+    }
+
+    // Reset view state
+    current_time_ = 0.0;
+    scroll_offset_x_ = 0.0f;
+    timeline_in_point_ = -1.0;
+    timeline_out_point_ = -1.0;
+
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
+
+    Debug::Log("Video file timeline created: " + timeline_name_ +
+               " (duration=" + std::to_string(duration) + "s @ " +
+               std::to_string(fps) + " fps)" +
+               ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
+
+    return true;
+}
+
+bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadAudioFileAsTimeline: null MediaItem");
+        return false;
+    }
+
+    Debug::Log("Loading audio file as timeline: " + item->name);
+
+    // Set source mode
+    source_mode_ = TimelineSourceMode::AUDIO_FILE;
+    source_media_item_ = item;
+
+    // Clear existing data
+    tracks_.clear();
+    source_file_path_.clear();  // No OTIO source file
+
+    // Get timeline properties from MediaItem
+    // Audio files don't have a natural frame rate, use a default for timeline display
+    double fps = 24.0;  // Default for timeline visualization
+    if (item->frame_rate > 0) fps = item->frame_rate;  // Use if available
+
+    double duration = item->duration;
+    if (duration <= 0) duration = 1.0;  // Safety
+
+    // Set timeline properties (no video dimensions for audio-only)
+    timeline_name_ = item->name;
+    timeline_duration_ = duration;
+    frame_rate_ = fps;
+    canvas_width_ = 0;   // No video canvas
+    canvas_height_ = 0;
+
+    Debug::Log("  fps=" + std::to_string(fps) + " (display), duration=" + std::to_string(duration) + "s");
+
+    // Create audio track with single clip - LOCKED
+    OTIOTrack audio_track;
+    audio_track.id = "A1";
+    audio_track.name = "A1";
+    audio_track.is_video = false;  // Audio track
+    audio_track.visible = true;
+    audio_track.muted = false;
+    audio_track.locked = true;  // Audio track is locked in AUDIO_FILE mode
+    audio_track.z_index = 0;    // Audio tracks have lower z_index
+
+    // Create the audio clip
+    OTIOClip audio_clip;
+    audio_clip.id = "audio_clip_1";
+    audio_clip.name = item->name;
+    audio_clip.file_path = item->path;
+    audio_clip.start_time = 0.0;
+    audio_clip.duration = duration;
+    audio_clip.source_in = 0.0;
+    audio_clip.source_out = duration;
+    audio_clip.source_duration = duration;
+    audio_clip.source_fps = fps;
+    audio_clip.source_width = 0;   // No video
+    audio_clip.source_height = 0;
+    audio_clip.is_linked = true;
+    audio_clip.linked_path = item->path;
+    audio_clip.is_gap = false;
+    audio_clip.is_sequence = false;
+    audio_clip.has_audio = true;  // It's an audio file
+
+    audio_track.clips.push_back(audio_clip);
+    tracks_.push_back(audio_track);
+
+    // Update flattener with tracks
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("LoadAudioFileAsTimeline: Created " + std::to_string(tracks_.size()) + " tracks");
+    for (size_t i = 0; i < tracks_.size(); i++) {
+        Debug::Log("  Track[" + std::to_string(i) + "]: " + tracks_[i].name +
+                   ", is_video=" + std::to_string(tracks_[i].is_video) +
+                   ", clips=" + std::to_string(tracks_[i].clips.size()));
+    }
+
+    // Reset view state
+    current_time_ = 0.0;
+    scroll_offset_x_ = 0.0f;
+    timeline_in_point_ = -1.0;
+    timeline_out_point_ = -1.0;
+
+    // Set initial zoom based on duration
+    SetInitialZoomForDuration();
+
+    Debug::Log("Audio file timeline created: " + timeline_name_ +
+               " (duration=" + std::to_string(duration) + "s)" +
+               ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
+
+    return true;
+}
+
+// ============================================================================
+// DUAL VIEW MODE - Side-by-side comparison timeline
+// ============================================================================
+
+void TimelineView::InitializeForDualView(const std::string& name, double fps) {
+    Debug::Log("InitializeForDualView: " + name + " at " + std::to_string(fps) + " fps");
+
+    // Set source mode
+    source_mode_ = TimelineSourceMode::DUAL_VIEW;
+    source_media_item_ = nullptr;
+
+    // Clear existing data
+    tracks_.clear();
+    source_file_path_.clear();
+
+    // Set timeline properties
+    timeline_name_ = name;
+    timeline_duration_ = 0.0;  // Will be set when media is loaded
+    frame_rate_ = fps;
+    canvas_width_ = 1920;   // Default HD
+    canvas_height_ = 1080;
+
+    // Create LEFT video track
+    OTIOTrack left_track;
+    left_track.id = "left";
+    left_track.name = "LEFT";
+    left_track.is_video = true;
+    left_track.visible = true;
+    left_track.muted = false;
+    left_track.locked = false;
+    left_track.z_index = 1;
+    tracks_.push_back(left_track);
+
+    // Create RIGHT video track
+    OTIOTrack right_track;
+    right_track.id = "right";
+    right_track.name = "RIGHT";
+    right_track.is_video = true;
+    right_track.visible = true;
+    right_track.muted = false;
+    right_track.locked = false;
+    right_track.z_index = 0;
+    tracks_.push_back(right_track);
+
+    // Update flattener with tracks
+    flattener_.SetTracks(tracks_);
+
+    // Reset view state
+    current_time_ = 0.0;
+    scroll_offset_x_ = 0.0f;
+    timeline_in_point_ = -1.0;
+    timeline_out_point_ = -1.0;
+
+    Debug::Log("InitializeForDualView: Created LEFT and RIGHT tracks");
+}
+
+bool TimelineView::LoadMediaToLeftTrack(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadMediaToLeftTrack: null MediaItem");
+        return false;
+    }
+
+    OTIOTrack* left = GetLeftTrack();
+    if (!left) {
+        Debug::Log("LoadMediaToLeftTrack: LEFT track not found");
+        return false;
+    }
+
+    Debug::Log("LoadMediaToLeftTrack: " + item->name);
+
+    // Clear existing clips on LEFT track
+    left->clips.clear();
+
+    // Determine duration and source info based on media type
+    double duration = item->duration;
+    double fps = item->frame_rate > 0 ? item->frame_rate : frame_rate_;
+    int width = item->sequence_width;
+    int height = item->sequence_height;
+    std::string linked_path = item->path;
+    bool is_sequence = false;
+    std::string seq_dir, seq_pattern;
+    int seq_start = 0, seq_end = 0;
+
+    if (item->type == MediaType::IMAGE_SEQUENCE || item->type == MediaType::EXR_SEQUENCE) {
+        is_sequence = true;
+        if (item->image_seq.IsValid()) {
+            duration = item->image_seq.duration;
+            fps = item->image_seq.frame_rate;
+            width = item->image_seq.width;
+            height = item->image_seq.height;
+            seq_dir = item->image_seq.directory;
+            seq_pattern = item->image_seq.pattern;
+            seq_start = item->image_seq.start_frame;
+            seq_end = item->image_seq.end_frame;
+            // Use path as-is (already contains mf:// or exr:// URL)
+            linked_path = item->path;
+        }
+    }
+
+    if (duration <= 0) duration = 1.0;
+
+    // Create clip for LEFT track
+    OTIOClip clip;
+    clip.id = "left_clip_1";
+    clip.name = item->name;
+    clip.file_path = item->path;
+    clip.start_time = 0.0;
+    clip.duration = duration;
+    clip.source_in = 0.0;
+    clip.source_out = duration;
+    clip.source_duration = duration;
+    clip.source_fps = fps;
+    clip.source_width = width;
+    clip.source_height = height;
+    clip.is_linked = true;
+    clip.linked_path = linked_path;
+    clip.is_gap = false;
+    clip.is_sequence = is_sequence;
+    clip.sequence_directory = seq_dir;
+    clip.sequence_pattern = seq_pattern;
+    clip.sequence_start_frame = seq_start;
+    clip.sequence_end_frame = seq_end;
+    clip.has_audio = item->has_audio;
+
+    left->clips.push_back(clip);
+
+    // Update canvas dimensions from first loaded media
+    if (width > 0 && height > 0) {
+        canvas_width_ = width;
+        canvas_height_ = height;
+    }
+
+    // Update timeline duration
+    RecalculateDuration();
+
+    // Update flattener
+    flattener_.SetTracks(tracks_);
+
+    // Request fit zoom to update for new duration
+    RequestFitZoomOnNextRender();
+
+    Debug::Log("LoadMediaToLeftTrack: Added clip, duration=" + std::to_string(duration));
+    return true;
+}
+
+bool TimelineView::LoadMediaToRightTrack(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadMediaToRightTrack: null MediaItem");
+        return false;
+    }
+
+    OTIOTrack* right = GetRightTrack();
+    if (!right) {
+        Debug::Log("LoadMediaToRightTrack: RIGHT track not found");
+        return false;
+    }
+
+    Debug::Log("LoadMediaToRightTrack: " + item->name);
+
+    // Clear existing clips on RIGHT track
+    right->clips.clear();
+
+    // Determine duration and source info based on media type
+    double duration = item->duration;
+    double fps = item->frame_rate > 0 ? item->frame_rate : frame_rate_;
+    int width = item->sequence_width;
+    int height = item->sequence_height;
+    std::string linked_path = item->path;
+    bool is_sequence = false;
+    std::string seq_dir, seq_pattern;
+    int seq_start = 0, seq_end = 0;
+
+    if (item->type == MediaType::IMAGE_SEQUENCE || item->type == MediaType::EXR_SEQUENCE) {
+        is_sequence = true;
+        if (item->image_seq.IsValid()) {
+            duration = item->image_seq.duration;
+            fps = item->image_seq.frame_rate;
+            width = item->image_seq.width;
+            height = item->image_seq.height;
+            seq_dir = item->image_seq.directory;
+            seq_pattern = item->image_seq.pattern;
+            seq_start = item->image_seq.start_frame;
+            seq_end = item->image_seq.end_frame;
+            // Use path as-is (already contains mf:// or exr:// URL)
+            linked_path = item->path;
+        }
+    }
+
+    if (duration <= 0) duration = 1.0;
+
+    // Create clip for RIGHT track
+    OTIOClip clip;
+    clip.id = "right_clip_1";
+    clip.name = item->name;
+    clip.file_path = item->path;
+    clip.start_time = 0.0;
+    clip.duration = duration;
+    clip.source_in = 0.0;
+    clip.source_out = duration;
+    clip.source_duration = duration;
+    clip.source_fps = fps;
+    clip.source_width = width;
+    clip.source_height = height;
+    clip.is_linked = true;
+    clip.linked_path = linked_path;
+    clip.is_gap = false;
+    clip.is_sequence = is_sequence;
+    clip.sequence_directory = seq_dir;
+    clip.sequence_pattern = seq_pattern;
+    clip.sequence_start_frame = seq_start;
+    clip.sequence_end_frame = seq_end;
+    clip.has_audio = item->has_audio;
+
+    right->clips.push_back(clip);
+
+    // Update timeline duration
+    RecalculateDuration();
+
+    // Update flattener
+    flattener_.SetTracks(tracks_);
+
+    // Request fit zoom to update for new duration
+    RequestFitZoomOnNextRender();
+
+    Debug::Log("LoadMediaToRightTrack: Added clip, duration=" + std::to_string(duration));
+    return true;
+}
+
+OTIOTrack* TimelineView::GetLeftTrack() {
+    for (auto& track : tracks_) {
+        if (track.id == "left" || track.name == "LEFT") {
+            return &track;
+        }
+    }
+    return nullptr;
+}
+
+OTIOTrack* TimelineView::GetRightTrack() {
+    for (auto& track : tracks_) {
+        if (track.id == "right" || track.name == "RIGHT") {
+            return &track;
+        }
+    }
+    return nullptr;
+}
+
+void TimelineView::ResetSourceMode() {
+    source_mode_ = TimelineSourceMode::MULTI_TRACK;
+    source_media_item_ = nullptr;
+
+    // Unlock all tracks
+    for (auto& track : tracks_) {
+        track.locked = false;
+    }
+}
+
+bool TimelineView::IsVideoTrackLocked() const {
+    return source_mode_ == TimelineSourceMode::IMAGE_SEQUENCE ||
+           source_mode_ == TimelineSourceMode::VIDEO_FILE;
+}
+
+bool TimelineView::CanAddVideoClips() const {
+    return source_mode_ != TimelineSourceMode::IMAGE_SEQUENCE &&
+           source_mode_ != TimelineSourceMode::VIDEO_FILE;
+}
+
+bool TimelineView::CanRemoveVideoClips() const {
+    return source_mode_ != TimelineSourceMode::IMAGE_SEQUENCE &&
+           source_mode_ != TimelineSourceMode::VIDEO_FILE;
+}
+
+bool TimelineView::CanAddAudioClips() const {
+    // Audio clips can be added in MULTI_TRACK and IMAGE_SEQUENCE modes
+    // In VIDEO_FILE mode, audio track is locked (video has its own embedded audio)
+    return source_mode_ != TimelineSourceMode::VIDEO_FILE;
+}
+
+bool TimelineView::CanEditClip(const OTIOClip& clip, const OTIOTrack& track) const {
+    // In IMAGE_SEQUENCE or VIDEO_FILE mode, video track clips cannot be edited
+    if ((source_mode_ == TimelineSourceMode::IMAGE_SEQUENCE ||
+         source_mode_ == TimelineSourceMode::VIDEO_FILE) && track.is_video) {
+        return false;
+    }
+    // In VIDEO_FILE mode, audio track clips also cannot be edited
+    if (source_mode_ == TimelineSourceMode::VIDEO_FILE && !track.is_video) {
+        return false;
+    }
+    // Also check track-level lock
+    if (track.locked) {
+        return false;
+    }
+    return true;
 }
 
 bool TimelineView::ParseOTIOTimeline(const std::string& file_path) {
@@ -2114,6 +2914,9 @@ bool TimelineView::ParseOTIOTimeline(const std::string& file_path) {
             }
         }
     }
+
+    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
+    SetInitialZoomForDuration();
 
     // Update flattener with new tracks
     flattener_.SetTracks(tracks_);
@@ -2643,17 +3446,26 @@ int TimelineView::GetTrackIndexForClip(const std::string& clip_id) const {
 }
 
 void TimelineView::RecalculateDuration() {
-    double max_end = 1.0;  // Minimum 1 second for empty timelines
+    double max_end = 0.0;
     for (const auto& track : tracks_) {
         for (const auto& clip : track.clips) {
+            if (clip.is_gap) continue;  // Don't count gaps
             double clip_end = clip.start_time + clip.duration;
             if (clip_end > max_end) {
                 max_end = clip_end;
             }
         }
     }
-    // Add small padding so playhead doesn't immediately hit end
-    timeline_duration_ = max_end + 0.5;
+
+    // For dual view mode and video-like modes: exact duration, no padding
+    // For multi-track timelines: small padding to prevent immediate end
+    if (IsDualViewMode() || source_mode_ == TimelineSourceMode::VIDEO_FILE ||
+        source_mode_ == TimelineSourceMode::IMAGE_SEQUENCE) {
+        timeline_duration_ = max_end > 0.0 ? max_end : 1.0;  // Minimum 1s for empty
+    } else {
+        // Multi-track timelines get small padding
+        timeline_duration_ = max_end > 0.0 ? max_end + 0.5 : 1.0;
+    }
 }
 
 void TimelineView::SyncFlattenerAndInvalidate() {
@@ -2688,6 +3500,11 @@ void TimelineView::SyncFlattenerAndInvalidate() {
         // Notify the playback controller about the edit
         // This clears the stale current texture AND the cache
         controller->NotifyTracksEdited();
+
+        // For dual view mode, sync the separate LEFT/RIGHT flatteners
+        if (IsDualViewMode()) {
+            controller->SyncDualFlatteners();
+        }
     }
 }
 
@@ -2720,6 +3537,9 @@ void TimelineView::SetTracks(const std::vector<OTIOTrack>& tracks,
     // Restore tracks from cached edits (when re-entering a previously edited timeline)
     // This should behave similarly to LoadEDLFile - shutdown existing playback
     // so it can be properly reinitialized with the restored tracks
+
+    // Reset source mode to MULTI_TRACK for restored timelines
+    ResetSourceMode();
 
     // Shutdown existing playback controller first (like LoadEDLFile does)
     // This ensures a fresh dummy video is generated for the restored timeline

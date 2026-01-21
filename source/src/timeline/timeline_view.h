@@ -8,6 +8,7 @@
 #include "../player/video_player.h"
 #include "timeline_selection.h"
 #include "timeline_types.h"
+#include "../project/media_item.h"
 
 // OTIO library support - disabled until library is installed
 // When OTIO is available, define USE_OPENTIMELINEIO in CMakeLists.txt
@@ -22,6 +23,7 @@ namespace ump {
 class TimelinePlaybackController;
 
 // Flattening engine - computes visible clip at any timestamp
+// Thread-safe: can be accessed from main thread and audio background thread
 class TimelineFlattener {
 public:
     TimelineFlattener() = default;
@@ -31,9 +33,18 @@ public:
     void SetTrackVisibility(const std::string& track_id, bool visible);
     void SetTrackMute(const std::string& track_id, bool muted);
 
+    // Enable visibility override mode (for dual view - persists across SetTracks)
+    // When enabled, uses visibility_overrides_ instead of track.visible
+    void EnableVisibilityOverrides(bool enable);
+    void SetVisibilityOverride(const std::string& track_id, bool visible);
+
     // Get flattened result at specific time
     std::string GetVisibleClipPathAtTime(double timestamp);
     const OTIOClip* GetVisibleClipAtTime(double timestamp);
+
+    // Get clip from a specific track at given time (for dual view mode)
+    // Returns nullptr if track not found or no clip at that time
+    const OTIOClip* GetClipFromTrackAtTime(const std::string& track_id, double timestamp);
 
     // Get audible clip (top-layer video clip where track is not audio_muted)
     const OTIOClip* GetAudibleClipAtTime(double timestamp);
@@ -46,14 +57,25 @@ public:
     // Each clip has timing info needed for proper audio sync
     std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
 
+    // Access to tracks for lookahead queries (returns a copy for thread safety)
+    std::vector<OTIOTrack> GetTracks() const;
+
     // Clear cache (call when visibility changes)
     void InvalidateCache();
 
 private:
     std::vector<OTIOTrack> tracks_;
     std::map<double, std::string> cache_visible_clips_;  // timestamp → file path
+    mutable std::mutex tracks_mutex_;  // Protects tracks_ for thread safety
 
-    // Helper: find clip in track at given time
+    // Visibility override mode (for dual view - persists across SetTracks)
+    bool use_visibility_overrides_ = false;
+    std::map<std::string, bool> visibility_overrides_;  // track_id → visible
+
+    // Helper: check if track is visible (considers override mode)
+    bool IsTrackVisible(const OTIOTrack& track) const;
+
+    // Helper: find clip in track at given time (must be called with lock held)
     const OTIOClip* FindClipInTrack(const OTIOTrack& track, double timestamp);
 
     // Helper: flatten into nested clip to find visible media at given timeline time
@@ -92,6 +114,36 @@ public:
     // Initialize empty scratch timeline (no source file)
     void InitializeForScratch(const std::string& name, double duration, double fps,
                               int width, int height);
+
+    // Image sequence as timeline (unified view for sequences)
+    bool LoadImageSequenceAsTimeline(MediaItem* item);
+
+    // Video file as timeline (unified view for solo videos)
+    bool LoadVideoFileAsTimeline(MediaItem* item);
+
+    // Audio file as timeline (unified view for solo audio, A1 track only)
+    bool LoadAudioFileAsTimeline(MediaItem* item);
+
+    // Dual view timeline (LEFT/RIGHT video tracks for comparison)
+    void InitializeForDualView(const std::string& name, double fps);
+    bool LoadMediaToLeftTrack(MediaItem* item);
+    bool LoadMediaToRightTrack(MediaItem* item);
+    bool IsDualViewMode() const { return source_mode_ == TimelineSourceMode::DUAL_VIEW; }
+    OTIOTrack* GetLeftTrack();
+    OTIOTrack* GetRightTrack();
+
+    // Source mode - determines editing restrictions
+    TimelineSourceMode GetSourceMode() const { return source_mode_; }
+    void SetSourceMode(TimelineSourceMode mode) { source_mode_ = mode; }  // Direct setter for restoration
+    MediaItem* GetSourceMediaItem() const { return source_media_item_; }
+    void ResetSourceMode();  // Reset to MULTI_TRACK mode
+
+    // Track locking queries (based on source mode)
+    bool IsVideoTrackLocked() const;
+    bool CanAddVideoClips() const;
+    bool CanRemoveVideoClips() const;
+    bool CanAddAudioClips() const;
+    bool CanEditClip(const OTIOClip& clip, const OTIOTrack& track) const;
 
     // Timeline info
     std::string GetTimelineName() const { return timeline_name_; }
@@ -181,6 +233,12 @@ public:
     float GetZoomLevel() const { return zoom_level_; }
     void SetZoomLevel(float zoom);
     void SetZoomLevelAroundTime(float zoom, double time);  // Zoom keeping time position stable
+    void FitZoomToWidth(float visible_width);  // Auto-fit zoom so timeline fills visible width
+    void SetInitialZoomForDuration();  // Set reasonable initial zoom based on timeline_duration_
+    void UpdateVisibleWidth(float width) { last_visible_width_ = width; }  // Update for zoom limits
+    void RequestFitZoomOnNextRender() { fit_zoom_pending_ = true; }  // Defer fit to next render
+    bool HasPendingFitZoom() const { return fit_zoom_pending_; }
+    void ClearPendingFitZoom() { fit_zoom_pending_ = false; }
     float GetScrollOffset() const { return scroll_offset_x_; }
     void SetScrollOffset(float offset);
     float GetMaxScrollOffset() const;
@@ -253,6 +311,10 @@ private:
     int canvas_width_ = 1920;     // Output canvas width (default HD)
     int canvas_height_ = 1080;    // Output canvas height (default HD)
 
+    // Source mode - for unified view handling (image sequences, videos, etc.)
+    TimelineSourceMode source_mode_ = TimelineSourceMode::MULTI_TRACK;
+    MediaItem* source_media_item_ = nullptr;  // Non-owning pointer to source MediaItem (for IMAGE_SEQUENCE mode)
+
     // UI state
     enum class FlattenMode {
         AUTO_PAINTER_ORDER,     // Standard top-to-bottom
@@ -271,6 +333,8 @@ private:
 
     bool show_waveforms_ = false;     // Future: audio waveform display
     bool show_thumbnails_ = true;     // Clip thumbnail previews
+    bool fit_zoom_pending_ = false;   // Request zoom fit on next render (deferred)
+    float last_visible_width_ = 0.0f; // Cached visible width for zoom limit calculations
 
     // Timeline In/Out points and loop mode (separate from solo video MediaItem)
     double timeline_in_point_ = -1.0;   // In point in seconds (-1 = not set)

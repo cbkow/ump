@@ -239,13 +239,16 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
             Debug::Log("Found XMP AltTimecodeTimeValue: '" + metadata->xmp_alt_timecode_time_value + "'");
         }
 
-        metadata->is_loaded = true;
         Debug::Log("Adobe + Timecode metadata extraction completed successfully");
         Debug::Log("Has any timecode: " + std::string(metadata->HasAnyTimecode() ? "YES" : "NO"));
     }
     else {
-        Debug::Log("WARNING: No output from ExifTool");
+        Debug::Log("ExifTool returned no output (no Adobe metadata in file)");
     }
+
+    // Mark as loaded regardless of whether data was found
+    // This distinguishes "no metadata found" from "still loading"
+    metadata->is_loaded = true;
 
 #endif
 

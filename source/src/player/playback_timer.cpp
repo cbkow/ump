@@ -126,21 +126,13 @@ bool PlaybackTimer::Update() {
     double old_position = position_;
     position_ += delta;
 
-    // Handle end of timeline
+    // Handle end of timeline - NEVER loop internally
+    // Loop control is handled by main.cpp using boundary system
     if (position_ >= duration_) {
-        if (looping_) {
-            // Loop back to start
-            position_ = std::fmod(position_, duration_);
-            if (on_loop_) {
-                on_loop_();
-            }
-        } else {
-            // Stop at end
-            position_ = duration_;
-            is_playing_ = false;
-            if (on_end_) {
-                on_end_();
-            }
+        position_ = duration_;
+        is_playing_ = false;
+        if (on_end_) {
+            on_end_();
         }
     }
 
@@ -171,21 +163,13 @@ void PlaybackTimer::AdvanceByFrame() {
     double old_position = position_;
     position_ += frame_duration;
 
-    // Handle end of timeline
+    // Handle end of timeline - NEVER loop internally
+    // Loop control is handled by main.cpp using boundary system
     if (position_ >= duration_) {
-        if (looping_) {
-            // Loop back to start
-            position_ = std::fmod(position_, duration_);
-            if (on_loop_) {
-                on_loop_();
-            }
-        } else {
-            // Stop at end
-            position_ = duration_;
-            is_playing_ = false;
-            if (on_end_) {
-                on_end_();
-            }
+        position_ = duration_;
+        is_playing_ = false;
+        if (on_end_) {
+            on_end_();
         }
     }
 
@@ -207,9 +191,7 @@ void PlaybackTimer::SetFrameRate(double fps) {
     frame_rate_ = std::max(0.001, fps);  // Prevent division by zero
 }
 
-void PlaybackTimer::SetLooping(bool enabled) {
-    looping_ = enabled;
-}
+// SetLooping is now an inline no-op in the header
 
 void PlaybackTimer::SetPlaybackSpeed(double speed) {
     playback_speed_ = std::max(0.0, speed);  // No negative speeds

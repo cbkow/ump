@@ -9,6 +9,7 @@
 #include <atomic>
 #include <deque>
 #include <unordered_set>
+#include <future>
 
 #include "image_loader_interface.h"
 #include "pipeline_mode.h"
@@ -237,7 +238,7 @@ private:
     int io_frame_ = 0;
 
     //=========================================================================
-    // Threading
+    // Threading (with parallel async loading)
     //=========================================================================
 
     std::thread io_thread_;
@@ -252,6 +253,17 @@ private:
     // Track which frames are currently being loaded (to avoid duplicates)
     std::unordered_set<int> frames_in_flight_;
     std::mutex in_flight_mutex_;
+
+    // Parallel async loading (each task creates its own loader for thread safety)
+    struct AsyncLoadRequest {
+        int frame;
+        std::future<std::shared_ptr<PixelData>> future;
+    };
+    std::vector<AsyncLoadRequest> async_requests_;
+    static constexpr size_t MAX_CONCURRENT_LOADS = 8;
+
+    // Helper to create loader and load a single frame (thread-safe, no shared state)
+    std::shared_ptr<PixelData> LoadFrameWithFreshLoader(int frame_number);
 };
 
 } // namespace ump
