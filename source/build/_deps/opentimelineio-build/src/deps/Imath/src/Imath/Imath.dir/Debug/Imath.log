@@ -1,0 +1,8 @@
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/src/deps/Imath/src/Imath/CMakeLists.txt
+  half.cpp
+  ImathColorAlgo.cpp
+  ImathFun.cpp
+  ImathMatrixAlgo.cpp
+  ImathRandom.cpp
+  Generating Code...
+  Imath.vcxproj -> D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\src\Imath\Debug\Imath-3_2_d.lib

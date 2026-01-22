@@ -268,10 +268,18 @@ size_t EXRTranscoder::ClearAllTranscodes() {
 
 std::string EXRTranscoder::GenerateCacheKey(const std::string& base_name,
                                             const std::string& layer,
+                                            int part_index,
                                             int max_width,
                                             Imf::Compression compression) const {
     std::ostringstream oss;
-    oss << base_name << "_" << layer << "_";
+    oss << base_name << "_" << layer;
+
+    // Include part_index in cache key for multi-part EXRs
+    if (part_index > 0) {
+        oss << "_p" << part_index;
+    }
+
+    oss << "_";
 
     if (max_width > 0) {
         oss << max_width;
@@ -306,6 +314,7 @@ const char* EXRTranscoder::CompressionToString(Imf::Compression comp) const {
 
 std::string EXRTranscoder::GetTranscodePath(const std::string& source_first_file,
                                             const std::string& layer,
+                                            int part_index,
                                             int max_width,
                                             Imf::Compression compression) const {
     std::filesystem::path source_path(source_first_file);
@@ -318,7 +327,7 @@ std::string EXRTranscoder::GetTranscodePath(const std::string& source_first_file
         base_name = match[1].str();
     }
 
-    std::string cache_key = GenerateCacheKey(base_name, layer, max_width, compression);
+    std::string cache_key = GenerateCacheKey(base_name, layer, part_index, max_width, compression);
     std::filesystem::path transcode_dir = std::filesystem::path(cache_dir_) / cache_key;
 
     return transcode_dir.string();
@@ -326,11 +335,12 @@ std::string EXRTranscoder::GetTranscodePath(const std::string& source_first_file
 
 bool EXRTranscoder::HasTranscodedSequence(const std::vector<std::string>& source_files,
                                           const std::string& layer,
+                                          int part_index,
                                           int max_width,
                                           Imf::Compression compression) const {
     if (source_files.empty()) return false;
 
-    std::string transcode_dir = GetTranscodePath(source_files[0], layer, max_width, compression);
+    std::string transcode_dir = GetTranscodePath(source_files[0], layer, part_index, max_width, compression);
 
     Debug::Log("EXRTranscoder::HasTranscodedSequence - Checking: " + transcode_dir);
     Debug::Log("  Layer: '" + layer + "', MaxWidth: " + std::to_string(max_width) +
@@ -359,13 +369,14 @@ bool EXRTranscoder::HasTranscodedSequence(const std::vector<std::string>& source
 
 std::vector<std::string> EXRTranscoder::GetTranscodedFiles(const std::vector<std::string>& source_files,
                                                            const std::string& layer,
+                                                           int part_index,
                                                            int max_width,
                                                            Imf::Compression compression) const {
     std::vector<std::string> transcoded_files;
 
     if (source_files.empty()) return transcoded_files;
 
-    std::string transcode_dir = GetTranscodePath(source_files[0], layer, max_width, compression);
+    std::string transcode_dir = GetTranscodePath(source_files[0], layer, part_index, max_width, compression);
 
     if (!std::filesystem::exists(transcode_dir)) return transcoded_files;
 
@@ -389,6 +400,7 @@ std::vector<std::string> EXRTranscoder::GetTranscodedFiles(const std::vector<std
 void EXRTranscoder::TranscodeSequenceAsync(
     const std::vector<std::string>& source_files,
     const std::string& layer,
+    int part_index,
     const EXRTranscodeConfig& config,
     std::function<void(int, int, const std::string&)> progress_callback,
     std::function<void(bool, const std::string&)> completion_callback) {
@@ -419,7 +431,7 @@ void EXRTranscoder::TranscodeSequenceAsync(
     is_transcoding_ = true;
 
     transcode_thread_ = std::thread(&EXRTranscoder::TranscodeWorker, this,
-                                    source_files, layer, config,
+                                    source_files, layer, part_index, config,
                                     progress_callback, completion_callback);
 }
 
@@ -437,11 +449,12 @@ void EXRTranscoder::CancelTranscode() {
 void EXRTranscoder::TranscodeWorker(
     std::vector<std::string> source_files,
     std::string layer,
+    int part_index,
     EXRTranscodeConfig config,
     std::function<void(int, int, const std::string&)> progress_callback,
     std::function<void(bool, const std::string&)> completion_callback) {
 
-    Debug::Log("EXRTranscoder: Starting transcode worker - " + std::to_string(source_files.size()) + " frames");
+    Debug::Log("EXRTranscoder: Starting transcode worker - " + std::to_string(source_files.size()) + " frames, part_index=" + std::to_string(part_index));
 
     // Use global transcode settings for parallelism (same as SequentialFrameLoader)
     // This allows tuning from the Settings UI
@@ -457,7 +470,7 @@ void EXRTranscoder::TranscodeWorker(
                std::to_string(openexr_threads) + " OpenEXR threads = " +
                std::to_string(total_threads) + " total threads");
 
-    std::string transcode_dir = GetTranscodePath(source_files[0], layer, config.max_width, config.compression);
+    std::string transcode_dir = GetTranscodePath(source_files[0], layer, part_index, config.max_width, config.compression);
 
     // Create transcode directory
     try {
@@ -574,7 +587,7 @@ void EXRTranscoder::TranscodeWorker(
         std::string dest_file = (std::filesystem::path(transcode_dir) / output_filename).string();
 
         // Launch async task - capture by VALUE to ensure each thread gets unique work
-        auto future = std::async(std::launch::async, [this, source_file, dest_file, layer,
+        auto future = std::async(std::launch::async, [this, source_file, dest_file, layer, part_index,
                                                        target_width, target_height,
                                                        compression = config.compression, is_exr]() -> bool {
             std::string error_message;
@@ -582,7 +595,7 @@ void EXRTranscoder::TranscodeWorker(
 
             // Call appropriate transcode method based on format
             if (is_exr) {
-                success = TranscodeFrame(source_file, dest_file, layer,
+                success = TranscodeFrame(source_file, dest_file, layer, part_index,
                                         target_width, target_height,
                                         compression, error_message);
             } else {
@@ -704,6 +717,7 @@ void EXRTranscoder::TranscodeWorker(
 bool EXRTranscoder::TranscodeFrame(const std::string& source_path,
                                    const std::string& dest_path,
                                    const std::string& layer,
+                                   int part_index,
                                    int target_width,
                                    int target_height,
                                    Imf::Compression compression,
@@ -713,7 +727,8 @@ bool EXRTranscoder::TranscodeFrame(const std::string& source_path,
         auto stream = std::make_unique<MemoryMappedIStream>(source_path);
         Imf::MultiPartInputFile file(*stream);
 
-        const Imf::Header& header = file.header(0);
+        // Use the specified part_index for multi-part EXR support
+        const Imf::Header& header = file.header(part_index);
         const Imath::Box2i displayWindow = header.displayWindow();
 
         int source_width = displayWindow.max.x - displayWindow.min.x + 1;
@@ -773,8 +788,8 @@ bool EXRTranscoder::TranscodeFrame(const std::string& source_path,
             }
         }
 
-        // Read pixels
-        Imf::InputPart part(file, 0);
+        // Read pixels from the specified part
+        Imf::InputPart part(file, part_index);
         part.setFrameBuffer(frameBuffer);
         part.readPixels(displayWindow.min.y, displayWindow.max.y);
 

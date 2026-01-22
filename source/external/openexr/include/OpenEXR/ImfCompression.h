@@ -51,7 +51,11 @@ enum IMF_EXPORT_ENUM Compression
                           // wise and faster to decode full frames
                           // than DWAA_COMPRESSION.
 
-    NUM_COMPRESSION_METHODS // number of different compression methods.
+    HTJ2K256_COMPRESSION = 10,   // High-Throughput JPEG2000 (HTJ2K), 256 scanlines
+
+    HTJ2K32_COMPRESSION = 11,    // High-Throughput JPEG2000 (HTJ2K), 32 scanlines
+
+    NUM_COMPRESSION_METHODS // number of different compression methods
 };
 
 /// Returns a codec ID's short name (lowercase).

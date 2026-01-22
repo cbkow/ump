@@ -2156,18 +2156,22 @@ namespace ump {
 
                     // Pass selected EXR layer if applicable
                     std::string selected_layer = "";
+                    int selected_part_index = 0;
                     if (is_exr_sequence) {
                         std::lock_guard<std::mutex> lock(exr_layers_mutex);
                         if (selected_exr_layer_index < exr_layer_names.size()) {
                             selected_layer = exr_layer_names[selected_exr_layer_index];
+                        }
+                        if (selected_exr_layer_index < exr_layer_part_indices.size()) {
+                            selected_part_index = exr_layer_part_indices[selected_exr_layer_index];
                         }
                     }
 
                     // Check if transcode is requested (for both EXR and TIFF/PNG)
                     if ((is_exr_sequence || is_tiff_png_sequence) && exr_transcode_enabled) {
                         ProcessImageSequenceWithTranscode(pending_sequence_path, selected_frame_rate,
-                                                         selected_layer, exr_transcode_max_width,
-                                                         exr_transcode_compression);
+                                                         selected_layer, selected_part_index,
+                                                         exr_transcode_max_width, exr_transcode_compression);
                     } else {
                         ProcessImageSequence(pending_sequence_path, selected_frame_rate, selected_layer);
                     }
@@ -7080,6 +7084,7 @@ namespace ump {
             std::lock_guard<std::mutex> lock(exr_layers_mutex);
             exr_layer_names.clear();
             exr_layer_display_names.clear();
+            exr_layer_part_indices.clear();
             selected_exr_layer_index = 0;
         }
         hidden_cryptomatte_count = 0;
@@ -7104,8 +7109,10 @@ namespace ump {
                 std::lock_guard<std::mutex> lock(exr_layers_mutex);
                 exr_layer_names.clear();
                 exr_layer_display_names.clear();
+                exr_layer_part_indices.clear();
                 exr_layer_names.push_back("Detecting layers...");
                 exr_layer_display_names.push_back("Detecting layers...");
+                exr_layer_part_indices.push_back(0);
                 selected_exr_layer_index = 0;
             }
 
@@ -7122,8 +7129,10 @@ namespace ump {
                     std::lock_guard<std::mutex> lock(exr_layers_mutex);
                     exr_layer_names.clear();
                     exr_layer_display_names.clear();
+                    exr_layer_part_indices.clear();
                     exr_layer_names.push_back("RGBA");
                     exr_layer_display_names.push_back("RGBA (default)");
+                    exr_layer_part_indices.push_back(0);
                     selected_exr_layer_index = 0;
                     Debug::Log("EXR Layer Detection: No sequence files found");
                     return;
@@ -7134,12 +7143,14 @@ namespace ump {
                     std::lock_guard<std::mutex> lock(exr_layers_mutex);
                     exr_layer_names.clear();
                     exr_layer_display_names.clear();
+                    exr_layer_part_indices.clear();
                     hidden_cryptomatte_count = crypto_count;
 
                     if (!layers.empty()) {
                         for (const EXRLayer& layer : layers) {
                             exr_layer_names.push_back(layer.name);
                             exr_layer_display_names.push_back(layer.name);
+                            exr_layer_part_indices.push_back(layer.part_index);
 
                             if (layer.is_default) {
                                 selected_exr_layer_index = exr_layer_names.size() - 1;
@@ -7149,6 +7160,7 @@ namespace ump {
                     } else {
                         exr_layer_names.push_back("RGBA");
                         exr_layer_display_names.push_back("RGBA");
+                        exr_layer_part_indices.push_back(0);
                         selected_exr_layer_index = 0;
                     }
                 } else {
@@ -7156,8 +7168,10 @@ namespace ump {
                     std::lock_guard<std::mutex> lock(exr_layers_mutex);
                     exr_layer_names.clear();
                     exr_layer_display_names.clear();
+                    exr_layer_part_indices.clear();
                     exr_layer_names.push_back("RGBA");
                     exr_layer_display_names.push_back("RGBA (default)");
+                    exr_layer_part_indices.push_back(0);
                     selected_exr_layer_index = 0;
                     Debug::Log("EXR Layer Detection: Failed, using default RGBA");
                 }
@@ -7483,8 +7497,8 @@ namespace ump {
     }
 
     void ProjectManager::ProcessImageSequenceWithTranscode(const std::string& sequence_path, double frame_rate,
-                                                           const std::string& exr_layer, int max_width, int compression) {
-        Debug::Log("ProcessImageSequenceWithTranscode: Starting transcode workflow");
+                                                           const std::string& exr_layer, int part_index, int max_width, int compression) {
+        Debug::Log("ProcessImageSequenceWithTranscode: Starting transcode workflow (part_index=" + std::to_string(part_index) + ")");
 
         // Get the full sequence file list
         std::vector<std::string> sequence_files = DetectImageSequence(sequence_path);
@@ -7505,12 +7519,12 @@ namespace ump {
         config.threadCount = static_cast<size_t>(g_exr_transcode_threads);
 
         // Check if transcode already exists
-        if (transcoder.HasTranscodedSequence(sequence_files, exr_layer, max_width, config.compression)) {
+        if (transcoder.HasTranscodedSequence(sequence_files, exr_layer, part_index, max_width, config.compression)) {
             Debug::Log("ProcessImageSequenceWithTranscode: Transcode already exists, loading directly");
 
             // Get transcoded files
             std::vector<std::string> transcoded_files = transcoder.GetTranscodedFiles(
-                sequence_files, exr_layer, max_width, config.compression);
+                sequence_files, exr_layer, part_index, max_width, config.compression);
 
             if (!transcoded_files.empty()) {
                 // Load transcoded sequence as single-layer EXR
@@ -7536,6 +7550,7 @@ namespace ump {
         transcoder.TranscodeSequenceAsync(
             sequence_files,
             exr_layer,
+            part_index,
             config,
             // Progress callback
             [](int current, int total, const std::string& message) {
@@ -7556,7 +7571,7 @@ namespace ump {
                 }
             },
             // Completion callback
-            [this, sequence_files, exr_layer, max_width, compression, frame_rate](bool success, const std::string& error_message) {
+            [this, sequence_files, exr_layer, part_index, max_width, compression, frame_rate](bool success, const std::string& error_message) {
                 // Hide progress dialog
                 extern bool show_transcode_progress;
                 show_transcode_progress = false;
@@ -7568,7 +7583,7 @@ namespace ump {
                     ump::EXRTranscoder& transcoder = GetSharedTranscoder();
                     Imf::Compression comp = static_cast<Imf::Compression>(compression);
                     std::vector<std::string> transcoded_files = transcoder.GetTranscodedFiles(
-                        sequence_files, exr_layer, max_width, comp);
+                        sequence_files, exr_layer, part_index, max_width, comp);
 
                     if (!transcoded_files.empty()) {
                         Debug::Log("ProcessImageSequenceWithTranscode: Queuing transcoded sequence for load (" +

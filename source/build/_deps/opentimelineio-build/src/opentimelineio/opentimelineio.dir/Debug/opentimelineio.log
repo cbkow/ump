@@ -1,0 +1,26 @@
+﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/src/opentimelineio/CMakeLists.txt
+  clip.cpp
+  composable.cpp
+  composition.cpp
+  deserialization.cpp
+  editAlgorithm.cpp
+  effect.cpp
+  errorStatus.cpp
+  externalReference.cpp
+  freezeFrame.cpp
+  gap.cpp
+  generatorReference.cpp
+  imageSequenceReference.cpp
+  item.cpp
+  linearTimeWarp.cpp
+  marker.cpp
+  mediaReference.cpp
+  missingReference.cpp
+  safely_typed_any.cpp
+  serializableCollection.cpp
+  serializableObject.cpp
+  Generating Code...
+  Compiling...
+  serializableObjectWithMetadata.cpp
+  serialization.cpp
+  stack.cpp

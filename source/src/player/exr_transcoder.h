@@ -60,18 +60,21 @@ public:
     // Check if transcode already exists
     bool HasTranscodedSequence(const std::vector<std::string>& source_files,
                                const std::string& layer,
+                               int part_index,
                                int max_width,
                                Imf::Compression compression) const;
 
     // Get transcode directory path
     std::string GetTranscodePath(const std::string& source_first_file,
                                  const std::string& layer,
+                                 int part_index,
                                  int max_width,
                                  Imf::Compression compression) const;
 
     // Get transcoded file list (if exists)
     std::vector<std::string> GetTranscodedFiles(const std::vector<std::string>& source_files,
                                                  const std::string& layer,
+                                                 int part_index,
                                                  int max_width,
                                                  Imf::Compression compression) const;
 
@@ -79,6 +82,7 @@ public:
     void TranscodeSequenceAsync(
         const std::vector<std::string>& source_files,
         const std::string& layer,
+        int part_index,
         const EXRTranscodeConfig& config,
         std::function<void(int current, int total, const std::string& message)> progress_callback,
         std::function<void(bool success, const std::string& error_message)> completion_callback
@@ -109,6 +113,7 @@ private:
     void TranscodeWorker(
         std::vector<std::string> source_files,
         std::string layer,
+        int part_index,
         EXRTranscodeConfig config,
         std::function<void(int, int, const std::string&)> progress_callback,
         std::function<void(bool, const std::string&)> completion_callback
@@ -118,6 +123,7 @@ private:
     bool TranscodeFrame(const std::string& source_path,
                        const std::string& dest_path,
                        const std::string& layer,
+                       int part_index,
                        int target_width,
                        int target_height,
                        Imf::Compression compression,
@@ -140,6 +146,7 @@ private:
     // Generate cache key/directory name
     std::string GenerateCacheKey(const std::string& base_name,
                                  const std::string& layer,
+                                 int part_index,
                                  int max_width,
                                  Imf::Compression compression) const;
 

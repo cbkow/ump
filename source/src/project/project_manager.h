@@ -349,7 +349,7 @@ namespace ump {
         void ShowFrameRateDialog(const std::string& sequence_path);
         void ProcessImageSequence(const std::string& sequence_path, double frame_rate, const std::string& exr_layer = "");
         void ProcessImageSequenceWithTranscode(const std::string& sequence_path, double frame_rate,
-                                               const std::string& exr_layer, int max_width, int compression);
+                                               const std::string& exr_layer, int part_index, int max_width, int compression);
         void CancelTranscode();  // Cancel ongoing EXR transcode
         bool IsInImageSequenceMode() const;
         PipelineMode GetImageSequencePipelineMode() const;  // Get auto-detected pipeline mode from frame cache
@@ -547,9 +547,10 @@ namespace ump {
         bool is_exr_sequence = false;
         std::vector<std::string> exr_layer_names;
         std::vector<std::string> exr_layer_display_names;
+        std::vector<int> exr_layer_part_indices;  // Part index for each layer (multi-part EXR support)
         int selected_exr_layer_index = 0;
         int hidden_cryptomatte_count = 0;
-        std::mutex exr_layers_mutex;  // Protects exr_layer_names and exr_layer_display_names
+        std::mutex exr_layers_mutex;  // Protects exr_layer_names, exr_layer_display_names, and exr_layer_part_indices
 
         // TIFF/PNG sequence detection
         bool is_tiff_png_sequence = false;
