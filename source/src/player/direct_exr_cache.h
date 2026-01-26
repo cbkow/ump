@@ -483,8 +483,7 @@ private:
     std::shared_ptr<PixelData> LoadPixels(const std::string& path);
 
     // LEGACY: EXR-specific loading (preserved for backward compatibility)
-    std::shared_ptr<EXRPixelData> LoadEXRPixels(const std::string& path,
-                                                 const std::string& layer);
+    std::shared_ptr<EXRPixelData> LoadEXRPixels(const std::string& path, const std::string& layer);
 
     // GL texture creation (now handles multiple formats via PixelData)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);

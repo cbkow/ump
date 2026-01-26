@@ -1,7 +1,13 @@
 #include "timeline_cache.h"
 #include "timeline_view.h"
 #include "../player/image_loaders.h"
+#include "../player/video_decoder_factory.h"
+#include "../player/managed_video_decoder.h"
 #include "../utils/debug_utils.h"
+
+#ifdef _WIN32
+#include "../gpu/d3d11_device_manager.h"
+#endif
 
 #include <algorithm>
 #include <filesystem>
@@ -12,6 +18,9 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 }
+
+// User setting for I/O threads (default 8, configurable in Settings > Timeline)
+extern int g_timeline_io_threads;
 
 namespace fs = std::filesystem;
 
@@ -142,10 +151,11 @@ ClipMediaType DetectMediaType(const std::string& path) {
 //=============================================================================
 
 TimelineCache::TimelineCache() {
-    // EXR-style defaults
+    // GStreamer-optimized defaults
+    // GStreamer handles internal threading/buffering, I/O worker just transfers between buffers
     config_.readAheadFrames = 72;       // 3 seconds @ 24fps
     config_.readBehindSeconds = 0.5;    // 0.5s behind for backward scrub
-    config_.io_threads = 8;
+    config_.io_threads = 1;             // 1 thread sufficient - GStreamer does the actual decoding
     config_.fps = 24.0;
     config_.use_shared_pool = true;
     config_.cacheGB = 8.0;
@@ -157,13 +167,30 @@ TimelineCache::~TimelineCache() {
 
 void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
                                 TimelineFlattener* flattener,
-                                double fps) {
+                                double fps,
+                                TimelineSourceMode source_mode) {
     if (initialized_) {
         Shutdown();
     }
 
     flattener_ = flattener;
     config_.fps = fps;
+    source_mode_ = source_mode;
+
+    // Adjust I/O threads based on source mode:
+    // - VIDEO_FILE: GStreamer handles decoding internally - 1 thread sufficient
+    // - MULTI_TRACK/DUAL_VIEW: FFmpeg needs multiple threads for parallel decode (user configurable)
+    if (source_mode == TimelineSourceMode::VIDEO_FILE) {
+        config_.io_threads = 1;
+    } else {
+        // Use user setting (default 8) for MULTI_TRACK/DUAL_VIEW modes
+        config_.io_threads = g_timeline_io_threads;
+    }
+
+    Debug::Log("TimelineCache: Source mode = " +
+               std::string(source_mode == TimelineSourceMode::VIDEO_FILE ? "VIDEO_FILE (GStreamer)" :
+                          source_mode == TimelineSourceMode::MULTI_TRACK ? "MULTI_TRACK (FFmpeg)" :
+                          source_mode == TimelineSourceMode::DUAL_VIEW ? "DUAL_VIEW (FFmpeg)" : "OTHER"));
 
     // Calculate timeline duration from tracks
     timeline_duration_ = 0.0;
@@ -201,7 +228,6 @@ void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
     scrub_state_ = ScrubState::IDLE;
     pending_refine_frame_ = -1;
     active_refine_frame_ = -1;
-    scrub_stuck_counter_ = 0;
     last_successful_frame_time_ = std::chrono::steady_clock::now();
 
     // Start I/O worker threads
@@ -263,6 +289,20 @@ void TimelineCache::Shutdown() {
 
     // Cleanup letterbox compositing resources
     CleanupLetterboxResources();
+
+    // Cleanup aggressive scrub held texture
+    if (aggressive_held_texture_ != 0) {
+        glDeleteTextures(1, &aggressive_held_texture_);
+        aggressive_held_texture_ = 0;
+        aggressive_held_width_ = 0;
+        aggressive_held_height_ = 0;
+        aggressive_held_frame_ = -1;
+        aggressive_held_source_.clear();
+    }
+    aggressive_scrub_mode_ = AggressiveScrubMode::INACTIVE;
+
+    // Clear scrub decoders
+    scrub_decoders_.ClearAll();
 
     // Clear loaders
     {
@@ -335,6 +375,205 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
         return 0;
     }
 
+    //=========================================================================
+    // AGGRESSIVE SCRUB PATH - For MULTI_TRACK/DUAL_VIEW responsive scrubbing
+    // Bypass CacheWindowEngine entirely - go direct to decoder buffer
+    // This avoids SetNeededFrames() calls which would trigger full-window pre-buffering
+    //=========================================================================
+    if ((source_mode_ == TimelineSourceMode::MULTI_TRACK ||
+         source_mode_ == TimelineSourceMode::DUAL_VIEW) &&
+        aggressive_scrub_mode_.load() == AggressiveScrubMode::ACTIVE_SCRUBBING) {
+
+        // Update timestamp on any scrub movement
+        aggressive_scrub_last_move_ = std::chrono::steady_clock::now();
+
+        // Check clip boundary crossing - invalidate held frame if source changed
+        if (!aggressive_held_source_.empty() && coords.source_path != aggressive_held_source_) {
+            aggressive_held_frame_ = -1;
+            aggressive_held_source_.clear();
+        }
+
+        // Rate limit texture updates to ~30fps to prevent GPU starvation on 4K+ content
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - shuttle_last_texture_time_).count();
+
+        const int kMinTextureUpdateMs = 33;  // ~30fps max texture update rate
+        if (elapsed_ms < kMinTextureUpdateMs && aggressive_held_texture_ != 0) {
+            // Rate limited - return held texture
+            setOutputDimensions(aggressive_held_width_, aggressive_held_height_);
+            if (got_exact_frame) *got_exact_frame = false;
+            return maybeComposite(aggressive_held_texture_, aggressive_held_width_, aggressive_held_height_);
+        }
+
+        // SCRUB PATH: Use dedicated ScrubDecoder (completely detached from CacheWindowEngine)
+        // This prevents full window decode floods - ScrubDecoder has small buffer (15 frames)
+        // and uses keyframe-only seeks for fast response
+        ScrubDecoder* scrub_decoder = scrub_decoders_.GetDecoder(coords.source_path);
+
+        if (scrub_decoder) {
+            // Try exact frame first (might be buffered from recent decode)
+            auto pixels = scrub_decoder->GetFrame(coords.source_frame);
+            bool is_exact_frame = (pixels != nullptr);
+
+            if (!pixels) {
+                // Fall back to closest frame in buffer (fast keyframe access)
+                int actual_frame = -1;
+                pixels = scrub_decoder->GetClosestFrame(coords.source_frame, &actual_frame);
+            }
+
+            if (pixels) {
+                shuttle_last_texture_time_ = now;
+
+                // Reuse texture if dimensions match, otherwise recreate
+                if (aggressive_held_texture_ != 0 &&
+                    aggressive_held_width_ == pixels->width &&
+                    aggressive_held_height_ == pixels->height) {
+                    // Reuse existing texture, just update content
+                    glBindTexture(GL_TEXTURE_2D, aggressive_held_texture_);
+                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
+                                    pixels->width, pixels->height,
+                                    pixels->gl_format, pixels->gl_type,
+                                    pixels->pixels.data());
+                    glBindTexture(GL_TEXTURE_2D, 0);
+                } else {
+                    // Need new texture
+                    if (aggressive_held_texture_ != 0) {
+                        glDeleteTextures(1, &aggressive_held_texture_);
+                    }
+                    aggressive_held_texture_ = CreateGLTexture(pixels);
+                    aggressive_held_width_ = pixels->width;
+                    aggressive_held_height_ = pixels->height;
+                }
+
+                aggressive_held_frame_ = timeline_frame;
+                aggressive_held_source_ = coords.source_path;
+
+                // Also update last_good for fallback chain
+                last_good_texture_ = aggressive_held_texture_;
+                last_good_width_ = aggressive_held_width_;
+                last_good_height_ = aggressive_held_height_;
+                last_good_frame_ = timeline_frame;
+                last_good_source_path_ = coords.source_path;
+
+                setOutputDimensions(pixels->width, pixels->height);
+                if (got_exact_frame) *got_exact_frame = is_exact_frame;
+                return maybeComposite(aggressive_held_texture_, aggressive_held_width_, aggressive_held_height_);
+            }
+        }
+
+        // No new frame available - return held texture for visual continuity
+        if (aggressive_held_texture_ != 0) {
+            setOutputDimensions(aggressive_held_width_, aggressive_held_height_);
+            if (got_exact_frame) *got_exact_frame = false;
+            return maybeComposite(aggressive_held_texture_, aggressive_held_width_, aggressive_held_height_);
+        }
+
+        // Ultimate fallback: return last_good_texture
+        if (last_good_texture_ != 0) {
+            setOutputDimensions(last_good_width_, last_good_height_);
+            if (got_exact_frame) *got_exact_frame = false;
+            return maybeComposite(last_good_texture_, last_good_width_, last_good_height_);
+        }
+
+        // No held frame - return gap texture
+        if (gap_texture_ != 0) {
+            setOutputDimensions(gap_texture_width_, gap_texture_height_);
+            if (got_exact_frame) *got_exact_frame = false;
+            return gap_texture_;
+        }
+
+        return 0;
+    }
+
+    //=========================================================================
+    // VIDEO FAST PATH - Only for VIDEO_FILE mode (GStreamer single video)
+    // GStreamer handles buffering internally, so we bypass cache and pull directly
+    // For MULTI_TRACK mode (FFmpeg), VIDEO clips use the cache path below
+    //=========================================================================
+    ClipMediaType media_type = DetectMediaType(coords.source_path);
+    if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+        std::shared_ptr<ClipLoaderInfo> loader_info;
+        {
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            auto it = loaders_.find(coords.source_path);
+            if (it != loaders_.end()) {
+                loader_info = it->second;
+            }
+        }
+
+        if (loader_info && loader_info->video_decoder) {
+            // Update playhead to trigger decode-ahead
+            loader_info->video_decoder->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, false);
+
+            // Try to get exact frame
+            auto pixels = loader_info->video_decoder->GetFrame(coords.source_frame);
+            bool is_exact = (pixels != nullptr);
+
+            // Only fall back to closest frame during active shuttle/scrub mode
+            // This prevents flashing wrong frames on click-seeks while keeping smooth scrubbing
+            if (!pixels && shuttle_active_) {
+                pixels = loader_info->video_decoder->GetClosestFrame(coords.source_frame, nullptr);
+            }
+
+            if (pixels) {
+                // Upload to reusable texture (create if needed, resize if needed)
+                // Select internal format based on pixel data type (must match for HDR/High-Res)
+                GLenum internal_format = GL_RGBA8;
+                if (pixels->gl_type == GL_HALF_FLOAT) {
+                    internal_format = GL_RGBA16F;
+                } else if (pixels->gl_type == GL_UNSIGNED_SHORT) {
+                    internal_format = GL_RGBA16;
+                }
+
+                if (loader_info->video_texture == 0 ||
+                    loader_info->video_texture_width != pixels->width ||
+                    loader_info->video_texture_height != pixels->height ||
+                    loader_info->video_texture_format != internal_format) {
+                    // Delete old texture if exists
+                    if (loader_info->video_texture != 0) {
+                        glDeleteTextures(1, &loader_info->video_texture);
+                    }
+                    // Create new texture with correct internal format
+                    glGenTextures(1, &loader_info->video_texture);
+                    glBindTexture(GL_TEXTURE_2D, loader_info->video_texture);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+                    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+                    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, pixels->width, pixels->height,
+                                 0, pixels->gl_format, pixels->gl_type, pixels->pixels.data());
+                    loader_info->video_texture_width = pixels->width;
+                    loader_info->video_texture_height = pixels->height;
+                    loader_info->video_texture_format = internal_format;
+                } else {
+                    // Reuse existing texture, just update data
+                    glBindTexture(GL_TEXTURE_2D, loader_info->video_texture);
+                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pixels->width, pixels->height,
+                                    pixels->gl_format, pixels->gl_type, pixels->pixels.data());
+                }
+                glBindTexture(GL_TEXTURE_2D, 0);
+
+                setOutputDimensions(pixels->width, pixels->height);
+                if (got_exact_frame) *got_exact_frame = is_exact;
+                cache_hits_++;  // Count as hit for stats
+                return maybeComposite(loader_info->video_texture, pixels->width, pixels->height);
+            }
+        }
+
+        // No frame available - return gap or 0
+        if (got_exact_frame) *got_exact_frame = false;
+        if (gap_texture_ != 0) {
+            setOutputDimensions(gap_texture_width_, gap_texture_height_);
+            return gap_texture_;
+        }
+        return 0;
+    }
+
+    //=========================================================================
+    // CACHE PATH - For IMAGE_SEQUENCE and MULTI_TRACK VIDEO (FFmpeg)
+    // Uses timeline_frame as cache key (simple, matches working v069 backup)
+    //=========================================================================
     TimelineCacheKey key{timeline_frame};
 
     // DEBUG: Periodic playback frame mapping log (every ~1 second during playback)
@@ -411,14 +650,9 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
         }
     }
 
-    // Helper lambda to mark success and reset stuck counter
+    // Helper lambda to mark success
     auto markSuccess = [this]() {
-        scrub_stuck_counter_ = 0;
         last_successful_frame_time_ = std::chrono::steady_clock::now();
-        // NOTE: Don't clear post_edit_pending_ here - let the grace period expire naturally
-        // or let the explicit timeout in the post-edit block handle it.
-        // Clearing it here was causing the cache fill to start requesting read-behind frames
-        // too early, before the buffer had a chance to fill forward.
     };
 
     // ALWAYS check cache first - even during scrubbing
@@ -602,11 +836,6 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
         }
     }
 
-    // Track stuck state during scrubbing
-    if (is_scrubbing) {
-        scrub_stuck_counter_++;
-    }
-
     // FALLBACK: Return last good frame instead of black
     // This ensures visual continuity when cache/decoder is momentarily behind
     if (last_good_texture_ != 0) {
@@ -727,7 +956,29 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
     bool was_playing = is_playing_.exchange(is_playing);
 
     // Update cache window engine's playhead
-    cache_engine_.UpdatePlayhead(timeline_frame);
+    // CRITICAL: Skip during ACTIVE_SCRUBBING to prevent priming engine for full window fill
+    // When scrub mode ends, the next iteration would otherwise trigger full window decode
+    if (aggressive_scrub_mode_.load() != AggressiveScrubMode::ACTIVE_SCRUBBING) {
+        cache_engine_.UpdatePlayhead(timeline_frame);
+    }
+
+    // DEBUG: Log when play state changes
+    if (is_playing != was_playing) {
+        size_t cache_size = 0;
+        int min_frame = INT_MAX, max_frame = INT_MIN;
+        {
+            std::lock_guard<std::mutex> lock(cache_mutex_);
+            cache_size = frame_cache_.size();
+            for (const auto& [key, frame] : frame_cache_) {
+                if (key.timeline_frame < min_frame) min_frame = key.timeline_frame;
+                if (key.timeline_frame > max_frame) max_frame = key.timeline_frame;
+            }
+        }
+        Debug::Log("TimelineCache: [PLAY STATE CHANGE] is_playing=" + std::to_string(is_playing) +
+                   " frame=" + std::to_string(timeline_frame) +
+                   " cached=" + std::to_string(cache_size) +
+                   " range=[" + std::to_string(min_frame) + "-" + std::to_string(max_frame) + "]");
+    }
 
     // Propagate playback mode changes to all decoders
     if (is_playing != was_playing) {
@@ -753,6 +1004,13 @@ void TimelineCache::RequestFrame(int timeline_frame) {
     SourceCoords coords = TimelineToSource(timeline_frame);
     if (!coords.valid) return;
 
+    // SKIP VIDEO CLIPS in VIDEO_FILE mode - GStreamer handles decoding internally
+    // For MULTI_TRACK mode, VIDEO clips use the cache path
+    ClipMediaType media_type = DetectMediaType(coords.source_path);
+    if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+        return;  // GStreamer decoder handles this
+    }
+
     TimelineCacheKey key{timeline_frame};
 
     // Check if already cached
@@ -763,7 +1021,7 @@ void TimelineCache::RequestFrame(int timeline_frame) {
         }
     }
 
-    // Check if already in progress or pending
+    // Check if already in progress or pending (IMAGE_SEQUENCE only at this point)
     {
         std::lock_guard<std::mutex> lock(request_mutex_);
 
@@ -850,16 +1108,26 @@ void TimelineCache::ProcessPendingUploads() {
             }
         }
 
-        // Now create GL texture
-        GLuint texture = CreateGLTexture(upload.pixels);
-        if (texture == 0) continue;
-
-        // Add to cache
+        // Create texture (D3D11 or GL depending on mode)
         CachedFrame frame;
-        frame.texture_id = texture;
         frame.width = upload.pixels->width;
         frame.height = upload.pixels->height;
         frame.byte_size = upload.pixels->ByteSize();
+
+#ifdef _WIN32
+        if (use_d3d11_rendering_) {
+            // Create D3D11 texture
+            if (!CreateD3D11Texture(upload.pixels, frame.texture_d3d, frame.srv_d3d)) {
+                continue;
+            }
+        } else
+#endif
+        {
+            // Create GL texture
+            GLuint texture = CreateGLTexture(upload.pixels);
+            if (texture == 0) continue;
+            frame.texture_id = texture;
+        }
 
         {
             std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -868,13 +1136,17 @@ void TimelineCache::ProcessPendingUploads() {
             // This can happen when duplicate requests slip through (race condition)
             auto existing = frame_cache_.find(upload.key);
             if (existing != frame_cache_.end()) {
+#ifdef _WIN32
+                // D3D11 textures are released automatically via ComPtr
+                // Just need to handle GL textures
+#endif
                 if (existing->second.texture_id != 0) {
                     // Delete old texture immediately (we're on GL thread)
                     glDeleteTextures(1, &existing->second.texture_id);
                     s_textures_deleted++;
                    /* Debug::Log("TimelineCache: [DUPLICATE] Deleted old texture " +
                                std::to_string(existing->second.texture_id) +
-                               " for frame " + std::to_string(upload.key.source_frame));*/
+                               " for frame " + std::to_string(upload.key.timeline_frame));*/
                 }
             }
 
@@ -886,7 +1158,7 @@ void TimelineCache::ProcessPendingUploads() {
         total_uploads++;
         if (total_uploads <= 5 || total_uploads % 50 == 0) {
             /*Debug::Log("TimelineCache: GPU upload #" + std::to_string(total_uploads) +
-                       " - frame " + std::to_string(upload.key.source_frame) +
+                       " - tl_frame " + std::to_string(upload.key.timeline_frame) +
                        " (" + std::to_string(frame.width) + "x" + std::to_string(frame.height) + ")");*/
         }
 
@@ -1163,6 +1435,55 @@ void TimelineCache::SetLooping(bool enabled) {
     Debug::Log("TimelineCache: Looping " + std::string(enabled ? "enabled" : "disabled"));
 }
 
+void TimelineCache::SetFPS(double fps) {
+    if (std::abs(config_.fps - fps) < 0.01) return;  // No significant change
+
+    Debug::Log("TimelineCache: FPS updated from " + std::to_string(config_.fps) +
+               " to " + std::to_string(fps));
+
+    config_.fps = fps;
+
+    // Recalculate frame counts
+    total_timeline_frames_ = static_cast<int>(timeline_duration_ * fps);
+
+    // Update cache window engine
+    cache_engine_.SetTotalFrames(total_timeline_frames_);
+    cache_engine_.SetWindow(config_.GetReadBehindFrames(), config_.readAheadFrames);
+
+    // Clear cache - old frames have stale frame numbers
+    ClearCache();
+
+    // Reset detected FPS since we've now applied it
+    detected_media_fps_ = 0.0;
+}
+
+void TimelineCache::SetPipelineMode(PipelineMode mode) {
+    if (video_pipeline_mode_ == mode) {
+        return;  // No change
+    }
+
+    video_pipeline_mode_ = mode;
+    Debug::Log("TimelineCache: Pipeline mode set to " +
+               std::string(PipelineModeToString(mode)));
+
+    // Propagate to all video decoders (image sequences handle their own bit depth)
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        for (auto& [path, loader] : loaders_) {
+            if (loader->video_decoder) {
+                loader->video_decoder->SetPipelineMode(mode);
+            }
+            // Note: sequence decoders don't have SetPipelineMode - their bit depth
+            // is determined by the image format (EXR=float, TIFF/PNG=8/16-bit)
+        }
+    }
+
+    // Clear cache since bit depth changed
+    ClearCache();
+
+    Debug::Log("TimelineCache: Cleared cache after pipeline mode change");
+}
+
 void TimelineCache::SetLoopBoundaries(int start_frame, int end_frame) {
     // Validate and swap if needed
     if (start_frame > end_frame) std::swap(start_frame, end_frame);
@@ -1402,6 +1723,23 @@ TimelineCacheStats TimelineCache::GetStats() const {
     return stats;
 }
 
+bool TimelineCache::IsVideoOnly() const {
+    // Check if all loaded sources are video clips (GStreamer handles buffering)
+    // If so, we skip the cache progress bar since caching is internal to GStreamer
+    std::lock_guard<std::mutex> lock(loaders_mutex_);
+    if (loaders_.empty()) {
+        return false;  // No content yet
+    }
+    for (const auto& [path, info] : loaders_) {
+        if (!info) continue;
+        // If any clip is NOT video, return false (cache bar is useful)
+        if (info->media_type != ClipMediaType::VIDEO) {
+            return false;
+        }
+    }
+    return true;  // All clips are video - GStreamer handles caching
+}
+
 std::vector<TimelineCacheSegment> TimelineCache::GetCacheSegments() const {
     // Return cached segments if not dirty
     if (!segments_dirty_.load()) {
@@ -1458,12 +1796,9 @@ std::vector<TimelineCacheSegment> TimelineCache::GetCacheSegments() const {
     for (int frame = boundary_start; frame <= boundary_end; ++frame) {
         bool is_cached = false;
 
-        // Check if this timeline frame maps to a cached source
-        SourceCoords coords = TimelineToSource(frame);
-        if (coords.valid) {
-            TimelineCacheKey key{frame};
-            is_cached = (cached_keys.find(key) != cached_keys.end());
-        }
+        // Check if this timeline frame is cached
+        TimelineCacheKey key{frame};
+        is_cached = (cached_keys.find(key) != cached_keys.end());
 
         if (is_cached) {
             if (segment_start < 0) {
@@ -1499,6 +1834,80 @@ std::vector<TimelineCacheSegment> TimelineCache::GetCacheSegments() const {
     {
         std::lock_guard<std::mutex> lock(segments_mutex_);
         cached_segments_ = segments;
+    }
+
+    return segments;
+}
+
+std::vector<TimelineCacheSegment> TimelineCache::GetVideoBufferSegments() const {
+    std::vector<TimelineCacheSegment> segments;
+
+    if (!initialized_ || timeline_duration_ <= 0 || config_.fps <= 0) {
+        return segments;
+    }
+
+    // Get boundary range - only scan within boundaries
+    int boundary_start = GetBoundaryStart();
+    int boundary_end = GetBoundaryEnd();
+
+    if (boundary_end < boundary_start) {
+        return segments;
+    }
+
+    // Scan timeline frames and check if each maps to a buffered source frame in video decoder
+    // Group consecutive buffered frames into segments
+    int segment_start = -1;
+    int segment_end = -1;
+
+    for (int frame = boundary_start; frame <= boundary_end; ++frame) {
+        bool is_buffered = false;
+
+        // Map timeline frame to source coordinates
+        SourceCoords coords = TimelineToSource(frame);
+        if (coords.valid) {
+            ClipMediaType media_type = DetectMediaType(coords.source_path);
+            if (media_type == ClipMediaType::VIDEO) {
+                // Check if this source frame is in the video decoder's buffer
+                std::lock_guard<std::mutex> lock(loaders_mutex_);
+                auto it = loaders_.find(coords.source_path);
+                if (it != loaders_.end() && it->second) {
+                    // Check managed_decoder (MULTI_TRACK mode) or video_decoder (VIDEO_FILE mode)
+                    if (it->second->managed_decoder) {
+                        is_buffered = it->second->managed_decoder->HasFrame(coords.source_frame);
+                    } else if (it->second->video_decoder) {
+                        is_buffered = it->second->video_decoder->HasFrame(coords.source_frame);
+                    }
+                }
+            }
+        }
+
+        if (is_buffered) {
+            if (segment_start < 0) {
+                segment_start = frame;
+            }
+            segment_end = frame;
+        } else {
+            // End of buffered segment
+            if (segment_start >= 0) {
+                TimelineCacheSegment seg;
+                seg.type = TimelineCacheSegment::VIDEO_BUFFER;
+                seg.start_time = segment_start / config_.fps;
+                seg.end_time = (segment_end + 1) / config_.fps;
+                seg.density = 1.0f;
+                segments.push_back(seg);
+                segment_start = -1;
+            }
+        }
+    }
+
+    // Don't forget the last segment
+    if (segment_start >= 0) {
+        TimelineCacheSegment seg;
+        seg.type = TimelineCacheSegment::VIDEO_BUFFER;
+        seg.start_time = segment_start / config_.fps;
+        seg.end_time = (segment_end + 1) / config_.fps;
+        seg.density = 1.0f;
+        segments.push_back(seg);
     }
 
     return segments;
@@ -1724,7 +2133,8 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
 
     if (!flattener_) return coords;
 
-    double timestamp = static_cast<double>(timeline_frame) / config_.fps;
+    // Use center of frame's display period to avoid boundary ambiguity
+    double timestamp = (static_cast<double>(timeline_frame) + 0.5) / config_.fps;
 
     // Get visible clip at this timestamp
     const OTIOClip* clip = flattener_->GetVisibleClipAtTime(timestamp);
@@ -1802,8 +2212,9 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
             source_time = clip->source_in + clip_offset;
         }
 
-        // Use rounding (+ 0.5) to match decoder's PTS-based frame numbering
-        source_frame = static_cast<int>(source_time * fps_for_frame_calc + 0.5);
+        // Use floor (no +0.5) since we already added 0.5 to timestamp for center-of-frame
+        // Adding +0.5 here would double-count and shift all frames by 1
+        source_frame = static_cast<int>(source_time * fps_for_frame_calc);
         original_source_frame = source_frame;
 
         // Clamp source_frame to valid range for the source media
@@ -1899,6 +2310,10 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
     }
     // Lock released - allows other threads to proceed during slow initialization
 
+    // NOTE: Aggressive scrub gate removed - GetFrame scrub path now accesses
+    // loaders directly, so decoder creation here is safe. This allows
+    // CacheManagementThread to prewarm decoders for upcoming clips even during scrub.
+
     // Check for registered sequence metadata
     SequenceMetadata seq_meta;
     {
@@ -1917,22 +2332,70 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
 
     switch (info->media_type) {
         case ClipMediaType::VIDEO: {
-            // Create ManagedVideoDecoder for continuous decode + buffering
-            // Uses spawn-and-abandon for responsive seeking with large media
-            // This is the slow operation (FFmpeg init) - lock NOT held!
-            auto decoder = std::make_unique<ManagedVideoDecoder>(source_path);
+            // Select decoder based on source mode:
+            // - VIDEO_FILE: Use GStreamer via factory (single video, HW accel, A/V sync)
+            // - MULTI_TRACK/DUAL_VIEW: Use ManagedVideoDecoder (FFmpeg with spawn-and-abandon)
+            Debug::Log("TimelineCache::GetOrCreateLoader VIDEO clip, source_mode=" +
+                       std::to_string(static_cast<int>(source_mode_)) +
+                       " (0=MULTI_TRACK, 1=IMAGE_SEQ, 2=VIDEO_FILE, 4=DUAL_VIEW) path=" + source_path);
+            if (source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+                // GStreamer path for single video playback
+                auto decoder = VideoDecoderFactory::Instance().CreateDecoder(
+                    source_path, VideoDecoderBackend::GSTREAMER);
 
-            if (!decoder->Initialize()) {
-                Debug::Log("TimelineCache: Failed to initialize ManagedVideoDecoder for " + source_path);
-                return nullptr;
+                if (!decoder) {
+                    Debug::Log("TimelineCache: Failed to create GStreamer decoder for " + source_path +
+                               " - " + VideoDecoderFactory::Instance().GetLastError());
+                    return nullptr;
+                }
+
+                // Set pipeline mode BEFORE Initialize() to avoid double pipeline build
+                decoder->SetPipelineMode(video_pipeline_mode_);
+
+                if (!decoder->Initialize()) {
+                    Debug::Log("TimelineCache: Failed to initialize GStreamer decoder for " + source_path);
+                    return nullptr;
+                }
+
+                info->video_decoder = std::move(decoder);
+                info->pipeline_mode = video_pipeline_mode_;
+                info->width = info->video_decoder->GetWidth();
+                info->height = info->video_decoder->GetHeight();
+                info->fps = info->video_decoder->GetFPS();
+                info->frame_count = info->video_decoder->GetFrameCount();
+
+                // Store detected FPS for pending update check (only for VIDEO_FILE mode)
+                if (detected_media_fps_ <= 0) {
+                    detected_media_fps_ = info->fps;
+                    if (std::abs(info->fps - config_.fps) > 0.01) {
+                        Debug::Log("TimelineCache: FPS mismatch - media=" + std::to_string(info->fps) +
+                                   " timeline=" + std::to_string(config_.fps) + " (pending update)");
+                    }
+                }
+            } else {
+                // ManagedVideoDecoder for MULTI_TRACK/DUAL_VIEW (FFmpeg with spawn-and-abandon)
+                // This provides responsive seeking for large 4K+ frames
+                auto decoder = std::make_unique<ManagedVideoDecoder>(source_path);
+
+                // Set pipeline mode BEFORE Initialize()
+                decoder->SetPipelineMode(video_pipeline_mode_);
+
+                if (!decoder->Initialize()) {
+                    Debug::Log("TimelineCache: Failed to initialize ManagedVideoDecoder for " + source_path);
+                    return nullptr;
+                }
+
+                info->managed_decoder = std::move(decoder);
+                info->pipeline_mode = video_pipeline_mode_;
+                info->width = info->managed_decoder->GetWidth();
+                info->height = info->managed_decoder->GetHeight();
+                info->fps = info->managed_decoder->GetFPS();
+                info->frame_count = info->managed_decoder->GetFrameCount();
+
+                Debug::Log("TimelineCache: ManagedVideoDecoder created for " + source_path +
+                           " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
+                           " @ " + std::to_string(info->fps) + " fps)");
             }
-
-            info->video_decoder = std::move(decoder);
-            info->pipeline_mode = PipelineMode::NORMAL;
-            info->width = info->video_decoder->GetWidth();
-            info->height = info->video_decoder->GetHeight();
-            info->fps = info->video_decoder->GetFPS();
-            info->frame_count = info->video_decoder->GetFrameCount();
             break;
         }
 
@@ -2060,7 +2523,8 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
 
         // Log creation (moved here to only log the winner)
         if (info->media_type == ClipMediaType::VIDEO && info->video_decoder) {
-            Debug::Log("TimelineCache: ManagedVideoDecoder created for " + source_path +
+            Debug::Log("TimelineCache: " + std::string(info->video_decoder->GetBackendName()) +
+                       " decoder created for " + source_path +
                        " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
                        " @ " + std::to_string(info->fps) + " fps, " +
                        std::to_string(info->frame_count) + " frames)");
@@ -2094,205 +2558,186 @@ void TimelineCache::IOWorkerThread() {
     while (io_running_) {
         int timeline_frame = -1;
 
-        // Get next frame to load
-        {
-            std::unique_lock<std::mutex> lock(request_mutex_);
+        try {
+            // Get next frame to load
+            {
+                std::unique_lock<std::mutex> lock(request_mutex_);
 
-            // Wait for work
-            request_cv_.wait(lock, [this] {
-                return !io_running_ || !video_requests_.empty() || !direct_source_requests_.empty();
-            });
+                // Wait for work
+                request_cv_.wait(lock, [this] {
+                    return !io_running_ || !video_requests_.empty() || !direct_source_requests_.empty();
+                });
 
-            if (!io_running_) break;
+                if (!io_running_) break;
 
-            // NOTE: Direct source requests (slip/trim preview) disabled with timeline_frame caching
-            // direct_source_requests_ queue is not used
+                // NOTE: Direct source requests (slip/trim preview) disabled with timeline_frame caching
+                // direct_source_requests_ queue is not used
 
-            if (video_requests_.empty()) continue;
+                if (video_requests_.empty()) continue;
 
-            // Get first request (FIFO - CacheThread adds in priority order)
-            timeline_frame = video_requests_.front();
-            video_requests_.pop_front();
-            video_requests_set_.erase(timeline_frame);  // Keep set in sync
+                // Get first request (FIFO - CacheThread adds in priority order)
+                timeline_frame = video_requests_.front();
+                video_requests_.pop_front();
+                video_requests_set_.erase(timeline_frame);  // Keep set in sync
 
-            // Mark as in progress
-            requests_in_progress_.insert(timeline_frame);
-        }
+                // Mark as in progress
+                requests_in_progress_.insert(timeline_frame);
+            }
 
-        if (timeline_frame < 0) continue;
+            if (timeline_frame < 0) continue;
 
-        // Convert timeline frame to source coordinates
-        SourceCoords coords = TimelineToSource(timeline_frame);
-        if (!coords.valid) {
-            std::lock_guard<std::mutex> lock(request_mutex_);
-            requests_in_progress_.erase(timeline_frame);
-            continue;
-        }
-
-        TimelineCacheKey key{timeline_frame};
-
-        // Check if already cached (another thread might have loaded it)
-        {
-            std::lock_guard<std::mutex> lock(cache_mutex_);
-            if (frame_cache_.find(key) != frame_cache_.end()) {
-                std::lock_guard<std::mutex> req_lock(request_mutex_);
+            // Skip IO work during aggressive scrub - GetFrame uses ScrubDecoders exclusively
+            // This prevents ManagedVideoDecoder creation which would flood memory
+            if (aggressive_scrub_mode_.load() == AggressiveScrubMode::ACTIVE_SCRUBBING) {
+                std::lock_guard<std::mutex> lock(request_mutex_);
                 requests_in_progress_.erase(timeline_frame);
-                continue;  // Already loaded
+                continue;  // Frame will be re-requested when scrub ends
             }
-        }
 
-        // Check if already pending upload (O(1) lookup)
-        {
-            std::lock_guard<std::mutex> lock(upload_mutex_);
-            if (pending_uploads_set_.count(key) > 0) {
-                std::lock_guard<std::mutex> req_lock(request_mutex_);
-                requests_in_progress_.erase(timeline_frame);
-                continue;  // Already being uploaded
-            }
-        }
-
-        //=====================================================================
-        // CRITICAL: During post-edit, validate that the source frame is reachable
-        // from the decoder's current position. After an edit, the timeline-to-source
-        // mapping may have changed, and the read-ahead window may include source
-        // frames that are BEFORE the decoder's buffer start (unreachable).
-        //=====================================================================
-        bool skip_unreachable = false;
-        if (post_edit_pending_.load()) {
-            // Get loader to check decoder buffer range
-            auto loader_info = GetOrCreateLoader(coords.source_path);
-            if (loader_info && loader_info->HasBufferedDecoder()) {
-                int buffer_start = -1, buffer_end = -1;
-                loader_info->GetBufferedRange(buffer_start, buffer_end);
-
-                // If buffer has frames and requested frame is before buffer start,
-                // this request is unreachable - skip it
-                if (buffer_start >= 0 && coords.source_frame < buffer_start) {
-                    skip_unreachable = true;
-                    // Log once per unique unreachable frame (rate-limited)
-                    static std::set<int> logged_unreachable;
-                    if (logged_unreachable.find(coords.source_frame) == logged_unreachable.end()) {
-                        Debug::Log("TimelineCache: [POST-EDIT] Skip unreachable source frame " +
-                                   std::to_string(coords.source_frame) + " (buffer starts at " +
-                                   std::to_string(buffer_start) + ")");
-                        logged_unreachable.insert(coords.source_frame);
-                        // Clear log set occasionally to avoid unbounded growth
-                        if (logged_unreachable.size() > 100) {
-                            logged_unreachable.clear();
-                        }
-                    }
-                }
-            }
-        }
-
-        if (skip_unreachable) {
-            std::lock_guard<std::mutex> lock(request_mutex_);
-            requests_in_progress_.erase(timeline_frame);
-            continue;  // Skip unreachable frame
-        }
-
-        // CRITICAL: Check if already cached BEFORE loading pixels
-        // This prevents redundant decoding when frame was cached by another path
-        {
-            std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-            if (frame_cache_.find(key) != frame_cache_.end()) {
-                // Already cached - skip loading
+            // Convert timeline frame to source coordinates
+            SourceCoords coords = TimelineToSource(timeline_frame);
+            if (!coords.valid) {
                 std::lock_guard<std::mutex> lock(request_mutex_);
                 requests_in_progress_.erase(timeline_frame);
                 continue;
             }
-        }
 
-        // Load pixels
-        auto pixels = LoadPixels(key);
+            TimelineCacheKey key{timeline_frame};
 
-        // Remove from in-progress
-        {
-            std::lock_guard<std::mutex> lock(request_mutex_);
-            requests_in_progress_.erase(timeline_frame);
-        }
-
-        if (!pixels) {
-            // During post-edit, if frame not ready, re-queue it at the FRONT
-            // BUT only if the frame is still reachable from decoder's current position
-            if (post_edit_pending_.load()) {
-                // Re-check if frame is reachable before re-queuing
-                bool should_requeue = true;
-                auto loader_info = GetOrCreateLoader(coords.source_path);
-                if (loader_info && loader_info->HasBufferedDecoder()) {
-                    int buffer_start = -1, buffer_end = -1;
-                    loader_info->GetBufferedRange(buffer_start, buffer_end);
-                    if (buffer_start >= 0 && coords.source_frame < buffer_start) {
-                        // Frame is before buffer start - unreachable, don't re-queue
-                        should_requeue = false;
-                    }
-                }
-
-                if (should_requeue) {
-                    std::lock_guard<std::mutex> lock(request_mutex_);
-                    // Check it's not already in queue
-                    if (video_requests_set_.count(timeline_frame) == 0) {
-                        video_requests_.push_front(timeline_frame);  // Priority re-queue
-                        video_requests_set_.insert(timeline_frame);
-                    }
-                    // Small delay to let decoder catch up
-                    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            // Check if already cached (another thread might have loaded it)
+            {
+                std::lock_guard<std::mutex> lock(cache_mutex_);
+                if (frame_cache_.find(key) != frame_cache_.end()) {
+                    std::lock_guard<std::mutex> req_lock(request_mutex_);
+                    requests_in_progress_.erase(timeline_frame);
+                    continue;  // Already loaded
                 }
             }
-            continue;
-        }
 
-        // Track actual frame size (like EXR cache)
-        if (!hasActualFrameSize_ && pixels) {
-            actualFrameSize_ = pixels->ByteSize();
-            hasActualFrameSize_ = true;
-            Debug::Log("TimelineCache: Detected frame size: " +
-                       std::to_string(actualFrameSize_ / (1024*1024)) + " MB");
-        }
+            // Check if already pending upload (O(1) lookup)
+            {
+                std::lock_guard<std::mutex> lock(upload_mutex_);
+                if (pending_uploads_set_.count(key) > 0) {
+                    std::lock_guard<std::mutex> req_lock(request_mutex_);
+                    requests_in_progress_.erase(timeline_frame);
+                    continue;  // Already being uploaded
+                }
+            }
 
-        // Queue for GPU upload (with duplicate check and size limit to prevent memory explosion)
-        {
-            std::lock_guard<std::mutex> lock(upload_mutex_);
+            // GStreamer can seek to any frame - no unreachable frame handling needed
 
-            // CRITICAL: Limit pending uploads queue to prevent memory explosion during seek
-            // 4K frames are ~33MB each. 16 pending uploads = ~500MB worst case.
-            // During rapid seeking, I/O workers can queue faster than ProcessPendingUploads consumes.
-            static constexpr size_t MAX_PENDING_UPLOADS = 16;
+            // Check if already cached BEFORE loading pixels
+            // This prevents redundant decoding when frame was cached by another path
+            {
+                std::lock_guard<std::mutex> cache_lock(cache_mutex_);
+                if (frame_cache_.find(key) != frame_cache_.end()) {
+                    // Already cached - skip loading
+                    std::lock_guard<std::mutex> lock(request_mutex_);
+                    requests_in_progress_.erase(timeline_frame);
+                    continue;
+                }
+            }
 
-            // If queue is full, evict frames OUTSIDE the cache window first
-            // This prevents thrashing where we drop in-window frames then re-decode them
-            if (pending_uploads_.size() >= MAX_PENDING_UPLOADS) {
-                std::set<int> window = cache_engine_.GetFrameWindowSet();
+            // Load pixels
+            auto pixels = LoadPixels(key);
 
-                // First pass: remove frames outside the window
-                auto it = pending_uploads_.begin();
-                while (it != pending_uploads_.end() && pending_uploads_.size() >= MAX_PENDING_UPLOADS) {
-                    if (window.find(it->key.timeline_frame) == window.end()) {
-                        // Frame is outside window - safe to drop
-                        pending_uploads_set_.erase(it->key);
-                        it = pending_uploads_.erase(it);
-                    } else {
-                        ++it;
+            // Remove from in-progress
+            {
+                std::lock_guard<std::mutex> lock(request_mutex_);
+                requests_in_progress_.erase(timeline_frame);
+            }
+
+            if (!pixels) {
+                // Frame not ready yet - re-queue for retry
+                // FFmpeg StreamingVideoDecoder uses a ring buffer that may not have the frame
+                // immediately after a seek. Re-queue to back of queue so other frames can proceed.
+                static int requeue_log_count = 0;
+                if (requeue_log_count++ < 10) {
+                    Debug::Log("TimelineCache: IOWorker re-queue tl_frame=" + std::to_string(timeline_frame) +
+                               " src_frame=" + std::to_string(coords.source_frame) +
+                               " (pixels not ready)");
+                }
+                {
+                    std::lock_guard<std::mutex> lock(request_mutex_);
+                    // Only re-queue if not already queued (avoid duplicates)
+                    if (video_requests_set_.count(timeline_frame) == 0) {
+                        video_requests_.push_back(timeline_frame);
+                        video_requests_set_.insert(timeline_frame);
                     }
                 }
+                continue;
+            }
 
-                // If still full (all frames in-window), drop oldest as last resort
+            // Track actual frame size (like EXR cache)
+            if (!hasActualFrameSize_ && pixels) {
+                actualFrameSize_ = pixels->ByteSize();
+                hasActualFrameSize_ = true;
+                Debug::Log("TimelineCache: Detected frame size: " +
+                           std::to_string(actualFrameSize_ / (1024*1024)) + " MB");
+            }
+
+            // DEBUG: Log successful pixel loads (first 5)
+            static int pixel_load_log = 0;
+            if (pixel_load_log++ < 5) {
+                Debug::Log("TimelineCache: IOWorker loaded tl_frame=" + std::to_string(timeline_frame) +
+                           " -> src_frame=" + std::to_string(coords.source_frame) +
+                           " path_end=" + coords.source_path.substr(coords.source_path.length() > 20 ? coords.source_path.length() - 20 : 0));
+            }
+
+            // Queue for GPU upload (with duplicate check and size limit to prevent memory explosion)
+            {
+                std::lock_guard<std::mutex> lock(upload_mutex_);
+
+                // CRITICAL: Limit pending uploads queue to prevent memory explosion during seek
+                // 4K frames are ~33MB each. 16 pending uploads = ~500MB worst case.
+                // During rapid seeking, I/O workers can queue faster than ProcessPendingUploads consumes.
+                static constexpr size_t MAX_PENDING_UPLOADS = 16;
+
+                // Simple FIFO eviction - drop oldest when full
                 while (pending_uploads_.size() >= MAX_PENDING_UPLOADS) {
                     auto& oldest = pending_uploads_.front();
                     pending_uploads_set_.erase(oldest.key);
                     pending_uploads_.pop_front();
                 }
+
+                // Check if this key is already pending upload (O(1) lookup)
+                if (pending_uploads_set_.count(key) == 0) {
+                    pending_uploads_.push_back({key, pixels});
+                    pending_uploads_set_.insert(key);
+                }
             }
 
-            // Check if this key is already pending upload (O(1) lookup)
-            if (pending_uploads_set_.count(key) == 0) {
-                pending_uploads_.push_back({key, pixels});
-                pending_uploads_set_.insert(key);
+            // Mark segments dirty for visualization update
+            segments_dirty_ = true;
+
+        } catch (const std::exception& e) {
+            // Log exception but keep thread alive
+            Debug::Log("TimelineCache: IOWorker exception: " + std::string(e.what()) +
+                       " (frame=" + std::to_string(timeline_frame) + ")");
+
+            // Clean up in-progress state
+            if (timeline_frame >= 0) {
+                std::lock_guard<std::mutex> lock(request_mutex_);
+                requests_in_progress_.erase(timeline_frame);
             }
+
+            // Brief sleep to prevent tight exception loop
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+
+        } catch (...) {
+            // Catch-all for COM exceptions, etc.
+            Debug::Log("TimelineCache: IOWorker unknown exception (frame=" +
+                       std::to_string(timeline_frame) + ") - thread continuing");
+
+            // Clean up in-progress state
+            if (timeline_frame >= 0) {
+                std::lock_guard<std::mutex> lock(request_mutex_);
+                requests_in_progress_.erase(timeline_frame);
+            }
+
+            // Brief sleep to prevent tight exception loop
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-
-        // Mark segments dirty for visualization update
-        segments_dirty_ = true;
     }
 
     Debug::Log("TimelineCache: I/O worker thread stopped");
@@ -2310,16 +2755,17 @@ void TimelineCache::CacheManagementThread() {
     int iteration = 0;
 
     while (cache_running_) {
-        // Wait with timeout (interruptible via request_cv_.notify_one())
-        {
-            std::unique_lock<std::mutex> lock(request_mutex_);
-            request_cv_.wait_for(lock, interval);
-        }
+        try {
+            // Wait with timeout (interruptible via request_cv_.notify_one())
+            {
+                std::unique_lock<std::mutex> lock(request_mutex_);
+                request_cv_.wait_for(lock, interval);
+            }
 
-        if (!cache_running_) break;
-        if (!initialized_ || total_timeline_frames_ <= 0) continue;
+            if (!cache_running_) break;
+            if (!initialized_ || total_timeline_frames_ <= 0) continue;
 
-        iteration++;
+            iteration++;
 
         // Get current playback position
         int current_frame = -1;
@@ -2353,75 +2799,7 @@ void TimelineCache::CacheManagementThread() {
         auto now = std::chrono::steady_clock::now();
         ScrubState current_scrub_state = scrub_state_.load();
 
-        //=====================================================================
-        // Stuck detection: If scrubbing but no frames showing, force reset
-        // Two-tier: soft reset (NORMAL seek) first, then hard reset (reopen video)
-        //=====================================================================
-        if (current_scrub_state != ScrubState::IDLE) {
-            int stuck_count = scrub_stuck_counter_.load();
-
-            if (stuck_count > kScrubHardResetThreshold) {
-                // HARD RESET: Reopen video file to completely reset FFmpeg state
-                Debug::Log("TimelineCache: Scrub severely stuck (" + std::to_string(stuck_count) +
-                           " misses), performing HARD RESET (reopen video)");
-
-                // Force reset to IDLE
-                scrub_state_ = ScrubState::IDLE;
-                current_scrub_state = ScrubState::IDLE;
-                scrub_stuck_counter_ = 0;
-                soft_reset_count_ = 0;
-
-                // Hard reset the decoder for the current position
-                // Minimize lock hold time - collect shared_ptr, then call HardReset outside lock
-                SourceCoords coords = TimelineToSource(current_frame);
-                if (coords.valid) {
-                    std::shared_ptr<ClipLoaderInfo> loader_to_reset;
-                    {
-                        std::lock_guard<std::mutex> lock(loaders_mutex_);
-                        auto it = loaders_.find(coords.source_path);
-                        if (it != loaders_.end() && it->second) {
-                            loader_to_reset = it->second;
-                        }
-                    }
-                    if (loader_to_reset && loader_to_reset->HasBufferedDecoder()) {
-                        loader_to_reset->HardReset(coords.source_frame);
-                    }
-                }
-            }
-            else if (stuck_count > kScrubStuckThreshold && stuck_count <= kScrubStuckThreshold + 5) {
-                // SOFT RESET: Just force a NORMAL quality seek (only log once per threshold crossing)
-                if (stuck_count == kScrubStuckThreshold + 1) {
-                    soft_reset_count_++;
-                    Debug::Log("TimelineCache: Scrub stuck, soft reset #" + std::to_string(soft_reset_count_.load()));
-                }
-
-                // Force reset to IDLE
-                scrub_state_ = ScrubState::IDLE;
-                current_scrub_state = ScrubState::IDLE;
-                // Don't reset stuck_counter here - let it continue counting for hard reset
-
-                // Force NORMAL quality seek on all active decoders to reset them
-                // Minimize lock hold time - collect shared_ptrs, then update outside lock
-                SourceCoords coords = TimelineToSource(current_frame);
-                std::shared_ptr<ClipLoaderInfo> loader_to_update;
-                if (coords.valid) {
-                    std::lock_guard<std::mutex> lock(loaders_mutex_);
-                    auto it = loaders_.find(coords.source_path);
-                    if (it != loaders_.end() && it->second) {
-                        loader_to_update = it->second;
-                    }
-                }
-                if (loader_to_update && loader_to_update->HasBufferedDecoder()) {
-                    loader_to_update->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL);
-                }
-            }
-        } else {
-            // Reset counters when not scrubbing
-            if (scrub_stuck_counter_.load() > 0) {
-                scrub_stuck_counter_ = 0;
-            }
-            soft_reset_count_ = 0;
-        }
+        // GStreamer handles seeking reliably - no stuck detection needed
 
         if (current_scrub_state == ScrubState::SCRUBBING) {
             // Check if scrubbing has stopped (100ms of no movement)
@@ -2485,8 +2863,6 @@ void TimelineCache::CacheManagementThread() {
                            std::to_string(refine_frame) + " to " + std::to_string(current));
                 ScrubState expected = ScrubState::REFINING;
                 scrub_state_.compare_exchange_strong(expected, ScrubState::IDLE);
-                // Reset stuck counter so new position gets a fresh start
-                scrub_stuck_counter_ = 0;
                 // Don't continue with refinement check
             }
             else if (coords.valid && refine_elapsed < kMaxRefineTimeMs) {
@@ -2517,7 +2893,6 @@ void TimelineCache::CacheManagementThread() {
                 ScrubState expected = ScrubState::REFINING;
                 if (scrub_state_.compare_exchange_strong(expected, ScrubState::IDLE)) {
                     // Successfully transitioned from REFINING to IDLE
-                    scrub_stuck_counter_ = 0;  // Reset stuck counter on successful refinement
                     if (frame_ready) {
                         Debug::Log("TimelineCache: Refinement complete, frame " +
                                    std::to_string(refine_frame) + " ready (user at " +
@@ -2553,6 +2928,12 @@ void TimelineCache::CacheManagementThread() {
             : SeekQuality::NORMAL;
 
         //=====================================================================
+        // Step 0.6: Handle aggressive scrub settling (MULTI_TRACK/DUAL_VIEW only)
+        // Called every iteration to check if settle delay has elapsed
+        //=====================================================================
+        HandleAggressiveScrubSettling();
+
+        //=====================================================================
         // Step 1: Window-based eviction (like EXR cache)
         // Build set of keys that SHOULD stay, evict anything else
         //=====================================================================
@@ -2560,10 +2941,19 @@ void TimelineCache::CacheManagementThread() {
         int readAheadFrames = config_.readAheadFrames;
 
         {
-            // Get the circular cache window - single source of truth
+            // Get the circular cache window - single source of truth (matching backup)
             std::set<int> cache_window = GetCacheWindow(current_frame);
 
-            // Convert to keys, filtering out gaps (invalid coords)
+            // DEBUG: Log boundary info on first few iterations
+            if (iteration <= 3) {
+                Debug::Log("TimelineCache: [WINDOW DEBUG] iter=" + std::to_string(iteration) +
+                           " current_frame=" + std::to_string(current_frame) +
+                           " readAhead=" + std::to_string(readAheadFrames) +
+                           " readBehind=" + std::to_string(readBehindFrames) +
+                           " window_size=" + std::to_string(cache_window.size()));
+            }
+
+            // Convert to keys, filtering out gaps (invalid coords) - matching backup
             std::set<TimelineCacheKey> keys_to_keep;
             for (int frame : cache_window) {
                 SourceCoords coords = TimelineToSource(frame);
@@ -2576,7 +2966,21 @@ void TimelineCache::CacheManagementThread() {
             std::vector<TimelineCacheKey> keys_to_evict;
             {
                 std::lock_guard<std::mutex> lock(cache_mutex_);
-                for (const auto& [key, frame] : frame_cache_) {
+
+                // DEBUG: Log cache contents on first few iterations
+                if (iteration <= 3 && !frame_cache_.empty()) {
+                    Debug::Log("TimelineCache: [CACHE DEBUG] frame_cache_ size=" +
+                               std::to_string(frame_cache_.size()));
+                    // Log first few cached keys
+                    int count = 0;
+                    for (const auto& [key, cached_frame] : frame_cache_) {
+                        if (count++ < 5) {
+                            Debug::Log("  cached key: tl_frame=" + std::to_string(key.timeline_frame));
+                        }
+                    }
+                }
+
+                for (const auto& [key, cached_frame] : frame_cache_) {
                     if (keys_to_keep.find(key) == keys_to_keep.end()) {
                         keys_to_evict.push_back(key);
                     }
@@ -2587,6 +2991,30 @@ void TimelineCache::CacheManagementThread() {
             int cache_evicted = 0;
             int textures_queued = 0;
             if (!keys_to_evict.empty()) {
+                // DEBUG: Log eviction details on ANY eviction
+                bool is_playing = is_playing_.load();
+                bool should_log = true;  // Always log evictions for debugging
+                if (should_log) {
+                    // Get window range for debugging
+                    int window_min = INT_MAX, window_max = INT_MIN;
+                    for (const auto& key : keys_to_keep) {
+                        if (key.timeline_frame < window_min) window_min = key.timeline_frame;
+                        if (key.timeline_frame > window_max) window_max = key.timeline_frame;
+                    }
+                    // Get evicted range
+                    int evict_min = INT_MAX, evict_max = INT_MIN;
+                    for (const auto& key : keys_to_evict) {
+                        if (key.timeline_frame < evict_min) evict_min = key.timeline_frame;
+                        if (key.timeline_frame > evict_max) evict_max = key.timeline_frame;
+                    }
+                    Debug::Log("TimelineCache: [EVICT] playhead=" + std::to_string(current_frame) +
+                               " window=[" + std::to_string(window_min) + "-" + std::to_string(window_max) + "]" +
+                               " evict=[" + std::to_string(evict_min) + "-" + std::to_string(evict_max) + "]" +
+                               " (#" + std::to_string(keys_to_evict.size()) + ")" +
+                               " cached=" + std::to_string(frame_cache_.size()) +
+                               " playing=" + std::to_string(is_playing));
+                }
+
                 std::lock_guard<std::mutex> lock(cache_mutex_);
                 for (const auto& key : keys_to_evict) {
                     auto it = frame_cache_.find(key);
@@ -2606,12 +3034,6 @@ void TimelineCache::CacheManagementThread() {
                     }
                 }
                 segments_dirty_ = true;
-
-                //if (textures_queued > 0) {
-                //    Debug::Log("TimelineCache: [EVICT] Queued " + std::to_string(textures_queued) +
-                //               " textures for deletion, pending_delete=" +
-                //               std::to_string(textures_to_delete_.size()));
-                //}
             }
 
             // Also filter pending uploads - drop pixel data for frames outside window
@@ -2650,7 +3072,7 @@ void TimelineCache::CacheManagementThread() {
             // Collect active source paths (avoid holding multiple locks simultaneously)
             std::set<std::string> active_sources;
 
-            // Check cached frames
+            // Check cached frames - convert timeline_frame to source path
             {
                 std::lock_guard<std::mutex> lock(cache_mutex_);
                 for (const auto& [key, frame] : frame_cache_) {
@@ -2661,7 +3083,7 @@ void TimelineCache::CacheManagementThread() {
                 }
             }
 
-            // Check pending uploads
+            // Check pending uploads - convert timeline_frame to source path
             {
                 std::lock_guard<std::mutex> lock(upload_mutex_);
                 for (const auto& upload : pending_uploads_) {
@@ -2706,7 +3128,12 @@ void TimelineCache::CacheManagementThread() {
             // But only if they haven't been used recently (grace period)
             // Note: With shared_ptr, I/O workers hold a reference that keeps loader alive
             // even after removal from map, preventing use-after-free
+            //
+            // SKIP entirely during aggressive scrub: Removing loaders during rapid scrubbing
+            // on multi-layer nested timelines can cause resource exhaustion and crashes.
+            AggressiveScrubMode scrub_mode_for_loader_cleanup = aggressive_scrub_mode_.load();
             int loaders_cleaned = 0;
+            if (scrub_mode_for_loader_cleanup == AggressiveScrubMode::INACTIVE)
             {
                 std::lock_guard<std::mutex> lock(loaders_mutex_);
                 std::vector<std::string> to_remove;
@@ -2739,7 +3166,10 @@ void TimelineCache::CacheManagementThread() {
             // CRITICAL: Clear buffers of decoders not in active_sources
             // This prevents memory accumulation from obscured clips (e.g., V1 under V2)
             // The decoder stays alive (grace period) but its buffer is cleared to free RAM
+            AggressiveScrubMode scrub_mode_for_cleanup = aggressive_scrub_mode_.load();
+            if (scrub_mode_for_cleanup == AggressiveScrubMode::INACTIVE)
             {
+                // Normal playback: Clear buffers for sources not in active window
                 std::lock_guard<std::mutex> lock(loaders_mutex_);
                 for (const auto& [path, info] : loaders_) {
                     if (active_sources.find(path) == active_sources.end()) {
@@ -2750,6 +3180,36 @@ void TimelineCache::CacheManagementThread() {
                                 info->ClearBuffer();
                                 Debug::Log("TimelineCache: Cleared buffer (" + std::to_string(buffer_size) +
                                            " frames) for inactive source: " + path);
+                            }
+                        }
+                    }
+                }
+            }
+            else if (scrub_mode_for_cleanup == AggressiveScrubMode::ACTIVE_SCRUBBING)
+            {
+                // Scrub mode: Only keep buffer for CURRENT source, clear others after grace period
+                // This prevents RAM explosion while allowing brief back-and-forth scrubbing
+                SourceCoords current_coords = TimelineToSource(current_frame);
+                const int kScrubBufferGracePeriodMs = 500;  // Keep buffers for 500ms after last use
+
+                std::lock_guard<std::mutex> lock(loaders_mutex_);
+                for (const auto& [path, info] : loaders_) {
+                    // Never clear the current source's buffer
+                    if (current_coords.valid && path == current_coords.source_path) {
+                        continue;
+                    }
+
+                    // Clear buffers for sources not used recently
+                    if (info->HasBufferedDecoder()) {
+                        auto age_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            now - info->last_used_time).count();
+                        if (age_ms > kScrubBufferGracePeriodMs) {
+                            int buffer_size = info->GetBufferSize();
+                            if (buffer_size > 0) {
+                                info->ClearBuffer();
+                                Debug::Log("TimelineCache: [SCRUB] Cleared stale buffer (" +
+                                           std::to_string(buffer_size) + " frames, " +
+                                           std::to_string(age_ms) + "ms old): " + path);
                             }
                         }
                     }
@@ -2790,6 +3250,7 @@ void TimelineCache::CacheManagementThread() {
         // This ensures decoders exist BEFORE we reach clips (smooth gap→clip transitions)
         // Only the CacheManagementThread updates playheads, not I/O workers
         //=====================================================================
+        AggressiveScrubMode scrub_mode_step1_5 = aggressive_scrub_mode_.load();
         {
             // Find which video sources are in the upcoming window
             // and what frame each decoder should target
@@ -2846,6 +3307,16 @@ void TimelineCache::CacheManagementThread() {
                 decoder_targets[current_coords.source_path] = current_coords.source_frame;
             }
 
+            // AGGRESSIVE SCRUB: Skip ALL decoder creation and cache management
+            // GetFrame() now uses dedicated ScrubDecoders during scrub, which are lightweight
+            // and don't need ManagedVideoDecoder's heavy buffering. Creating ManagedVideoDecoders
+            // here would cause memory floods as they each buffer 120+ frames.
+            if (scrub_mode_step1_5 == AggressiveScrubMode::ACTIVE_SCRUBBING) {
+                // Skip window expansion and Step 2 cache fill entirely
+                // ScrubDecoders handle frame access in GetFrame()
+                goto skip_step1_5;
+            }
+
             // If contiguous is complete, target the wrapped region instead
             // This allows decoders to seek to the loop start and fill those frames
             //
@@ -2891,6 +3362,7 @@ void TimelineCache::CacheManagementThread() {
 
             // Pre-create decoders for upcoming clips (before we reach them)
             // This ensures smooth gap→clip transitions
+        create_decoders:
             for (const auto& [source_path, target_frame] : decoder_targets) {
                 // GetOrCreateLoader will create the decoder if it doesn't exist
                 // This happens asynchronously, so by the time we reach the clip,
@@ -2956,8 +3428,13 @@ void TimelineCache::CacheManagementThread() {
                 }
             }
 
+            // SKIP playhead updates during aggressive scrub - UpdatePlayhead triggers decoder
+            // shuttle mode which buffers 120 frames. During scrub, GetFrame accesses decoder
+            // buffers directly for immediate frames without triggering full buffering.
+            bool skip_during_scrub = (scrub_mode_step1_5 == AggressiveScrubMode::ACTIVE_SCRUBBING);
+
             for (auto& update : decoder_updates) {
-                if (update.loader->HasBufferedDecoder() && !skip_playhead_update) {
+                if (update.loader->HasBufferedDecoder() && !skip_playhead_update && !skip_during_scrub) {
                     // Pass is_prefetch so upcoming clips don't get their decoders respawned aggressively
                     update.loader->UpdatePlayhead(update.target_frame, seek_quality, false, update.is_prefetch);
                 }
@@ -2970,11 +3447,21 @@ void TimelineCache::CacheManagementThread() {
             // need to be circular-aware.
         }
 
+        skip_step1_5:
         //=====================================================================
         // Step 2: Fill cache using CacheWindowEngine (single source of truth)
         // Engine returns frames sorted by priority: current, ahead, behind
+        //
+        // SKIP during aggressive scrub: Cache filling is wasteful during scrub.
+        // GetFrame gets frames directly from decoder buffers.
         //=====================================================================
+        if (scrub_mode_step1_5 != AggressiveScrubMode::ACTIVE_SCRUBBING)
         {
+            static int step2_run_count = 0;
+            if (++step2_run_count <= 5 || step2_run_count % 100 == 0) {
+                Debug::Log("TimelineCache: [STEP2] Running cache fill, scrub_mode=" +
+                           std::to_string(static_cast<int>(scrub_mode_step1_5)));
+            }
             std::lock_guard<std::mutex> lock(request_mutex_);
 
             // Calculate batch size (larger on first iteration for post-seek boost)
@@ -3025,6 +3512,13 @@ void TimelineCache::CacheManagementThread() {
                 SourceCoords coords = TimelineToSource(frame);
                 if (!coords.valid) { skip_invalid++; continue; }
 
+                // SKIP VIDEO CLIPS in VIDEO_FILE mode - GStreamer handles decoding internally
+                // For MULTI_TRACK mode, VIDEO clips use the cache path (FFmpeg decoders)
+                ClipMediaType media_type = DetectMediaType(coords.source_path);
+                if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+                    continue;  // GStreamer decoder handles this - no need to queue
+                }
+
                 TimelineCacheKey key{frame};
                 {
                     std::lock_guard<std::mutex> cache_lock(cache_mutex_);
@@ -3043,14 +3537,7 @@ void TimelineCache::CacheManagementThread() {
                     if (pending_uploads_set_.count(key) > 0) { skip_uploading++; continue; }
                 }
 
-                // NOTE: Previously had "is_current_source" check that blocked frames from
-                // different clips until their decoder had the frame ready. This was removed
-                // because it was blocking wrapped frames during looping - the decoder at the
-                // current position (242) doesn't have the wrapped frames (47) buffered, so
-                // they were never requested. For seamless looping, we need to request all
-                // frames in the cache window and let the I/O workers handle decoder seeks.
-
-                // Add to request queue (keep deque and set in sync)
+                // Add to request queue (keep deque and set in sync) - IMAGE_SEQUENCE only
                 video_requests_.push_back(frame);
                 video_requests_set_.insert(frame);
                 requested_count++;
@@ -3073,6 +3560,13 @@ void TimelineCache::CacheManagementThread() {
             // Wake I/O threads if we added requests
             if (requested_count > 0) {
                 request_cv_.notify_all();
+            }
+        }
+        else
+        {
+            static int step2_skip_count = 0;
+            if (++step2_skip_count <= 5 || step2_skip_count % 100 == 0) {
+                Debug::Log("TimelineCache: [STEP2] SKIPPED - aggressive scrub active");
             }
         }
 
@@ -3103,6 +3597,16 @@ void TimelineCache::CacheManagementThread() {
                     TouchInPool(key);
                 }
             }
+        }
+
+        } catch (const std::exception& e) {
+            // Log exception but keep thread alive
+            Debug::Log("TimelineCache: CacheManagementThread exception: " + std::string(e.what()));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        } catch (...) {
+            // Catch-all for COM exceptions, etc.
+            Debug::Log("TimelineCache: CacheManagementThread unknown exception - continuing");
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 
@@ -3143,17 +3647,6 @@ std::shared_ptr<PixelData> TimelineCache::LoadPixels(const TimelineCacheKey& key
             loader_info->pipeline_mode
         );
     }
-
-    //if (result) {
-    //    // Log success (once per unique source path to reduce spam)
-    //    static std::set<std::string> logged_success;
-    //    if (logged_success.find(key.source_path) == logged_success.end()) {
-    //        Debug::Log("TimelineCache: Loaded frame " + std::to_string(coords.source_frame) +
-    //                   " from " + key.source_path + " (" +
-    //                   std::to_string(result->width) + "x" + std::to_string(result->height) + ")");
-    //        logged_success.insert(key.source_path);
-    //    }
-    //}
 
     return result;
 }
@@ -3198,6 +3691,168 @@ GLuint TimelineCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels) 
     s_textures_created++;
     return texture;
 }
+
+#ifdef _WIN32
+//=============================================================================
+// D3D11 Rendering Mode
+//=============================================================================
+
+void TimelineCache::SetD3D11RenderingMode(bool enabled) {
+    if (use_d3d11_rendering_ == enabled) return;
+
+    Debug::Log("TimelineCache: D3D11 rendering mode " + std::string(enabled ? "enabled" : "disabled"));
+    use_d3d11_rendering_ = enabled;
+
+    // When switching modes, clear the cache since texture types change
+    if (initialized_) {
+        ClearCache();
+    }
+}
+
+bool TimelineCache::CreateD3D11Texture(const std::shared_ptr<PixelData>& pixels,
+                                        Microsoft::WRL::ComPtr<ID3D11Texture2D>& out_texture,
+                                        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>& out_srv) {
+    if (!pixels || pixels->pixels.empty()) return false;
+
+    auto& device_mgr = D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) {
+        Debug::Log("TimelineCache: D3D11DeviceManager not initialized");
+        return false;
+    }
+
+    // Determine DXGI format based on pixel data format
+    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    UINT bytes_per_pixel = 4;
+
+    if (pixels->gl_type == GL_HALF_FLOAT) {
+        format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+        bytes_per_pixel = 8;
+    } else if (pixels->gl_type == GL_UNSIGNED_SHORT) {
+        format = DXGI_FORMAT_R16G16B16A16_UNORM;
+        bytes_per_pixel = 8;
+    }
+
+    // Create the texture
+    out_texture = device_mgr.CreateTexture2D(
+        static_cast<UINT>(pixels->width),
+        static_cast<UINT>(pixels->height),
+        format,
+        D3D11_USAGE_DEFAULT,
+        D3D11_BIND_SHADER_RESOURCE);
+
+    if (!out_texture) {
+        Debug::Log("TimelineCache: Failed to create D3D11 texture");
+        return false;
+    }
+
+    // Upload pixel data
+    UINT row_pitch = static_cast<UINT>(pixels->width) * bytes_per_pixel;
+    if (!device_mgr.UploadTextureData(out_texture.Get(),
+                                       pixels->pixels.data(),
+                                       static_cast<UINT>(pixels->width),
+                                       static_cast<UINT>(pixels->height),
+                                       row_pitch)) {
+        Debug::Log("TimelineCache: Failed to upload texture data");
+        out_texture.Reset();
+        return false;
+    }
+
+    // Create shader resource view
+    out_srv = device_mgr.CreateSRV(out_texture.Get(), format);
+    if (!out_srv) {
+        Debug::Log("TimelineCache: Failed to create SRV");
+        out_texture.Reset();
+        return false;
+    }
+
+    return true;
+}
+
+ID3D11ShaderResourceView* TimelineCache::GetFrameD3D11(int timeline_frame, int& width, int& height,
+                                                        bool* got_exact_frame) {
+    if (!initialized_ || !use_d3d11_rendering_) return nullptr;
+
+    if (got_exact_frame) *got_exact_frame = false;
+
+    // Map timeline frame to source coordinates
+    SourceCoords coords = TimelineToSource(timeline_frame);
+    if (!coords.valid) {
+        // Gap or invalid position
+        width = canvas_width_;
+        height = canvas_height_;
+        return nullptr;
+    }
+
+    TimelineCacheKey key{timeline_frame};
+
+    // Check cache
+    {
+        std::lock_guard<std::mutex> lock(cache_mutex_);
+        auto it = frame_cache_.find(key);
+        if (it != frame_cache_.end() && it->second.srv_d3d) {
+            width = it->second.width;
+            height = it->second.height;
+            if (got_exact_frame) *got_exact_frame = true;
+
+            // Touch in pool
+            if (config_.use_shared_pool) {
+                TouchInPool(key);
+            }
+
+            return it->second.srv_d3d.Get();
+        }
+    }
+
+    // During aggressive scrub, don't create new decoders - return null and let caller use fallback
+    if (aggressive_scrub_mode_.load() == AggressiveScrubMode::ACTIVE_SCRUBBING) {
+        return nullptr;
+    }
+
+    // Try to get from decoder ring buffer for immediate display
+    auto loader_info = GetOrCreateLoader(coords.source_path);
+    if (loader_info && loader_info->HasBufferedDecoder()) {
+        auto pixels = loader_info->GetFrame(coords.source_frame);
+        if (pixels) {
+            // Frame is in decoder buffer, create D3D11 texture immediately
+            Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+
+            if (CreateD3D11Texture(pixels, texture, srv)) {
+                // Store in cache
+                CachedFrame frame;
+                frame.texture_d3d = texture;
+                frame.srv_d3d = srv;
+                frame.width = pixels->width;
+                frame.height = pixels->height;
+                frame.byte_size = pixels->ByteSize();
+
+                {
+                    std::lock_guard<std::mutex> lock(cache_mutex_);
+                    frame_cache_[key] = frame;
+                }
+
+                width = pixels->width;
+                height = pixels->height;
+                if (got_exact_frame) *got_exact_frame = true;
+
+                segments_dirty_ = true;
+
+                if (config_.use_shared_pool) {
+                    RegisterWithPool(key, frame.byte_size);
+                }
+
+                return srv.Get();
+            }
+        }
+    }
+
+    // Frame not ready - request it
+    cache_misses_++;
+    RequestFrame(timeline_frame);
+
+    return nullptr;
+}
+#endif
 
 //=============================================================================
 // SharedMemoryPool Integration
@@ -3498,8 +4153,17 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
         }
     }
 
-    // Create/resize output texture if needed
-    if (letterbox_output_width_ != canvas_width_ || letterbox_output_height_ != canvas_height_) {
+    // Determine internal format based on pipeline mode
+    // NOTE: HDR_RES (float) not available for video - GStreamer only supports integer formats
+    GLenum target_format = GL_RGBA8;
+    if (video_pipeline_mode_ == PipelineMode::HIGH_RES) {
+        target_format = GL_RGBA16;  // 16-bit integer - best available for video
+    }
+
+    // Create/resize output texture if needed (also recreate if format changed)
+    if (letterbox_output_width_ != canvas_width_ ||
+        letterbox_output_height_ != canvas_height_ ||
+        letterbox_output_format_ != target_format) {
         // Delete old resources
         if (letterbox_output_texture_ != 0) {
             glDeleteTextures(1, &letterbox_output_texture_);
@@ -3508,16 +4172,17 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
             glDeleteFramebuffers(1, &letterbox_fbo_);
         }
 
-        // Create output texture
+        // Create output texture with appropriate format for HDR/High-Res
         glGenTextures(1, &letterbox_output_texture_);
         glBindTexture(GL_TEXTURE_2D, letterbox_output_texture_);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, canvas_width_, canvas_height_, 0,
+        glTexImage2D(GL_TEXTURE_2D, 0, target_format, canvas_width_, canvas_height_, 0,
                      GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
         glBindTexture(GL_TEXTURE_2D, 0);
+        letterbox_output_format_ = target_format;
 
         // Create FBO
         glGenFramebuffers(1, &letterbox_fbo_);
@@ -3603,6 +4268,108 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
 //=============================================================================
 // Shuttle Mode - FF/RW support
 //=============================================================================
+
+//=============================================================================
+// Aggressive Scrub Mode Implementation (MULTI_TRACK/DUAL_VIEW only)
+//=============================================================================
+
+void TimelineCache::SetAggressiveScrubMode(bool enabled) {
+    // Only for MULTI_TRACK/DUAL_VIEW - VIDEO_FILE/IMAGE_SEQUENCE use normal shuttle
+    if (source_mode_ != TimelineSourceMode::MULTI_TRACK &&
+        source_mode_ != TimelineSourceMode::DUAL_VIEW) {
+        return;
+    }
+
+    if (enabled) {
+        AggressiveScrubMode expected = AggressiveScrubMode::INACTIVE;
+        if (aggressive_scrub_mode_.compare_exchange_strong(expected, AggressiveScrubMode::ACTIVE_SCRUBBING)) {
+            Debug::Log("TimelineCache: Aggressive scrub mode STARTED");
+
+            // Put all managed_decoders into shuttle mode (unthrottled decode)
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            for (auto& [path, loader] : loaders_) {
+                if (loader && loader->managed_decoder) {
+                    loader->SetShuttleMode(true, 0);  // 0 = no direction preference
+                }
+            }
+        }
+        // Always update the timestamp when we get movement
+        aggressive_scrub_last_move_ = std::chrono::steady_clock::now();
+    } else {
+        // Transition to SETTLING (HandleAggressiveScrubSettling will complete)
+        AggressiveScrubMode expected = AggressiveScrubMode::ACTIVE_SCRUBBING;
+        if (aggressive_scrub_mode_.compare_exchange_strong(expected, AggressiveScrubMode::SETTLING)) {
+            aggressive_scrub_last_move_ = std::chrono::steady_clock::now();
+            Debug::Log("TimelineCache: Aggressive scrub mode -> SETTLING");
+
+            // Clear scrub decoders to free memory - normal decoders will take over
+            // This prevents having both scrub decoders and managed decoders active
+            scrub_decoders_.ClearAll();
+        }
+    }
+}
+
+bool TimelineCache::IsAggressiveScrubMode() const {
+    return aggressive_scrub_mode_.load() != AggressiveScrubMode::INACTIVE;
+}
+
+// NOTE: GetDirectDecoderFrame and GetAggressiveScrubFrame have been removed.
+// Scrub handling is now integrated directly into GetFrame() for better performance.
+// The inline implementation accesses decoder buffers directly without calling
+// SetNeededFrames() or GetOrCreateLoader(), avoiding the pre-buffering that
+// caused scrubbing to be slow.
+
+void TimelineCache::HandleAggressiveScrubSettling() {
+    // Only process if in SETTLING state
+    if (aggressive_scrub_mode_.load() != AggressiveScrubMode::SETTLING) {
+        return;
+    }
+
+    // Check if settle delay has elapsed
+    auto now = std::chrono::steady_clock::now();
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - aggressive_scrub_last_move_).count();
+
+    if (elapsed_ms < kAggressiveScrubSettleDelayMs) {
+        return;  // Still waiting for settle
+    }
+
+    Debug::Log("TimelineCache: Aggressive scrub settling complete, transitioning to INACTIVE");
+
+    // Exit shuttle mode on all managed decoders
+    int current_frame = current_frame_.load();
+    SourceCoords coords = TimelineToSource(current_frame);
+
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        for (auto& [path, loader] : loaders_) {
+            if (loader && loader->managed_decoder && loader->IsShuttleMode()) {
+                loader->ExitShuttle();
+
+                // HardReset the decoder for the current clip to ensure exact frame
+                if (coords.valid && coords.source_path == path) {
+                    loader->HardReset(coords.source_frame);
+                    Debug::Log("TimelineCache: HardReset decoder for " + path +
+                               " at frame " + std::to_string(coords.source_frame));
+                }
+            }
+        }
+    }
+
+    // Clean up held texture
+    if (aggressive_held_texture_ != 0) {
+        std::lock_guard<std::mutex> lock(delete_mutex_);
+        textures_to_delete_.push_back(aggressive_held_texture_);
+        aggressive_held_texture_ = 0;
+        aggressive_held_width_ = 0;
+        aggressive_held_height_ = 0;
+        aggressive_held_frame_ = -1;
+        aggressive_held_source_.clear();
+    }
+
+    // Transition to INACTIVE
+    aggressive_scrub_mode_ = AggressiveScrubMode::INACTIVE;
+}
 
 void TimelineCache::SetShuttleMode(bool enabled, int direction) {
     if (enabled && !shuttle_active_) {
@@ -3753,17 +4520,18 @@ int TimelineCache::ExitShuttleMode() {
 
     Debug::Log("TimelineCache: Shuttle mode EXITED");
 
-    // Exit shuttle on all loaders and get snap frame
+    // Exit shuttle on all loaders and force immediate frame for current position
     std::lock_guard<std::mutex> lock(loaders_mutex_);
+    SourceCoords coords = TimelineToSource(snap_frame);
+
     for (auto& [path, loader] : loaders_) {
         if (loader && loader->HasBufferedDecoder() && loader->IsShuttleMode()) {
-            int loader_snap = loader->ExitShuttle();
-            // Use the snap frame from the currently active clip
-            SourceCoords coords = TimelineToSource(current_frame_.load());
+            loader->ExitShuttle();
+
+            // Force immediate frame decode for the current clip
             if (coords.valid && coords.source_path == path) {
-                // Convert source frame back to timeline frame (approximate)
-                // This is tricky - for now just use current_frame_
-                snap_frame = current_frame_.load();
+                // Trigger synchronous seek to ensure frame is ready immediately
+                loader->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
             }
         }
     }

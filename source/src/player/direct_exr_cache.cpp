@@ -571,7 +571,7 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
 }
 
 void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
-    int current_frame = static_cast<int>(timestamp * fps_);
+    int current_frame = static_cast<int>(timestamp * fps_ + 0.5);
 
     // Detect seeks and cancel in-flight requests
     bool isSeek = false;
@@ -1639,10 +1639,10 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
     const Imath::Box2i displayWindow = header.displayWindow();
     const Imath::Box2i dataWindow = header.dataWindow();
 
-    //Detect fast path when windows match
+    // Detect fast path when windows match
     const bool fastPath = (displayWindow == dataWindow);
 
-    // Use display window for output dimensions
+    // Full resolution dimensions
     int width = displayWindow.max.x - displayWindow.min.x + 1;
     int height = displayWindow.max.y - displayWindow.min.y + 1;
 
@@ -1728,7 +1728,6 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         // FAST PATH: Direct read when display window == data window
         // This is significantly faster for typical EXR files
 
-        // Use detected pixel type, not hardcoded HALF
         const size_t channelByteCount = sizeof(half);  // We always convert to half in our buffer
         const size_t cb = 4 * channelByteCount;  // RGBA stride per pixel
         const size_t scb = width * 4 * channelByteCount;  // Full scanline stride
@@ -1755,17 +1754,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         }
 
         part.setFrameBuffer(frameBuffer);
-
-        // PROFILING: Time the actual decompression
-        auto read_start = std::chrono::steady_clock::now();
         part.readPixels(displayWindow.min.y, displayWindow.max.y);
-        auto read_end = std::chrono::steady_clock::now();
-        auto read_ms = std::chrono::duration_cast<std::chrono::milliseconds>(read_end - read_start).count();
-
-        static int readCount = 0;
-        if (readCount++ < 5) {
-            //Debug::Log("DirectEXRCache: [FAST-PATH-READ] readPixels took " + std::to_string(read_ms) + "ms");
-        }
 
     } else {
         // SLOW PATH: Handle mismatched windows with intermediate buffer

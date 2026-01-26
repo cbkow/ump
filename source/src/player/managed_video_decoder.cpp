@@ -1,4 +1,6 @@
 #include "managed_video_decoder.h"
+#include "video_decoder_factory.h"
+#include "streaming_video_decoder.h"  // For DecoderCleanupQueue compatibility
 #include "decoder_cleanup_queue.h"
 #include "../utils/debug_utils.h"
 
@@ -26,8 +28,15 @@ ManagedVideoDecoder::~ManagedVideoDecoder() {
 bool ManagedVideoDecoder::Initialize() {
     if (initialized_.load()) return true;
 
-    // Create and initialize the first decoder
-    auto decoder = std::make_shared<StreamingVideoDecoder>(video_path_);
+    // Create decoder using FFmpeg backend (ManagedVideoDecoder is for MULTI_TRACK mode)
+    // GStreamer is used directly for VIDEO_FILE mode via timeline_cache
+    auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
+        video_path_, VideoDecoderBackend::FFMPEG);
+    if (!decoder_ptr) {
+        Debug::Log("ManagedVideoDecoder: Factory failed to create decoder for " + video_path_);
+        return false;
+    }
+    auto decoder = std::shared_ptr<IVideoDecoder>(std::move(decoder_ptr));
     decoder->SetConfig(config_);
 
     if (!decoder->Initialize()) {
@@ -69,15 +78,20 @@ void ManagedVideoDecoder::Shutdown() {
     initialized_ = false;
 
     // Get the active decoder
-    std::shared_ptr<StreamingVideoDecoder> decoder;
+    std::shared_ptr<IVideoDecoder> decoder;
     {
         std::lock_guard<std::mutex> lock(active_mutex_);
         decoder = std::move(active_);
     }
 
-    // Queue for cleanup (or clean immediately if queue is shut down)
+    // Queue for cleanup if it's an FFmpeg decoder
+    // (DecoderCleanupQueue is specialized for FFmpeg's heavy shutdown)
     if (decoder) {
-        DecoderCleanupQueue::Instance().Abandon(std::move(decoder));
+        auto ffmpeg_decoder = std::dynamic_pointer_cast<StreamingVideoDecoder>(decoder);
+        if (ffmpeg_decoder) {
+            DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
+        }
+        // GStreamer decoders clean up when shared_ptr goes out of scope
     }
 }
 
@@ -162,7 +176,17 @@ void ManagedVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality, 
 
     // Decision: spawn new decoder or use existing?
     // For prefetch (upcoming clips), use playback-like spawning (less aggressive)
-    if (force_seek || ShouldSpawnNewDecoder(frame_number, is_prefetch)) {
+    // NOTE: Even with force_seek, only spawn if frame isn't already buffered
+    // This prevents losing cached frames when transitioning from scrub to play
+    bool frame_available = false;
+    {
+        std::lock_guard<std::mutex> lock(active_mutex_);
+        if (active_) {
+            frame_available = active_->HasFrame(frame_number);
+        }
+    }
+
+    if ((force_seek && !frame_available) || ShouldSpawnNewDecoder(frame_number, is_prefetch)) {
         SpawnFreshDecoder(frame_number);
         return;
     }
@@ -276,20 +300,31 @@ void ManagedVideoDecoder::SpawnFreshDecoder(int target_frame) {
     last_spawn_target_ = target_frame;
 
     // Capture the old decoder
-    std::shared_ptr<StreamingVideoDecoder> old_decoder;
+    std::shared_ptr<IVideoDecoder> old_decoder;
     {
         std::lock_guard<std::mutex> lock(active_mutex_);
         old_decoder = std::move(active_);
     }
 
     // Queue old decoder for cleanup (instant, non-blocking)
+    // Only FFmpeg decoders use the cleanup queue (heavy FFmpeg shutdown)
     if (old_decoder) {
-        DecoderCleanupQueue::Instance().Abandon(std::move(old_decoder));
+        auto ffmpeg_decoder = std::dynamic_pointer_cast<StreamingVideoDecoder>(old_decoder);
+        if (ffmpeg_decoder) {
+            DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
+        }
+        // GStreamer decoders clean up when shared_ptr goes out of scope
         abandon_count_++;
     }
 
-    // Create fresh decoder
-    auto new_decoder = std::make_shared<StreamingVideoDecoder>(video_path_);
+    // Create fresh decoder using FFmpeg backend (ManagedVideoDecoder is for MULTI_TRACK mode)
+    auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
+        video_path_, VideoDecoderBackend::FFMPEG);
+    if (!decoder_ptr) {
+        Debug::Log("ManagedVideoDecoder: Factory failed to create FFmpeg decoder");
+        return;
+    }
+    auto new_decoder = std::shared_ptr<IVideoDecoder>(std::move(decoder_ptr));
     new_decoder->SetConfig(config_);
 
     if (new_decoder->Initialize()) {
@@ -407,12 +442,12 @@ void ManagedVideoDecoder::SetNeededFrames(const std::vector<int>& frames_by_prio
     }
 }
 
-StreamingVideoDecoder::DecodeStatus ManagedVideoDecoder::GetDecodeStatus() const {
+DecodeStatus ManagedVideoDecoder::GetDecodeStatus() const {
     std::lock_guard<std::mutex> lock(active_mutex_);
     if (active_) {
         return active_->GetDecodeStatus();
     }
-    return StreamingVideoDecoder::DecodeStatus{};
+    return DecodeStatus{};
 }
 
 void ManagedVideoDecoder::EvictOutsideWindow(const std::set<int>& keep_frames) {
@@ -544,6 +579,20 @@ void ManagedVideoDecoder::SetConfig(const StreamingDecoderConfig& config) {
     }
 }
 
+void ManagedVideoDecoder::SetPipelineMode(PipelineMode mode) {
+    if (pipeline_mode_ == mode) {
+        return;  // No change
+    }
+
+    pipeline_mode_ = mode;
+
+    // Forward to active decoder
+    std::lock_guard<std::mutex> lock(active_mutex_);
+    if (active_) {
+        active_->SetPipelineMode(mode);
+    }
+}
+
 void ManagedVideoDecoder::SetPlaybackMode(bool playing) {
     bool was_playing = is_playing_.exchange(playing);
     if (playing && !was_playing) {
@@ -669,7 +718,7 @@ int ManagedVideoDecoder::ExitShuttle() {
 }
 
 void ManagedVideoDecoder::HarvestDecoderFrames() {
-    std::shared_ptr<StreamingVideoDecoder> decoder;
+    std::shared_ptr<IVideoDecoder> decoder;
     {
         std::lock_guard<std::mutex> lock(active_mutex_);
         decoder = active_;

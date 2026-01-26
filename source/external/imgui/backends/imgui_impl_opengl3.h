@@ -44,6 +44,18 @@ IMGUI_IMPL_API void     ImGui_ImplOpenGL3_DestroyDeviceObjects();
 // (Advanced) Use e.g. if you need to precisely control the timing of texture updates (e.g. for staged rendering), by setting ImDrawData::Textures = NULL to handle this manually.
 IMGUI_IMPL_API void     ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex);
 
+// HDR Mode - enables automatic sRGB to PQ (ST.2084) conversion for HDR displays
+// When active, all UI colors are converted to PQ at the specified target brightness
+// target_nits: typical range 80-150 nits for comfortable viewing (default 120)
+IMGUI_IMPL_API void     ImGui_ImplOpenGL3_SetHDRMode(bool active, float target_nits = 120.0f);
+IMGUI_IMPL_API bool     ImGui_ImplOpenGL3_GetHDRMode();
+
+// HDR Passthrough - mark textures that should NOT have SDR->PQ conversion applied
+// Use for video/image textures that are already in HDR/PQ format
+IMGUI_IMPL_API void     ImGui_ImplOpenGL3_SetTextureHDRPassthrough(ImTextureID texture, bool passthrough);
+IMGUI_IMPL_API bool     ImGui_ImplOpenGL3_IsTextureHDRPassthrough(ImTextureID texture);
+IMGUI_IMPL_API void     ImGui_ImplOpenGL3_ClearHDRPassthroughTextures();
+
 // Configuration flags to add in your imconfig file:
 //#define IMGUI_IMPL_OPENGL_ES2     // Enable ES 2 (Auto-detected on Emscripten)
 //#define IMGUI_IMPL_OPENGL_ES3     // Enable ES 3 (Auto-detected on iOS/Android)

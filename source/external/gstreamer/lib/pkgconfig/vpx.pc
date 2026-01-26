@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: vpx
+Description: WebM Project VPx codec implementation
+Version: 1.14.1
+Libs: -L${libdir} -lvpx
+Cflags: -I${includedir}
+

@@ -178,6 +178,11 @@ void TimelineManager::StartScrubbing(VideoPlayer* video_player) {
         video_player->Pause();
     }
 
+    // Enable scrub mode for responsive single-frame seeks (timeline mode only)
+    if (video_player->IsInTimelineMode()) {
+        video_player->SetScrubMode(true);
+    }
+
     //Debug::Log("Timeline: Started scrubbing, was_playing=" + std::string(was_playing_before_scrub ? "true" : "false"));
 }
 
@@ -241,6 +246,11 @@ void TimelineManager::StopScrubbing(VideoPlayer* video_player) {
     if (!video_player || !is_scrubbing) return;
 
     is_scrubbing = false;
+
+    // Disable scrub mode - return to normal buffering (timeline mode only)
+    if (video_player->IsInTimelineMode()) {
+        video_player->SetScrubMode(false);
+    }
 
     // EXR MODE: Seek to final position now (on mouse release)
     if (video_player->IsInEXRMode()) {

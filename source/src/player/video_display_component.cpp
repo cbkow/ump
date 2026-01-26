@@ -15,10 +15,13 @@
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#include <backends/imgui_impl_opengl3.h>
 
 #ifdef _WIN32
 #include <windows.h>
 #include <shlobj.h>
+#include "../gpu/d3d11_device_manager.h"
+#include "../color/d3d11_ocio_renderer.h"
 #endif
 
 // Include STB image write for PNG output (implementation)
@@ -65,9 +68,9 @@ const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS = {
         GL_RGBA16F,
         GL_HALF_FLOAT,
         true,   // linear_processing
-        true,   // constrain_primaries (Rec.2020)
+        false,  // constrain_primaries (no hardcoded colorspace)
         8,      // bytes_per_pixel
-        "HDR10/HEVC (PQ/Rec.2020)",
+        "HDR (Float)",
         1024, 4096
     }}
 };
@@ -225,6 +228,11 @@ void VideoDisplayComponent::Cleanup() {
 
     // Clear color pipeline
     color_pipeline_.reset();
+
+#ifdef _WIN32
+    // Cleanup D3D11 resources
+    CleanupD3D11Resources();
+#endif
 
     Debug::Log("VideoDisplayComponent::Cleanup complete");
 }
@@ -517,6 +525,10 @@ void VideoDisplayComponent::RenderVideoTexture() {
             return;
         }
     }
+
+    // Mark video texture as HDR passthrough (skip sRGB->PQ conversion)
+    // Video content is already in HDR format from OCIO pipeline
+    ImGui_ImplOpenGL3_SetTextureHDRPassthrough((ImTextureID)(intptr_t)display_texture, true);
 
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
@@ -1045,6 +1057,42 @@ void VideoDisplayComponent::InjectCurrentTimelineFrame() {
     // NOTE: ProcessPendingUploads moved to ProcessPendingTextureUploads()
     // which is called BEFORE ImGui::NewFrame()
 
+#ifdef _WIN32
+    // D3D11 path - get SRV directly from cache
+    if (use_d3d11_rendering_ && timeline_controller_->IsD3D11RenderingMode()) {
+        int frame_width = 0, frame_height = 0;
+        ID3D11ShaderResourceView* srv = timeline_controller_->UpdateD3D11(frame_width, frame_height);
+
+        if (srv != nullptr) {
+            // Store the SRV for later use in ApplyColorPipelineD3D11
+            timeline_srv_d3d_ = srv;
+            timeline_texture_width_ = frame_width;
+            timeline_texture_height_ = frame_height;
+
+            video_width_ = frame_width;
+            video_height_ = frame_height;
+            has_video_ = true;
+
+            // Apply OCIO color transform via D3D11
+            ApplyColorPipelineD3D11();
+
+            int current_frame = timeline_controller_->GetCurrentFrame();
+            if (current_frame != last_timeline_frame_) {
+                last_timeline_frame_ = current_frame;
+            }
+        } else {
+            // Cache miss - keep previous frame
+            if (timeline_srv_d3d_ != nullptr) {
+                has_video_ = true;
+            } else {
+                has_video_ = false;
+            }
+        }
+        return;
+    }
+#endif
+
+    // OpenGL path
     int frame_width = 0, frame_height = 0;
     GLuint frame_texture = timeline_controller_->Update(frame_width, frame_height);
 
@@ -1554,6 +1602,12 @@ void VideoDisplayComponent::StopFastSeek() {
     }
 }
 
+void VideoDisplayComponent::SetScrubMode(bool enabled) {
+    if (timeline_controller_) {
+        timeline_controller_->SetScrubMode(enabled);
+    }
+}
+
 void VideoDisplayComponent::UpdateFastSeek() {
     if (timeline_controller_) {
         timeline_controller_->UpdateFastSeek();
@@ -1580,3 +1634,252 @@ double VideoDisplayComponent::GetFastSeekSpeed() const {
     }
     return 1.0;
 }
+
+#ifdef _WIN32
+//=============================================================================
+// D3D11 Rendering Implementation (Windows)
+//=============================================================================
+
+void VideoDisplayComponent::SetD3D11RenderingMode(bool enabled) {
+    if (use_d3d11_rendering_ == enabled) return;
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (enabled && !device_mgr.IsInitialized()) {
+        Debug::Log("VideoDisplayComponent: Cannot enable D3D11 mode - device not initialized");
+        return;
+    }
+
+    use_d3d11_rendering_ = enabled;
+
+    // Propagate to timeline controller
+    if (timeline_controller_) {
+        timeline_controller_->SetD3D11RenderingMode(enabled);
+    }
+
+    if (enabled) {
+        // Initialize D3D11 OCIO renderer
+        if (!d3d11_ocio_renderer_) {
+            d3d11_ocio_renderer_ = std::make_unique<ump::D3D11OCIORenderer>();
+            if (!d3d11_ocio_renderer_->Initialize()) {
+                Debug::Log("VideoDisplayComponent: Failed to initialize D3D11 OCIO renderer");
+                d3d11_ocio_renderer_.reset();
+                use_d3d11_rendering_ = false;
+                return;
+            }
+        }
+
+        // Create D3D11 textures if we have video dimensions
+        if (video_width_ > 0 && video_height_ > 0) {
+            CreateD3D11VideoTextures(video_width_, video_height_);
+            CreateD3D11ColorTextures(color_texture_width_ > 0 ? color_texture_width_ : video_width_,
+                                     color_texture_height_ > 0 ? color_texture_height_ : video_height_);
+        }
+
+        Debug::Log("VideoDisplayComponent: D3D11 rendering mode enabled");
+    } else {
+        CleanupD3D11Resources();
+        Debug::Log("VideoDisplayComponent: D3D11 rendering mode disabled");
+    }
+}
+
+void VideoDisplayComponent::CreateD3D11VideoTextures(int width, int height) {
+    if (width <= 0 || height <= 0) return;
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) return;
+
+    // Determine format based on pipeline mode
+    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    switch (current_pipeline_mode_) {
+        case PipelineMode::HIGH_RES:
+            format = DXGI_FORMAT_R16G16B16A16_UNORM;
+            break;
+        case PipelineMode::ULTRA_HIGH_RES:
+        case PipelineMode::HDR_RES:
+            format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            break;
+        default:
+            format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            break;
+    }
+
+    // Release existing textures
+    video_texture_d3d_.Reset();
+    video_srv_d3d_.Reset();
+
+    // Create video texture
+    video_texture_d3d_ = device_mgr.CreateTexture2D(
+        width, height, format,
+        D3D11_USAGE_DEFAULT,
+        D3D11_BIND_SHADER_RESOURCE
+    );
+
+    if (!video_texture_d3d_) {
+        Debug::Log("VideoDisplayComponent: Failed to create D3D11 video texture");
+        return;
+    }
+
+    // Create SRV
+    video_srv_d3d_ = device_mgr.CreateSRV(video_texture_d3d_.Get());
+
+    Debug::Log("VideoDisplayComponent: Created D3D11 video texture " +
+               std::to_string(width) + "x" + std::to_string(height));
+}
+
+void VideoDisplayComponent::CreateD3D11ColorTextures(int width, int height) {
+    if (width <= 0 || height <= 0) return;
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) return;
+
+    // Determine format based on pipeline mode
+    DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    switch (current_pipeline_mode_) {
+        case PipelineMode::HIGH_RES:
+            format = DXGI_FORMAT_R16G16B16A16_UNORM;
+            break;
+        case PipelineMode::ULTRA_HIGH_RES:
+        case PipelineMode::HDR_RES:
+            format = DXGI_FORMAT_R16G16B16A16_FLOAT;
+            break;
+        default:
+            format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            break;
+    }
+
+    // Release existing textures
+    color_texture_d3d_.Reset();
+    color_srv_d3d_.Reset();
+    color_rtv_d3d_.Reset();
+
+    // Create color texture (render target)
+    color_texture_d3d_ = device_mgr.CreateTexture2D(
+        width, height, format,
+        D3D11_USAGE_DEFAULT,
+        D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET
+    );
+
+    if (!color_texture_d3d_) {
+        Debug::Log("VideoDisplayComponent: Failed to create D3D11 color texture");
+        return;
+    }
+
+    // Create SRV and RTV
+    color_srv_d3d_ = device_mgr.CreateSRV(color_texture_d3d_.Get());
+    color_rtv_d3d_ = device_mgr.CreateRTV(color_texture_d3d_.Get());
+
+    Debug::Log("VideoDisplayComponent: Created D3D11 color texture " +
+               std::to_string(width) + "x" + std::to_string(height));
+}
+
+void VideoDisplayComponent::ApplyColorPipelineD3D11() {
+    if (!use_d3d11_rendering_ || !d3d11_ocio_renderer_) {
+        return;
+    }
+
+    // Use timeline SRV if available (timeline mode), otherwise use video_srv_d3d_
+    ID3D11ShaderResourceView* input_srv = timeline_srv_d3d_ ? timeline_srv_d3d_ : video_srv_d3d_.Get();
+    if (!input_srv || !color_rtv_d3d_) {
+        return;
+    }
+
+    // Determine target render dimensions
+    int target_width = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : video_width_;
+    int target_height = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : video_height_;
+
+    if (target_width <= 0 || target_height <= 0) {
+        return;
+    }
+
+    // Check if color resources need to be recreated
+    if (!color_texture_d3d_) {
+        CreateD3D11ColorTextures(target_width, target_height);
+    } else {
+        D3D11_TEXTURE2D_DESC desc;
+        color_texture_d3d_->GetDesc(&desc);
+        if (desc.Width != static_cast<UINT>(target_width) ||
+            desc.Height != static_cast<UINT>(target_height)) {
+            CreateD3D11ColorTextures(target_width, target_height);
+        }
+    }
+
+    if (!color_rtv_d3d_) {
+        return;
+    }
+
+    // Generate D3D11 HLSL shader if not already done
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->HasD3D11Shaders()) {
+        color_pipeline_->GenerateAndCompileShaderD3D11();
+    }
+
+    // Apply color pipeline
+    if (color_pipeline_ && color_pipeline_->HasD3D11Shaders()) {
+        d3d11_ocio_renderer_->Apply(
+            color_pipeline_.get(),
+            input_srv,
+            color_rtv_d3d_.Get(),
+            target_width, target_height
+        );
+    } else {
+        // Passthrough if no OCIO pipeline
+        d3d11_ocio_renderer_->ApplyPassthrough(
+            input_srv,
+            color_rtv_d3d_.Get(),
+            target_width, target_height
+        );
+    }
+}
+
+void VideoDisplayComponent::CleanupD3D11Resources() {
+    d3d11_ocio_renderer_.reset();
+    color_rtv_d3d_.Reset();
+    color_srv_d3d_.Reset();
+    color_texture_d3d_.Reset();
+    video_srv_d3d_.Reset();
+    video_texture_d3d_.Reset();
+    use_d3d11_rendering_ = false;
+}
+
+void VideoDisplayComponent::RenderVideoToHDRTarget(ID3D11RenderTargetView* rtv,
+                                                    int x, int y, int width, int height) {
+    if (!rtv || !has_video_) {
+        return;
+    }
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) {
+        return;
+    }
+
+    auto* context = device_mgr.GetContext();
+    if (!context) {
+        return;
+    }
+
+    // Get the source texture (color-corrected output if available)
+    ID3D11ShaderResourceView* src_srv = nullptr;
+
+    // In D3D11 rendering mode, use the color-corrected texture
+    if (use_d3d11_rendering_ && color_srv_d3d_) {
+        src_srv = color_srv_d3d_.Get();
+    }
+    // Otherwise, in timeline mode, use the timeline SRV
+    else if (timeline_srv_d3d_) {
+        src_srv = timeline_srv_d3d_;
+    }
+
+    if (!src_srv) {
+        // Clear to black if no source
+        float clear_color[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+        context->ClearRenderTargetView(rtv, clear_color);
+        return;
+    }
+
+    // Use D3D11OCIORenderer for passthrough copy to the RTV
+    // This renders the video with proper scaling to the HDR target
+    if (d3d11_ocio_renderer_) {
+        d3d11_ocio_renderer_->ApplyPassthrough(src_srv, rtv, width, height);
+    }
+}
+
+#endif // _WIN32

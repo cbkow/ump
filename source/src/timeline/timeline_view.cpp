@@ -1179,8 +1179,17 @@ void TimelineView::RenderCacheBar() {
         return;
     }
 
-    // Get cache segments
-    auto segments = cache->GetCacheSegments();
+    // Get cache segments - either image cache or video buffer
+    std::vector<TimelineCacheSegment> segments;
+    bool is_video_only = cache->IsVideoOnly();
+
+    if (is_video_only) {
+        // Get video decoder buffer segments
+        segments = cache->GetVideoBufferSegments();
+    } else {
+        // Get image cache segments
+        segments = cache->GetCacheSegments();
+    }
     auto stats = cache->GetStats();
 
     // Debug: Log segment count periodically
@@ -1208,7 +1217,7 @@ void TimelineView::RenderCacheBar() {
         IM_COL32(50, 50, 50, 255)  // More visible background
     );
 
-    // Draw cached segments (green)
+    // Draw cached/buffered segments
     for (const auto& segment : segments) {
         float start_x = ruler_pos.x + (float)(segment.start_time * zoom_level_) - scroll_offset_x_;
         float end_x = ruler_pos.x + (float)(segment.end_time * zoom_level_) - scroll_offset_x_;
@@ -1219,8 +1228,15 @@ void TimelineView::RenderCacheBar() {
 
         if (end_x <= start_x) continue;
 
-        // Green color for cached frames (30% opacity to be subtle)
-        ImU32 cache_color = IM_COL32(80, 200, 120, 77);
+        // Color based on type:
+        // - Green for image cache (80% opacity)
+        // - Cyan/teal for video buffer (80% opacity)
+        ImU32 cache_color;
+        if (segment.type == TimelineCacheSegment::VIDEO_BUFFER) {
+            cache_color = IM_COL32(80, 180, 200, 204);  // Cyan/teal for video buffer
+        } else {
+            cache_color = IM_COL32(80, 200, 120, 204);  // Green for image cache
+        }
 
         draw_list->AddRectFilled(
             ImVec2(start_x, cache_bar_y),
@@ -1233,20 +1249,40 @@ void TimelineView::RenderCacheBar() {
     ImVec2 mouse_pos = ImGui::GetMousePos();
     if (mouse_pos.y >= cache_bar_y && mouse_pos.y <= cache_bar_y + cache_bar_height &&
         mouse_pos.x >= ruler_pos.x && mouse_pos.x <= ruler_pos.x + ruler_width) {
-        auto stats = cache->GetStats();
         ImGui::BeginTooltip();
-        ImGui::Text("Timeline Cache");
-        ImGui::Separator();
-        if (stats.total_timeline_frames > 0) {
-            float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
-            ImGui::Text("Cached: %d / %d frames (%.1f%%)", stats.cached_frames, stats.total_timeline_frames, percent);
+        if (is_video_only) {
+            ImGui::Text("Video Buffer");
+            ImGui::Separator();
+            // Count buffered frames from segments
+            int buffered_frames = 0;
+            for (const auto& seg : segments) {
+                double fps = stats.timeline_duration > 0 ?
+                    stats.total_timeline_frames / stats.timeline_duration : 24.0;
+                buffered_frames += (int)((seg.end_time - seg.start_time) * fps);
+            }
+            if (stats.total_timeline_frames > 0) {
+                float percent = (float)buffered_frames / stats.total_timeline_frames * 100.0f;
+                ImGui::Text("Buffered: %d / %d frames (%.1f%%)",
+                            buffered_frames, stats.total_timeline_frames, percent);
+            } else {
+                ImGui::Text("Buffered frames: %d", buffered_frames);
+            }
+            ImGui::Text("Duration: %.2fs", stats.timeline_duration);
         } else {
-            ImGui::Text("Cached frames: %d", stats.cached_frames);
+            ImGui::Text("Timeline Cache");
+            ImGui::Separator();
+            if (stats.total_timeline_frames > 0) {
+                float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
+                ImGui::Text("Cached: %d / %d frames (%.1f%%)",
+                            stats.cached_frames, stats.total_timeline_frames, percent);
+            } else {
+                ImGui::Text("Cached frames: %d", stats.cached_frames);
+            }
+            ImGui::Text("Duration: %.2fs", stats.timeline_duration);
+            ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
+            ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
+            ImGui::Text("Pending: %d", stats.pending_requests);
         }
-        ImGui::Text("Duration: %.2fs", stats.timeline_duration);
-        ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
-        ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
-        ImGui::Text("Pending: %d", stats.pending_requests);
         ImGui::EndTooltip();
     }
 }
@@ -1576,6 +1612,13 @@ int TimelineView::GetVideoTrackCount() const {
 int TimelineView::GetAudioTrackCount() const {
     return static_cast<int>(std::count_if(tracks_.begin(), tracks_.end(),
                                           [](const OTIOTrack& t) { return !t.is_video; }));
+}
+
+void TimelineView::SetFrameRate(double fps) {
+    if (fps > 0) {
+        frame_rate_ = fps;
+        Debug::Log("TimelineView: Frame rate updated to " + std::to_string(fps));
+    }
 }
 
 std::string TimelineView::GetSourceDirectory() const {
@@ -2129,12 +2172,15 @@ bool TimelineView::ParseTimelineFromJson(const std::string& json_string) {
         timeline_name_ = "Imported Timeline";
     }
 
-    // Get global start time and rate
+    // Get global start time and rate - authoritative source for timeline FPS
     auto global_start = timeline->global_start_time();
-    if (global_start.has_value()) {
+    if (global_start.has_value() && global_start->rate() > 0) {
         frame_rate_ = global_start->rate();
+        Debug::Log("OTIO timeline FPS: " + std::to_string(frame_rate_));
     } else {
-        frame_rate_ = 24.0; // Default
+        frame_rate_ = 24.0;
+        Debug::Log("WARNING: OTIO missing global_start_time - using default 24fps. "
+                   "Timeline may have incorrect frame mapping for non-24fps media.");
     }
 
     // Extract tracks from timeline (includes nested stack handling)
@@ -2268,7 +2314,14 @@ bool TimelineView::LoadImageSequenceAsTimeline(MediaItem* item) {
 
     // Set timeline properties
     timeline_name_ = item->name;
-    timeline_duration_ = duration;
+    // Use extended duration if audio clips extended past sequence
+    double effective_duration = duration;
+    if (item->cached_timeline_duration > duration) {
+        effective_duration = item->cached_timeline_duration;
+        Debug::Log("  Using extended timeline duration: " + std::to_string(effective_duration) +
+                   "s (sequence was " + std::to_string(duration) + "s)");
+    }
+    timeline_duration_ = effective_duration;
     frame_rate_ = fps;
     canvas_width_ = width;
     canvas_height_ = height;
@@ -2336,15 +2389,34 @@ bool TimelineView::LoadImageSequenceAsTimeline(MediaItem* item) {
     video_track.clips.push_back(clip);
     tracks_.push_back(video_track);
 
-    // Create empty audio track - EDITABLE
+    // Create audio track - EDITABLE
+    // Check if there are cached audio tracks from a previous session
     OTIOTrack audio_track;
-    audio_track.id = "A1";
-    audio_track.name = "A1";
-    audio_track.is_video = false;
-    audio_track.visible = true;
-    audio_track.muted = false;
-    audio_track.locked = false;  // Audio track is editable
-    audio_track.z_index = 0;
+    bool restored_audio = false;
+    if (item->has_cached_edits && !item->cached_tracks.empty()) {
+        // Find the audio track in cached_tracks
+        for (const auto& cached_track : item->cached_tracks) {
+            if (!cached_track.is_video) {
+                audio_track = cached_track;
+                audio_track.locked = false;  // Ensure it's editable
+                restored_audio = true;
+                Debug::Log("LoadImageSequenceAsTimeline: Restored audio track with " +
+                           std::to_string(audio_track.clips.size()) + " clips");
+                break;
+            }
+        }
+    }
+
+    // If no cached audio track, create an empty one
+    if (!restored_audio) {
+        audio_track.id = "A1";
+        audio_track.name = "A1";
+        audio_track.is_video = false;
+        audio_track.visible = true;
+        audio_track.muted = false;
+        audio_track.locked = false;  // Audio track is editable
+        audio_track.z_index = 0;
+    }
     tracks_.push_back(audio_track);
 
     // Update flattener with tracks
@@ -2488,8 +2560,9 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
 
     Debug::Log("Loading audio file as timeline: " + item->name);
 
-    // Set source mode
-    source_mode_ = TimelineSourceMode::AUDIO_FILE;
+    // Set source mode to VIDEO_FILE so GStreamer handles playback
+    // GStreamer can play audio-only files - it just won't produce video frames
+    source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = item;
 
     // Clear existing data
@@ -2504,12 +2577,12 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
     double duration = item->duration;
     if (duration <= 0) duration = 1.0;  // Safety
 
-    // Set timeline properties (no video dimensions for audio-only)
+    // Set timeline properties (dummy canvas for GStreamer, will show black for audio-only)
     timeline_name_ = item->name;
     timeline_duration_ = duration;
     frame_rate_ = fps;
-    canvas_width_ = 0;   // No video canvas
-    canvas_height_ = 0;
+    canvas_width_ = 1920;   // Dummy canvas for GStreamer
+    canvas_height_ = 1080;
 
     Debug::Log("  fps=" + std::to_string(fps) + " (display), duration=" + std::to_string(duration) + "s");
 
@@ -2564,7 +2637,7 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
     // Set initial zoom based on duration
     SetInitialZoomForDuration();
 
-    Debug::Log("Audio file timeline created: " + timeline_name_ +
+    Debug::Log("Audio file timeline created (GStreamer): " + timeline_name_ +
                " (duration=" + std::to_string(duration) + "s)" +
                ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
 
@@ -2612,6 +2685,7 @@ void TimelineView::InitializeForDualView(const std::string& name, double fps) {
     right_track.visible = true;
     right_track.muted = false;
     right_track.locked = false;
+    right_track.audio_muted = true;  // Mute RIGHT track audio by default (user can enable)
     right_track.z_index = 0;
     tracks_.push_back(right_track);
 
@@ -2893,12 +2967,15 @@ bool TimelineView::ParseOTIOTimeline(const std::string& file_path) {
         timeline_name_ = "Untitled Timeline";
     }
 
-    // Get global start time and rate
+    // Get global start time and rate - authoritative source for timeline FPS
     auto global_start = timeline->global_start_time();
-    if (global_start.has_value()) {
+    if (global_start.has_value() && global_start->rate() > 0) {
         frame_rate_ = global_start->rate();
+        Debug::Log("OTIO timeline FPS: " + std::to_string(frame_rate_));
     } else {
-        frame_rate_ = 24.0; // Default
+        frame_rate_ = 24.0;
+        Debug::Log("WARNING: OTIO missing global_start_time - using default 24fps. "
+                   "Timeline may have incorrect frame mapping for non-24fps media.");
     }
 
     // Extract tracks from timeline

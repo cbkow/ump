@@ -623,17 +623,12 @@ std::shared_ptr<PixelData> TIFFImageLoader::LoadFrame(
     PipelineMode pipeline_mode) {
 
     auto result = std::make_shared<PixelData>();
-
-    // Use existing TIFFLoader::Load
     PipelineMode detected_mode = pipeline_mode;
     if (!TIFFLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-
     result->gl_format = GL_RGBA;
     result->pipeline_mode = detected_mode;
-
-    // Set GL type based on detected pipeline mode
     if (detected_mode == PipelineMode::NORMAL) {
         result->gl_type = GL_UNSIGNED_BYTE;  // RGBA8
     } else if (detected_mode == PipelineMode::HIGH_RES) {
@@ -641,7 +636,6 @@ std::shared_ptr<PixelData> TIFFImageLoader::LoadFrame(
     } else {
         result->gl_type = GL_HALF_FLOAT;  // RGBA16F
     }
-
     return result;
 }
 
@@ -737,23 +731,17 @@ std::shared_ptr<PixelData> PNGImageLoader::LoadFrame(
     PipelineMode pipeline_mode) {
 
     auto result = std::make_shared<PixelData>();
-
-    // Use existing PNGLoader::Load
     PipelineMode detected_mode = pipeline_mode;
     if (!PNGLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-
     result->gl_format = GL_RGBA;
     result->pipeline_mode = detected_mode;
-
-    // Set GL type based on detected pipeline mode
     if (detected_mode == PipelineMode::NORMAL) {
         result->gl_type = GL_UNSIGNED_BYTE;  // RGBA8
     } else {
         result->gl_type = GL_UNSIGNED_SHORT;  // RGBA16 (PNG can be 16-bit)
     }
-
     return result;
 }
 
@@ -900,17 +888,13 @@ std::shared_ptr<PixelData> JPEGImageLoader::LoadFrame(
     PipelineMode pipeline_mode) {
 
     auto result = std::make_shared<PixelData>();
-
-    // Use existing JPEGLoader::Load
     PipelineMode detected_mode = pipeline_mode;
     if (!JPEGLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-
     result->gl_format = GL_RGBA;
     result->gl_type = GL_UNSIGNED_BYTE;  // JPEG is always 8-bit
     result->pipeline_mode = PipelineMode::NORMAL;  // JPEG is always NORMAL mode
-
     return result;
 }
 
@@ -1575,7 +1559,7 @@ std::shared_ptr<PixelData> VideoImageLoader::LoadFrame(
         return nullptr;
     }
 
-    return ExtractFrame(frame_number, pipeline_mode, 0);
+    return ExtractFrame(frame_number, pipeline_mode, 0);  // 0 = full resolution
 }
 
 std::shared_ptr<PixelData> VideoImageLoader::LoadThumbnail(const std::string& path, int max_size) {
@@ -1610,8 +1594,8 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
     if (frame_number > max_frame) frame_number = max_frame;
 
     // Calculate timestamp with start_time offset (critical for HEVC and other formats with non-zero PTS)
-    // Match exactly how FrameCache::FrameNumberToTimestamp handles this (frame_cache.cpp:890-894)
-    double timestamp = frame_number / fps_;
+    // Use center of frame's display period (+0.5) for robust seeking at frame boundaries
+    double timestamp = (static_cast<double>(frame_number) + 0.5) / fps_;
     if (start_time_ > 0) {
         double start_time_seconds = static_cast<double>(start_time_) / AV_TIME_BASE;
         timestamp += start_time_seconds;

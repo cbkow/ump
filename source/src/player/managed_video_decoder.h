@@ -6,9 +6,9 @@
 #include <atomic>
 #include <deque>
 #include <chrono>
-
-#include "streaming_video_decoder.h"
 #include <set>
+
+#include "video_decoder_interface.h"
 
 namespace ump {
 
@@ -130,7 +130,7 @@ public:
     void SetNeededFrames(const std::vector<int>& frames_by_priority);
 
     // Get current decode status
-    StreamingVideoDecoder::DecodeStatus GetDecodeStatus() const;
+    DecodeStatus GetDecodeStatus() const;
 
     // Evict frames outside the given keep set
     void EvictOutsideWindow(const std::set<int>& keep_frames);
@@ -170,6 +170,10 @@ public:
 
     void SetConfig(const StreamingDecoderConfig& config);
     const StreamingDecoderConfig& GetConfig() const { return config_; }
+
+    // Pipeline mode (for bit depth / HDR support)
+    void SetPipelineMode(PipelineMode mode);
+    PipelineMode GetPipelineMode() const { return pipeline_mode_; }
 
     // Playback mode - affects spawn behavior
     // When playing: spawn once, let decoder catch up naturally
@@ -252,9 +256,11 @@ private:
     std::string video_path_;
     StreamingDecoderConfig config_;
     std::atomic<bool> initialized_{false};
+    PipelineMode pipeline_mode_ = PipelineMode::NORMAL;
 
     // The active decoder - all reads go here
-    std::shared_ptr<StreamingVideoDecoder> active_;
+    // Uses IVideoDecoder interface to support FFmpeg and GStreamer backends
+    std::shared_ptr<IVideoDecoder> active_;
     mutable std::mutex active_mutex_;
 
     // Cached metadata (from first successful init)

@@ -1,0 +1,13 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${exec_prefix}/lib
+
+Name: SvtAv1Enc
+Description: SVT (Scalable Video Technology) for AV1 encoder library
+Version: 2.1.2
+Libs: -L${libdir} -lSvtAv1Enc
+Libs.private: 
+Cflags: -I${includedir}/svt-av1 -DEB_DLL
+Cflags.private: -UEB_DLL
+

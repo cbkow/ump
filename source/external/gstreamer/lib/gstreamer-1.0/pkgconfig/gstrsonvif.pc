@@ -1,0 +1,13 @@
+prefix=${pcfiledir}/../../..
+exec_prefix=${prefix}
+libdir=${prefix}/lib
+includedir=${prefix}/include
+
+Name: gstrsonvif
+Description: GStreamer Rust ONVIF Plugin
+Version: 0.14.4
+Libs: -L${libdir}\gstreamer-1.0 -lgstrsonvif
+Cflags: 
+Libs.private: -lpangocairo-1.0 -lpango-1.0 -lgobject-2.0 -lglib-2.0 -lintl -lharfbuzz -lcairo -lcairo-gobject -lgstvideo-1.0 -lgstbase-1.0 -lgstreamer-1.0 -lgstrtp-1.0 -lgio-2.0 -lwindows.0.52.0 -llegacy_stdio_definitions -lkernel32 -ladvapi32 -lntdll -luserenv -lws2_32 -ldbghelp
+Requires.private: gstreamer-1.0, gstreamer-base-1.0, gobject-2.0, glib-2.0, gmodule-2.0, pango, pangocairo
+

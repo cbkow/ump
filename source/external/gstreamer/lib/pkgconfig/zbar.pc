@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: zbar
+Description: bar code scanning and decoding
+URL: http://zbar.sourceforge.net
+Version: 0.23.93
+Libs: -L${libdir} -lzbar
+Cflags: -I${includedir}
+

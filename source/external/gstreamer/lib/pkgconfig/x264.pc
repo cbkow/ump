@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: x264
+Description: H.264 (MPEG4 AVC) encoder library
+Version: 0.164.7
+Libs: -L${libdir} -lx264
+Cflags: -I${includedir} -DX264_API_IMPORTS
+

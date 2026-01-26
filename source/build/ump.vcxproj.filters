@@ -34,13 +34,31 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\gstreamer_audio_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\d3d11_ocio_renderer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_device_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_texture_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\hdr\d3d11_hdr_swapchain.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\hdr\hdr_output_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.cpp">
@@ -97,6 +115,12 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_manager.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_video_decoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -118,6 +142,12 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\playlist_controller.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\scrub_decoder.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -125,6 +155,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_factory.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_display_component.cpp">
@@ -199,6 +232,9 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\playlist_panel.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -252,7 +288,13 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\gstreamer_audio_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\ring_buffer.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\d3d11_ocio_renderer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.h">
@@ -261,7 +303,19 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_device_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_texture_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\hdr\d3d11_hdr_swapchain.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\hdr\hdr_output_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\imnodes\imnodes.h">
@@ -318,6 +372,12 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_manager.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_video_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -345,6 +405,12 @@
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\playlist_controller.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\scrub_decoder.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -352,6 +418,12 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_factory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_interface.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_display_component.h">
@@ -433,6 +505,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\playlist_panel.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.h">

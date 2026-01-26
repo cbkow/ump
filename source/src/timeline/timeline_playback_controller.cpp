@@ -106,7 +106,8 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
     cache_->SetConfig(cache_config);
 
     const auto& tracks = timeline_view->GetTracks();
-    cache_->Initialize(tracks, &timeline_view->GetFlattener(), fps_);
+    cache_->Initialize(tracks, &timeline_view->GetFlattener(), fps_,
+                       timeline_view->GetSourceMode());
 
     // Compute max source width for resolution-based buffer thresholds
     max_source_width_ = 0;
@@ -322,6 +323,85 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
     return 0;
 }
 
+#ifdef _WIN32
+void TimelinePlaybackController::SetD3D11RenderingMode(bool enabled) {
+    if (use_d3d11_rendering_ == enabled) return;
+
+    use_d3d11_rendering_ = enabled;
+
+    // Forward to cache
+    if (cache_) {
+        cache_->SetD3D11RenderingMode(enabled);
+    }
+    if (right_cache_) {
+        right_cache_->SetD3D11RenderingMode(enabled);
+    }
+
+    // Clear current textures
+    current_texture_ = 0;
+    current_srv_d3d_ = nullptr;
+}
+
+ID3D11ShaderResourceView* TimelinePlaybackController::UpdateD3D11(int& width, int& height) {
+    if (!initialized_ || !use_d3d11_rendering_) {
+        width = 0;
+        height = 0;
+        return nullptr;
+    }
+
+    // Sync playhead from virtual timer
+    UpdateTimer();
+
+    // If no cache yet, return null
+    if (!cache_) {
+        width = 0;
+        height = 0;
+        return nullptr;
+    }
+
+    int frame = current_frame_.load();
+    bool playing = is_playing_.load();
+
+    // Update cache with current playhead
+    cache_->UpdatePlayhead(frame, playing);
+
+    // Try to get frame from cache (D3D11 path)
+    int tex_width = 0, tex_height = 0;
+    bool got_exact_frame = false;
+    ID3D11ShaderResourceView* srv = cache_->GetFrameD3D11(frame, tex_width, tex_height, &got_exact_frame);
+
+    if (srv != nullptr) {
+        // Cache hit - store as current frame for future miss handling
+        current_srv_d3d_ = srv;
+        current_texture_width_ = tex_width;
+        current_texture_height_ = tex_height;
+
+        // If we were waiting for post-edit frame, we got it
+        if (awaiting_post_edit_frame_) {
+            awaiting_post_edit_frame_ = false;
+            pending_evict_texture_ = 0;
+            pending_evict_width_ = 0;
+            pending_evict_height_ = 0;
+        }
+
+        width = tex_width;
+        height = tex_height;
+        return srv;
+    }
+
+    // Cache miss - return previous frame to hold
+    if (current_srv_d3d_ != nullptr) {
+        width = current_texture_width_;
+        height = current_texture_height_;
+        return current_srv_d3d_;
+    }
+
+    width = 0;
+    height = 0;
+    return nullptr;
+}
+#endif
+
 void TimelinePlaybackController::NotifyTracksEdited() {
     // CRITICAL: Clear VideoPlayer's timeline texture reference BEFORE cache clears textures
     // Otherwise VideoPlayer may hold a dangling pointer to a deleted texture = crash
@@ -497,11 +577,16 @@ bool TimelinePlaybackController::IsSequentialBufferReady() const {
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
     if (priority_frames.empty()) return true;
 
-    // Need configured % of readahead filled SEQUENTIALLY from playhead
-    // Use effective percent (higher for large media like 6K, 8K)
-    int read_ahead = cache_->GetReadAheadFrames();
-    int effective_percent = GetEffectiveBufferWaitPercent();
-    int needed = std::max(1, (read_ahead * effective_percent) / 100);
+    int needed;
+    if (cache_->IsVideoOnly()) {
+        // Video mode: GStreamer is fast, only need 2 frames ahead
+        needed = 2;
+    } else {
+        // Image/EXR mode: use configured % of readahead
+        int read_ahead = cache_->GetReadAheadFrames();
+        int effective_percent = GetEffectiveBufferWaitPercent();
+        needed = std::max(1, (read_ahead * effective_percent) / 100);
+    }
 
     // The first (1 + needed) frames in priority order are: current, ahead1, ahead2, ...
     // Check if these are ALL ready (sequential from playhead)
@@ -525,10 +610,15 @@ void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) c
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
     if (priority_frames.empty()) return;
 
-    // Use effective percent (higher for large media like 6K, 8K)
-    int read_ahead = cache_->GetReadAheadFrames();
-    int effective_percent = GetEffectiveBufferWaitPercent();
-    needed = std::max(1, (read_ahead * effective_percent) / 100);
+    if (cache_->IsVideoOnly()) {
+        // Video mode: GStreamer is fast, only need 2 frames ahead
+        needed = 2;
+    } else {
+        // Image/EXR mode: use configured % of readahead
+        int read_ahead = cache_->GetReadAheadFrames();
+        int effective_percent = GetEffectiveBufferWaitPercent();
+        needed = std::max(1, (read_ahead * effective_percent) / 100);
+    }
 
     int frames_to_check = std::min(needed + 1, static_cast<int>(priority_frames.size()));
 
@@ -558,6 +648,13 @@ std::string TimelinePlaybackController::GetCurrentSourcePath() const {
 
 PipelineMode TimelinePlaybackController::GetCurrentPipelineMode() const {
     if (!cache_) return PipelineMode::NORMAL;
+
+    // For VIDEO_FILE mode, return the global video pipeline mode (user-selectable)
+    // For other modes, return the per-clip pipeline mode (determined by content)
+    if (timeline_view_ && timeline_view_->GetSourceMode() == TimelineSourceMode::VIDEO_FILE) {
+        return cache_->GetPipelineMode();  // User-selected video pipeline mode
+    }
+
     return cache_->GetClipPipelineMode(current_frame_.load());
 }
 
@@ -690,7 +787,8 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     cache_config.use_shared_pool = true;
 
     cache_->SetConfig(cache_config);
-    cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_);
+    cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_,
+                       timeline_view_->GetSourceMode());
 
     // Register sequence metadata for any image sequence clips
     // This must happen after cache is created but before it starts loading frames
@@ -809,6 +907,11 @@ void TimelinePlaybackController::UpdateTimer() {
         timer_initialized_ = true;
     }
 
+    // Check for pending FPS update when paused (safe to update without mid-playback glitches)
+    if (!is_playing_.load() && !fps_update_applied_) {
+        ApplyPendingFPSUpdate();
+    }
+
     // NOTE: ProcessPendingUploads now called from ProcessPendingTextureUploads()
     // BEFORE ImGui::NewFrame() to avoid GL state corruption during render
 
@@ -843,6 +946,18 @@ void TimelinePlaybackController::UpdateTimer() {
         if (buffer_ready || (timed_out && current_ready)) {
             // Sequential buffer ready OR timed out with at least current frame
             waiting_for_frame_ = false;
+
+            // DEBUG: Log the exact state when transitioning from wait to play
+            int frame_at_start = current_frame_.load();
+            double timer_pos_at_start = timeline_timer_->GetPosition();
+            Debug::Log("TimelinePlaybackController: [BUFFER WAIT -> PLAY] frame=" +
+                       std::to_string(frame_at_start) +
+                       " timer_pos=" + std::to_string(timer_pos_at_start) + "s" +
+                       " wait_elapsed=" + std::to_string(wait_elapsed) + "ms" +
+                       " buffer_ready=" + std::to_string(buffer_ready));
+
+            // Reset debug counter to log first N updates after play starts
+            debug_post_play_updates_ = 0;
 
             if (timed_out && !buffer_ready) {
                 int filled, needed;
@@ -881,7 +996,26 @@ void TimelinePlaybackController::UpdateTimer() {
 
     // Update current_frame_ from timer position
     // Use rounding (+ 0.5) to match decoder's PTS-based frame numbering
-    current_frame_ = static_cast<int>(timeline_timer_->GetPosition() * fps_ + 0.5);
+    int old_frame = current_frame_.load();
+    double timer_pos = timeline_timer_->GetPosition();
+    current_frame_ = static_cast<int>(timer_pos * fps_ + 0.5);
+    int new_frame = current_frame_.load();
+
+    // DEBUG: Log first N updates after play starts to diagnose frame jumps
+    if (debug_post_play_updates_ < kDebugPostPlayLogCount && is_playing_.load()) {
+        debug_post_play_updates_++;
+        Debug::Log("TimelinePlaybackController: [POST-PLAY UPDATE " +
+                   std::to_string(debug_post_play_updates_) + "/" +
+                   std::to_string(kDebugPostPlayLogCount) + "] old=" +
+                   std::to_string(old_frame) + " new=" + std::to_string(new_frame) +
+                   " timer_pos=" + std::to_string(timer_pos) + "s");
+    }
+
+    if (new_frame - old_frame > 5) {
+        Debug::Log("TimelinePlaybackController: [FRAME JUMP] " + std::to_string(old_frame) +
+                   " -> " + std::to_string(new_frame) + " (+" + std::to_string(new_frame - old_frame) +
+                   " frames, timer_pos=" + std::to_string(timer_pos) + "s)");
+    }
 
     // Update audio mixer
     if (audio_mixer_) {
@@ -895,6 +1029,34 @@ double TimelinePlaybackController::GetPosition() const {
     }
     // Fallback for dummy mode: calculate from frame
     return static_cast<double>(current_frame_.load()) / fps_;
+}
+
+void TimelinePlaybackController::ApplyPendingFPSUpdate() {
+    if (!cache_ || fps_update_applied_) return;
+
+    if (cache_->HasPendingFPSUpdate()) {
+        double new_fps = cache_->GetDetectedFPS();
+
+        Debug::Log("TimelinePlaybackController: Applying FPS update from " +
+                   std::to_string(fps_) + " to " + std::to_string(new_fps));
+
+        fps_ = new_fps;
+
+        // Update PlaybackTimer
+        if (timeline_timer_) {
+            timeline_timer_->SetFrameRate(new_fps);
+        }
+
+        // Update cache (clears cache and recalculates frame counts)
+        cache_->SetFPS(new_fps);
+
+        // Update timeline view (for UI display)
+        if (timeline_view_) {
+            timeline_view_->SetFrameRate(new_fps);
+        }
+    }
+
+    fps_update_applied_ = true;
 }
 
 void TimelinePlaybackController::Play() {
@@ -1076,6 +1238,21 @@ void TimelinePlaybackController::StartRewind() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
+    // Route to appropriate scrub mode based on timeline source mode
+    if (cache_) {
+        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
+                                                  : TimelineSourceMode::MULTI_TRACK;
+
+        if (mode == TimelineSourceMode::MULTI_TRACK) {
+            // Use aggressive scrub mode for multi-track (multiple clips)
+            cache_->SetAggressiveScrubMode(true);
+        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
+            // DUAL_VIEW: No special handling - normal playhead updates work best
+            cache_->SetShuttleMode(true, -1);  // -1 = backward
+        }
+    }
+
     Debug::Log("TimelinePlaybackController: Started rewind at " + std::to_string(fast_seek_speed_) + "x");
 }
 
@@ -1093,6 +1270,21 @@ void TimelinePlaybackController::StartFastForward() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
+    // Route to appropriate scrub mode based on timeline source mode
+    if (cache_) {
+        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
+                                                  : TimelineSourceMode::MULTI_TRACK;
+
+        if (mode == TimelineSourceMode::MULTI_TRACK) {
+            // Use aggressive scrub mode for multi-track (multiple clips)
+            cache_->SetAggressiveScrubMode(true);
+        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
+            // DUAL_VIEW: No special handling - normal playhead updates work best
+            cache_->SetShuttleMode(true, 1);  // 1 = forward
+        }
+    }
+
     Debug::Log("TimelinePlaybackController: Started fast forward at " + std::to_string(fast_seek_speed_) + "x");
 }
 
@@ -1102,7 +1294,45 @@ void TimelinePlaybackController::StopFastSeek() {
     is_fast_seeking_ = false;
     fast_seek_speed_ = 1.0;
 
+    // Disable scrub/shuttle mode based on timeline source mode
+    if (cache_) {
+        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
+                                                  : TimelineSourceMode::MULTI_TRACK;
+
+        if (mode == TimelineSourceMode::MULTI_TRACK) {
+            // Disable aggressive scrub mode for multi-track
+            cache_->SetAggressiveScrubMode(false);
+        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            // Disable normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
+            // DUAL_VIEW: No special handling needed
+            cache_->SetShuttleMode(false, 0);
+        }
+    }
+
     Debug::Log("TimelinePlaybackController: Stopped fast seek");
+}
+
+void TimelinePlaybackController::SetScrubMode(bool enabled) {
+    if (is_scrubbing_ == enabled) return;
+
+    is_scrubbing_ = enabled;
+
+    // Route to appropriate scrub mode based on timeline source mode
+    if (cache_) {
+        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
+                                                  : TimelineSourceMode::MULTI_TRACK;
+
+        if (mode == TimelineSourceMode::MULTI_TRACK) {
+            // Use aggressive scrub mode for multi-track (multiple clips)
+            cache_->SetAggressiveScrubMode(enabled);
+        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
+            // DUAL_VIEW: No special handling - normal playhead updates work best
+            cache_->SetShuttleMode(enabled, 0);  // 0 = no direction preference during scrub
+        }
+    }
+
+    Debug::Log("TimelinePlaybackController: Scrub mode " + std::string(enabled ? "ENABLED" : "DISABLED"));
 }
 
 void TimelinePlaybackController::UpdateFastSeek() {
@@ -1195,6 +1425,17 @@ double TimelinePlaybackController::GetSpeedForState(ThrottleState state) {
 
 void TimelinePlaybackController::UpdateThrottleState() {
     if (!cache_ || !timeline_timer_) return;
+
+    // Skip adaptive throttle entirely for video-only content
+    // GStreamer's ring buffer is fast enough that throttling isn't needed
+    if (cache_->IsVideoOnly()) {
+        if (throttle_state_ != ThrottleState::FULL) {
+            throttle_state_ = ThrottleState::FULL;
+            current_speed_factor_ = 1.0;
+            timeline_timer_->SetPlaybackSpeed(1.0);
+        }
+        return;
+    }
 
     // Use engine-aware priority frames for throttle calculation
     // These are circle-aware - no boundary hacks needed
@@ -1472,14 +1713,16 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
     cache_config.use_shared_pool = false;
 
     cache_->SetConfig(cache_config);
-    cache_->Initialize(tracks, left_flattener_.get(), fps_);
+    cache_->Initialize(tracks, left_flattener_.get(), fps_,
+                       TimelineSourceMode::DUAL_VIEW);
     cache_->SetGapTextureDimensions(width_, height_);
     cache_->SetCanvasDimensions(width_, height_);
 
     // Create RIGHT cache
     right_cache_ = std::make_unique<TimelineCache>();
     right_cache_->SetConfig(cache_config);
-    right_cache_->Initialize(tracks, right_flattener_.get(), fps_);
+    right_cache_->Initialize(tracks, right_flattener_.get(), fps_,
+                             TimelineSourceMode::DUAL_VIEW);
     right_cache_->SetGapTextureDimensions(width_, height_);
     right_cache_->SetCanvasDimensions(width_, height_);
 

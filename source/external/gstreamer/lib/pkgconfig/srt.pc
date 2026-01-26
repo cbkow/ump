@@ -1,0 +1,13 @@
+prefix=${pcfiledir}/../..
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: srt
+Description: SRT library set
+Version: 1.5.4
+Libs: -L${libdir} -lsrt   
+Libs.private:  -lwsock32 -lws2_32 -lstdc++ -lmingw32 -lgcc_s -lgcc -lmingwex -lkernel32 -lpthread -ladvapi32 -lshell32 -luser32 -lkernel32 -lmingw32 -lgcc_s -lgcc -lmingwex -lkernel32
+Cflags: -I${includedir} -I${includedir}/srt
+Requires.private: openssl libcrypto
+

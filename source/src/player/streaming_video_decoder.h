@@ -11,7 +11,7 @@
 #include <unordered_set>
 #include <set>
 
-#include "image_loader_interface.h"
+#include "video_decoder_interface.h"
 
 // Forward declarations for FFmpeg types (in global namespace)
 struct AVFormatContext;
@@ -25,52 +25,6 @@ struct AVBufferRef;
 namespace ump {
 
 //=============================================================================
-// Hardware Acceleration Type
-//=============================================================================
-
-enum class HWAccelType {
-    NONE,           // Software decode
-    CUDA,           // NVIDIA NVDEC via CUDA
-    D3D11VA,        // Direct3D 11 Video Acceleration (NVIDIA/Intel/AMD)
-    QSV,            // Intel Quick Sync Video
-    DXVA2           // Direct3D 9 Video Acceleration (legacy fallback)
-};
-
-// Convert HWAccelType to string for logging
-inline const char* HWAccelTypeToString(HWAccelType type) {
-    switch (type) {
-        case HWAccelType::CUDA: return "CUDA (NVDEC)";
-        case HWAccelType::D3D11VA: return "D3D11VA";
-        case HWAccelType::QSV: return "Quick Sync";
-        case HWAccelType::DXVA2: return "DXVA2";
-        default: return "Software";
-    }
-}
-
-//=============================================================================
-// Seek Quality Mode (for adaptive scrubbing)
-//=============================================================================
-
-enum class SeekQuality {
-    PREVIEW,    // Fast: skip B-frames, skip loop filter (for scrubbing)
-    NORMAL      // Full quality decode (current behavior)
-};
-
-//=============================================================================
-// Streaming Video Decoder Configuration
-//=============================================================================
-
-struct StreamingDecoderConfig {
-    int readAheadFrames = 120;     // ~5 seconds @ 24fps (larger buffer for 4K)
-    int readBehindFrames = 48;     // ~2 seconds for backward scrub
-    bool useHardwareAccel = false;  // TEMP DISABLED for flicker testing (was true)
-    int decodeThreads = 4;         // FFmpeg internal decode threads (for software fallback)
-
-    // Tuning parameters
-    int minBufferBeforePlay = 24;  // Min frames buffered before considering "ready"
-};
-
-//=============================================================================
 // Streaming Video Decoder
 //
 // Provides real-time video frame access through continuous decode with buffering.
@@ -81,160 +35,111 @@ struct StreamingDecoderConfig {
 // - Only seeks when target is outside buffer range
 //=============================================================================
 
-class StreamingVideoDecoder {
+class StreamingVideoDecoder : public IVideoDecoder {
 public:
     explicit StreamingVideoDecoder(const std::string& video_path);
-    ~StreamingVideoDecoder();
+    ~StreamingVideoDecoder() override;
 
     // Prevent copying (FFmpeg contexts are not copyable)
     StreamingVideoDecoder(const StreamingVideoDecoder&) = delete;
     StreamingVideoDecoder& operator=(const StreamingVideoDecoder&) = delete;
 
     //=========================================================================
-    // Lifecycle
+    // IVideoDecoder Implementation - Lifecycle
     //=========================================================================
 
-    // Initialize decoder and start decode thread
-    // Returns true on success
-    bool Initialize();
-
-    // Stop decode thread and release resources
-    void Shutdown();
-
-    // Hard reset: close and reopen video file to recover from bad state
-    // Use when soft reset (FlushAndSeek) doesn't work
-    // Thread-safe: can be called from any thread
-    void HardReset(int target_frame);
-
-    // Check if decoder is ready
-    bool IsInitialized() const { return initialized_; }
+    bool Initialize() override;
+    void Shutdown() override;
+    void HardReset(int target_frame) override;
+    bool IsInitialized() const override { return initialized_; }
 
     //=========================================================================
-    // Frame Access
+    // IVideoDecoder Implementation - Frame Access
     //=========================================================================
 
-    // Get frame from buffer (instant if buffered)
-    // Returns nullptr if frame not yet decoded
-    // Thread-safe: can be called from any thread
-    std::shared_ptr<PixelData> GetFrame(int frame_number);
-
-    // Get closest frame from buffer when exact frame not available
-    // Useful during scrubbing to show something rather than nothing
-    // Returns nullptr if buffer is empty
-    // Thread-safe
-    std::shared_ptr<PixelData> GetClosestFrame(int frame_number, int* actual_frame = nullptr);
-
-    // Check if frame is available in buffer
-    // Thread-safe
-    bool HasFrame(int frame_number) const;
+    std::shared_ptr<PixelData> GetFrame(int frame_number) override;
+    std::shared_ptr<PixelData> GetClosestFrame(int frame_number, int* actual_frame = nullptr) override;
+    bool HasFrame(int frame_number) const override;
 
     //=========================================================================
-    // Keyframe Access (for H.264/inter-frame codec scrubbing)
+    // IVideoDecoder Implementation - Keyframe Access
     //=========================================================================
 
-    // Get the nearest keyframe at or before the target frame
-    // For intra-frame codecs (ProRes, DNxHD), returns target_frame itself
-    // Thread-safe
-    std::shared_ptr<PixelData> GetKeyframe(int target_frame, int* actual_keyframe = nullptr);
-
-    // Get the frame number of the nearest keyframe at or before target
-    // Returns target_frame if keyframe index not built or codec is all-intra
-    int GetNearestKeyframePosition(int target_frame) const;
-
-    // Check if the video is an intra-frame codec (every frame is a keyframe)
-    // ProRes, DNxHD, MJPEG, etc. return true
-    bool IsIntraFrameCodec() const { return is_intra_frame_codec_; }
-
-    // Check if keyframe index has been built
-    bool HasKeyframeIndex() const { return keyframe_index_built_; }
-
-    // Get all keyframe positions (for debugging/visualization)
-    const std::vector<int>& GetKeyframePositions() const { return keyframe_positions_; }
-
-    // Update playhead position
-    // Triggers seek if frame is outside buffer range
-    // quality: PREVIEW for fast scrubbing, NORMAL for full quality
-    // force_seek: bypass all tolerance checks and seek immediately (for refinement)
-    // Thread-safe
-    void UpdatePlayhead(int frame_number, SeekQuality quality = SeekQuality::NORMAL, bool force_seek = false);
+    std::shared_ptr<PixelData> GetKeyframe(int target_frame, int* actual_keyframe = nullptr) override;
+    int GetNearestKeyframePosition(int target_frame) const override;
+    bool IsIntraFrameCodec() const override { return is_intra_frame_codec_; }
+    bool HasKeyframeIndex() const override { return keyframe_index_built_; }
+    const std::vector<int>& GetKeyframePositions() const override { return keyframe_positions_; }
 
     //=========================================================================
-    // Demand-Driven Decode API (for CacheWindowEngine integration)
+    // IVideoDecoder Implementation - Playhead Management
     //=========================================================================
 
-    // Set which frames are needed, in priority order
-    // The decoder will decode missing frames in this order
-    // Replaces UpdatePlayhead for decode decisions
-    void SetNeededFrames(const std::vector<int>& frames_by_priority);
-
-    // Report current decode status
-    struct DecodeStatus {
-        std::vector<int> have;              // Frames currently buffered
-        std::vector<int> missing;           // Frames needed but not buffered, in priority order
-        int currently_decoding = -1;        // Frame being decoded right now (-1 if idle)
-    };
-    DecodeStatus GetDecodeStatus() const;
-
-    // Evict frames outside the given keep set
-    // Simple eviction: anything not in keep_frames gets removed
-    void EvictOutsideWindow(const std::set<int>& keep_frames);
-
-    // Get frames currently in buffer as a set (for quick lookup)
-    std::set<int> GetBufferedFramesSet() const;
+    void UpdatePlayhead(int frame_number, SeekQuality quality = SeekQuality::NORMAL, bool force_seek = false) override;
 
     //=========================================================================
-    // Buffer Status (for UI/debugging)
+    // IVideoDecoder Implementation - Demand-Driven Decode API
     //=========================================================================
 
-    // Get number of frames buffered ahead of playhead
-    int GetBufferedAhead() const;
-
-    // Get number of frames buffered behind playhead
-    int GetBufferedBehind() const;
-
-    // Get total buffer size
-    int GetBufferSize() const;
-
-    // Get range of buffered frames [start, end]
-    void GetBufferedRange(int& start_frame, int& end_frame) const;
-
-    // Clear the frame buffer (free memory for inactive decoders)
-    // Thread-safe: can be called from any thread
-    void ClearBuffer();
-
-    // Check if a seek is currently in progress (requested but not yet completed)
-    // When true, buffer contents may be stale/invalid
-    bool IsSeekPending() const { return seek_requested_.load(); }
-
-    // Get the last seek target frame (for debugging/validation)
-    int GetLastSeekTarget() const { return seek_target_frame_; }
+    void SetNeededFrames(const std::vector<int>& frames_by_priority) override;
+    DecodeStatus GetDecodeStatus() const override;
+    void EvictOutsideWindow(const std::set<int>& keep_frames) override;
+    std::set<int> GetBufferedFramesSet() const override;
 
     //=========================================================================
-    // Metadata
+    // IVideoDecoder Implementation - Buffer Status
     //=========================================================================
 
-    int GetWidth() const { return width_; }
-    int GetHeight() const { return height_; }
-    double GetFPS() const { return fps_; }
-    double GetDuration() const { return duration_; }
-    int GetFrameCount() const { return frame_count_; }
-    const std::string& GetPath() const { return video_path_; }
-
-    // Hardware acceleration info
-    HWAccelType GetHWAccelType() const { return hw_accel_type_; }
-    bool IsHardwareAccelerated() const { return hw_accel_type_ != HWAccelType::NONE; }
+    int GetBufferedAhead() const override;
+    int GetBufferedBehind() const override;
+    int GetBufferSize() const override;
+    void GetBufferedRange(int& start_frame, int& end_frame) const override;
+    void ClearBuffer() override;
+    bool IsSeekPending() const override { return seek_requested_.load(); }
+    int GetLastSeekTarget() const override { return seek_target_frame_; }
 
     //=========================================================================
-    // Configuration
+    // IVideoDecoder Implementation - Metadata
     //=========================================================================
 
-    void SetConfig(const StreamingDecoderConfig& config);
-    const StreamingDecoderConfig& GetConfig() const { return config_; }
+    int GetWidth() const override { return width_; }
+    int GetHeight() const override { return height_; }
+    double GetFPS() const override { return fps_; }
+    double GetDuration() const override { return duration_; }
+    int GetFrameCount() const override { return frame_count_; }
+    const std::string& GetPath() const override { return video_path_; }
 
-    // Shuttle mode - disables window-based decode throttling
-    // When enabled, decoder runs as fast as possible without waiting
-    void SetShuttleMode(bool enabled) { shuttle_mode_ = enabled; }
-    bool IsShuttleMode() const { return shuttle_mode_.load(); }
+    //=========================================================================
+    // IVideoDecoder Implementation - Hardware Acceleration
+    //=========================================================================
+
+    HWAccelType GetHWAccelType() const override { return hw_accel_type_; }
+    bool IsHardwareAccelerated() const override { return hw_accel_type_ != HWAccelType::NONE; }
+
+    //=========================================================================
+    // IVideoDecoder Implementation - Configuration
+    //=========================================================================
+
+    void SetConfig(const StreamingDecoderConfig& config) override;
+    const StreamingDecoderConfig& GetConfig() const override { return config_; }
+    void SetPipelineMode(PipelineMode mode) override;
+    PipelineMode GetPipelineMode() const override { return pipeline_mode_; }
+    void SetShuttleMode(bool enabled) override { shuttle_mode_ = enabled; }
+    bool IsShuttleMode() const override { return shuttle_mode_.load(); }
+
+    //=========================================================================
+    // IVideoDecoder Implementation - Looping
+    //=========================================================================
+
+    void SetLoopPoints(int start_frame, int end_frame) override;
+    void ClearLoopPoints() override;
+
+    //=========================================================================
+    // IVideoDecoder Implementation - Backend Identification
+    //=========================================================================
+
+    const char* GetBackendName() const override { return "FFmpeg"; }
+    VideoDecoderBackend GetBackendType() const override { return VideoDecoderBackend::FFMPEG; }
 
 private:
     //=========================================================================
@@ -334,6 +239,9 @@ private:
     int sws_src_height_ = 0;
     int sws_src_format_ = -1;
 
+    // Pipeline mode
+    PipelineMode pipeline_mode_ = PipelineMode::NORMAL;
+
     // Hardware acceleration state
     HWAccelType hw_accel_type_ = HWAccelType::NONE;
     ::AVBufferRef* hw_device_ctx_ = nullptr;
@@ -398,6 +306,14 @@ private:
     std::vector<int> needed_frames_;           // Frames needed, in priority order
     mutable std::mutex needed_mutex_;          // Protects needed_frames_
     std::atomic<int> currently_decoding_{-1};  // Frame currently being decoded
+
+    //=========================================================================
+    // Looping State
+    //=========================================================================
+
+    bool loop_enabled_ = false;
+    int loop_start_frame_ = 0;
+    int loop_end_frame_ = 0;
 };
 
 } // namespace ump

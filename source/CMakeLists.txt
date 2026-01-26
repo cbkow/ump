@@ -38,7 +38,32 @@ if(WIN32)
     set(FFMPEG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/include")
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
     set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
+endif()
 
+# =============================================================================
+# GStreamer Configuration (OPTIONAL)
+# =============================================================================
+option(WITH_GSTREAMER "Build with GStreamer backend support" OFF)
+
+if(WIN32 AND WITH_GSTREAMER)
+    # GStreamer paths
+    set(GSTREAMER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/external/gstreamer")
+    set(GSTREAMER_INCLUDE_DIR "${GSTREAMER_ROOT}/include")
+    set(GSTREAMER_LIB_DIR "${GSTREAMER_ROOT}/lib")
+    set(GSTREAMER_BIN_DIR "${GSTREAMER_ROOT}/bin")
+    set(GSTREAMER_PLUGIN_DIR "${GSTREAMER_ROOT}/plugins")
+
+    # Verify GStreamer installation (headers are in gstreamer-1.0 subdirectory)
+    if(EXISTS "${GSTREAMER_INCLUDE_DIR}/gstreamer-1.0/gst/gst.h")
+        set(GSTREAMER_FOUND TRUE)
+        message(STATUS "GStreamer found at: ${GSTREAMER_ROOT}")
+    else()
+        set(GSTREAMER_FOUND FALSE)
+        message(WARNING "GStreamer requested but not found at: ${GSTREAMER_ROOT}")
+        message(STATUS "  Expected header: ${GSTREAMER_INCLUDE_DIR}/gstreamer-1.0/gst/gst.h")
+        message(STATUS "  Download from: https://gstreamer.freedesktop.org/download/")
+        set(WITH_GSTREAMER OFF CACHE BOOL "GStreamer not available" FORCE)
+    endif()
 endif()
 
 # Add subdirectory for external dependencies
@@ -86,16 +111,21 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/gpu/texture_pool.cpp"
     "src/player/image_loaders.h"
     "src/player/image_loaders.cpp"
+    "src/player/video_decoder_interface.h"
+    "src/player/video_decoder_factory.h"
+    "src/player/video_decoder_factory.cpp"
+    "src/player/gstreamer_manager.h"
+    "src/player/gstreamer_manager.cpp"
+    "src/player/gstreamer_video_decoder.h"
+    "src/player/gstreamer_video_decoder.cpp"
     "src/player/streaming_video_decoder.h"
     "src/player/streaming_video_decoder.cpp"
     "src/player/image_sequence_decoder.h"
     "src/player/image_sequence_decoder.cpp"
-    "src/player/managed_video_decoder.h"
-    "src/player/managed_video_decoder.cpp"
-    "src/player/decoder_cleanup_queue.h"
-    "src/player/decoder_cleanup_queue.cpp"
     "src/player/hw_context_manager.h"
     "src/player/hw_context_manager.cpp"
+    "src/player/scrub_decoder.h"
+    "src/player/scrub_decoder.cpp"
     "src/player/thumbnail_cache.h"
     "src/player/thumbnail_cache.cpp"
     "src/player/playback_timer.h"
@@ -144,7 +174,24 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/transcode/transcode_worker_pool.cpp"
     "src/ui/transcode_queue_window.h"
     "src/ui/transcode_queue_window.cpp"
+    "src/ui/playlist_panel.h"
+    "src/ui/playlist_panel.cpp"
+    "src/player/playlist_controller.h"
+    "src/player/playlist_controller.cpp"
     "src/project/project_manager_transcode.cpp"
+    # HDR output via D3D11 (Windows)
+    "src/hdr/d3d11_hdr_swapchain.h"
+    "src/hdr/d3d11_hdr_swapchain.cpp"
+    "src/hdr/hdr_output_manager.h"
+    "src/hdr/hdr_output_manager.cpp"
+    # D3D11 rendering infrastructure (Windows)
+    "src/gpu/d3d11_device_manager.h"
+    "src/gpu/d3d11_device_manager.cpp"
+    "src/gpu/d3d11_texture_pool.h"
+    "src/gpu/d3d11_texture_pool.cpp"
+    # D3D11 OCIO renderer (Windows)
+    "src/color/d3d11_ocio_renderer.h"
+    "src/color/d3d11_ocio_renderer.cpp"
     # Windows application icon
     "resources/ump.rc"
 )
@@ -176,6 +223,16 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/_deps/opentimelineio-src/src
 )
 
+# GStreamer include directories (conditional)
+if(WITH_GSTREAMER AND GSTREAMER_FOUND)
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${GSTREAMER_INCLUDE_DIR}
+        ${GSTREAMER_INCLUDE_DIR}/gstreamer-1.0
+        ${GSTREAMER_INCLUDE_DIR}/glib-2.0
+        ${GSTREAMER_LIB_DIR}/glib-2.0/include
+    )
+endif()
+
 # Link directories for Windows
 if(WIN32)
     target_link_directories(${PROJECT_NAME} PRIVATE
@@ -187,8 +244,22 @@ if(WIN32)
     )
 endif()
 
+# GStreamer link directories (conditional)
+if(WITH_GSTREAMER AND GSTREAMER_FOUND)
+    target_link_directories(${PROJECT_NAME} PRIVATE
+        ${GSTREAMER_LIB_DIR}
+        ${GSTREAMER_LIB_DIR}/gstreamer-1.0
+    )
+endif()
+
 # Enable OpenTimelineIO support
 target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
+
+# Enable GStreamer support (conditional)
+if(WITH_GSTREAMER AND GSTREAMER_FOUND)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE WITH_GSTREAMER)
+    message(STATUS "GStreamer backend enabled")
+endif()
 
 # Enable Python adapters for AAF/XML import (if available)
 if(UMP_PYTHON_ADAPTERS_AVAILABLE)
@@ -216,11 +287,11 @@ target_link_libraries(${PROJECT_NAME}
     swresample
     # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
     Imath-3_2          # Must be first for half-float support
-    Iex-3_3
-    IlmThread-3_3
-    OpenEXRCore-3_3
-    OpenEXRUtil-3_3
-    OpenEXR-3_3        # C++ API for DWAB compression
+    Iex-3_4
+    IlmThread-3_4
+    OpenEXRCore-3_4
+    OpenEXRUtil-3_4
+    OpenEXR-3_4        # C++ API for DWAB compression
     # Image format libraries (native loaders)
     tiff               # libtiff for TIFF sequences
     libpng16           # libpng for PNG sequences
@@ -237,8 +308,12 @@ if(WIN32)
         dwmapi
         setupapi
         version
-        winhttp  # For Frame.io API client
-        dxgi     # For GPU/VRAM monitoring
+        winhttp     # For Frame.io API client
+        dxgi        # For GPU/VRAM monitoring
+        d3d11       # For D3D11 rendering and HDR swapchain
+        d3dcompiler # For HLSL shader compilation
+        dxguid      # For D3D11 GUIDs
+        dcomp       # For DirectComposition (HDR over OpenGL window)
     )
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
@@ -253,6 +328,21 @@ endif()
 
 target_link_libraries(${PROJECT_NAME} Threads::Threads)
 
+# GStreamer libraries (conditional)
+if(WITH_GSTREAMER AND GSTREAMER_FOUND)
+    target_link_libraries(${PROJECT_NAME}
+        gstreamer-1.0
+        gstbase-1.0
+        gstvideo-1.0
+        gstaudio-1.0
+        gstapp-1.0
+        gstpbutils-1.0
+        glib-2.0
+        gobject-2.0
+        gmodule-2.0
+    )
+    message(STATUS "Linking GStreamer libraries")
+endif()
 
 # Set target
 set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
@@ -307,13 +397,13 @@ if(WIN32)
     # Copy OCIO DLLs - using explicit list for reliability across Debug/Release
     # Hybrid approach: Core API + C++ API for DWAB support
     set(REQUIRED_DLLS
-        "Iex-3_3.dll"
-        "IlmThread-3_3.dll"
+        "Iex-3_4.dll"
+        "IlmThread-3_4.dll"
         "Imath-3_2.dll"
         "OpenColorIO_2_5.dll"
-        "OpenEXR-3_3.dll"        # C++ API for DWAB compression (direct, no OIIO)
-        "OpenEXRCore-3_3.dll"
-        "OpenEXRUtil-3_3.dll"
+        "OpenEXR-3_4.dll"        # C++ API for DWAB compression (direct, no OIIO)
+        "OpenEXRCore-3_4.dll"
+        "OpenEXRUtil-3_4.dll"
         "bz2.dll"
         "deflate.dll"
         "exiv2.dll"
@@ -337,6 +427,17 @@ if(WIN32)
             COMMENT "Copying required DLL: ${DLL_NAME}"
         )
     endforeach()
+
+    # Copy openjph DLL from vcpkg (JPEG 2000 HTJ2K support)
+    set(VCPKG_BIN_DIR "C:/vcpkg/vcpkg/installed/x64-windows/bin")
+    if(EXISTS "${VCPKG_BIN_DIR}/openjph.0.25.dll")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${VCPKG_BIN_DIR}/openjph.0.25.dll"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
+            COMMENT "Copying openjph DLL"
+        )
+    endif()
 
     # OIIO removed - using direct OpenEXR API only
 
@@ -362,6 +463,206 @@ if(WIN32)
             "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311/Lib/site-packages/resolve_aaf_mobs.py"
             COMMENT "Copying resolve_aaf_mobs.py script"
         )
+    endif()
+
+    # Copy GStreamer DLLs and plugins (conditional) - WHITELIST approach for smaller distribution
+    if(WITH_GSTREAMER AND GSTREAMER_FOUND)
+        # =========================================================================
+        # GStreamer Core DLLs - only what we actually need
+        # =========================================================================
+        set(GSTREAMER_REQUIRED_DLLS
+            # GStreamer core
+            gstreamer-1.0-0.dll
+            gstbase-1.0-0.dll
+            gstapp-1.0-0.dll
+            gstaudio-1.0-0.dll
+            gstvideo-1.0-0.dll
+            gstpbutils-1.0-0.dll
+            gsttag-1.0-0.dll
+            gstriff-1.0-0.dll
+            gstfft-1.0-0.dll
+            gstgl-1.0-0.dll
+            gstcontroller-1.0-0.dll
+            gstallocators-1.0-0.dll
+            gstcodecparsers-1.0-0.dll
+            gstcodecs-1.0-0.dll
+            gstrtp-1.0-0.dll        # Required by isomp4 (MP4/MOV) plugin
+            gstd3d11-1.0-0.dll      # D3D11 helper library (needed by mediafoundation plugin)
+            gstd3dshader-1.0-0.dll  # D3D11 shader library (needed by mediafoundation plugin)
+            gstdxva-1.0-0.dll       # DXVA helper library (needed by mediafoundation plugin)
+            # GLib dependencies
+            glib-2.0-0.dll
+            gobject-2.0-0.dll
+            gmodule-2.0-0.dll
+            gio-2.0-0.dll
+            gthread-2.0-0.dll
+            intl-8.dll
+            ffi-7.dll
+            pcre2-8-0.dll
+            z-1.dll
+            # Runtime dependencies
+            orc-0.4-0.dll
+            libwinpthread-1.dll
+            libgcc_s_seh-1.dll
+            libstdc++-6.dll
+            libiconv-2.dll
+            libcharset-1.dll
+            # GStreamer's bundled FFmpeg (for libav plugin)
+            avcodec-61.dll
+            avformat-61.dll
+            avutil-59.dll
+            avfilter-10.dll
+            swresample-5.dll
+            swscale-8.dll
+            # Audio libraries
+            ogg-0.dll
+            vorbis-0.dll
+            vorbisenc-2.dll
+            vorbisfile-3.dll
+            FLAC-8.dll
+            opus-0.dll
+            libmpg123-1.dll
+            mp3lame-0.dll
+            # Other codec support
+            dav1d.dll
+            x264-164.dll
+            x265.dll
+            openh264-7.dll
+            openjp2.dll
+            png16.dll
+            jpeg8.dll
+            turbojpeg.dll
+            bz2.dll
+            xml2-2.dll
+            # Subtitle support
+            ass-9.dll
+            fontconfig-1.dll
+            freetype-6.dll
+            fribidi-0.dll
+            harfbuzz.dll
+        )
+
+        foreach(DLL_NAME ${GSTREAMER_REQUIRED_DLLS})
+            set(DLL_PATH "${GSTREAMER_BIN_DIR}/${DLL_NAME}")
+            if(EXISTS "${DLL_PATH}")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${DLL_PATH}"
+                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
+                    COMMENT "Copying GStreamer DLL: ${DLL_NAME}"
+                )
+            else()
+                message(STATUS "GStreamer DLL not found (skipping): ${DLL_NAME}")
+            endif()
+        endforeach()
+
+        # =========================================================================
+        # GStreamer Plugins - only what we actually need
+        # =========================================================================
+        set(GSTREAMER_REQUIRED_PLUGINS
+            # Core elements (filesrc, queue, tee, etc.)
+            gstcoreelements.dll
+            # Playback (decodebin, playbin, uridecodebin)
+            gstplayback.dll
+            # Auto-detection (autoaudiosink, autovideosink)
+            gstautodetect.dll
+            # App integration (appsink, appsrc)
+            gstapp.dll
+            # Audio processing
+            gstaudioconvert.dll
+            gstaudioresample.dll
+            gstvolume.dll
+            gstaudiomixer.dll
+            gstaudioparsers.dll
+            gstaudiorate.dll
+            # Video processing
+            gstvideoconvertscale.dll
+            gstvideofilter.dll
+            gstvideorate.dll
+            gstvideoparsersbad.dll
+            # FFmpeg codecs (most important - handles most formats)
+            gstlibav.dll
+            # Container formats
+            gstisomp4.dll
+            gstmatroska.dll
+            gstavi.dll
+            gstflv.dll
+            gstogg.dll
+            gstmxf.dll
+            gstwavparse.dll
+            gstaiff.dll
+            gstasf.dll
+            # Audio codecs
+            gstflac.dll
+            gstmpg123.dll
+            gstvorbis.dll
+            gstopus.dll
+            gsta52dec.dll
+            gstdtsdec.dll
+            gstalaw.dll
+            gstmulaw.dll
+            # Video codecs
+            gstdav1d.dll
+            gstopenh264.dll
+            gstx264.dll
+            gstx265.dll
+            gstjpeg.dll
+            gstpng.dll
+            gstvpx.dll
+            gstmediafoundation.dll  # Windows Media Foundation (HEVC via mfh265dec)
+            gstd3d11.dll            # D3D11 plugin (needed for MF plugin to register elements)
+            # Windows audio output
+            gstdirectsound.dll
+            gstwasapi.dll
+            gstwasapi2.dll
+            # Typefinders and utilities
+            gsttypefindfunctions.dll
+            gstgio.dll
+            gstdebug.dll
+            # Image sequence support
+            gstvideobox.dll
+            gstimagefreeze.dll
+            # Deinterlacing
+            gstdeinterlace.dll
+            # GIF support
+            gstgif.dll
+            # Subtitle support
+            gstsubparse.dll
+            gstassrender.dll
+            gstclosedcaption.dll
+            gstdvbsuboverlay.dll
+            gstdvdsub.dll
+        )
+
+        # Create plugins directory
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/gst-plugins"
+            COMMENT "Creating GStreamer plugins directory"
+        )
+
+        foreach(PLUGIN_NAME ${GSTREAMER_REQUIRED_PLUGINS})
+            set(PLUGIN_PATH "${GSTREAMER_PLUGIN_DIR}/${PLUGIN_NAME}")
+            if(EXISTS "${PLUGIN_PATH}")
+                add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PLUGIN_PATH}"
+                    "$<TARGET_FILE_DIR:${PROJECT_NAME}>/gst-plugins/"
+                    COMMENT "Copying GStreamer plugin: ${PLUGIN_NAME}"
+                )
+            else()
+                message(STATUS "GStreamer plugin not found (skipping): ${PLUGIN_NAME}")
+            endif()
+        endforeach()
+
+        # Delete old registry to force fresh scan after build (prevents stale cache issues)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E remove -f "$<TARGET_FILE_DIR:${PROJECT_NAME}>/gst-registry.bin"
+            COMMENT "Clearing GStreamer registry cache"
+        )
+
+        list(LENGTH GSTREAMER_REQUIRED_DLLS GST_DLL_COUNT)
+        list(LENGTH GSTREAMER_REQUIRED_PLUGINS GST_PLUGIN_COUNT)
+        message(STATUS "GStreamer: ${GST_DLL_COUNT} DLLs and ${GST_PLUGIN_COUNT} plugins will be copied (whitelist mode)")
     endif()
 
 endif()

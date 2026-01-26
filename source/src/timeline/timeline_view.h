@@ -149,6 +149,7 @@ public:
     std::string GetTimelineName() const { return timeline_name_; }
     double GetDuration() const { return timeline_duration_; }
     double GetFrameRate() const { return frame_rate_; }
+    void SetFrameRate(double fps);
     int GetVideoTrackCount() const;
     int GetAudioTrackCount() const;
     std::string GetSourceFilePath() const { return source_file_path_; }

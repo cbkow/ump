@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: VisualOn AAC Encoder
+Description: AAC codec library
+Version: 0.1.3
+Libs: -L${libdir} -lvo-aacenc
+Cflags: -I${includedir}
+

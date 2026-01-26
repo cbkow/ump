@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: librsvg
+Description: library that renders svg files
+Version: 2.59.2
+Requires: cairo >=  1.18.0, cairo-gobject >=  1.18.0, cairo-png >=  1.18.0, dav1d >=  1.3.0, freetype2 >=  20.0.14, gdk-pixbuf-2.0 >=  2.20, gio-2.0 >=  2.24.0, glib-2.0 >=  2.50.0, harfbuzz >=  2.0.0, libxml-2.0 >=  2.9.0, pangocairo >=  1.50.0, gmodule-2.0 >=  2.50.0
+Libs: -L${libdir} -lrsvg-2
+Libs.private: -luserenv -lkernel32 -ladvapi32 -ldbghelp -lws2_32 -l/defaultlib:msvcrt -lntdll
+Cflags: -I${includedir}/librsvg-2.0
+

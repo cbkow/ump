@@ -242,6 +242,9 @@ struct ImGui_ImplOpenGL3_Data
     GLuint          ShaderHandle;
     GLint           AttribLocationTex;       // Uniforms location
     GLint           AttribLocationProjMtx;
+    GLint           AttribLocationHDRMode;   // HDR mode uniform (0=SDR, 1=HDR)
+    GLint           AttribLocationTargetNits; // Target brightness in nits
+    GLint           AttribLocationHDRPassthrough; // Skip conversion for this draw (0=convert, 1=passthrough)
     GLuint          AttribLocationVtxPos;    // Vertex attributes location
     GLuint          AttribLocationVtxUV;
     GLuint          AttribLocationVtxColor;
@@ -252,9 +255,11 @@ struct ImGui_ImplOpenGL3_Data
     bool            HasBindSampler;
     bool            HasClipOrigin;
     bool            UseBufferSubData;
+    bool            HDRActive;               // Whether HDR mode is currently active
+    float           HDRTargetNits;           // Target brightness for UI (default 120 nits)
     ImVector<char>  TempBuffer;
 
-    ImGui_ImplOpenGL3_Data() { memset((void*)this, 0, sizeof(*this)); }
+    ImGui_ImplOpenGL3_Data() { memset((void*)this, 0, sizeof(*this)); HDRTargetNits = 120.0f; }
 };
 
 // Backend data stored in io.BackendRendererUserData to allow support for multiple Dear ImGui contexts
@@ -262,6 +267,61 @@ struct ImGui_ImplOpenGL3_Data
 static ImGui_ImplOpenGL3_Data* ImGui_ImplOpenGL3_GetBackendData()
 {
     return ImGui::GetCurrentContext() ? (ImGui_ImplOpenGL3_Data*)ImGui::GetIO().BackendRendererUserData : nullptr;
+}
+
+// HDR Mode Control - enables automatic SDR to PQ conversion for HDR displays
+// When active, all UI colors are converted from sRGB to PQ (ST.2084) at the specified target brightness
+// target_nits: typical UI brightness (80-150 nits recommended for comfortable viewing)
+void ImGui_ImplOpenGL3_SetHDRMode(bool active, float target_nits)
+{
+    ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
+    if (bd != nullptr)
+    {
+        bd->HDRActive = active;
+        bd->HDRTargetNits = target_nits;
+    }
+}
+
+bool ImGui_ImplOpenGL3_GetHDRMode()
+{
+    ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
+    return bd != nullptr ? bd->HDRActive : false;
+}
+
+// HDR Passthrough Textures - textures that should NOT have SDR->PQ conversion applied
+// Use this for video/image textures that are already in HDR format
+static ImVector<ImTextureID> g_HDRPassthroughTextures;
+
+void ImGui_ImplOpenGL3_SetTextureHDRPassthrough(ImTextureID texture, bool passthrough)
+{
+    if (passthrough)
+    {
+        // Add to passthrough list if not already present
+        if (!g_HDRPassthroughTextures.contains(texture))
+            g_HDRPassthroughTextures.push_back(texture);
+    }
+    else
+    {
+        // Remove from passthrough list
+        for (int i = 0; i < g_HDRPassthroughTextures.Size; i++)
+        {
+            if (g_HDRPassthroughTextures[i] == texture)
+            {
+                g_HDRPassthroughTextures.erase(g_HDRPassthroughTextures.Data + i);
+                break;
+            }
+        }
+    }
+}
+
+bool ImGui_ImplOpenGL3_IsTextureHDRPassthrough(ImTextureID texture)
+{
+    return g_HDRPassthroughTextures.contains(texture);
+}
+
+void ImGui_ImplOpenGL3_ClearHDRPassthroughTextures()
+{
+    g_HDRPassthroughTextures.clear();
 }
 
 // Forward Declarations
@@ -511,6 +571,10 @@ static void ImGui_ImplOpenGL3_SetupRenderState(ImDrawData* draw_data, int fb_wid
     glUseProgram(bd->ShaderHandle);
     glUniform1i(bd->AttribLocationTex, 0);
     glUniformMatrix4fv(bd->AttribLocationProjMtx, 1, GL_FALSE, &ortho_projection[0][0]);
+    // HDR mode uniforms - convert sRGB to PQ when active
+    // Note: TargetNits is passed as int (scaled by 10) since minimal GL loader only has glUniform1i
+    glUniform1i(bd->AttribLocationHDRMode, bd->HDRActive ? 1 : 0);
+    glUniform1i(bd->AttribLocationTargetNits, (int)(bd->HDRTargetNits * 10.0f));
 
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_BIND_SAMPLER
     if (bd->HasBindSampler)
@@ -665,7 +729,11 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
                 GL_CALL(glScissor((int)clip_min.x, (int)((float)fb_height - clip_max.y), (int)(clip_max.x - clip_min.x), (int)(clip_max.y - clip_min.y)));
 
                 // Bind texture, Draw
-                GL_CALL(glBindTexture(GL_TEXTURE_2D, (GLuint)(intptr_t)pcmd->GetTexID()));
+                // Check if this texture should bypass HDR conversion (video/HDR content)
+                ImTextureID tex_id = pcmd->GetTexID();
+                bool is_passthrough = ImGui_ImplOpenGL3_IsTextureHDRPassthrough(tex_id);
+                glUniform1i(bd->AttribLocationHDRPassthrough, is_passthrough ? 1 : 0);
+                GL_CALL(glBindTexture(GL_TEXTURE_2D, (GLuint)(intptr_t)tex_id));
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_VTX_OFFSET
                 if (bd->GlVersion >= 320)
                     GL_CALL(glDrawElementsBaseVertex(GL_TRIANGLES, (GLsizei)pcmd->ElemCount, sizeof(ImDrawIdx) == 2 ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, (void*)(intptr_t)(pcmd->IdxOffset * sizeof(ImDrawIdx)), (GLint)pcmd->VtxOffset));
@@ -923,47 +991,163 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
         "    gl_Position = ProjMtx * vec4(Position.xy,0,1);\n"
         "}\n";
 
+    // HDR PQ conversion functions (ST.2084) - embedded in shaders that support it
+    // These convert sRGB UI colors to PQ for comfortable viewing on HDR displays
+    const GLchar* hdr_pq_functions =
+        "uniform int HDRMode;\n"
+        "uniform int TargetNits;\n"
+        "\n"
+        "vec3 srgb_to_linear(vec3 srgb) {\n"
+        "    return mix(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3(2.4)), step(0.04045, srgb));\n"
+        "}\n"
+        "\n"
+        "vec3 linear_to_pq(vec3 linear_col) {\n"
+        "    const float m1 = 0.1593017578125;\n"
+        "    const float m2 = 78.84375;\n"
+        "    const float c1 = 0.8359375;\n"
+        "    const float c2 = 18.8515625;\n"
+        "    const float c3 = 18.6875;\n"
+        "    vec3 L = max(linear_col * (float(TargetNits) / 100000.0), vec3(0.0));\n"
+        "    vec3 Lm = pow(L, vec3(m1));\n"
+        "    return pow((c1 + c2 * Lm) / (1.0 + c3 * Lm), vec3(m2));\n"
+        "}\n"
+        "\n"
+        "vec4 apply_hdr(vec4 color) {\n"
+        "    if (HDRMode != 0) {\n"
+        "        color.rgb = linear_to_pq(srgb_to_linear(color.rgb));\n"
+        "    }\n"
+        "    return color;\n"
+        "}\n";
+
     const GLchar* fragment_shader_glsl_120 =
         "#ifdef GL_ES\n"
         "    precision mediump float;\n"
         "#endif\n"
         "uniform sampler2D Texture;\n"
+        "uniform int HDRMode;\n"
+        "uniform int TargetNits;\n"
+        "uniform int HDRPassthrough;\n"
         "varying vec2 Frag_UV;\n"
         "varying vec4 Frag_Color;\n"
+        "vec3 srgb_to_linear(vec3 srgb) {\n"
+        "    return mix(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3(2.4)), step(0.04045, srgb));\n"
+        "}\n"
+        "vec3 bt709_to_bt2020(vec3 rgb) {\n"
+        "    mat3 m = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);\n"
+        "    return m * rgb;\n"
+        "}\n"
+        "vec3 linear_to_pq(vec3 linear_col) {\n"
+        "    float m1 = 0.1593017578125;\n"
+        "    float m2 = 78.84375;\n"
+        "    float c1 = 0.8359375;\n"
+        "    float c2 = 18.8515625;\n"
+        "    float c3 = 18.6875;\n"
+        "    vec3 L = max(linear_col * (float(TargetNits) / 100000.0), vec3(0.0));\n"
+        "    vec3 Lm = pow(L, vec3(m1));\n"
+        "    return pow((c1 + c2 * Lm) / (1.0 + c3 * Lm), vec3(m2));\n"
+        "}\n"
         "void main()\n"
         "{\n"
-        "    gl_FragColor = Frag_Color * texture2D(Texture, Frag_UV.st);\n"
+        "    vec4 color = Frag_Color * texture2D(Texture, Frag_UV.st);\n"
+        "    if (HDRMode != 0 && HDRPassthrough == 0) { color.rgb = linear_to_pq(bt709_to_bt2020(srgb_to_linear(color.rgb))); }\n"
+        "    gl_FragColor = color;\n"
         "}\n";
 
     const GLchar* fragment_shader_glsl_130 =
         "uniform sampler2D Texture;\n"
+        "uniform int HDRMode;\n"
+        "uniform int TargetNits;\n"
+        "uniform int HDRPassthrough;\n"
         "in vec2 Frag_UV;\n"
         "in vec4 Frag_Color;\n"
         "out vec4 Out_Color;\n"
+        "vec3 srgb_to_linear(vec3 srgb) {\n"
+        "    return mix(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3(2.4)), step(0.04045, srgb));\n"
+        "}\n"
+        "vec3 bt709_to_bt2020(vec3 rgb) {\n"
+        "    const mat3 m = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);\n"
+        "    return m * rgb;\n"
+        "}\n"
+        "vec3 linear_to_pq(vec3 linear_col) {\n"
+        "    const float m1 = 0.1593017578125;\n"
+        "    const float m2 = 78.84375;\n"
+        "    const float c1 = 0.8359375;\n"
+        "    const float c2 = 18.8515625;\n"
+        "    const float c3 = 18.6875;\n"
+        "    vec3 L = max(linear_col * (float(TargetNits) / 100000.0), vec3(0.0));\n"
+        "    vec3 Lm = pow(L, vec3(m1));\n"
+        "    return pow((c1 + c2 * Lm) / (1.0 + c3 * Lm), vec3(m2));\n"
+        "}\n"
         "void main()\n"
         "{\n"
-        "    Out_Color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    vec4 color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    if (HDRMode != 0 && HDRPassthrough == 0) { color.rgb = linear_to_pq(bt709_to_bt2020(srgb_to_linear(color.rgb))); }\n"
+        "    Out_Color = color;\n"
         "}\n";
 
     const GLchar* fragment_shader_glsl_300_es =
         "precision mediump float;\n"
         "uniform sampler2D Texture;\n"
+        "uniform int HDRMode;\n"
+        "uniform int TargetNits;\n"
+        "uniform int HDRPassthrough;\n"
         "in vec2 Frag_UV;\n"
         "in vec4 Frag_Color;\n"
         "layout (location = 0) out vec4 Out_Color;\n"
+        "vec3 srgb_to_linear(vec3 srgb) {\n"
+        "    return mix(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3(2.4)), step(0.04045, srgb));\n"
+        "}\n"
+        "vec3 bt709_to_bt2020(vec3 rgb) {\n"
+        "    mat3 m = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);\n"
+        "    return m * rgb;\n"
+        "}\n"
+        "vec3 linear_to_pq(vec3 linear_col) {\n"
+        "    float m1 = 0.1593017578125;\n"
+        "    float m2 = 78.84375;\n"
+        "    float c1 = 0.8359375;\n"
+        "    float c2 = 18.8515625;\n"
+        "    float c3 = 18.6875;\n"
+        "    vec3 L = max(linear_col * (float(TargetNits) / 100000.0), vec3(0.0));\n"
+        "    vec3 Lm = pow(L, vec3(m1));\n"
+        "    return pow((c1 + c2 * Lm) / (1.0 + c3 * Lm), vec3(m2));\n"
+        "}\n"
         "void main()\n"
         "{\n"
-        "    Out_Color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    vec4 color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    if (HDRMode != 0 && HDRPassthrough == 0) { color.rgb = linear_to_pq(bt709_to_bt2020(srgb_to_linear(color.rgb))); }\n"
+        "    Out_Color = color;\n"
         "}\n";
 
     const GLchar* fragment_shader_glsl_410_core =
         "in vec2 Frag_UV;\n"
         "in vec4 Frag_Color;\n"
         "uniform sampler2D Texture;\n"
+        "uniform int HDRMode;\n"
+        "uniform int TargetNits;\n"
+        "uniform int HDRPassthrough;\n"
         "layout (location = 0) out vec4 Out_Color;\n"
+        "vec3 srgb_to_linear(vec3 srgb) {\n"
+        "    return mix(srgb / 12.92, pow((srgb + 0.055) / 1.055, vec3(2.4)), step(0.04045, srgb));\n"
+        "}\n"
+        "vec3 bt709_to_bt2020(vec3 rgb) {\n"
+        "    const mat3 m = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0114, 0.8956);\n"
+        "    return m * rgb;\n"
+        "}\n"
+        "vec3 linear_to_pq(vec3 linear_col) {\n"
+        "    const float m1 = 0.1593017578125;\n"
+        "    const float m2 = 78.84375;\n"
+        "    const float c1 = 0.8359375;\n"
+        "    const float c2 = 18.8515625;\n"
+        "    const float c3 = 18.6875;\n"
+        "    vec3 L = max(linear_col * (float(TargetNits) / 100000.0), vec3(0.0));\n"
+        "    vec3 Lm = pow(L, vec3(m1));\n"
+        "    return pow((c1 + c2 * Lm) / (1.0 + c3 * Lm), vec3(m2));\n"
+        "}\n"
         "void main()\n"
         "{\n"
-        "    Out_Color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    vec4 color = Frag_Color * texture(Texture, Frag_UV.st);\n"
+        "    if (HDRMode != 0 && HDRPassthrough == 0) { color.rgb = linear_to_pq(bt709_to_bt2020(srgb_to_linear(color.rgb))); }\n"
+        "    Out_Color = color;\n"
         "}\n";
 
     // Select shaders matching our GLSL versions
@@ -1022,6 +1206,9 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
 
     bd->AttribLocationTex = glGetUniformLocation(bd->ShaderHandle, "Texture");
     bd->AttribLocationProjMtx = glGetUniformLocation(bd->ShaderHandle, "ProjMtx");
+    bd->AttribLocationHDRMode = glGetUniformLocation(bd->ShaderHandle, "HDRMode");
+    bd->AttribLocationTargetNits = glGetUniformLocation(bd->ShaderHandle, "TargetNits");
+    bd->AttribLocationHDRPassthrough = glGetUniformLocation(bd->ShaderHandle, "HDRPassthrough");
     bd->AttribLocationVtxPos = (GLuint)glGetAttribLocation(bd->ShaderHandle, "Position");
     bd->AttribLocationVtxUV = (GLuint)glGetAttribLocation(bd->ShaderHandle, "UV");
     bd->AttribLocationVtxColor = (GLuint)glGetAttribLocation(bd->ShaderHandle, "Color");

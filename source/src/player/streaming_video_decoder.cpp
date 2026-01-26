@@ -200,7 +200,7 @@ bool StreamingVideoDecoder::OpenVideo() {
         duration_ = 0.0;
     }
 
-    frame_count_ = static_cast<int>(duration_ * fps_);
+    frame_count_ = static_cast<int>(duration_ * fps_ + 0.5);
 
     // Ensure at least 1 frame for single-frame videos (MXF subclips, etc.)
     // FFmpeg may return duration that calculates to 0 frames, but if we
@@ -520,6 +520,16 @@ void StreamingVideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality
     int old_playhead = playhead_frame_.load();
     playhead_frame_ = frame_number;
 
+    // DEBUG: Log playhead updates (first 5 only)
+    static int playhead_log_count = 0;
+    if (playhead_log_count++ < 5) {
+        Debug::Log("StreamingVideoDecoder::UpdatePlayhead frame=" + std::to_string(frame_number) +
+                   " old=" + std::to_string(old_playhead) +
+                   " force=" + std::to_string(force_seek) +
+                   " buf_ahead=" + std::to_string(buffer_ahead_count_.load()) +
+                   " eof=" + std::to_string(eof_reached_.load()));
+    }
+
     // Adjust ahead count when playhead moves forward
     // (frames that were ahead may now be at/behind playhead)
     // Use atomic fetch_sub with clamping to avoid race condition with AddToBuffer
@@ -711,6 +721,18 @@ void StreamingVideoDecoder::SetConfig(const StreamingDecoderConfig& config) {
     config_ = config;
 }
 
+void StreamingVideoDecoder::SetPipelineMode(PipelineMode mode) {
+    if (pipeline_mode_ == mode) return;
+
+    Debug::Log("StreamingVideoDecoder: Pipeline mode changed to " +
+               std::string(PipelineModeToString(mode)));
+
+    pipeline_mode_ = mode;
+
+    // Clear buffer since existing frames are at different bit depth
+    HardReset(playhead_frame_.load());
+}
+
 //=============================================================================
 // Decode Thread
 //=============================================================================
@@ -748,6 +770,14 @@ void StreamingVideoDecoder::DecodeThread() {
 
         // Check if buffer is full ahead
         if (!NeedsMoreFrames()) {
+            // DEBUG: Log when buffer is full (first 3 times)
+            static int buf_full_log_count = 0;
+            if (buf_full_log_count++ < 3) {
+                Debug::Log("StreamingVideoDecoder: Buffer full, ahead=" +
+                           std::to_string(buffer_ahead_count_.load()) +
+                           " need=" + std::to_string(config_.readAheadFrames) +
+                           " eof=" + std::to_string(eof_reached_.load()));
+            }
             // Wait for playhead to move or seek request (short timeout for responsiveness)
             std::unique_lock<std::mutex> lock(seek_mutex_);
             decode_cv_.wait_for(lock, std::chrono::milliseconds(2), [this] {
@@ -933,6 +963,10 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
         src_frame = sw_frame;
     }
 
+    // Output at full resolution
+    int dst_width = src_frame->width;
+    int dst_height = src_frame->height;
+
     // Now src_frame is in CPU memory - check if we need to recreate sws context
     bool need_new_sws = (sws_ctx_ == nullptr ||
                          sws_src_width_ != src_frame->width ||
@@ -944,15 +978,12 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
             sws_freeContext(sws_ctx_);
         }
 
-        // Use fast bilinear for better performance (especially on 4K)
         sws_ctx_ = sws_getContext(
             src_frame->width, src_frame->height, static_cast<AVPixelFormat>(src_frame->format),
-            src_frame->width, src_frame->height, AV_PIX_FMT_RGBA,
+            dst_width, dst_height, AV_PIX_FMT_RGBA,
             SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
 
         if (!sws_ctx_) {
-            //Debug::Log("StreamingVideoDecoder: Failed to create sws context for format " +
-            //           std::to_string(src_frame->format));
             if (sw_frame) av_frame_free(&sw_frame);
             return nullptr;
         }
@@ -960,29 +991,24 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::ConvertToPixelData(AVFrame* fr
         sws_src_width_ = src_frame->width;
         sws_src_height_ = src_frame->height;
         sws_src_format_ = src_frame->format;
-
-        //Debug::Log("StreamingVideoDecoder: Created sws context for " +
-        //           std::to_string(src_frame->width) + "x" + std::to_string(src_frame->height) +
-        //           " format=" + std::to_string(src_frame->format) +
-        //           (is_hw_frame ? " (hw accelerated)" : " (software)"));
     }
 
     // Allocate output buffer
     auto pixels = std::make_shared<PixelData>();
-    pixels->width = src_frame->width;
-    pixels->height = src_frame->height;
+    pixels->width = dst_width;
+    pixels->height = dst_height;
     pixels->gl_format = GL_RGBA;
     pixels->gl_type = GL_UNSIGNED_BYTE;
     pixels->pipeline_mode = PipelineMode::NORMAL;
 
-    int row_size = src_frame->width * 4;  // RGBA
-    pixels->pixels.resize(row_size * src_frame->height);
+    int row_size = dst_width * 4;  // RGBA
+    pixels->pixels.resize(row_size * dst_height);
 
     // Set up destination pointers
     uint8_t* dst_data[1] = { pixels->pixels.data() };
     int dst_linesize[1] = { row_size };
 
-    // Convert
+    // Convert + scale in one pass
     sws_scale(sws_ctx_,
               src_frame->data, src_frame->linesize,
               0, src_frame->height,
@@ -1030,8 +1056,9 @@ void StreamingVideoDecoder::FlushAndSeek(int target_frame, SeekQuality quality) 
         codec_ctx_->skip_loop_filter = AVDISCARD_DEFAULT;
     }
 
-    // Calculate timestamp
-    double timestamp = static_cast<double>(target_frame) / fps_;
+    // Calculate timestamp - seek to CENTER of frame's display period (add 0.5)
+    // This is symmetric with frame number calculation which uses (time * fps + 0.5)
+    double timestamp = (static_cast<double>(target_frame) + 0.5) / fps_;
 
     // Add start time offset
     if (start_time_ > 0) {
@@ -1408,8 +1435,8 @@ std::shared_ptr<PixelData> StreamingVideoDecoder::DecodeSingleKeyframe(int keyfr
         return nullptr;
     }
 
-    // Calculate timestamp for the keyframe
-    double timestamp = static_cast<double>(keyframe_number) / fps_;
+    // Calculate timestamp for the keyframe - seek to center of frame's display period
+    double timestamp = (static_cast<double>(keyframe_number) + 0.5) / fps_;
     if (start_time_ > 0) {
         timestamp += static_cast<double>(start_time_) / AV_TIME_BASE;
     }
@@ -1517,7 +1544,7 @@ void StreamingVideoDecoder::SetNeededFrames(const std::vector<int>& frames_by_pr
     }
 }
 
-StreamingVideoDecoder::DecodeStatus StreamingVideoDecoder::GetDecodeStatus() const {
+DecodeStatus StreamingVideoDecoder::GetDecodeStatus() const {
     DecodeStatus status;
 
     // Get what we have in buffer
@@ -1574,6 +1601,22 @@ void StreamingVideoDecoder::EvictOutsideWindow(const std::set<int>& keep_frames)
 std::set<int> StreamingVideoDecoder::GetBufferedFramesSet() const {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
     return std::set<int>(buffer_frame_set_.begin(), buffer_frame_set_.end());
+}
+
+//=============================================================================
+// Looping
+//=============================================================================
+
+void StreamingVideoDecoder::SetLoopPoints(int start_frame, int end_frame) {
+    loop_start_frame_ = start_frame;
+    loop_end_frame_ = end_frame;
+    loop_enabled_ = true;
+}
+
+void StreamingVideoDecoder::ClearLoopPoints() {
+    loop_enabled_ = false;
+    loop_start_frame_ = 0;
+    loop_end_frame_ = 0;
 }
 
 } // namespace ump

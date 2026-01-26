@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: sqlite3
+Description: An embedded SQL database engine
+Version: 3.49.1
+Libs: -L${libdir} -lsqlite3
+Cflags: -I${includedir} -DSQLITE_API=__declspec(dllimport)
+

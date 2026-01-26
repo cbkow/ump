@@ -18,6 +18,11 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <d3d11_1.h>
+#include <wrl/client.h>
+#endif
+
 #include "pipeline_mode.h"
 #include "dual_view_types.h"
 #include "../overlay/safety_overlay_system.h"
@@ -28,6 +33,12 @@
 
 // Forward declarations
 class OCIOPipeline;
+
+#ifdef _WIN32
+namespace ump {
+    class D3D11OCIORenderer;
+}
+#endif
 
 namespace ump {
     class ThumbnailCache;
@@ -71,9 +82,52 @@ public:
     //=========================================================================
 
     GLuint GetCurrentVideoTexture() const { return video_texture_; }
+    GLuint GetColorTexture() const { return color_texture_; }  // For HDR output
     bool HasValidTexture() const { return has_video_ && video_texture_ != 0; }
     int GetVideoWidth() const { return video_width_; }
     int GetVideoHeight() const { return video_height_; }
+    int GetColorTextureWidth() const { return color_texture_width_; }
+    int GetColorTextureHeight() const { return color_texture_height_; }
+
+    // Cross-platform texture ID for ImGui
+    // Returns D3D11 SRV on Windows (full D3D11 mode), OpenGL texture ID otherwise
+    ImTextureID GetDisplayTextureID() const {
+#ifdef _WIN32
+        if (use_d3d11_rendering_ && color_srv_d3d_) {
+            return reinterpret_cast<ImTextureID>(color_srv_d3d_.Get());
+        }
+#endif
+        return (ImTextureID)(intptr_t)color_texture_;
+    }
+
+#ifdef _WIN32
+    //=========================================================================
+    // D3D11 Rendering (Windows)
+    //=========================================================================
+
+    // Enable/disable full D3D11 rendering mode
+    void SetD3D11RenderingMode(bool enabled);
+    bool IsD3D11RenderingMode() const { return use_d3d11_rendering_; }
+
+    // Get D3D11 resources
+    ID3D11Texture2D* GetD3D11VideoTexture() const { return video_texture_d3d_.Get(); }
+    ID3D11ShaderResourceView* GetD3D11VideoSRV() const { return video_srv_d3d_.Get(); }
+    ID3D11Texture2D* GetD3D11ColorTexture() const { return color_texture_d3d_.Get(); }
+    ID3D11ShaderResourceView* GetD3D11ColorSRV() const { return color_srv_d3d_.Get(); }
+    ID3D11RenderTargetView* GetD3D11ColorRTV() const { return color_rtv_d3d_.Get(); }
+
+    // Apply OCIO color pipeline using D3D11
+    void ApplyColorPipelineD3D11();
+
+    //=========================================================================
+    // HDR Direct Rendering (for HDR/SDR layer separation)
+    //=========================================================================
+
+    // Render video directly to D3D11 render target (bypasses ImGui)
+    // Used for HDR layer separation where video needs pure HDR passthrough
+    void RenderVideoToHDRTarget(ID3D11RenderTargetView* rtv,
+                                int x, int y, int width, int height);
+#endif
 
     //=========================================================================
     // Rendering
@@ -186,6 +240,7 @@ public:
     PipelineMode GetPipelineMode() const { return current_pipeline_mode_; }
     const PipelineConfig& GetCurrentPipelineConfig() const;
 
+
     //=========================================================================
     // Callbacks
     //=========================================================================
@@ -217,6 +272,7 @@ public:
     void StartRewind();
     void StartFastForward();
     void StopFastSeek();
+    void SetScrubMode(bool enabled);  // Enable for responsive mouse scrubbing
 
     // Volume control - now handled by AudioMixer
     void SetVolume(double) {}
@@ -426,4 +482,32 @@ private:
     void SetupColorProcessingResources();
     void ApplyColorPipeline();
     void RenderVideoTexture();
+
+#ifdef _WIN32
+    //=========================================================================
+    // D3D11 Resources (Windows)
+    //=========================================================================
+
+    bool use_d3d11_rendering_ = false;
+
+    // D3D11 video texture (input)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> video_texture_d3d_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> video_srv_d3d_;
+
+    // D3D11 SRV from timeline cache (not owned - points to cache's texture)
+    ID3D11ShaderResourceView* timeline_srv_d3d_ = nullptr;
+
+    // D3D11 color texture (OCIO output)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> color_texture_d3d_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> color_srv_d3d_;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> color_rtv_d3d_;
+
+    // D3D11 OCIO renderer
+    std::unique_ptr<ump::D3D11OCIORenderer> d3d11_ocio_renderer_;
+
+    // D3D11 helper methods
+    void CreateD3D11VideoTextures(int width, int height);
+    void CreateD3D11ColorTextures(int width, int height);
+    void CleanupD3D11Resources();
+#endif
 };

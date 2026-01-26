@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: libmpg123
+Description: An optimised MPEG Audio decoder
+Version: 1.32.7
+Libs: -L${libdir} -lmpg123
+Libs.private: -lm -lshlwapi
+Cflags: -I${includedir}
+

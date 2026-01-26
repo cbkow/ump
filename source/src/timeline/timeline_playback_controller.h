@@ -8,6 +8,10 @@
 
 #include <glad/gl.h>
 
+#ifdef _WIN32
+#include <d3d11_1.h>
+#endif
+
 // Include VideoPlayer (alias to VideoDisplayComponent)
 #include "../player/video_player.h"
 #include "../player/pipeline_mode.h"
@@ -75,6 +79,15 @@ public:
     // Sets width/height to frame dimensions
     GLuint Update(int& width, int& height);
 
+#ifdef _WIN32
+    // D3D11 rendering mode
+    void SetD3D11RenderingMode(bool enabled);
+    bool IsD3D11RenderingMode() const { return use_d3d11_rendering_; }
+
+    // Update for D3D11 mode - returns SRV instead of GL texture
+    ID3D11ShaderResourceView* UpdateD3D11(int& width, int& height);
+#endif
+
     // Process pending GPU uploads (call from GL thread)
     void ProcessPendingUploads();
 
@@ -102,6 +115,9 @@ public:
 
     // Access to cache for statistics
     TimelineCache* GetCache() const { return cache_.get(); }
+
+    // Apply pending FPS update from GStreamer (called when paused)
+    void ApplyPendingFPSUpdate();
 
     //=========================================================================
     // Dual View Mode - Side-by-side comparison (LEFT/RIGHT tracks)
@@ -173,6 +189,14 @@ public:
     bool IsFastSeeking() const { return is_fast_seeking_; }
     bool IsFastForward() const { return fast_forward_; }
     double GetFastSeekSpeed() const { return fast_seek_speed_; }
+
+    //=========================================================================
+    // Scrub Mode (Mouse timeline scrubbing)
+    // Enables immediate single-frame seeks in video decoder
+    //=========================================================================
+
+    void SetScrubMode(bool enabled);
+    bool IsScrubMode() const { return is_scrubbing_; }
 
     // Notify controller that timeline was edited
     // Clears stale current texture so we don't show old frames
@@ -287,6 +311,9 @@ private:
     int width_ = 1920;
     int height_ = 1080;
 
+    // FPS synchronization - tracks whether we've applied the detected media FPS
+    bool fps_update_applied_ = false;
+
     // Max source width across all clips (for resolution-based buffer thresholds)
     // Computed once at initialization, not per-frame
     int max_source_width_ = 0;
@@ -295,10 +322,18 @@ private:
     std::atomic<int> current_frame_{0};
     std::atomic<bool> is_playing_{false};
 
-    // Current display texture
+    // Current display texture (GL)
     GLuint current_texture_ = 0;
     int current_texture_width_ = 0;
     int current_texture_height_ = 0;
+
+#ifdef _WIN32
+    // D3D11 rendering mode
+    bool use_d3d11_rendering_ = false;
+
+    // Current display texture (D3D11)
+    ID3D11ShaderResourceView* current_srv_d3d_ = nullptr;
+#endif
 
     //=========================================================================
     // Fast Seek State
@@ -312,8 +347,14 @@ private:
 
     // Fast seek speed configuration
     static constexpr double kFastSeekInitialSpeed = 2.0;   // Start at 2x
-    static constexpr double kFastSeekMaxSpeed = 16.0;      // Cap at 16x
+    static constexpr double kFastSeekMaxSpeed = 32.0;      // Cap at 32x
     static constexpr double kFastSeekAcceleration = 2.0;   // Double speed every second
+
+    //=========================================================================
+    // Scrub Mode State (Mouse scrubbing on timeline)
+    //=========================================================================
+
+    bool is_scrubbing_ = false;
 
     // Post-edit state: Hold old texture briefly until new frame arrives
     // This prevents black flashing while new frame loads
@@ -327,6 +368,10 @@ private:
     std::chrono::steady_clock::time_point force_play_time_;
     bool force_play_active_ = false;
     static constexpr int kForcePlayCooldownMs = 2000;  // 2 seconds before BUFFER_PAUSE can re-trigger
+
+    // Debug: track first N updates after play starts to diagnose frame jumps
+    int debug_post_play_updates_ = 0;
+    static constexpr int kDebugPostPlayLogCount = 10;
 };
 
 } // namespace ump

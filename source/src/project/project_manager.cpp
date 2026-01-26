@@ -224,6 +224,7 @@ namespace ump {
         CreateNewBin("Images");
         CreateNewBin("Timelines");
         CreateNewBin("Dual Views");
+        CreateNewBin("Playlists");
 
         if (video_player) {
             // Set metadata callback to provide cached FFmpeg metadata
@@ -293,6 +294,7 @@ namespace ump {
         CreateNewBin("Images");
         CreateNewBin("Timelines");
         CreateNewBin("Dual Views");
+        CreateNewBin("Playlists");
     }
 
     void ProjectManager::SaveProject() {
@@ -581,6 +583,79 @@ namespace ump {
                     }
                 }
 
+                // Playlist-specific fields (for MediaType::PLAYLIST)
+                if (item.type == MediaType::PLAYLIST) {
+                    item_obj["playlist_loop"] = item.playlist_loop;
+                    // current_playlist_index is runtime state, NOT saved (starts at 0 on load)
+
+                    json playlist_items_array = json::array();
+                    for (const auto& entry : item.playlist_items) {
+                        json entry_obj;
+                        entry_obj["media_id"] = entry.media_id;
+                        entry_obj["in_point"] = entry.in_point;
+                        entry_obj["out_point"] = entry.out_point;
+                        playlist_items_array.push_back(entry_obj);
+                    }
+                    item_obj["playlist_items"] = playlist_items_array;
+
+                    Debug::Log("SaveProject: Saved playlist '" + item.name + "' with " +
+                               std::to_string(item.playlist_items.size()) + " items");
+                }
+
+                // Save cached audio tracks for IMAGE_SEQUENCE and EXR_SEQUENCE items
+                // This preserves audio clips dropped onto the audio track
+                if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
+                    item.has_cached_edits && !item.cached_tracks.empty()) {
+                    json edited_tracks_array = json::array();
+                    for (const auto& track : item.cached_tracks) {
+                        // Only save audio tracks (video track is reconstructed from sequence metadata)
+                        if (track.is_video) continue;
+
+                        json track_obj;
+                        track_obj["id"] = track.id;
+                        track_obj["name"] = track.name;
+                        track_obj["is_video"] = track.is_video;
+                        track_obj["visible"] = track.visible;
+                        track_obj["muted"] = track.muted;
+                        track_obj["audio_muted"] = track.audio_muted;
+                        track_obj["z_index"] = track.z_index;
+
+                        json clips_array = json::array();
+                        for (const auto& clip : track.clips) {
+                            if (clip.is_gap) continue;  // Don't save gaps
+                            json clip_obj;
+                            clip_obj["id"] = clip.id;
+                            clip_obj["name"] = clip.name;
+                            clip_obj["file_path"] = clip.file_path;
+                            clip_obj["start_time"] = clip.start_time;
+                            clip_obj["duration"] = clip.duration;
+                            clip_obj["source_in"] = clip.source_in;
+                            clip_obj["source_out"] = clip.source_out;
+                            clip_obj["is_gap"] = clip.is_gap;
+                            clip_obj["linked_path"] = clip.linked_path;
+                            clip_obj["is_linked"] = clip.is_linked;
+                            clip_obj["source_fps"] = clip.source_fps;
+                            clip_obj["source_width"] = clip.source_width;
+                            clip_obj["source_height"] = clip.source_height;
+                            clip_obj["source_duration"] = clip.source_duration;
+                            clip_obj["has_audio"] = clip.has_audio;
+                            clip_obj["audio_muted"] = clip.audio_muted;
+                            clips_array.push_back(clip_obj);
+                        }
+                        track_obj["clips"] = clips_array;
+                        edited_tracks_array.push_back(track_obj);
+                    }
+                    if (!edited_tracks_array.empty()) {
+                        item_obj["audio_tracks"] = edited_tracks_array;
+                        item_obj["has_audio_edits"] = true;
+                        // Save extended timeline duration if set
+                        if (item.cached_timeline_duration > 0) {
+                            item_obj["cached_timeline_duration"] = item.cached_timeline_duration;
+                        }
+                        Debug::Log("SaveProject: Saved audio tracks for sequence '" + item.name + "'");
+                    }
+                }
+
                 // Save cached metadata if available (ONLY for regular videos, NOT image sequences)
                 const CombinedMetadata* cached_meta = GetCachedMetadata(item.path);
 
@@ -828,6 +903,53 @@ namespace ump {
                         Debug::Log("LoadProject: Populated ImageSequenceData from legacy fields for " + item.name);
                     }
 
+                    // Restore audio tracks for IMAGE_SEQUENCE and EXR_SEQUENCE items
+                    if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) &&
+                        item_json.contains("audio_tracks") && item_json.value("has_audio_edits", false)) {
+                        item.has_cached_edits = true;
+                        item.cached_tracks.clear();
+
+                        for (const auto& track_json : item_json["audio_tracks"]) {
+                            OTIOTrack track;
+                            track.id = track_json.value("id", "");
+                            track.name = track_json.value("name", "");
+                            track.is_video = track_json.value("is_video", false);
+                            track.visible = track_json.value("visible", true);
+                            track.muted = track_json.value("muted", false);
+                            track.audio_muted = track_json.value("audio_muted", false);
+                            track.z_index = track_json.value("z_index", 0);
+
+                            if (track_json.contains("clips")) {
+                                for (const auto& clip_json : track_json["clips"]) {
+                                    OTIOClip clip;
+                                    clip.id = clip_json.value("id", "");
+                                    clip.name = clip_json.value("name", "");
+                                    clip.file_path = clip_json.value("file_path", "");
+                                    clip.start_time = clip_json.value("start_time", 0.0);
+                                    clip.duration = clip_json.value("duration", 0.0);
+                                    clip.source_in = clip_json.value("source_in", 0.0);
+                                    clip.source_out = clip_json.value("source_out", 0.0);
+                                    clip.is_gap = clip_json.value("is_gap", false);
+                                    clip.linked_path = clip_json.value("linked_path", "");
+                                    clip.is_linked = clip_json.value("is_linked", false);
+                                    clip.source_fps = clip_json.value("source_fps", 0.0);
+                                    clip.source_width = clip_json.value("source_width", 0);
+                                    clip.source_height = clip_json.value("source_height", 0);
+                                    clip.source_duration = clip_json.value("source_duration", 0.0);
+                                    clip.has_audio = clip_json.value("has_audio", false);
+                                    clip.audio_muted = clip_json.value("audio_muted", false);
+                                    track.clips.push_back(clip);
+                                }
+                            }
+                            item.cached_tracks.push_back(track);
+                        }
+                        // Restore extended timeline duration if saved
+                        item.cached_timeline_duration = item_json.value("cached_timeline_duration", 0.0);
+                        Debug::Log("LoadProject: Restored " + std::to_string(item.cached_tracks.size()) +
+                                   " audio tracks for sequence '" + item.name + "'" +
+                                   (item.cached_timeline_duration > 0 ? ", extended duration=" + std::to_string(item.cached_timeline_duration) + "s" : ""));
+                    }
+
                     // In/Out points (per-video range markers)
                     item.in_point = item_json.value("in_point", -1.0);
                     item.out_point = item_json.value("out_point", -1.0);
@@ -984,6 +1106,39 @@ namespace ump {
                                   std::to_string(item.timeline_width) + "x" + std::to_string(item.timeline_height));
                     }
 
+                    // Playlist-specific fields (for MediaType::PLAYLIST)
+                    if (item.type == MediaType::PLAYLIST) {
+                        item.playlist_loop = item_json.value("playlist_loop", false);
+                        item.current_playlist_index = 0;  // Always start at 0 on load
+
+                        if (item_json.contains("playlist_items")) {
+                            for (const auto& entry_json : item_json["playlist_items"]) {
+                                PlaylistItemEntry entry;
+                                entry.media_id = entry_json.value("media_id", "");
+                                entry.in_point = entry_json.value("in_point", -1.0);
+                                entry.out_point = entry_json.value("out_point", -1.0);
+
+                                // Validate that the referenced media_id exists (skip missing items)
+                                bool media_found = false;
+                                for (const auto& check_item : media_pool) {
+                                    if (check_item.id == entry.media_id) {
+                                        media_found = true;
+                                        break;
+                                    }
+                                }
+
+                                if (media_found) {
+                                    item.playlist_items.push_back(entry);
+                                } else {
+                                    Debug::Log("LoadProject: Playlist '" + item.name + "' - skipping missing item: " + entry.media_id);
+                                }
+                            }
+                        }
+
+                        Debug::Log("LoadProject: Restored playlist '" + item.name + "' with " +
+                                   std::to_string(item.playlist_items.size()) + " items");
+                    }
+
                     // Load cached video metadata if available
                     if (item_json.contains("video_metadata")) {
                         VideoMetadata metadata;
@@ -1057,6 +1212,18 @@ namespace ump {
 
                     bins.push_back(bin);
                     Debug::Log("LoadProject: Loaded bin '" + bin.name + "' with " + std::to_string(bin.items.size()) + " items");
+                }
+            }
+
+            // Ensure all required bins exist (for projects created before new bins were added)
+            std::vector<std::string> required_bins = {"Videos", "Audio", "Images", "Timelines", "Dual Views", "Playlists"};
+            for (size_t i = 0; i < required_bins.size(); i++) {
+                if (bins.size() <= i) {
+                    ProjectBin new_bin;
+                    new_bin.name = required_bins[i];
+                    new_bin.is_open = true;
+                    bins.push_back(new_bin);
+                    Debug::Log("LoadProject: Created missing bin '" + required_bins[i] + "'");
                 }
             }
 
@@ -1266,6 +1433,7 @@ namespace ump {
         CreateNewBin("Images");
         CreateNewBin("Timelines");
         CreateNewBin("Dual Views");
+        CreateNewBin("Playlists");
 
         Debug::Log("New Project: Fresh start - all project data cleared and media stopped");
     }
@@ -1401,6 +1569,11 @@ namespace ump {
                     show_new_dual_view_dialog = true;
                 }
             }
+            else if (bin.name == "Playlists") {
+                if (ImGui::MenuItem("New Playlist...")) {
+                    show_new_playlist_dialog = true;
+                }
+            }
             else {
                 // Empty bins (Videos, Audio, Images) - show disabled header
                 ImGui::TextDisabled("%s Bin", bin.name.c_str());
@@ -1466,6 +1639,16 @@ namespace ump {
                 text_color = Bright(GetWindowsAccentColor());
             }
         }
+        else if (item.type == MediaType::PLAYLIST) {
+            // Playlist display - show item count
+            display_name += " [" + std::to_string(item.playlist_items.size()) + " items]";
+
+            // Check if this playlist is active
+            if (item.is_active) {
+                display_name += " [PLAYING]";
+                text_color = Bright(GetWindowsAccentColor());
+            }
+        }
         else {
             if (current_file_path && !current_file_path->empty() && item.path == *current_file_path) {
                 display_name += " [ACTIVE]";
@@ -1520,11 +1703,14 @@ namespace ump {
             case MediaType::DUAL_VIEW:
                 type_str = "comparison [" + std::to_string(item.timeline_width) + "x" + std::to_string(item.timeline_height) + "]";
                 break;
+            case MediaType::PLAYLIST:
+                type_str = "playlist [" + std::to_string(item.playlist_items.size()) + " items]";
+                break;
             default: type_str = "unknown"; break;
             }
 
-            if (item.type == MediaType::DUAL_VIEW) {
-                // Dual views show type with resolution, no duration
+            if (item.type == MediaType::DUAL_VIEW || item.type == MediaType::PLAYLIST) {
+                // Dual views and playlists show type info, no duration
                 ImGui::TextDisabled("[%s]", type_str.c_str());
             } else if (item.duration > 0) {
                 ImGui::TextDisabled("[%s] %.2fs", type_str.c_str(), item.duration);
@@ -1828,6 +2014,56 @@ namespace ump {
                 // Open the dual view immediately
                 if (!dual_view_id.empty() && dual_view_editor_callback) {
                     dual_view_editor_callback(dual_view_id);
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        // New Playlist Dialog
+        if (show_new_playlist_dialog) {
+            ImGuiViewport* viewport = ImGui::GetMainViewport();
+            ImVec2 center = viewport->GetCenter();
+            ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+            ImGui::OpenPopup("New Playlist");
+            show_new_playlist_dialog = false;
+            memset(new_playlist_name_buffer, 0, sizeof(new_playlist_name_buffer));
+        }
+
+        float playlist_scale = ImGui::GetIO().FontGlobalScale;
+        ImGui::SetNextWindowSize(ImVec2(350 * playlist_scale, 0), ImGuiCond_Always);
+        if (ImGui::BeginPopupModal("New Playlist", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Create a new playlist to queue media for sequential playback.");
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            ImGui::TextDisabled("Playlist Name:");
+            ImGui::SetNextItemWidth(-1);
+            ImGui::InputText("##PlaylistName", new_playlist_name_buffer, sizeof(new_playlist_name_buffer));
+
+            ImGui::Spacing();
+            ImGui::TextDisabled("Drag media from the Project panel to add items.");
+            ImGui::TextDisabled("Click items to jump and play.");
+
+            ImGui::Spacing();
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+
+            if (ImGui::Button("Create")) {
+                std::string name = new_playlist_name_buffer;
+                if (name.empty()) {
+                    name = "";  // CreateNewPlaylist will auto-generate name
+                }
+                std::string playlist_id = CreateNewPlaylist(name);
+                // Open the playlist in panel immediately
+                if (!playlist_id.empty()) {
+                    OpenPlaylistInPanel(playlist_id);
                 }
                 ImGui::CloseCurrentPopup();
             }
@@ -2557,6 +2793,10 @@ namespace ump {
                 // Open dual view in editor mode
                 OpenDualViewInEditor(item.timeline_id);
             }
+            else if (item.type == MediaType::PLAYLIST) {
+                // Open playlist in panel
+                OpenPlaylistInPanel(item.id);
+            }
             else {
                 // LoadSingleMediaItem handles exit_timeline_mode_callback internally
                 LoadSingleMediaItem(item);
@@ -2640,17 +2880,17 @@ namespace ump {
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && (item.type == MediaType::SEQUENCE || item.type == MediaType::TIMELINE || item.type == MediaType::DUAL_VIEW) && ImGui::MenuItem("Rename", "F2")) {
+        if (selection_count == 1 && (item.type == MediaType::SEQUENCE || item.type == MediaType::TIMELINE || item.type == MediaType::DUAL_VIEW || item.type == MediaType::PLAYLIST) && ImGui::MenuItem("Rename", "F2")) {
             StartRenaming(item.id);
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && ImGui::MenuItem("Show in Explorer")) {
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && item.type != MediaType::PLAYLIST && ImGui::MenuItem("Show in Explorer")) {
             ShowInExplorer(item.path);
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && ImGui::MenuItem("Show in u.f.b.")) {
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::TIMELINE && item.type != MediaType::DUAL_VIEW && item.type != MediaType::PLAYLIST && ImGui::MenuItem("Show in u.f.b.")) {
             LaunchUFB(item.path);
             ImGui::CloseCurrentPopup();
         }
@@ -2659,6 +2899,23 @@ namespace ump {
             ImGui::Separator();
             if (ImGui::MenuItem("Create Timeline from Selection")) {
                 CreateTimelineFromSelection();
+                ImGui::CloseCurrentPopup();
+            }
+            // Check if any selected items are valid for playlists (VIDEO, AUDIO, IMAGE_SEQUENCE, EXR_SEQUENCE)
+            bool has_playlist_items = false;
+            for (const auto& sel_id : selected_media_items) {
+                MediaItem* sel_item = GetMediaItem(sel_id);
+                if (sel_item && sel_item->type != MediaType::PLAYLIST && sel_item->type != MediaType::IMAGE &&
+                    sel_item->type != MediaType::TIMELINE && sel_item->type != MediaType::DUAL_VIEW) {
+                    has_playlist_items = true;
+                    break;
+                }
+            }
+            if (has_playlist_items && ImGui::MenuItem("Create Playlist from Selection")) {
+                std::string playlist_id = CreatePlaylistFromSelection();
+                if (!playlist_id.empty()) {
+                    OpenPlaylistInPanel(playlist_id);
+                }
                 ImGui::CloseCurrentPopup();
             }
             if (ImGui::MenuItem("Clear Selection")) {
@@ -2723,6 +2980,9 @@ namespace ump {
                     item.timeline_height = metadata.height;
                 }
 
+                // Store stream start time for H.264/H.265 PTS sync
+                item.stream_start_time = metadata.stream_start_time;
+
                 // Check if media has audio track
                 item.has_audio = (metadata.audio_channels > 0);
 
@@ -2732,6 +2992,8 @@ namespace ump {
                 Debug::Log("  Duration: " + std::to_string(item.duration) + "s");
                 Debug::Log("  Codec: " + metadata.video_codec);
                 Debug::Log("  Pixel Format: " + metadata.pixel_format);
+                Debug::Log("  Has Audio: " + std::to_string(item.has_audio) +
+                           " (audio_channels=" + std::to_string(metadata.audio_channels) + ")");
             } else {
                 // Fallback: If full extraction fails, try duration probe
                 Debug::Log("AddMediaFileToProject: Full extraction failed, falling back to duration probe");
@@ -2823,13 +3085,15 @@ namespace ump {
         }
 
         // Show loading modal and defer the actual loading
-        if (loading_modal_callback) {
+        // Skip modal in playlist mode for smoother transitions
+        if (loading_modal_callback && !skip_loading_modal_) {
             MediaItem item_copy = item;  // Copy for lambda capture
             loading_modal_callback(loading_msg, [this, item_copy]() {
                 LoadSingleMediaItemInternal(item_copy);
             });
         } else {
-            // Fallback: load directly if no callback set
+            // Direct load (no modal) - used for playlist transitions
+            skip_loading_modal_ = false;  // Reset flag
             LoadSingleMediaItemInternal(item);
         }
     }
@@ -3419,11 +3683,19 @@ namespace ump {
             clip.source_duration = media_item.duration;
             clip.has_audio = media_item.has_audio;
 
+            Debug::Log("ProcessCreateTimelineFromSelection: Clip '" + clip.name +
+                       "' has_audio=" + std::to_string(media_item.has_audio) +
+                       ", is_linked=" + std::to_string(clip.is_linked) +
+                       ", type=" + std::to_string(static_cast<int>(media_item.type)));
+
             // Handle different media types
             if (media_item.type == MediaType::IMAGE_SEQUENCE || media_item.type == MediaType::EXR_SEQUENCE) {
                 // Image sequences use ffmpeg pattern as linked_path
                 clip.file_path = media_item.path;
-                clip.linked_path = media_item.ffmpeg_pattern;
+                // Use image_seq.ffmpeg_pattern (not legacy media_item.ffmpeg_pattern)
+                clip.linked_path = !media_item.image_seq.ffmpeg_pattern.empty()
+                    ? media_item.image_seq.ffmpeg_pattern
+                    : media_item.ffmpeg_pattern;  // Fallback to legacy field
                 clip.is_sequence = true;
                 clip.sequence_directory = media_item.image_seq.directory;
                 clip.sequence_pattern = media_item.image_seq.pattern;
@@ -3439,8 +3711,9 @@ namespace ump {
                 clip.file_path = media_item.path;
                 clip.linked_path = media_item.path;
                 clip.is_sequence = false;
-                clip.source_width = media_item.sequence_width;
-                clip.source_height = media_item.sequence_height;
+                // Use timeline_width/height for videos (not sequence_width/height which is for image sequences)
+                clip.source_width = media_item.timeline_width > 0 ? media_item.timeline_width : media_item.sequence_width;
+                clip.source_height = media_item.timeline_height > 0 ? media_item.timeline_height : media_item.sequence_height;
             }
 
             v1_track.clips.push_back(clip);
@@ -3954,6 +4227,122 @@ namespace ump {
                     item.is_active = false;
                 }
             }
+        }
+    }
+
+    // ========================================================================
+    // PLAYLIST MANAGEMENT
+    // ========================================================================
+
+    std::string ProjectManager::CreateNewPlaylist(const std::string& name) {
+        // Generate unique name
+        std::string playlist_name = name;
+        if (playlist_name.empty()) {
+            int playlist_count = GetPlaylistCount() + 1;
+            playlist_name = "Playlist " + std::to_string(playlist_count);
+        }
+
+        // Create MediaItem for the playlist
+        MediaItem item;
+        item.id = GenerateUniqueID();
+        item.name = playlist_name;
+        item.path = "";  // No source file - this is a playlist container
+        item.type = MediaType::PLAYLIST;
+        item.duration = 0.0;  // Calculated from items
+        item.playlist_loop = false;
+        item.current_playlist_index = 0;
+
+        // Add to media pool and bin
+        media_pool.push_back(item);
+        int bin_index = GetBinIndexForMediaType(item.type);
+        if (bins.size() > static_cast<size_t>(bin_index)) {
+            bins[bin_index].items.push_back(item);
+        }
+
+        Debug::Log("CreateNewPlaylist: Created playlist '" + playlist_name + "' with ID " + item.id);
+
+        return item.id;
+    }
+
+    std::string ProjectManager::CreatePlaylistFromSelection() {
+        // Get selected items that are playable (not PLAYLISTs, TIMELINEs, DUAL_VIEWs, or IMAGEs)
+        std::vector<MediaItem> playable_items;
+        for (const auto& selected_id : selected_media_items) {
+            MediaItem* item = GetMediaItem(selected_id);
+            if (item && item->type != MediaType::PLAYLIST && item->type != MediaType::IMAGE &&
+                item->type != MediaType::TIMELINE && item->type != MediaType::DUAL_VIEW) {
+                // Accept VIDEO, AUDIO, IMAGE_SEQUENCE, EXR_SEQUENCE only
+                playable_items.push_back(*item);
+            }
+        }
+
+        if (playable_items.empty()) {
+            Debug::Log("CreatePlaylistFromSelection: No playable items selected");
+            return "";
+        }
+
+        // Create the playlist
+        std::string playlist_id = CreateNewPlaylist();
+        MediaItem* playlist = GetPlaylistItem(playlist_id);
+        if (!playlist) {
+            Debug::Log("CreatePlaylistFromSelection: Failed to create playlist");
+            return "";
+        }
+
+        // Add selected items as playlist entries
+        for (const auto& item : playable_items) {
+            PlaylistItemEntry entry;
+            entry.media_id = item.id;
+            entry.in_point = -1.0;  // Use default
+            entry.out_point = -1.0;  // Use default
+            playlist->playlist_items.push_back(entry);
+        }
+
+        // Also update in bins
+        int bin_index = GetBinIndexForMediaType(MediaType::PLAYLIST);
+        if (bins.size() > static_cast<size_t>(bin_index)) {
+            for (auto& bin_item : bins[bin_index].items) {
+                if (bin_item.id == playlist_id) {
+                    bin_item.playlist_items = playlist->playlist_items;
+                    break;
+                }
+            }
+        }
+
+        Debug::Log("CreatePlaylistFromSelection: Created playlist with " + std::to_string(playable_items.size()) + " items");
+
+        return playlist_id;
+    }
+
+    MediaItem* ProjectManager::GetPlaylistItem(const std::string& playlist_id) {
+        for (auto& item : media_pool) {
+            if (item.type == MediaType::PLAYLIST && item.id == playlist_id) {
+                return &item;
+            }
+        }
+        return nullptr;
+    }
+
+    int ProjectManager::GetPlaylistCount() const {
+        int count = 0;
+        for (const auto& item : media_pool) {
+            if (item.type == MediaType::PLAYLIST) count++;
+        }
+        return count;
+    }
+
+    void ProjectManager::OpenPlaylistInPanel(const std::string& playlist_id) {
+        MediaItem* playlist = GetPlaylistItem(playlist_id);
+        if (!playlist) {
+            Debug::Log("OpenPlaylistInPanel: Playlist not found: " + playlist_id);
+            return;
+        }
+
+        // Trigger callback to show playlist panel with this playlist
+        if (playlist_panel_callback) {
+            playlist_panel_callback(playlist_id);
+        } else {
+            Debug::Log("OpenPlaylistInPanel: No playlist_panel_callback set");
         }
     }
 
@@ -6116,6 +6505,7 @@ namespace ump {
         case MediaType::EXR_SEQUENCE: return 2; // Put EXR sequences in Images bin as originally intended
         case MediaType::TIMELINE: return TIMELINES_BIN_INDEX;
         case MediaType::DUAL_VIEW: return DUAL_VIEWS_BIN_INDEX;
+        case MediaType::PLAYLIST: return PLAYLISTS_BIN_INDEX;
         default: return 0;
         }
     }

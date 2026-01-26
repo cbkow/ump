@@ -872,7 +872,8 @@ int FrameCache::TimestampToFrameNumber(double timestamp, double fps) const {
 double FrameCache::FrameNumberToTimestamp(int frame_number, double fps) const {
     // ACCURACY FIX: Use consistent frame rate source and account for start time offset
     if (!background_extractor || !background_extractor->IsInitialized()) {
-        return frame_number / fps;
+        // Use center of frame's display period for robust seeking
+        return (static_cast<double>(frame_number) + 0.5) / fps;
     }
 
     // For videos: Use FFmpeg's detected frame rate for consistency
@@ -888,8 +889,8 @@ double FrameCache::FrameNumberToTimestamp(int frame_number, double fps) const {
                    ", frame=" + std::to_string(frame_number));
     }
 
-    // Calculate base timestamp
-    double timestamp = frame_number / effective_fps;
+    // Calculate base timestamp - use center of frame's display period for robust seeking
+    double timestamp = (static_cast<double>(frame_number) + 0.5) / effective_fps;
 
     // Account for start time offset in MP4s and other containers
     if (background_extractor) {

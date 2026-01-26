@@ -220,6 +220,14 @@ void FFmpegMetadataExtractor::ExtractVideoStream(AVFormatContext* format_ctx, Vi
         metadata.total_frames = static_cast<int>(duration * metadata.frame_rate);
     }
 
+    // Stream start time (for H.264/H.265 PTS offset sync)
+    // This is non-zero for containers with B-frames or edit lists
+    if (video_stream->start_time != AV_NOPTS_VALUE) {
+        metadata.stream_start_time = av_rescale_q(video_stream->start_time,
+                                                   video_stream->time_base,
+                                                   AV_TIME_BASE_Q);
+    }
+
     // Video codec
     const AVCodec* codec = avcodec_find_decoder(codecpar->codec_id);
     if (codec) {

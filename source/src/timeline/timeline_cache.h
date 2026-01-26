@@ -13,16 +13,24 @@
 #include <atomic>
 #include <functional>
 #include <chrono>
+#include <cmath>
 
 #include <glad/gl.h>
+
+#ifdef _WIN32
+#include <d3d11_1.h>
+#include <wrl/client.h>
+#endif
 
 #include "../player/image_loader_interface.h"
 #include "../player/pipeline_mode.h"
 #include "../player/shared_memory_pool.h"
-#include "../player/streaming_video_decoder.h"  // For SeekQuality enum
-#include "../player/managed_video_decoder.h"    // For ManagedVideoDecoder (spawn-and-abandon)
+#include "../player/video_decoder_interface.h"  // For IVideoDecoder, SeekQuality enum
+#include "../player/managed_video_decoder.h"    // For ManagedVideoDecoder (MULTI_TRACK mode)
 #include "../player/image_sequence_decoder.h"   // For ImageSequenceDecoder
+#include "../player/scrub_decoder.h"            // For ScrubDecoderManager (scrub-only decoders)
 #include "cache_window_engine.h"                // Central circular cache engine
+#include "timeline_types.h"                     // For TimelineSourceMode
 
 namespace ump {
 
@@ -33,9 +41,8 @@ class TimelineFlattener;
 class IImageLoader;
 
 //=============================================================================
-// Timeline Cache Key - Identifies a frame by timeline position
-// Using timeline_frame (not source_path+source_frame) ensures unique cache
-// entries when the same source clip appears multiple times on the timeline
+// Timeline Cache Key - Identifies a cached frame by timeline position
+// Simple approach: each timeline frame position has its own cache entry
 //=============================================================================
 
 struct TimelineCacheKey {
@@ -101,11 +108,29 @@ enum class ScrubState {
 };
 
 //=============================================================================
+// Aggressive Scrub Mode - For MULTI_TRACK/DUAL_VIEW responsive scrubbing
+//=============================================================================
+
+enum class AggressiveScrubMode {
+    INACTIVE,           // Normal operation
+    ACTIVE_SCRUBBING,   // User actively dragging - show best-guess immediately
+    SETTLING            // User stopped - spawning fresh decoders, transitioning to normal
+};
+
+//=============================================================================
 // Cached Frame - GPU texture + metadata
 //=============================================================================
 
 struct CachedFrame {
+    // OpenGL texture (used on all platforms, or when D3D11 mode is disabled)
     GLuint texture_id = 0;
+
+#ifdef _WIN32
+    // D3D11 texture (used when full D3D11 rendering is enabled on Windows)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture_d3d;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv_d3d;
+#endif
+
     int width = 0;
     int height = 0;
     size_t byte_size = 0;
@@ -116,8 +141,11 @@ struct CachedFrame {
 //=============================================================================
 
 struct ClipLoaderInfo {
-    // For VIDEO clips: use managed decoder (spawn-and-abandon for seek responsiveness)
-    std::unique_ptr<ManagedVideoDecoder> video_decoder;
+    // For VIDEO clips in VIDEO_FILE mode: use IVideoDecoder (GStreamer)
+    std::shared_ptr<IVideoDecoder> video_decoder;
+
+    // For VIDEO clips in MULTI_TRACK/DUAL_VIEW mode: use ManagedVideoDecoder (FFmpeg spawn-and-abandon)
+    std::unique_ptr<ManagedVideoDecoder> managed_decoder;
 
     // For IMAGE_SEQUENCE/EXR clips: use sequence decoder (ring buffer like video)
     std::unique_ptr<ImageSequenceDecoder> sequence_decoder;
@@ -135,12 +163,20 @@ struct ClipLoaderInfo {
     // Grace period tracking - prevent aggressive cleanup/recreate cycles
     std::chrono::steady_clock::time_point last_used_time;
 
+    // VIDEO ONLY: Reusable GPU texture - no caching, just re-upload each frame
+    // GStreamer's ring buffer is the cache, we just display frames directly
+    GLuint video_texture = 0;
+    int video_texture_width = 0;
+    int video_texture_height = 0;
+    GLenum video_texture_format = 0;  // Track internal format for HDR/High-Res switching
+
     //=========================================================================
     // Helper methods for unified decoder access
     //=========================================================================
 
     // Get frame from appropriate decoder
     std::shared_ptr<PixelData> GetFrame(int frame) {
+        if (managed_decoder) return managed_decoder->GetFrame(frame);
         if (video_decoder) return video_decoder->GetFrame(frame);
         if (sequence_decoder) return sequence_decoder->GetFrame(frame);
         return nullptr;
@@ -148,26 +184,29 @@ struct ClipLoaderInfo {
 
     // Get closest frame (for scrubbing fallback)
     std::shared_ptr<PixelData> GetClosestFrame(int frame, int* actual = nullptr) {
+        if (managed_decoder) return managed_decoder->GetClosestFrame(frame, actual);
         if (video_decoder) return video_decoder->GetClosestFrame(frame, actual);
         if (sequence_decoder) return sequence_decoder->GetClosestFrame(frame, actual);
         return nullptr;
     }
 
     // Update playhead position
-    // is_prefetch: when true, treat as prefetch for upcoming clip (don't respawn aggressively)
     void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false, bool is_prefetch = false) {
-        if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force, is_prefetch);
+        if (managed_decoder) managed_decoder->UpdatePlayhead(frame, quality, force, is_prefetch);
+        if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
         if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
     }
 
-    // Set playback mode (affects decoder spawn behavior)
+    // Set playback mode
     void SetPlaybackMode(bool playing) {
-        if (video_decoder) video_decoder->SetPlaybackMode(playing);
+        if (managed_decoder) managed_decoder->SetPlaybackMode(playing);
+        // GStreamer handles playback/scrub mode internally
         // ImageSequenceDecoder doesn't need this - it handles frames independently
     }
 
     // Check if frame is buffered
     bool HasFrame(int frame) const {
+        if (managed_decoder) return managed_decoder->HasFrame(frame);
         if (video_decoder) return video_decoder->HasFrame(frame);
         if (sequence_decoder) return sequence_decoder->HasFrame(frame);
         return false;
@@ -175,6 +214,7 @@ struct ClipLoaderInfo {
 
     // Get buffered range
     void GetBufferedRange(int& start, int& end) const {
+        if (managed_decoder) { managed_decoder->GetBufferedRange(start, end); return; }
         if (video_decoder) { video_decoder->GetBufferedRange(start, end); return; }
         if (sequence_decoder) { sequence_decoder->GetBufferedRange(start, end); return; }
         start = end = -1;
@@ -182,6 +222,7 @@ struct ClipLoaderInfo {
 
     // Get buffer size
     int GetBufferSize() const {
+        if (managed_decoder) return managed_decoder->GetBufferSize();
         if (video_decoder) return video_decoder->GetBufferSize();
         if (sequence_decoder) return sequence_decoder->GetBufferSize();
         return 0;
@@ -189,19 +230,21 @@ struct ClipLoaderInfo {
 
     // Clear buffer
     void ClearBuffer() {
+        if (managed_decoder) managed_decoder->ClearBuffer();
         if (video_decoder) video_decoder->ClearBuffer();
         if (sequence_decoder) sequence_decoder->ClearBuffer();
     }
 
     // Hard reset
     void HardReset(int frame) {
+        if (managed_decoder) managed_decoder->HardReset(frame);
         if (video_decoder) video_decoder->HardReset(frame);
         if (sequence_decoder) sequence_decoder->HardReset(frame);
     }
 
     // Check if this is a buffered decoder (vs legacy per-file loader)
     bool HasBufferedDecoder() const {
-        return video_decoder != nullptr || sequence_decoder != nullptr;
+        return managed_decoder != nullptr || video_decoder != nullptr || sequence_decoder != nullptr;
     }
 
     //=========================================================================
@@ -210,57 +253,80 @@ struct ClipLoaderInfo {
 
     // Set which source frames are needed, in priority order
     void SetNeededFrames(const std::vector<int>& frames_by_priority) {
+        if (managed_decoder) managed_decoder->SetNeededFrames(frames_by_priority);
         if (video_decoder) video_decoder->SetNeededFrames(frames_by_priority);
         // ImageSequenceDecoder doesn't need this - it decodes on demand
     }
 
     // Evict frames outside the given keep set
     void EvictOutsideWindow(const std::set<int>& keep_frames) {
+        if (managed_decoder) managed_decoder->EvictOutsideWindow(keep_frames);
         if (video_decoder) video_decoder->EvictOutsideWindow(keep_frames);
         // ImageSequenceDecoder doesn't need this - it manages its own buffer
     }
 
     // Get frames currently in buffer as a set
     std::set<int> GetBufferedFramesSet() const {
+        if (managed_decoder) return managed_decoder->GetBufferedFramesSet();
         if (video_decoder) return video_decoder->GetBufferedFramesSet();
         return std::set<int>{};
     }
 
     //=========================================================================
-    // Shuttle Mode (FF/RW) - Video decoder only
+    // Shuttle Mode (FF/RW)
     //=========================================================================
 
     void SetShuttleMode(bool enabled, int direction) {
-        if (video_decoder) video_decoder->SetShuttleMode(enabled, direction);
+        if (managed_decoder) managed_decoder->SetShuttleMode(enabled, direction);
+        if (video_decoder) video_decoder->SetShuttleMode(enabled);
         // ImageSequenceDecoder doesn't need shuttle mode - it's fast enough
     }
 
     bool IsShuttleMode() const {
+        if (managed_decoder) return managed_decoder->IsShuttleMode();
         if (video_decoder) return video_decoder->IsShuttleMode();
         return false;
     }
 
+    // For shuttle, get best available frame
     std::shared_ptr<PixelData> UpdateShuttle(int frame) {
-        if (video_decoder) return video_decoder->UpdateShuttle(frame);
+        if (managed_decoder) return managed_decoder->UpdateShuttle(frame);
+        if (video_decoder) return video_decoder->GetClosestFrame(frame, nullptr);
         return nullptr;
     }
 
+    // Exit shuttle - return frame to snap to
     int ExitShuttle() {
-        if (video_decoder) return video_decoder->ExitShuttle();
+        if (managed_decoder) return managed_decoder->ExitShuttle();
+        // GStreamer - disable shuttle mode and return current position
+        if (video_decoder) {
+            video_decoder->SetShuttleMode(false);
+            // Clear buffer of scrubbed frames so normal buffering can restart fresh
+            video_decoder->ClearBuffer();
+        }
         return 0;
     }
 
     //=========================================================================
-    // Loop Prefetching - Forward to decoder
+    // Loop Boundaries - Forward to decoder
     //=========================================================================
 
     void SetLoopBoundaries(int loop_start, int loop_end) {
-        if (video_decoder) video_decoder->SetLoopBoundaries(loop_start, loop_end);
-        // ImageSequenceDecoder doesn't need loop prefetch - it's fast enough
+        if (managed_decoder) {
+            managed_decoder->SetLoopBoundaries(loop_start, loop_end);
+        }
+        if (video_decoder) {
+            video_decoder->SetLoopPoints(loop_start, loop_end);
+        }
     }
 
     void ClearLoopBoundaries() {
-        if (video_decoder) video_decoder->ClearLoopBoundaries();
+        if (managed_decoder) {
+            managed_decoder->ClearLoopBoundaries();
+        }
+        if (video_decoder) {
+            video_decoder->ClearLoopPoints();
+        }
     }
 };
 
@@ -289,7 +355,7 @@ struct TimelineCacheConfig {
     // Read-behind for instant backward scrubbing
     double readBehindSeconds = 0.5; // Keep 0.5s behind playhead
 
-    int io_threads = 8;             // Number of background I/O threads
+    int io_threads = 1;             // GStreamer does decoding internally
     double fps = 24.0;              // Timeline frame rate
     bool use_shared_pool = true;    // Use SharedMemoryPool for eviction
 
@@ -351,7 +417,8 @@ struct TimelineCacheSegment {
     float density = 1.0f;       // 0.0 = sparse, 1.0 = full coverage
 
     enum Type {
-        TIMELINE_CACHE,     // Filled - actually cached frames
+        TIMELINE_CACHE,     // Filled - actually cached frames (image sequences)
+        VIDEO_BUFFER,       // Filled - frames in video decoder's ring buffer
         TARGET_WINDOW,      // Outline - frames the cache is trying to fill
         BOUNDARY_REGION     // Background - the loop boundary region (In/Out range)
     } type = TIMELINE_CACHE;
@@ -370,9 +437,13 @@ public:
     // tracks: OTIO tracks from TimelineView
     // flattener: TimelineFlattener for visibility queries
     // fps: Timeline frame rate
+    // source_mode: Determines decoder backend selection
+    //              VIDEO_FILE → GStreamer (single video, HW accel)
+    //              MULTI_TRACK → FFmpeg (multiple simultaneous decoders)
     void Initialize(const std::vector<OTIOTrack>& tracks,
                     TimelineFlattener* flattener,
-                    double fps);
+                    double fps,
+                    TimelineSourceMode source_mode = TimelineSourceMode::MULTI_TRACK);
 
     // Shutdown and clean up
     void Shutdown();
@@ -431,6 +502,15 @@ public:
     // Cache visualization (for progress bar)
     // Returns segments of actually cached frames (within boundary range)
     std::vector<TimelineCacheSegment> GetCacheSegments() const;
+
+    // Check if all content is video-only (skip cache bar for GStreamer video)
+    // Returns true if all loaded clips use GStreamer video decoder
+    bool IsVideoOnly() const;
+
+    // Get video buffer segments for cache bar visualization
+    // Returns segments representing what's currently buffered in video decoders
+    // Each segment has start_time/end_time in seconds for timeline display
+    std::vector<TimelineCacheSegment> GetVideoBufferSegments() const;
 
     // Returns the target cache window segments (what the cache is trying to fill)
     // Handles wrap-around: may return 2 segments if window crosses boundary edge
@@ -501,6 +581,11 @@ public:
     void SetShuttleMode(bool enabled, int direction);
     bool IsShuttleMode() const { return shuttle_active_; }
 
+    // Aggressive scrub mode (MULTI_TRACK/DUAL_VIEW only)
+    // Fires best-guess frames immediately during scrub, settles on stop
+    void SetAggressiveScrubMode(bool enabled);
+    bool IsAggressiveScrubMode() const;
+
     // Get frame during shuttle mode - returns best available frame
     // Uses shuttle queue logic instead of normal cache lookup
     GLuint GetShuttleFrame(int timeline_frame, int& width, int& height);
@@ -524,6 +609,31 @@ public:
 
     // Get number of read-ahead frames configured
     int GetReadAheadFrames() const { return config_.readAheadFrames; }
+
+    void SetPipelineMode(PipelineMode mode);
+    PipelineMode GetPipelineMode() const { return video_pipeline_mode_; }
+
+    // FPS synchronization - propagate detected media FPS back to timeline
+    void SetFPS(double fps);
+    double GetDetectedFPS() const { return detected_media_fps_; }
+    bool HasPendingFPSUpdate() const { return detected_media_fps_ > 0 &&
+        std::abs(detected_media_fps_ - config_.fps) > 0.01; }
+
+#ifdef _WIN32
+    //=========================================================================
+    // D3D11 Rendering Mode (Windows)
+    //=========================================================================
+
+    // Enable/disable full D3D11 rendering mode
+    // When enabled, creates D3D11 textures instead of OpenGL textures
+    void SetD3D11RenderingMode(bool enabled);
+    bool IsD3D11RenderingMode() const { return use_d3d11_rendering_; }
+
+    // Get frame for display with D3D11 SRV
+    // Returns nullptr if not ready, uses D3D11 textures when in D3D11 mode
+    ID3D11ShaderResourceView* GetFrameD3D11(int timeline_frame, int& width, int& height,
+                                             bool* got_exact_frame = nullptr);
+#endif
 
 private:
     //=========================================================================
@@ -572,6 +682,13 @@ private:
     // Create GL texture from pixels (must be called from GL thread)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
 
+#ifdef _WIN32
+    // Create D3D11 texture from pixels (must be called from main thread)
+    bool CreateD3D11Texture(const std::shared_ptr<PixelData>& pixels,
+                            Microsoft::WRL::ComPtr<ID3D11Texture2D>& out_texture,
+                            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>& out_srv);
+#endif
+
     //=========================================================================
     // SharedMemoryPool Integration
     //=========================================================================
@@ -582,6 +699,15 @@ private:
     void OnEvicted(const TimelineCacheKey& key);
 
     //=========================================================================
+    // Aggressive Scrub Mode Helpers (MULTI_TRACK/DUAL_VIEW only)
+    // NOTE: GetDirectDecoderFrame and GetAggressiveScrubFrame have been removed.
+    // Scrub handling is now integrated directly into GetFrame() for better performance.
+    //=========================================================================
+
+    // Handle settling phase - called from CacheManagementThread
+    void HandleAggressiveScrubSettling();
+
+    //=========================================================================
     // State
     //=========================================================================
 
@@ -590,6 +716,20 @@ private:
     TimelineFlattener* flattener_ = nullptr;
     double timeline_duration_ = 0.0;
     int total_timeline_frames_ = 0;
+
+    // Source mode - determines decoder backend selection
+    TimelineSourceMode source_mode_ = TimelineSourceMode::MULTI_TRACK;
+
+    // Pipeline mode for video (bit depth / HDR)
+    PipelineMode video_pipeline_mode_ = PipelineMode::NORMAL;
+
+    // FPS detected from GStreamer - for pending update check (VIDEO_FILE mode)
+    double detected_media_fps_ = 0.0;
+
+#ifdef _WIN32
+    // D3D11 rendering mode - when enabled, creates D3D11 textures instead of GL
+    bool use_d3d11_rendering_ = false;
+#endif
 
     // Central cache window engine - owns all circular math
     CacheWindowEngine cache_engine_;
@@ -661,12 +801,8 @@ private:
     std::chrono::steady_clock::time_point refine_start_time_;  // When REFINING started
     static constexpr int kScrubRefineDelayMs = 100;  // Wait 100ms after scrub stops before refining
 
-    // Stuck detection - reset decoders if scrubbing seems stuck
-    std::atomic<int> scrub_stuck_counter_{0};  // Incremented when no frame shown during scrub
-    static constexpr int kScrubStuckThreshold = 50;   // ~500ms - soft reset (NORMAL quality seek)
-    static constexpr int kScrubHardResetThreshold = 150;  // ~1.5s - hard reset (reopen video)
+    // Timing for frame tracking
     std::chrono::steady_clock::time_point last_successful_frame_time_;
-    std::atomic<int> soft_reset_count_{0};  // Track how many soft resets we've done
 
     // Actual frame size (calculated from first loaded frame)
     size_t actualFrameSize_ = 0;
@@ -721,6 +857,26 @@ private:
     std::chrono::steady_clock::time_point shuttle_last_texture_time_;  // Rate limit texture updates
 
     //=========================================================================
+    // Aggressive Scrub Mode State (MULTI_TRACK/DUAL_VIEW only)
+    // Fires best-guess frames immediately during scrub, settles on stop
+    //=========================================================================
+
+    std::atomic<AggressiveScrubMode> aggressive_scrub_mode_{AggressiveScrubMode::INACTIVE};
+    std::chrono::steady_clock::time_point aggressive_scrub_last_move_;
+    static constexpr int kAggressiveScrubSettleDelayMs = 150;
+
+    // Held frame for immediate display during aggressive scrub
+    GLuint aggressive_held_texture_ = 0;
+    int aggressive_held_width_ = 0;
+    int aggressive_held_height_ = 0;
+    int aggressive_held_frame_ = -1;
+    std::string aggressive_held_source_;  // Invalidate on clip boundary
+
+    // Dedicated scrub decoders - lightweight, detached from CacheWindowEngine
+    // These are used exclusively during ACTIVE_SCRUBBING to prevent full window decodes
+    ScrubDecoderManager scrub_decoders_;
+
+    //=========================================================================
     // Letterbox Compositing - GPU-side aspect ratio preservation
     // Composites source frames onto canvas with letterbox/pillarbox
     //=========================================================================
@@ -732,6 +888,7 @@ private:
     GLuint letterbox_output_texture_ = 0;
     int letterbox_output_width_ = 0;
     int letterbox_output_height_ = 0;
+    GLenum letterbox_output_format_ = 0;  // Track format for HDR/High-Res switching
 
     // Initialize letterbox shader and resources (called on first use)
     void InitializeLetterboxShader();

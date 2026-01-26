@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: libass
+Description: libass is an SSA/ASS subtitles rendering library
+Version: 0.17.3
+Requires.private: freetype2 >=  9.17.3, fribidi >=  0.19.1, harfbuzz >=  1.2.3, fontconfig >=  2.10.92
+Libs: -L${libdir} -lass
+Libs.private: -liconv -lgdi32
+Cflags: -I${includedir}
+

@@ -1,0 +1,21 @@
+prefix=${pcfiledir}/../..
+datadir=${prefix}/share
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+exec_prefix=${prefix}
+toolsdir=${exec_prefix}/bin
+pluginsdir=${libdir}/gstreamer-1.0
+datarootdir=${prefix}/share
+girdir=${datadir}/gir-1.0
+typelibdir=${libdir}/girepository-1.0
+
+Name: gstreamer-cuda-1.0
+Description: Unstable library to work with CUDA inside GStreamer
+Version: 1.26.10
+Requires: gstreamer-base-1.0 >=  1.26.0, gmodule-no-export-2.0, gstreamer-video-1.0 >=  1.26.0, gstreamer-gl-prototypes-1.0 >=  1.26.0
+Requires.private: gstreamer-d3d11-1.0
+Libs: -L${libdir} -lgstcuda-1.0 -ladvapi32
+Libs.private: -ld3d11 -ldxgi
+Cflags: -I${includedir}/gstreamer-1.0
+

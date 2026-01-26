@@ -18,6 +18,8 @@ void PlaybackTimer::Play() {
         is_playing_ = true;
         first_update_ = true;  // Reset timing on play
         last_update_time_ = Clock::now();
+        Debug::Log("PlaybackTimer: Play() called, position=" + std::to_string(position_) +
+                   "s, first_update=true");
     }
 }
 
@@ -110,6 +112,7 @@ bool PlaybackTimer::Update() {
     if (first_update_) {
         last_update_time_ = now;
         first_update_ = false;
+        Debug::Log("PlaybackTimer: First update after play, position=" + std::to_string(position_) + "s");
         return false;
     }
 
@@ -117,6 +120,12 @@ bool PlaybackTimer::Update() {
     auto elapsed = std::chrono::duration<double>(now - last_update_time_);
     double delta = elapsed.count() * playback_speed_;
     last_update_time_ = now;
+
+    // Debug: Log large deltas
+    if (delta > 0.1) {  // More than 100ms
+        Debug::Log("PlaybackTimer: [LARGE DELTA] elapsed=" + std::to_string(delta) +
+                   "s, position=" + std::to_string(position_) + "->" + std::to_string(position_ + delta) + "s");
+    }
 
     // Skip tiny updates (less than 0.1ms)
     if (delta < 0.0001) {

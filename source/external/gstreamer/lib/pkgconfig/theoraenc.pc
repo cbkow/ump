@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: theoraenc
+Description: Theora video codec (encoder)
+Version: 1.1.1
+Requires: theoradec
+Requires.private: libpng, ogg >=  1.1
+Libs: -L${libdir} -ltheoraenc
+Cflags: -I${includedir}
+

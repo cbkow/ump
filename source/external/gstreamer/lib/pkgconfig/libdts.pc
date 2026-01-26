@@ -1,0 +1,9 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+
+Name: libdts
+Description: Backward compatibility place-holder for libdca.
+Version: 0.0.7
+Requires: libdca =  0.0.7
+Cflags: -I${includedir}
+

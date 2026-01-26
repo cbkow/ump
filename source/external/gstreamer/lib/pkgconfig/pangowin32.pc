@@ -1,0 +1,13 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: Pango Win32
+Description: Win32 GDI font support for Pango
+Version: 1.56.2
+Requires: pango
+Requires.private: glib-2.0 >=  2.80, gobject-2.0 >=  2.80, gio-2.0 >=  2.80, fribidi >=  1.0.6, harfbuzz >=  8.4.0, cairo >=  1.18.0, harfbuzz-gobject >=  8.4.0
+Libs: -L${libdir} -lpangowin32-1.0
+Libs.private: -lgdi32 -ldwrite
+Cflags: -I${includedir}/pango-1.0
+

@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: librtmp
+Description: RTMP implementation
+Version: 2.4
+Requires.private: openssl, zlib
+Libs: -L${libdir} -lrtmp
+Libs.private: -lws2_32 -lwinmm -lgdi32
+Cflags: -I${includedir}
+

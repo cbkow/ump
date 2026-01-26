@@ -77,8 +77,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -86,10 +86,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -122,7 +123,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.23+b0019275e for .NET Framework
-      Build started 1/21/2026 5:04:02 PM.
+      Build started 1/25/2026 12:15:43 PM.
       
       Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdCXX\\CompilerIdCXX.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -160,7 +161,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.78
+      Time Elapsed 00:00:01.37
       
       
       Compilation of the CXX compiler identification source "CMakeCXXCompilerId.cpp" produced "CompilerIdCXX.exe"
@@ -230,8 +231,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -239,10 +240,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -296,8 +296,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -305,10 +305,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -375,8 +376,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -384,10 +385,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -509,12 +509,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link"
+      - "C:/nvm4w/nodejs/lld-link.com"
+      - "C:/nvm4w/nodejs/lld-link.exe"
+      - "C:/nvm4w/nodejs/lld-link"
       - "C:/Users/Chris/.cargo/bin/lld-link.com"
       - "C:/Users/Chris/.cargo/bin/lld-link.exe"
       - "C:/Users/Chris/.cargo/bin/lld-link"
@@ -536,18 +536,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link.com"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link"
-      - "C:/nvm4w/nodejs/lld-link.com"
-      - "C:/nvm4w/nodejs/lld-link.exe"
-      - "C:/nvm4w/nodejs/lld-link"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link"
+      - "C:/Users/Chris/.local/bin/lld-link.com"
+      - "C:/Users/Chris/.local/bin/lld-link.exe"
+      - "C:/Users/Chris/.local/bin/lld-link"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link"
@@ -611,8 +608,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -620,10 +617,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -688,8 +686,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -697,10 +695,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -754,8 +751,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -763,10 +760,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -831,8 +829,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -840,10 +838,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -933,8 +930,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -942,10 +939,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -1010,8 +1008,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -1019,10 +1017,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -1076,8 +1073,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -1085,10 +1082,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -1164,8 +1162,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -1173,10 +1171,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -1209,7 +1208,7 @@ events:
       The output was:
       0
       MSBuild version 17.14.23+b0019275e for .NET Framework
-      Build started 1/21/2026 5:04:03 PM.
+      Build started 1/25/2026 12:15:45 PM.
       
       Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\4.1.0\\CompilerIdC\\CompilerIdC.vcxproj" on node 1 (default targets).
       PrepareForBuild:
@@ -1247,7 +1246,7 @@ events:
           0 Warning(s)
           0 Error(s)
       
-      Time Elapsed 00:00:00.76
+      Time Elapsed 00:00:01.23
       
       
       Compilation of the C compiler identification source "CMakeCCompilerId.c" produced "CompilerIdC.exe"
@@ -1317,8 +1316,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -1326,10 +1325,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -1451,12 +1449,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/lld-link"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/lld-link"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/lld-link"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/lld-link"
+      - "C:/nvm4w/nodejs/lld-link.com"
+      - "C:/nvm4w/nodejs/lld-link.exe"
+      - "C:/nvm4w/nodejs/lld-link"
       - "C:/Users/Chris/.cargo/bin/lld-link.com"
       - "C:/Users/Chris/.cargo/bin/lld-link.exe"
       - "C:/Users/Chris/.cargo/bin/lld-link"
@@ -1478,18 +1476,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/lld-link"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link.com"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/lld-link"
-      - "C:/nvm4w/nodejs/lld-link.com"
-      - "C:/nvm4w/nodejs/lld-link.exe"
-      - "C:/nvm4w/nodejs/lld-link"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/lld-link"
+      - "C:/Users/Chris/.local/bin/lld-link.com"
+      - "C:/Users/Chris/.local/bin/lld-link.exe"
+      - "C:/Users/Chris/.local/bin/lld-link"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/lld-link"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/lld-link"
@@ -1553,8 +1548,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -1562,10 +1557,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -1633,8 +1629,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -1642,10 +1638,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -1747,8 +1742,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -1756,10 +1751,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -1781,8 +1777,8 @@ events:
     checks:
       - "Detecting CXX compiler ABI info"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-slu676"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-slu676"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-5hmh91"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-5hmh91"
     cmakeVariables:
       CMAKE_CXX_FLAGS: "/DWIN32 /D_WINDOWS /EHsc"
       CMAKE_CXX_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1792,49 +1788,49 @@ events:
       variable: "CMAKE_CXX_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-slu676'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-5hmh91'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_00c49.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_638d2.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:04 PM.
+        Build started 1/25/2026 12:15:46 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\cmTC_00c49.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\cmTC_638d2.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_00c49.dir\\Debug\\".
+          Creating directory "cmTC_638d2.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\".
-          Creating directory "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\".
+          Creating directory "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\unsuccessfulbuild".
+          Creating "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_00c49.dir\\Debug\\\\" /Fd"cmTC_00c49.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_638d2.dir\\Debug\\\\" /Fd"cmTC_638d2.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_00c49.dir\\Debug\\\\" /Fd"cmTC_00c49.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /EHsc /RTC1 /MDd /GS /fp:precise /Fo"cmTC_638d2.dir\\Debug\\\\" /Fd"cmTC_638d2.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TP /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCXXCompilerABI.cpp"
           CMakeCXXCompilerABI.cpp
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\cmTC_00c49.exe" /INCREMENTAL /ILK:"cmTC_00c49.dir\\Debug\\cmTC_00c49.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-slu676/Debug/cmTC_00c49.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-slu676/Debug/cmTC_00c49.lib" /MACHINE:X64  /machine:x64 cmTC_00c49.dir\\Debug\\CMakeCXXCompilerABI.obj
-          cmTC_00c49.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\cmTC_00c49.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\cmTC_638d2.exe" /INCREMENTAL /ILK:"cmTC_638d2.dir\\Debug\\cmTC_638d2.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-5hmh91/Debug/cmTC_638d2.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-5hmh91/Debug/cmTC_638d2.lib" /MACHINE:X64  /machine:x64 cmTC_638d2.dir\\Debug\\CMakeCXXCompilerABI.obj
+          cmTC_638d2.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\cmTC_638d2.exe
         AppLocalFromInstalled:
-          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\cmTC_00c49.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\cmTC_00c49.write.1u.tlog" "cmTC_00c49.dir\\Debug\\vcpkg.applocal.log"
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\cmTC_638d2.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\cmTC_638d2.write.1u.tlog" "cmTC_638d2.dir\\Debug\\vcpkg.applocal.log"
           'pwsh.exe' is not recognized as an internal or external command,
           operable program or batch file.
-          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\cmTC_00c49.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\cmTC_00c49.write.1u.tlog" "cmTC_00c49.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
-          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\Debug\\cmTC_00c49.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\cmTC_00c49.write.1u.tlog" "cmTC_00c49.dir\\Debug\\vcpkg.applocal.log"
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\cmTC_638d2.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\cmTC_638d2.write.1u.tlog" "cmTC_638d2.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\Debug\\cmTC_638d2.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\cmTC_638d2.write.1u.tlog" "cmTC_638d2.dir\\Debug\\vcpkg.applocal.log"
         FinalizeBuildStatus:
-          Deleting file "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\unsuccessfulbuild".
-          Touching "cmTC_00c49.dir\\Debug\\cmTC_00c49.tlog\\cmTC_00c49.lastbuildstate".
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-slu676\\cmTC_00c49.vcxproj" (default targets).
+          Deleting file "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\unsuccessfulbuild".
+          Touching "cmTC_638d2.dir\\Debug\\cmTC_638d2.tlog\\cmTC_638d2.lastbuildstate".
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-5hmh91\\cmTC_638d2.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.73
+        Time Elapsed 00:00:01.39
         
       exitCode: 0
   -
@@ -1874,8 +1870,8 @@ events:
     checks:
       - "Detecting C compiler ABI info"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-elkido"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-elkido"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-pl5wz3"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-pl5wz3"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1884,49 +1880,49 @@ events:
       variable: "CMAKE_C_ABI_COMPILED"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-elkido'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-pl5wz3'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_9f5c4.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_5320c.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:05 PM.
+        Build started 1/25/2026 12:15:48 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\cmTC_9f5c4.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\cmTC_5320c.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_9f5c4.dir\\Debug\\".
+          Creating directory "cmTC_5320c.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\".
-          Creating directory "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\".
+          Creating directory "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\unsuccessfulbuild".
+          Creating "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9f5c4.dir\\Debug\\\\" /Fd"cmTC_9f5c4.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_5320c.dir\\Debug\\\\" /Fd"cmTC_5320c.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9f5c4.dir\\Debug\\\\" /Fd"cmTC_9f5c4.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_5320c.dir\\Debug\\\\" /Fd"cmTC_5320c.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "C:\\Program Files\\CMake\\share\\cmake-4.1\\Modules\\CMakeCCompilerABI.c"
           CMakeCCompilerABI.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\cmTC_9f5c4.exe" /INCREMENTAL /ILK:"cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-elkido/Debug/cmTC_9f5c4.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-elkido/Debug/cmTC_9f5c4.lib" /MACHINE:X64  /machine:x64 cmTC_9f5c4.dir\\Debug\\CMakeCCompilerABI.obj
-          cmTC_9f5c4.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\cmTC_9f5c4.exe
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\cmTC_5320c.exe" /INCREMENTAL /ILK:"cmTC_5320c.dir\\Debug\\cmTC_5320c.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-pl5wz3/Debug/cmTC_5320c.pdb" /SUBSYSTEM:CONSOLE /TLBID:1 /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-pl5wz3/Debug/cmTC_5320c.lib" /MACHINE:X64  /machine:x64 cmTC_5320c.dir\\Debug\\CMakeCCompilerABI.obj
+          cmTC_5320c.vcxproj -> D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\cmTC_5320c.exe
         AppLocalFromInstalled:
-          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\cmTC_9f5c4.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\cmTC_9f5c4.write.1u.tlog" "cmTC_9f5c4.dir\\Debug\\vcpkg.applocal.log"
+          pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\cmTC_5320c.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\cmTC_5320c.write.1u.tlog" "cmTC_5320c.dir\\Debug\\vcpkg.applocal.log"
           'pwsh.exe' is not recognized as an internal or external command,
           operable program or batch file.
-          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\cmTC_9f5c4.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\cmTC_9f5c4.write.1u.tlog" "cmTC_9f5c4.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
-          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\Debug\\cmTC_9f5c4.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\cmTC_9f5c4.write.1u.tlog" "cmTC_9f5c4.dir\\Debug\\vcpkg.applocal.log"
+          The command "pwsh.exe -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\cmTC_5320c.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\cmTC_5320c.write.1u.tlog" "cmTC_5320c.dir\\Debug\\vcpkg.applocal.log"" exited with code 9009.
+          "C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe" -ExecutionPolicy Bypass -noprofile -File "C:\\vcpkg\\vcpkg\\scripts\\buildsystems\\msbuild\\applocal.ps1" "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\Debug\\cmTC_5320c.exe" "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\bin" "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\cmTC_5320c.write.1u.tlog" "cmTC_5320c.dir\\Debug\\vcpkg.applocal.log"
         FinalizeBuildStatus:
-          Deleting file "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\unsuccessfulbuild".
-          Touching "cmTC_9f5c4.dir\\Debug\\cmTC_9f5c4.tlog\\cmTC_9f5c4.lastbuildstate".
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-elkido\\cmTC_9f5c4.vcxproj" (default targets).
+          Deleting file "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\unsuccessfulbuild".
+          Touching "cmTC_5320c.dir\\Debug\\cmTC_5320c.tlog\\cmTC_5320c.lastbuildstate".
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-pl5wz3\\cmTC_5320c.vcxproj" (default targets).
         
         Build succeeded.
             0 Warning(s)
             0 Error(s)
         
-        Time Elapsed 00:00:00.78
+        Time Elapsed 00:00:01.36
         
       exitCode: 0
   -
@@ -1968,8 +1964,8 @@ events:
     checks:
       - "Performing Test CMAKE_HAVE_LIBC_PTHREAD"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-hut9jr"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-hut9jr"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mf5dv0"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mf5dv0"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -1978,43 +1974,43 @@ events:
       variable: "CMAKE_HAVE_LIBC_PTHREAD"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-hut9jr'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-mf5dv0'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_512ef.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_ca010.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:06 PM.
+        Build started 1/25/2026 12:15:49 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\cmTC_512ef.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\cmTC_ca010.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_512ef.dir\\Debug\\".
+          Creating directory "cmTC_ca010.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\Debug\\".
-          Creating directory "cmTC_512ef.dir\\Debug\\cmTC_512ef.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\Debug\\".
+          Creating directory "cmTC_ca010.dir\\Debug\\cmTC_ca010.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_512ef.dir\\Debug\\cmTC_512ef.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_512ef.dir\\Debug\\cmTC_512ef.tlog\\unsuccessfulbuild".
+          Creating "cmTC_ca010.dir\\Debug\\cmTC_ca010.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_ca010.dir\\Debug\\cmTC_ca010.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_512ef.dir\\Debug\\\\" /Fd"cmTC_512ef.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\src.c"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_ca010.dir\\Debug\\\\" /Fd"cmTC_ca010.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\src.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_512ef.dir\\Debug\\\\" /Fd"cmTC_512ef.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\src.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CMAKE_HAVE_LIBC_PTHREAD /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_ca010.dir\\Debug\\\\" /Fd"cmTC_ca010.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\src.c"
           src.c
-        D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\cmTC_512ef.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\cmTC_512ef.vcxproj" (default targets) -- FAILED.
+        D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\cmTC_ca010.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\cmTC_ca010.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\cmTC_512ef.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\cmTC_ca010.vcxproj" (default target) (1) ->
         (ClCompile target) -> 
-          D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-hut9jr\\cmTC_512ef.vcxproj]
+          D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\src.c(1,10): error C1083: Cannot open include file: 'pthread.h': No such file or directory [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-mf5dv0\\cmTC_ca010.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.22
+        Time Elapsed 00:00:00.24
         
       exitCode: 1
   -
@@ -2027,8 +2023,8 @@ events:
     checks:
       - "Looking for pthread_create in pthreads"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-nmr0pc"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-nmr0pc"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zxtr68"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zxtr68"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -2037,45 +2033,45 @@ events:
       variable: "CMAKE_HAVE_PTHREADS_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-nmr0pc'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zxtr68'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_a7246.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_9384d.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:06 PM.
+        Build started 1/25/2026 12:15:50 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\cmTC_a7246.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\cmTC_9384d.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_a7246.dir\\Debug\\".
+          Creating directory "cmTC_9384d.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\Debug\\".
-          Creating directory "cmTC_a7246.dir\\Debug\\cmTC_a7246.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\Debug\\".
+          Creating directory "cmTC_9384d.dir\\Debug\\cmTC_9384d.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_a7246.dir\\Debug\\cmTC_a7246.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_a7246.dir\\Debug\\cmTC_a7246.tlog\\unsuccessfulbuild".
+          Creating "cmTC_9384d.dir\\Debug\\cmTC_9384d.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_9384d.dir\\Debug\\cmTC_9384d.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_a7246.dir\\Debug\\\\" /Fd"cmTC_a7246.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\CheckFunctionExists.c"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9384d.dir\\Debug\\\\" /Fd"cmTC_9384d.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\CheckFunctionExists.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_a7246.dir\\Debug\\\\" /Fd"cmTC_a7246.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\CheckFunctionExists.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_9384d.dir\\Debug\\\\" /Fd"cmTC_9384d.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\Debug\\cmTC_a7246.exe" /INCREMENTAL /ILK:"cmTC_a7246.dir\\Debug\\cmTC_a7246.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-nmr0pc/Debug/cmTC_a7246.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-nmr0pc/Debug/cmTC_a7246.lib" /MACHINE:X64  /machine:x64 cmTC_a7246.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\cmTC_a7246.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\cmTC_a7246.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\Debug\\cmTC_9384d.exe" /INCREMENTAL /ILK:"cmTC_9384d.dir\\Debug\\cmTC_9384d.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthreads.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zxtr68/Debug/cmTC_9384d.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-zxtr68/Debug/cmTC_9384d.lib" /MACHINE:X64  /machine:x64 cmTC_9384d.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\cmTC_9384d.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\cmTC_9384d.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\cmTC_a7246.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\cmTC_9384d.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-nmr0pc\\cmTC_a7246.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthreads.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-zxtr68\\cmTC_9384d.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.29
+        Time Elapsed 00:00:00.33
         
       exitCode: 1
   -
@@ -2088,8 +2084,8 @@ events:
     checks:
       - "Looking for pthread_create in pthread"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-gnz8c4"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-gnz8c4"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-8dz2gs"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-8dz2gs"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -2098,45 +2094,45 @@ events:
       variable: "CMAKE_HAVE_PTHREAD_CREATE"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-gnz8c4'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-8dz2gs'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_96e46.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_f13b1.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:07 PM.
+        Build started 1/25/2026 12:15:50 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\cmTC_96e46.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\cmTC_f13b1.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_96e46.dir\\Debug\\".
+          Creating directory "cmTC_f13b1.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\Debug\\".
-          Creating directory "cmTC_96e46.dir\\Debug\\cmTC_96e46.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\Debug\\".
+          Creating directory "cmTC_f13b1.dir\\Debug\\cmTC_f13b1.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_96e46.dir\\Debug\\cmTC_96e46.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_96e46.dir\\Debug\\cmTC_96e46.tlog\\unsuccessfulbuild".
+          Creating "cmTC_f13b1.dir\\Debug\\cmTC_f13b1.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_f13b1.dir\\Debug\\cmTC_f13b1.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_96e46.dir\\Debug\\\\" /Fd"cmTC_96e46.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\CheckFunctionExists.c"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_f13b1.dir\\Debug\\\\" /Fd"cmTC_f13b1.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\CheckFunctionExists.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_96e46.dir\\Debug\\\\" /Fd"cmTC_96e46.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\CheckFunctionExists.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=pthread_create /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_f13b1.dir\\Debug\\\\" /Fd"cmTC_f13b1.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\Debug\\cmTC_96e46.exe" /INCREMENTAL /ILK:"cmTC_96e46.dir\\Debug\\cmTC_96e46.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-gnz8c4/Debug/cmTC_96e46.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-gnz8c4/Debug/cmTC_96e46.lib" /MACHINE:X64  /machine:x64 cmTC_96e46.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\cmTC_96e46.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\cmTC_96e46.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\Debug\\cmTC_f13b1.exe" /INCREMENTAL /ILK:"cmTC_f13b1.dir\\Debug\\cmTC_f13b1.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" pthread.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-8dz2gs/Debug/cmTC_f13b1.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-8dz2gs/Debug/cmTC_f13b1.lib" /MACHINE:X64  /machine:x64 cmTC_f13b1.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\cmTC_f13b1.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\cmTC_f13b1.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\cmTC_96e46.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\cmTC_f13b1.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-gnz8c4\\cmTC_96e46.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'pthread.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-8dz2gs\\cmTC_f13b1.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.32
+        Time Elapsed 00:00:00.34
         
       exitCode: 1
   -
@@ -2148,7 +2144,7 @@ events:
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FetchContent.cmake:2145:EVAL:2 (__FetchContent_doPopulation)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FetchContent.cmake:2145 (cmake_language)"
       - "C:/Program Files/CMake/share/cmake-4.1/Modules/FetchContent.cmake:2384 (__FetchContent_Populate)"
-      - "external/CMakeLists.txt:50 (FetchContent_MakeAvailable)"
+      - "external/CMakeLists.txt:61 (FetchContent_MakeAvailable)"
     mode: "program"
     variable: "GIT_EXECUTABLE"
     description: "Git command line client"
@@ -2202,8 +2198,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -2211,10 +2207,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -2349,12 +2344,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/git.cmd"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/git.cmd.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/git.cmd.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/git.cmd"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/git.cmd.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/git.cmd.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/git.cmd"
+      - "C:/Users/Chris/AppData/Local/nvm/git.cmd.com"
+      - "C:/Users/Chris/AppData/Local/nvm/git.cmd.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/git.cmd"
+      - "C:/nvm4w/nodejs/git.cmd.com"
+      - "C:/nvm4w/nodejs/git.cmd.exe"
+      - "C:/nvm4w/nodejs/git.cmd"
       - "C:/Users/Chris/.cargo/bin/git.cmd.com"
       - "C:/Users/Chris/.cargo/bin/git.cmd.exe"
       - "C:/Users/Chris/.cargo/bin/git.cmd"
@@ -2376,18 +2371,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/git.cmd.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/git.cmd.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/git.cmd"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd"
-      - "C:/Users/Chris/AppData/Local/nvm/git.cmd.com"
-      - "C:/Users/Chris/AppData/Local/nvm/git.cmd.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/git.cmd"
-      - "C:/nvm4w/nodejs/git.cmd.com"
-      - "C:/nvm4w/nodejs/git.cmd.exe"
-      - "C:/nvm4w/nodejs/git.cmd"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/git.cmd.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/git.cmd.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/git.cmd"
+      - "C:/Users/Chris/.local/bin/git.cmd.com"
+      - "C:/Users/Chris/.local/bin/git.cmd.exe"
+      - "C:/Users/Chris/.local/bin/git.cmd"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/git.cmd"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/git.cmd"
@@ -2494,8 +2486,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -2503,10 +2495,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -2580,8 +2573,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -2589,10 +2582,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -2653,8 +2645,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -2662,10 +2654,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -2727,8 +2718,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -2736,10 +2727,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -2819,8 +2811,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -2828,10 +2820,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -2900,8 +2891,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -2909,10 +2900,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -2987,8 +2979,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -2996,10 +2988,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -3134,12 +3125,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/purify"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/purify.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/purify.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/purify"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/purify.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/purify.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/purify"
+      - "C:/Users/Chris/AppData/Local/nvm/purify.com"
+      - "C:/Users/Chris/AppData/Local/nvm/purify.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/purify"
+      - "C:/nvm4w/nodejs/purify.com"
+      - "C:/nvm4w/nodejs/purify.exe"
+      - "C:/nvm4w/nodejs/purify"
       - "C:/Users/Chris/.cargo/bin/purify.com"
       - "C:/Users/Chris/.cargo/bin/purify.exe"
       - "C:/Users/Chris/.cargo/bin/purify"
@@ -3161,18 +3152,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/purify.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/purify.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/purify"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify"
-      - "C:/Users/Chris/AppData/Local/nvm/purify.com"
-      - "C:/Users/Chris/AppData/Local/nvm/purify.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/purify"
-      - "C:/nvm4w/nodejs/purify.com"
-      - "C:/nvm4w/nodejs/purify.exe"
-      - "C:/nvm4w/nodejs/purify"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/purify.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/purify.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/purify"
+      - "C:/Users/Chris/.local/bin/purify.com"
+      - "C:/Users/Chris/.local/bin/purify.exe"
+      - "C:/Users/Chris/.local/bin/purify"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/purify"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/purify.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/purify.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/purify"
@@ -3344,12 +3332,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/valgrind"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/valgrind.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/valgrind.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/valgrind"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/valgrind.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/valgrind.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/valgrind"
+      - "C:/Users/Chris/AppData/Local/nvm/valgrind.com"
+      - "C:/Users/Chris/AppData/Local/nvm/valgrind.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/valgrind"
+      - "C:/nvm4w/nodejs/valgrind.com"
+      - "C:/nvm4w/nodejs/valgrind.exe"
+      - "C:/nvm4w/nodejs/valgrind"
       - "C:/Users/Chris/.cargo/bin/valgrind.com"
       - "C:/Users/Chris/.cargo/bin/valgrind.exe"
       - "C:/Users/Chris/.cargo/bin/valgrind"
@@ -3371,18 +3359,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/valgrind.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/valgrind.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/valgrind"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind"
-      - "C:/Users/Chris/AppData/Local/nvm/valgrind.com"
-      - "C:/Users/Chris/AppData/Local/nvm/valgrind.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/valgrind"
-      - "C:/nvm4w/nodejs/valgrind.com"
-      - "C:/nvm4w/nodejs/valgrind.exe"
-      - "C:/nvm4w/nodejs/valgrind"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/valgrind.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/valgrind.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/valgrind"
+      - "C:/Users/Chris/.local/bin/valgrind.com"
+      - "C:/Users/Chris/.local/bin/valgrind.exe"
+      - "C:/Users/Chris/.local/bin/valgrind"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/valgrind"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/valgrind.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/valgrind.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/valgrind"
@@ -3554,12 +3539,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/boundscheck"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/boundscheck.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/boundscheck.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/boundscheck"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/boundscheck.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/boundscheck.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/boundscheck"
+      - "C:/Users/Chris/AppData/Local/nvm/boundscheck.com"
+      - "C:/Users/Chris/AppData/Local/nvm/boundscheck.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/boundscheck"
+      - "C:/nvm4w/nodejs/boundscheck.com"
+      - "C:/nvm4w/nodejs/boundscheck.exe"
+      - "C:/nvm4w/nodejs/boundscheck"
       - "C:/Users/Chris/.cargo/bin/boundscheck.com"
       - "C:/Users/Chris/.cargo/bin/boundscheck.exe"
       - "C:/Users/Chris/.cargo/bin/boundscheck"
@@ -3581,18 +3566,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/boundscheck.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/boundscheck.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/boundscheck"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck"
-      - "C:/Users/Chris/AppData/Local/nvm/boundscheck.com"
-      - "C:/Users/Chris/AppData/Local/nvm/boundscheck.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/boundscheck"
-      - "C:/nvm4w/nodejs/boundscheck.com"
-      - "C:/nvm4w/nodejs/boundscheck.exe"
-      - "C:/nvm4w/nodejs/boundscheck"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/boundscheck.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/boundscheck.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/boundscheck"
+      - "C:/Users/Chris/.local/bin/boundscheck.com"
+      - "C:/Users/Chris/.local/bin/boundscheck.exe"
+      - "C:/Users/Chris/.local/bin/boundscheck"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/boundscheck"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/boundscheck.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/boundscheck.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/boundscheck"
@@ -3764,12 +3746,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/drmemory"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/drmemory.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/drmemory.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/drmemory"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/drmemory.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/drmemory.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/drmemory"
+      - "C:/Users/Chris/AppData/Local/nvm/drmemory.com"
+      - "C:/Users/Chris/AppData/Local/nvm/drmemory.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/drmemory"
+      - "C:/nvm4w/nodejs/drmemory.com"
+      - "C:/nvm4w/nodejs/drmemory.exe"
+      - "C:/nvm4w/nodejs/drmemory"
       - "C:/Users/Chris/.cargo/bin/drmemory.com"
       - "C:/Users/Chris/.cargo/bin/drmemory.exe"
       - "C:/Users/Chris/.cargo/bin/drmemory"
@@ -3791,18 +3773,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/drmemory.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/drmemory.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/drmemory"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory"
-      - "C:/Users/Chris/AppData/Local/nvm/drmemory.com"
-      - "C:/Users/Chris/AppData/Local/nvm/drmemory.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/drmemory"
-      - "C:/nvm4w/nodejs/drmemory.com"
-      - "C:/nvm4w/nodejs/drmemory.exe"
-      - "C:/nvm4w/nodejs/drmemory"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/drmemory.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/drmemory.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/drmemory"
+      - "C:/Users/Chris/.local/bin/drmemory.com"
+      - "C:/Users/Chris/.local/bin/drmemory.exe"
+      - "C:/Users/Chris/.local/bin/drmemory"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/drmemory"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/drmemory.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/drmemory.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/drmemory"
@@ -3974,12 +3953,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/cuda-memcheck"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/cuda-memcheck.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/cuda-memcheck.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/cuda-memcheck"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/cuda-memcheck.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/cuda-memcheck.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/cuda-memcheck"
+      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck.com"
+      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck"
+      - "C:/nvm4w/nodejs/cuda-memcheck.com"
+      - "C:/nvm4w/nodejs/cuda-memcheck.exe"
+      - "C:/nvm4w/nodejs/cuda-memcheck"
       - "C:/Users/Chris/.cargo/bin/cuda-memcheck.com"
       - "C:/Users/Chris/.cargo/bin/cuda-memcheck.exe"
       - "C:/Users/Chris/.cargo/bin/cuda-memcheck"
@@ -4001,18 +3980,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/cuda-memcheck.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/cuda-memcheck.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/cuda-memcheck"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck"
-      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck.com"
-      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/cuda-memcheck"
-      - "C:/nvm4w/nodejs/cuda-memcheck.com"
-      - "C:/nvm4w/nodejs/cuda-memcheck.exe"
-      - "C:/nvm4w/nodejs/cuda-memcheck"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/cuda-memcheck.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/cuda-memcheck.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/cuda-memcheck"
+      - "C:/Users/Chris/.local/bin/cuda-memcheck.com"
+      - "C:/Users/Chris/.local/bin/cuda-memcheck.exe"
+      - "C:/Users/Chris/.local/bin/cuda-memcheck"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/cuda-memcheck"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cuda-memcheck.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cuda-memcheck.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cuda-memcheck"
@@ -4184,12 +4160,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/compute-sanitizer"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/compute-sanitizer.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/compute-sanitizer.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/compute-sanitizer"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/compute-sanitizer.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/compute-sanitizer.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/compute-sanitizer"
+      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer.com"
+      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer"
+      - "C:/nvm4w/nodejs/compute-sanitizer.com"
+      - "C:/nvm4w/nodejs/compute-sanitizer.exe"
+      - "C:/nvm4w/nodejs/compute-sanitizer"
       - "C:/Users/Chris/.cargo/bin/compute-sanitizer.com"
       - "C:/Users/Chris/.cargo/bin/compute-sanitizer.exe"
       - "C:/Users/Chris/.cargo/bin/compute-sanitizer"
@@ -4211,18 +4187,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/compute-sanitizer.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/compute-sanitizer.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/compute-sanitizer"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer"
-      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer.com"
-      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/compute-sanitizer"
-      - "C:/nvm4w/nodejs/compute-sanitizer.com"
-      - "C:/nvm4w/nodejs/compute-sanitizer.exe"
-      - "C:/nvm4w/nodejs/compute-sanitizer"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/compute-sanitizer.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/compute-sanitizer.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/compute-sanitizer"
+      - "C:/Users/Chris/.local/bin/compute-sanitizer.com"
+      - "C:/Users/Chris/.local/bin/compute-sanitizer.exe"
+      - "C:/Users/Chris/.local/bin/compute-sanitizer"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/compute-sanitizer"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/compute-sanitizer.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/compute-sanitizer.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/compute-sanitizer"
@@ -4325,8 +4298,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -4334,10 +4307,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -4407,8 +4381,8 @@ events:
       - "C:/ProgramData/chocolatey/bin/"
       - "C:/Program Files/gs/gs10.06.0/bin/"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/"
+      - "C:/Users/Chris/AppData/Local/nvm/"
+      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/.cargo/bin/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WindowsApps/"
       - "C:/Users/Chris/AppData/Local/Programs/Microsoft VS Code/bin/"
@@ -4416,10 +4390,9 @@ events:
       - "C:/Users/Chris/AppData/Local/GitHubDesktop/bin/"
       - "C:/Users/Chris/AppData/Roaming/npm/"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
-      - "C:/Users/Chris/AppData/Local/nvm/"
-      - "C:/nvm4w/nodejs/"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/"
+      - "C:/Users/Chris/.local/bin/"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/Ninja/"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/VC/Linux/bin/ConnectionManagerExe/"
@@ -4553,12 +4526,12 @@ events:
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov.com"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov.exe"
       - "C:/Program Files (x86)/Windows Kits/10/Windows Performance Toolkit/gcov"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/gcov.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/gcov.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_HOME%/gcov"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/gcov.com"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/gcov.exe"
-      - "D:/z_DevTemp/UnionPlayer/build/%NVM_SYMLINK%/gcov"
+      - "C:/Users/Chris/AppData/Local/nvm/gcov.com"
+      - "C:/Users/Chris/AppData/Local/nvm/gcov.exe"
+      - "C:/Users/Chris/AppData/Local/nvm/gcov"
+      - "C:/nvm4w/nodejs/gcov.com"
+      - "C:/nvm4w/nodejs/gcov.exe"
+      - "C:/nvm4w/nodejs/gcov"
       - "C:/Users/Chris/.cargo/bin/gcov.com"
       - "C:/Users/Chris/.cargo/bin/gcov.exe"
       - "C:/Users/Chris/.cargo/bin/gcov"
@@ -4580,18 +4553,15 @@ events:
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/gcov.com"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/gcov.exe"
       - "C:/Users/Chris/AppData/Local/Programs/Antigravity/bin/gcov"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov.com"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov.exe"
-      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov"
-      - "C:/Users/Chris/AppData/Local/nvm/gcov.com"
-      - "C:/Users/Chris/AppData/Local/nvm/gcov.exe"
-      - "C:/Users/Chris/AppData/Local/nvm/gcov"
-      - "C:/nvm4w/nodejs/gcov.com"
-      - "C:/nvm4w/nodejs/gcov.exe"
-      - "C:/nvm4w/nodejs/gcov"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/gcov.com"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/gcov.exe"
       - "C:/Users/Chris/AppData/Local/Microsoft/WinGet/Links/gcov"
+      - "C:/Users/Chris/.local/bin/gcov.com"
+      - "C:/Users/Chris/.local/bin/gcov.exe"
+      - "C:/Users/Chris/.local/bin/gcov"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov.com"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov.exe"
+      - "C:/Users/Chris/AppData/Local/PowerToys/DSCModules/gcov"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/gcov.com"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/gcov.exe"
       - "C:/Program Files/Microsoft Visual Studio/2022/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/gcov"
@@ -4691,8 +4661,8 @@ events:
         - "C:\\ProgramData\\chocolatey\\bin"
         - "C:\\Program Files\\gs\\gs10.06.0\\bin"
         - "C:\\Program Files (x86)\\Windows Kits\\10\\Windows Performance Toolkit"
-        - "%NVM_HOME%"
-        - "%NVM_SYMLINK%"
+        - "C:\\Users\\Chris\\AppData\\Local\\nvm"
+        - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\.cargo\\bin"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WindowsApps"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Microsoft VS Code\\bin"
@@ -4700,10 +4670,11 @@ events:
         - "C:\\Users\\Chris\\AppData\\Local\\GitHubDesktop\\bin"
         - "C:\\Users\\Chris\\AppData\\Roaming\\npm"
         - "C:\\Users\\Chris\\AppData\\Local\\Programs\\Antigravity\\bin"
-        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Users\\Chris\\AppData\\Local\\nvm"
         - "C:\\nvm4w\\nodejs"
         - "C:\\Users\\Chris\\AppData\\Local\\Microsoft\\WinGet\\Links"
+        - "C:\\Users\\Chris\\.local\\bin"
+        - "C:\\Users\\Chris\\AppData\\Local\\PowerToys\\DSCModules"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\CMake\\bin"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\CommonExtensions\\Microsoft\\CMake\\Ninja"
         - "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\VC\\Linux\\bin\\ConnectionManagerExe"
@@ -4725,8 +4696,8 @@ events:
     checks:
       - "Looking for sin in m"
     directories:
-      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x71upy"
-      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x71upy"
+      source: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-drummt"
+      binary: "D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-drummt"
     cmakeVariables:
       CMAKE_C_FLAGS: "/DWIN32 /D_WINDOWS"
       CMAKE_C_FLAGS_DEBUG: "/Zi /Ob0 /Od /RTC1"
@@ -4737,45 +4708,45 @@ events:
       variable: "HAVE_LIB_M"
       cached: true
       stdout: |
-        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x71upy'
+        Change Dir: 'D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-drummt'
         
-        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_6ade8.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
+        Run Build Command(s): "C:/Program Files/Microsoft Visual Studio/2022/Community/MSBuild/Current/Bin/amd64/MSBuild.exe" cmTC_40d65.vcxproj /p:Configuration=Debug /p:Platform=x64 /p:VisualStudioVersion=17.0 /v:n
         MSBuild version 17.14.23+b0019275e for .NET Framework
-        Build started 1/21/2026 5:04:20 PM.
+        Build started 1/25/2026 12:15:54 PM.
         
-        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\cmTC_6ade8.vcxproj" on node 1 (default targets).
+        Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\cmTC_40d65.vcxproj" on node 1 (default targets).
         PrepareForBuild:
-          Creating directory "cmTC_6ade8.dir\\Debug\\".
+          Creating directory "cmTC_40d65.dir\\Debug\\".
           Structured output is enabled. The formatting of compiler diagnostics will reflect the error hierarchy. See https://aka.ms/cpp/structured-output for more details.
-          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\Debug\\".
-          Creating directory "cmTC_6ade8.dir\\Debug\\cmTC_6ade8.tlog\\".
+          Creating directory "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\Debug\\".
+          Creating directory "cmTC_40d65.dir\\Debug\\cmTC_40d65.tlog\\".
         InitializeBuildStatus:
-          Creating "cmTC_6ade8.dir\\Debug\\cmTC_6ade8.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
-          Touching "cmTC_6ade8.dir\\Debug\\cmTC_6ade8.tlog\\unsuccessfulbuild".
+          Creating "cmTC_40d65.dir\\Debug\\cmTC_40d65.tlog\\unsuccessfulbuild" because "AlwaysCreate" was specified.
+          Touching "cmTC_40d65.dir\\Debug\\cmTC_40d65.tlog\\unsuccessfulbuild".
         VcpkgTripletSelection:
           Using triplet "x64-windows" from "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\"
           Using normalized configuration "Debug"
         ClCompile:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=sin /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_6ade8.dir\\Debug\\\\" /Fd"cmTC_6ade8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\CheckFunctionExists.c"
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\CL.exe /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=sin /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_40d65.dir\\Debug\\\\" /Fd"cmTC_40d65.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\CheckFunctionExists.c"
           Microsoft (R) C/C++ Optimizing Compiler Version 19.44.35220 for x64
           Copyright (C) Microsoft Corporation.  All rights reserved.
-          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=sin /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_6ade8.dir\\Debug\\\\" /Fd"cmTC_6ade8.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\CheckFunctionExists.c"
+          cl /c /I"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\include" /Zi /W1 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D CHECK_FUNCTION_EXISTS=sin /D "CMAKE_INTDIR=\\"Debug\\"" /RTC1 /MDd /GS /fp:precise /Fo"cmTC_40d65.dir\\Debug\\\\" /Fd"cmTC_40d65.dir\\Debug\\vc143.pdb" /external:W1 /Gd /TC /errorReport:queue "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\CheckFunctionExists.c"
           CheckFunctionExists.c
         Link:
-          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\Debug\\cmTC_6ade8.exe" /INCREMENTAL /ILK:"cmTC_6ade8.dir\\Debug\\cmTC_6ade8.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" m.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x71upy/Debug/cmTC_6ade8.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-x71upy/Debug/cmTC_6ade8.lib" /MACHINE:X64  /machine:x64 cmTC_6ade8.dir\\Debug\\CheckFunctionExists.obj
-        LINK : fatal error LNK1104: cannot open file 'm.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\cmTC_6ade8.vcxproj]
-        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\cmTC_6ade8.vcxproj" (default targets) -- FAILED.
+          C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\MSVC\\14.44.35207\\bin\\HostX64\\x64\\link.exe /OUT:"D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\Debug\\cmTC_40d65.exe" /INCREMENTAL /ILK:"cmTC_40d65.dir\\Debug\\cmTC_40d65.ilk" /NOLOGO /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib" /LIBPATH:"C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\manual-link" m.lib kernel32.lib user32.lib gdi32.lib winspool.lib shell32.lib ole32.lib oleaut32.lib uuid.lib comdlg32.lib advapi32.lib "C:\\vcpkg\\vcpkg\\installed\\x64-windows\\debug\\lib\\*.lib" /MANIFEST /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /manifest:embed /DEBUG /PDB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-drummt/Debug/cmTC_40d65.pdb" /SUBSYSTEM:WINDOWS /TLBID:1 /ENTRY:"mainCRTStartup" /IMPLIB:"D:/z_DevTemp/UnionPlayer/build/CMakeFiles/CMakeScratch/TryCompile-drummt/Debug/cmTC_40d65.lib" /MACHINE:X64  /machine:x64 cmTC_40d65.dir\\Debug\\CheckFunctionExists.obj
+        LINK : fatal error LNK1104: cannot open file 'm.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\cmTC_40d65.vcxproj]
+        Done Building Project "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\cmTC_40d65.vcxproj" (default targets) -- FAILED.
         
         Build FAILED.
         
-        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\cmTC_6ade8.vcxproj" (default target) (1) ->
+        "D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\cmTC_40d65.vcxproj" (default target) (1) ->
         (Link target) -> 
-          LINK : fatal error LNK1104: cannot open file 'm.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-x71upy\\cmTC_6ade8.vcxproj]
+          LINK : fatal error LNK1104: cannot open file 'm.lib' [D:\\z_DevTemp\\UnionPlayer\\build\\CMakeFiles\\CMakeScratch\\TryCompile-drummt\\cmTC_40d65.vcxproj]
         
             0 Warning(s)
             1 Error(s)
         
-        Time Elapsed 00:00:00.28
+        Time Elapsed 00:00:00.33
         
       exitCode: 1
 ...

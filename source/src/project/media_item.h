@@ -14,7 +14,15 @@ namespace ump {
         EXR_SEQUENCE,
         SEQUENCE,
         TIMELINE,       // OTIO/EDL multi-track timeline
-        DUAL_VIEW       // Side-by-side comparison (LEFT/RIGHT tracks)
+        DUAL_VIEW,      // Side-by-side comparison (LEFT/RIGHT tracks)
+        PLAYLIST        // Ordered sequence of playable items
+    };
+
+    // Playlist item entry - reference to a playable media item
+    struct PlaylistItemEntry {
+        std::string media_id;           // Reference to MediaItem by ID
+        double in_point = -1.0;         // Optional in point override (-1 = use default)
+        double out_point = -1.0;        // Optional out point override (-1 = use default)
     };
 
     // Image sequence specific data (for IMAGE_SEQUENCE and EXR_SEQUENCE types)
@@ -89,6 +97,11 @@ namespace ump {
         int end_frame = 1;            // LEGACY: use image_seq.end_frame
         double frame_rate = 23.976;   // LEGACY: use image_seq.frame_rate
         PipelineMode pipeline_mode = PipelineMode::NORMAL;  // LEGACY: use image_seq.pipeline_mode
+
+        // Video stream timing offset (for H.264/H.265 PTS sync with B-frames)
+        // Extracted from AVStream->start_time, rescaled to AV_TIME_BASE
+        // Zero for codecs without B-frames (ProRes, DNxHD, etc.)
+        int64_t stream_start_time = 0;
 
         // Cached dimensions from first frame (for instant loading without I/O)
         int sequence_width = 0;       // LEGACY: use image_seq.width
@@ -171,6 +184,14 @@ namespace ump {
         // This allows switching between timelines without losing edits
         std::vector<OTIOTrack> cached_tracks;
         bool has_cached_edits = false;  // True if tracks have been edited from original EDL
+
+        // For IMAGE_SEQUENCE: extended timeline duration if audio clips extend past sequence
+        double cached_timeline_duration = 0.0;
+
+        // Playlist-specific fields (for MediaType::PLAYLIST)
+        std::vector<PlaylistItemEntry> playlist_items;  // Ordered list of items
+        int current_playlist_index = 0;                  // Currently playing index (runtime only, not saved)
+        bool playlist_loop = false;                      // Loop when finished
     };
 
     struct ProjectBin {

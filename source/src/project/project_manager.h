@@ -164,6 +164,7 @@ namespace ump {
         // Menu callbacks for File menu
         void ShowNewTimelineDialog() { show_new_timeline_dialog = true; }
         void ShowNewDualViewDialog() { show_new_dual_view_dialog = true; }
+        void ShowNewPlaylistDialog() { show_new_playlist_dialog = true; }
         void ImportTimelineFromMenu();
         std::string GetProjectPath() const { return current_project_path; }
 
@@ -252,6 +253,7 @@ namespace ump {
         // ========================================================================
 
         void LoadSingleMediaItem(const MediaItem& item);  // Load any single media item (video, image sequence, etc.)
+        void SetSkipLoadingModal(bool skip) { skip_loading_modal_ = skip; }  // Skip modal for next load (playlist mode)
 
         // ========================================================================
         // TIMELINE MANAGEMENT (OTIO/EDL multi-track timelines)
@@ -460,10 +462,35 @@ namespace ump {
             dual_view_editor_callback = callback;
         }
 
+        // ========================================================================
+        // PLAYLIST MANAGEMENT
+        // ========================================================================
+
+        // Create a new empty playlist
+        std::string CreateNewPlaylist(const std::string& name = "");
+
+        // Create a new playlist from selected items in project
+        std::string CreatePlaylistFromSelection();
+
+        // Get playlist item by ID
+        MediaItem* GetPlaylistItem(const std::string& playlist_id);
+
+        // Get count of playlists in project
+        int GetPlaylistCount() const;
+
+        // Open playlist in panel (triggers callback to show playlist panel with this playlist)
+        void OpenPlaylistInPanel(const std::string& playlist_id);
+
+        // Playlist panel callback
+        void SetPlaylistPanelCallback(std::function<void(const std::string&)> callback) {
+            playlist_panel_callback = callback;
+        }
+
     private:
         // Constants
         static const int TIMELINES_BIN_INDEX = 3;
         static const int DUAL_VIEWS_BIN_INDEX = 4;
+        static const int PLAYLISTS_BIN_INDEX = 5;
 
         // ========================================================================
         // MEMBER VARIABLES
@@ -525,6 +552,10 @@ namespace ump {
         int new_dual_view_height = 1080;
         double new_dual_view_fps = 23.976;
         int new_dual_view_resolution_preset = 0;  // 0=1080p, 1=4K, 2=1080x1080, 3=1080x1920, 4=Custom
+
+        // New playlist dialog state
+        bool show_new_playlist_dialog = false;
+        char new_playlist_name_buffer[256] = "";
 
         // Pending dialog flags (triggered from context menus, handled by main.cpp)
         bool pending_open_media_dialog = false;
@@ -700,6 +731,10 @@ namespace ump {
         std::function<void(MediaItem*)> audio_file_timeline_callback;  // Callback to load audio files into OTIO timeline view
         std::function<void()> project_saved_callback;  // Callback when project is successfully saved
         std::function<void(const std::string&)> dual_view_editor_callback;  // Callback to open dual view in editor
+        std::function<void(const std::string&)> playlist_panel_callback;  // Callback to open playlist in panel
+
+        // Playlist mode flag - skip loading modal for smoother transitions
+        bool skip_loading_modal_ = false;
 
         // Cloud sync helper - waits for file to become readable
         bool WaitForFileReadable(const std::string& file_path, int timeout_seconds = 30);

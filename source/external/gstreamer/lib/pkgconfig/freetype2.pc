@@ -1,0 +1,12 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: FreeType 2
+Description: A free, high-quality, and portable font engine.
+URL: https://freetype.org
+Version: 26.2.20
+Requires.private: zlib, bzip2, libpng
+Libs: -L${libdir} -lfreetype
+Cflags: -I${includedir}/freetype2
+

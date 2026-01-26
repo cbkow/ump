@@ -1,0 +1,10 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: libdca
+Description: A decoding library for DTS Coherent Acoustics streams.
+Version: 0.0.7
+Libs: -L${libdir} -ldca
+Cflags: -I${includedir}
+

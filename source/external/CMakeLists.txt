@@ -18,13 +18,24 @@ set(IMGUI_SOURCES
     imgui/backends/imgui_impl_glfw.cpp
     imgui/backends/imgui_impl_opengl3.cpp
 )
+
+# Add D3D11 backend on Windows for full D3D11 rendering mode
+if(WIN32)
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_dx11.cpp)
+endif()
+
 add_library(imgui ${IMGUI_SOURCES})
-target_include_directories(imgui PUBLIC 
+target_include_directories(imgui PUBLIC
     imgui
     imgui/backends
     glfw/include
 )
 target_link_libraries(imgui glfw)
+
+# Link D3D11 libraries for ImGui on Windows
+if(WIN32)
+    target_link_libraries(imgui d3d11 d3dcompiler)
+endif()
 
 # Enable docking features
 target_compile_definitions(imgui PUBLIC IMGUI_ENABLE_DOCKING)

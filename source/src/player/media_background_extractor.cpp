@@ -1311,7 +1311,7 @@ void MediaBackgroundExtractor::RequestWindowAroundPlayhead(double center_timesta
     last_center = center_timestamp;
 
     double fps = frame_rate.load();
-    int center_frame = static_cast<int>(center_timestamp * fps);
+    int center_frame = static_cast<int>(center_timestamp * fps + 0.5);
 
     //Debug::Log("MediaBackgroundExtractor: Starting RAM-bounded spiral from frame " + std::to_string(center_frame));
 
@@ -1328,16 +1328,16 @@ void MediaBackgroundExtractor::RequestWindowAroundPlayhead(double center_timesta
 
         int priority = (std::max)(1, 1000 - dist);  // Higher priority closer to playhead
 
-        // Frame before center
+        // Frame before center - use center of frame's display period for robust seeking
         int before_frame = center_frame - dist;
         if (before_frame >= 0) {
-            RequestFrame(before_frame, before_frame / fps, priority);
+            RequestFrame(before_frame, (static_cast<double>(before_frame) + 0.5) / fps, priority);
         }
 
         // Frame after center (skip dist=0 to avoid duplicate)
         if (dist > 0) {
             int after_frame = center_frame + dist;
-            RequestFrame(after_frame, after_frame / fps, priority);
+            RequestFrame(after_frame, (static_cast<double>(after_frame) + 0.5) / fps, priority);
         }
     }
 }
@@ -1493,7 +1493,8 @@ void MediaBackgroundExtractor::RequestFrameRange(int start_frame, int end_frame,
     for (int frame = start_frame; frame <= end_frame; ++frame) {
         if (frame >= 0) {
             double fps = frame_rate.load();
-            double timestamp = frame / fps;
+            // Use center of frame's display period for robust seeking
+            double timestamp = (static_cast<double>(frame) + 0.5) / fps;
             int priority = (std::max)(1, base_priority - abs(frame - start_frame));
             RequestFrame(frame, timestamp, priority);
         }

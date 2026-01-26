@@ -1,0 +1,11 @@
+prefix=${pcfiledir}/../..
+includedir=${prefix}/include
+libdir=${prefix}/lib
+
+Name: vorbisfile
+Description: vorbisfile is a library that provides a convenient high-level API for decoding and basic manipulation of all Vorbis I audio streams
+Version: 1.3.7
+Requires.private: vorbis, ogg
+Libs: -L${libdir} -lvorbisfile
+Cflags: -I${includedir}
+

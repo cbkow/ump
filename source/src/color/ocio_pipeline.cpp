@@ -4,6 +4,11 @@
 #include <sstream>
 #include <vector>
 
+#ifdef _WIN32
+#include "../gpu/d3d11_device_manager.h"
+#include <d3dcompiler.h>
+#endif
+
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
 
 OCIOPipeline::OCIOPipeline()
@@ -21,6 +26,9 @@ OCIOPipeline::~OCIOPipeline() {
         glDeleteTextures(lut_texture_ids.size(), lut_texture_ids.data());
         lut_texture_ids.clear();
     }
+#ifdef _WIN32
+    CleanupD3D11Shaders();
+#endif
 }
 
 bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
@@ -842,3 +850,331 @@ bool OCIOPipeline::BuildTestPipeline() {
     Debug::Log("Building test pipeline (passthrough with tint)");
     return CreatePassthroughPipeline();  // Calls the private method
 }
+
+#ifdef _WIN32
+//=============================================================================
+// D3D11/HLSL Implementation
+//=============================================================================
+
+void OCIOPipeline::CleanupD3D11Shaders() {
+    d3d_vertex_shader_.Reset();
+    d3d_pixel_shader_.Reset();
+    d3d_constant_buffer_.Reset();
+    d3d_lut_1d_.clear();
+    d3d_lut_3d_.clear();
+    d3d_lut_srvs_.clear();
+    d3d_lut_samplers_.clear();
+}
+
+bool OCIOPipeline::CreatePassthroughPipelineD3D11() {
+    Debug::Log("Creating D3D11 passthrough pipeline (identity transform)");
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) {
+        Debug::Log("ERROR: D3D11DeviceManager not initialized");
+        return false;
+    }
+
+    CleanupD3D11Shaders();
+
+    // Vertex shader
+    const char* vs_hlsl = R"(
+        struct VSInput {
+            float2 Position : POSITION;
+            float2 TexCoord : TEXCOORD0;
+        };
+
+        struct VSOutput {
+            float4 Position : SV_POSITION;
+            float2 TexCoord : TEXCOORD0;
+        };
+
+        VSOutput VSMain(VSInput input) {
+            VSOutput output;
+            output.Position = float4(input.Position, 0.0, 1.0);
+            output.TexCoord = input.TexCoord;
+            return output;
+        }
+    )";
+
+    // Passthrough pixel shader
+    const char* ps_hlsl = R"(
+        Texture2D videoTexture : register(t0);
+        SamplerState linearSampler : register(s0);
+
+        struct PSInput {
+            float4 Position : SV_POSITION;
+            float2 TexCoord : TEXCOORD0;
+        };
+
+        float4 PSMain(PSInput input) : SV_TARGET {
+            return videoTexture.Sample(linearSampler, input.TexCoord);
+        }
+    )";
+
+    d3d_vertex_shader_ = device_mgr.CompileVertexShader(vs_hlsl, "VSMain");
+    if (!d3d_vertex_shader_) {
+        Debug::Log("ERROR: Failed to compile D3D11 passthrough vertex shader");
+        return false;
+    }
+
+    d3d_pixel_shader_ = device_mgr.CompilePixelShader(ps_hlsl, "PSMain");
+    if (!d3d_pixel_shader_) {
+        Debug::Log("ERROR: Failed to compile D3D11 passthrough pixel shader");
+        return false;
+    }
+
+    Debug::Log("D3D11 passthrough pipeline created successfully");
+    return true;
+}
+
+bool OCIOPipeline::GenerateAndCompileShaderD3D11() {
+    if (!processor) {
+        Debug::Log("ERROR: No OCIO processor available for D3D11 shader generation");
+        return CreatePassthroughPipelineD3D11();
+    }
+
+    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) {
+        Debug::Log("ERROR: D3D11DeviceManager not initialized for shader generation");
+        return false;
+    }
+
+    CleanupD3D11Shaders();
+
+    try {
+        // Create GPU processor with HLSL output
+        OCIO::GpuShaderDescRcPtr shaderDesc = OCIO::GpuShaderDesc::CreateShaderDesc();
+        shaderDesc->setLanguage(OCIO::GPU_LANGUAGE_HLSL_DX11);
+        shaderDesc->setFunctionName("OCIODisplay");
+        shaderDesc->setResourcePrefix("ocio_");
+
+        // Extract GPU shader information
+        OCIO::ConstGPUProcessorRcPtr gpuProc = processor->getDefaultGPUProcessor();
+        gpuProc->extractGpuShaderInfo(shaderDesc);
+
+        // Get the shader source
+        const char* shader_src = shaderDesc->getShaderText();
+        std::string ocio_shader_text(shader_src ? shader_src : "");
+        Debug::Log("OCIO HLSL shader function length: " + std::to_string(ocio_shader_text.length()) + " characters");
+
+        // Check for LUTs
+        int num_3d_luts = shaderDesc->getNum3DTextures();
+        int num_1d_luts = shaderDesc->getNumTextures();
+        Debug::Log("D3D11 shader: " + std::to_string(num_3d_luts) + " 3D LUT(s), " +
+                   std::to_string(num_1d_luts) + " 1D LUT(s) required");
+
+        auto* device = device_mgr.GetDevice();
+
+        // Create 1D LUT textures
+        for (int i = 0; i < num_1d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned width = 0;
+            unsigned height = 0;
+            OCIO::GpuShaderDesc::TextureType channel;
+            OCIO::GpuShaderDesc::TextureDimensions dimensions;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->getTexture(i, textureName, samplerName, width, height, channel, dimensions, interp);
+
+            if (width == 0) continue;
+
+            const float* lut_ptr = nullptr;
+            shaderDesc->getTextureValues(i, lut_ptr);
+
+            bool is_red_channel = (channel == OCIO::GpuShaderDesc::TEXTURE_RED_CHANNEL);
+            DXGI_FORMAT format = is_red_channel ? DXGI_FORMAT_R32_FLOAT : DXGI_FORMAT_R32G32B32A32_FLOAT;
+
+            // Create 1D texture
+            D3D11_TEXTURE1D_DESC tex_desc = {};
+            tex_desc.Width = width;
+            tex_desc.MipLevels = 1;
+            tex_desc.ArraySize = 1;
+            tex_desc.Format = format;
+            tex_desc.Usage = D3D11_USAGE_DEFAULT;
+            tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+            D3D11_SUBRESOURCE_DATA init_data = {};
+            init_data.pSysMem = lut_ptr;
+
+            Microsoft::WRL::ComPtr<ID3D11Texture1D> tex1d;
+            HRESULT hr = device->CreateTexture1D(&tex_desc, lut_ptr ? &init_data : nullptr, &tex1d);
+            if (FAILED(hr)) {
+                Debug::Log("ERROR: Failed to create 1D LUT texture " + std::to_string(i));
+                continue;
+            }
+            d3d_lut_1d_.push_back(tex1d);
+
+            // Create SRV
+            D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+            srv_desc.Format = format;
+            srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE1D;
+            srv_desc.Texture1D.MipLevels = 1;
+
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+            hr = device->CreateShaderResourceView(tex1d.Get(), &srv_desc, &srv);
+            if (SUCCEEDED(hr)) {
+                d3d_lut_srvs_.push_back(srv);
+            }
+
+            // Create sampler
+            auto sampler = device_mgr.CreateSamplerState(
+                D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+                D3D11_TEXTURE_ADDRESS_CLAMP);
+            if (sampler) {
+                d3d_lut_samplers_.push_back(sampler);
+            }
+
+            Debug::Log("Created D3D11 1D LUT " + std::to_string(i) + ": " + std::to_string(width) + " elements");
+        }
+
+        // Create 3D LUT textures
+        for (int i = 0; i < num_3d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned edgelen = 0;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->get3DTexture(i, textureName, samplerName, edgelen, interp);
+
+            if (edgelen == 0) continue;
+
+            const float* lut_ptr = nullptr;
+            shaderDesc->get3DTextureValues(i, lut_ptr);
+
+            // Create 3D texture
+            D3D11_TEXTURE3D_DESC tex_desc = {};
+            tex_desc.Width = edgelen;
+            tex_desc.Height = edgelen;
+            tex_desc.Depth = edgelen;
+            tex_desc.MipLevels = 1;
+            tex_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;  // Use RGBA for alignment
+            tex_desc.Usage = D3D11_USAGE_DEFAULT;
+            tex_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+            // Convert RGB to RGBA for D3D11
+            std::vector<float> rgba_data(edgelen * edgelen * edgelen * 4);
+            if (lut_ptr) {
+                for (unsigned z = 0; z < edgelen; ++z) {
+                    for (unsigned y = 0; y < edgelen; ++y) {
+                        for (unsigned x = 0; x < edgelen; ++x) {
+                            unsigned src_idx = 3 * (x + edgelen * (y + edgelen * z));
+                            unsigned dst_idx = 4 * (x + edgelen * (y + edgelen * z));
+                            rgba_data[dst_idx + 0] = lut_ptr[src_idx + 0];
+                            rgba_data[dst_idx + 1] = lut_ptr[src_idx + 1];
+                            rgba_data[dst_idx + 2] = lut_ptr[src_idx + 2];
+                            rgba_data[dst_idx + 3] = 1.0f;
+                        }
+                    }
+                }
+            }
+
+            D3D11_SUBRESOURCE_DATA init_data = {};
+            init_data.pSysMem = rgba_data.data();
+            init_data.SysMemPitch = edgelen * 4 * sizeof(float);
+            init_data.SysMemSlicePitch = edgelen * edgelen * 4 * sizeof(float);
+
+            Microsoft::WRL::ComPtr<ID3D11Texture3D> tex3d;
+            HRESULT hr = device->CreateTexture3D(&tex_desc, &init_data, &tex3d);
+            if (FAILED(hr)) {
+                Debug::Log("ERROR: Failed to create 3D LUT texture " + std::to_string(i));
+                continue;
+            }
+            d3d_lut_3d_.push_back(tex3d);
+
+            // Create SRV
+            D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+            srv_desc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+            srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE3D;
+            srv_desc.Texture3D.MipLevels = 1;
+
+            Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+            hr = device->CreateShaderResourceView(tex3d.Get(), &srv_desc, &srv);
+            if (SUCCEEDED(hr)) {
+                d3d_lut_srvs_.push_back(srv);
+            }
+
+            // Create sampler
+            auto sampler = device_mgr.CreateSamplerState(
+                D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+                D3D11_TEXTURE_ADDRESS_CLAMP);
+            if (sampler) {
+                d3d_lut_samplers_.push_back(sampler);
+            }
+
+            Debug::Log("Created D3D11 3D LUT " + std::to_string(i) + ": " +
+                       std::to_string(edgelen) + "^3");
+        }
+
+        // Build vertex shader
+        const char* vs_hlsl = R"(
+            struct VSInput {
+                float2 Position : POSITION;
+                float2 TexCoord : TEXCOORD0;
+            };
+
+            struct VSOutput {
+                float4 Position : SV_POSITION;
+                float2 TexCoord : TEXCOORD0;
+            };
+
+            VSOutput VSMain(VSInput input) {
+                VSOutput output;
+                output.Position = float4(input.Position, 0.0, 1.0);
+                output.TexCoord = input.TexCoord;
+                return output;
+            }
+        )";
+
+        d3d_vertex_shader_ = device_mgr.CompileVertexShader(vs_hlsl, "VSMain");
+        if (!d3d_vertex_shader_) {
+            Debug::Log("ERROR: Failed to compile D3D11 vertex shader");
+            return CreatePassthroughPipelineD3D11();
+        }
+
+        // Build pixel shader with OCIO code
+        std::stringstream ps_src;
+        ps_src << "Texture2D videoTexture : register(t0);\n";
+        ps_src << "SamplerState linearSampler : register(s0);\n";
+        ps_src << "\n";
+        ps_src << "struct PSInput {\n";
+        ps_src << "    float4 Position : SV_POSITION;\n";
+        ps_src << "    float2 TexCoord : TEXCOORD0;\n";
+        ps_src << "};\n";
+        ps_src << "\n";
+
+        // Add OCIO shader code (includes its own texture/sampler declarations)
+        ps_src << ocio_shader_text << "\n";
+        ps_src << "\n";
+
+        ps_src << "float4 PSMain(PSInput input) : SV_TARGET {\n";
+        ps_src << "    float4 col = videoTexture.Sample(linearSampler, input.TexCoord);\n";
+        ps_src << "    float4 result = OCIODisplay(col);\n";
+        ps_src << "    \n";
+        ps_src << "    // Check for invalid values\n";
+        ps_src << "    if (any(isnan(result.rgb)) || any(isinf(result.rgb))) {\n";
+        ps_src << "        return float4(1.0, 0.0, 1.0, 1.0);  // Magenta for invalid\n";
+        ps_src << "    }\n";
+        ps_src << "    return result;\n";
+        ps_src << "}\n";
+
+        std::string ps_hlsl = ps_src.str();
+
+        d3d_pixel_shader_ = device_mgr.CompilePixelShader(ps_hlsl, "PSMain");
+        if (!d3d_pixel_shader_) {
+            Debug::Log("ERROR: Failed to compile D3D11 OCIO pixel shader");
+            Debug::Log("Shader source preview: " + ps_hlsl.substr(0, 500) + "...");
+            return CreatePassthroughPipelineD3D11();
+        }
+
+        Debug::Log("D3D11 OCIO shader compiled successfully");
+        return true;
+
+    } catch (OCIO::Exception& e) {
+        Debug::Log("OCIO D3D11 Shader Generation Exception: " + std::string(e.what()));
+        return CreatePassthroughPipelineD3D11();
+    }
+}
+
+#endif // _WIN32
