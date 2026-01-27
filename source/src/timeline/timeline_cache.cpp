@@ -1417,6 +1417,11 @@ void TimelineCache::SetConfig(const TimelineCacheConfig& config) {
     bool need_restart = config.io_threads != config_.io_threads;
     config_ = config;
 
+    // Apply pipeline mode from config (must be set before Initialize creates decoders)
+    video_pipeline_mode_ = config_.pipeline_mode;
+    Debug::Log("TimelineCache::SetConfig: pipeline_mode set to " +
+               std::string(PipelineModeToString(video_pipeline_mode_)));
+
     // Update the cache window engine with new window size
     cache_engine_.SetWindow(config_.GetReadBehindFrames(), config_.readAheadFrames);
 

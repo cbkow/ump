@@ -295,7 +295,9 @@ bool GStreamerVideoDecoder::ConfigureAppSink() {
 
     gst_app_sink_set_emit_signals(GST_APP_SINK(appsink_), FALSE);
     gst_app_sink_set_drop(GST_APP_SINK(appsink_), FALSE);
-    gst_app_sink_set_max_buffers(GST_APP_SINK(appsink_), 2);  // Small GStreamer buffer
+    // Larger buffer helps prevent upstream stalls and smooths pipeline flow
+    // Memory cost: ~20 frames at 4K 16-bit = ~1.3GB, 4K 8-bit = ~660MB
+    gst_app_sink_set_max_buffers(GST_APP_SINK(appsink_), 20);
 
     return true;
 }

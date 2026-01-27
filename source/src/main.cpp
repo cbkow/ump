@@ -225,6 +225,7 @@ static struct {
     bool adaptive_throttle_enabled = true; // Slow down playback when cache can't keep up (default ON)
     bool buffer_wait_enabled = true;      // Wait for sequential buffer before playback (default ON)
     int buffer_wait_percent = 88;         // Percent of readahead that must be filled before playback (default 88%)
+    int video_buffer_frames = 2;          // Frames to wait for video (GStreamer) before play/seek (2-48)
 
     // COLOR MANAGEMENT SETTINGS
     bool auto_121_enabled = true;         // Auto-apply Rec.709 -> sRGB OCIO when 1-2-1 NCLC detected
@@ -1606,6 +1607,7 @@ public:
                                 timeline_view->GetPlaybackController()->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
                                 timeline_view->GetPlaybackController()->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                                 timeline_view->GetPlaybackController()->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                                timeline_view->GetPlaybackController()->SetVideoBufferFrames(cache_settings.video_buffer_frames);
 
                                 // Ensure playback controller and cache have the correct duration
                                 // This is the same update that happens in SyncFlattenerAndInvalidate()
@@ -1647,6 +1649,7 @@ public:
                                 timeline_view->GetPlaybackController()->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
                                 timeline_view->GetPlaybackController()->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                                 timeline_view->GetPlaybackController()->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                                timeline_view->GetPlaybackController()->SetVideoBufferFrames(cache_settings.video_buffer_frames);
 
                                 double duration = timeline_view->GetDuration();
                                 timeline_view->GetPlaybackController()->UpdateDuration(duration);
@@ -1841,7 +1844,15 @@ public:
 
             // Load the image sequence as a timeline
             if (timeline_view->LoadImageSequenceAsTimeline(item)) {
-                // Initialize playback
+                // Set pipeline mode from PROJECT setting BEFORE initializing playback
+                // This ensures the cache is created with the correct mode from the start
+                // Project-level setting ensures all media in the project uses the same mode
+                PipelineMode project_mode = project_manager->GetProjectPipelineMode();
+                timeline_view->SetPendingPipelineMode(project_mode);
+                Debug::Log("ImageSequenceTimelineCallback: Set pending pipeline mode to " +
+                           std::string(PipelineModeToString(project_mode)) + " (from project)");
+
+                // Initialize playback (will use the pending pipeline mode)
                 timeline_view->InitializePlayback();
 
                 // Ensure timeline starts paused (don't auto-play when switching)
@@ -1850,6 +1861,7 @@ public:
                     controller->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
                     controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                    controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                 }
 
                 // Initialize timeline thumbnail cache for clip thumbnails
@@ -1915,7 +1927,15 @@ public:
 
             // Load the video file as a timeline
             if (timeline_view->LoadVideoFileAsTimeline(item)) {
-                // Initialize playback
+                // Set pipeline mode from PROJECT setting BEFORE initializing playback
+                // This ensures the cache is created with the correct mode from the start
+                // Project-level setting ensures all video in the project uses the same mode
+                PipelineMode project_mode = project_manager->GetProjectPipelineMode();
+                timeline_view->SetPendingPipelineMode(project_mode);
+                Debug::Log("VideoFileTimelineCallback: Set pending pipeline mode to " +
+                           std::string(PipelineModeToString(project_mode)) + " (from project)");
+
+                // Initialize playback (will use the pending pipeline mode)
                 timeline_view->InitializePlayback();
 
                 // Ensure timeline starts paused (don't auto-play when switching)
@@ -1924,6 +1944,8 @@ public:
                     controller->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
                     controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                    controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                    // Pipeline mode is now set via SetPendingPipelineMode() before InitializePlayback()
                 }
 
                 // Initialize timeline thumbnail cache for clip thumbnails
@@ -1991,6 +2013,7 @@ public:
                     controller->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
                     controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                    controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                 }
 
                 // No thumbnail cache needed for audio-only mode
@@ -5240,25 +5263,29 @@ private:
                     }
                     else if (source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
                         // Video files: show current pipeline mode and allow switching
-                        PipelineMode current = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
+                        // Use project-level pipeline mode as the source of truth
+                        PipelineMode current = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
                         bool windows_hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
 
                         // Display current mode
                         ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video File - %s", PipelineModeToString(current));
 
                         // Show pipeline options (NORMAL/HIGH_RES)
+                        // These are PROJECT-LEVEL settings - changing reloads the video
                         // Normal (8-bit)
                         if (ImGui::MenuItem("Normal (8-bit)", nullptr, current == PipelineMode::NORMAL)) {
-                            if (controller && controller->GetCache()) {
-                                controller->GetCache()->SetPipelineMode(PipelineMode::NORMAL);
+                            if (current != PipelineMode::NORMAL && project_manager) {
+                                // Reload video with new pipeline mode (project-level setting)
+                                project_manager->ReloadWithPipelineMode(PipelineMode::NORMAL);
                             }
                         }
 
                         // High-Res (16-bit) - append (HDR) when Windows HDR is active
                         const char* high_res_label = windows_hdr_active ? "High-Res (16-bit) (HDR)" : "High-Res (16-bit)";
                         if (ImGui::MenuItem(high_res_label, nullptr, current == PipelineMode::HIGH_RES)) {
-                            if (controller && controller->GetCache()) {
-                                controller->GetCache()->SetPipelineMode(PipelineMode::HIGH_RES);
+                            if (current != PipelineMode::HIGH_RES && project_manager) {
+                                // Reload video with new pipeline mode (project-level setting)
+                                project_manager->ReloadWithPipelineMode(PipelineMode::HIGH_RES);
                             }
                         }
                     }
@@ -5600,7 +5627,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.2");
+                ImGui::TextDisabled("About u.m.p. v0.7.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6426,20 +6453,76 @@ private:
                     ImGui::Separator();
                     ImGui::Spacing();
 
+                    // Video Buffer Frames (GStreamer)
+                    ImGui::TextColored(GetWindowsAccentColor(), "Video Buffer Frames");
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames to buffer for video files (GStreamer)");
+                    ImGui::Spacing();
+
+                    ImGui::Text("Buffer Frames:");
+                    // Preset buttons
+                    const int video_buffer_presets[] = {2, 4, 8, 12, 24, 48};
+                    const char* video_buffer_labels[] = {"2", "4", "8", "12", "24", "48"};
+                    for (int i = 0; i < 6; i++) {
+                        if (i > 0) ImGui::SameLine();
+                        bool is_selected = (cache_settings.video_buffer_frames == video_buffer_presets[i]);
+                        if (is_selected) {
+                            ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
+                        }
+                        if (ImGui::Button(video_buffer_labels[i], ImVec2(40, 0))) {
+                            cache_settings.video_buffer_frames = video_buffer_presets[i];
+                            settings_changed = true;
+                            // Apply to playback controller immediately if available
+                            if (timeline_view) {
+                                if (auto* ctrl = timeline_view->GetPlaybackController()) {
+                                    ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                                }
+                            }
+                        }
+                        if (is_selected) {
+                            ImGui::PopStyleColor();
+                        }
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Number of frames to buffer before video playback starts or resumes after seek.\n\n"
+                            "Lower values = faster response, may stutter on slow decode\n"
+                            "Higher values = smoother playback, longer wait after seek\n\n"
+                            "Applies to: Play, Seek while playing, Loop boundaries\n\n"
+                            "Recommended:\n"
+                            "  - 2 frames: Fast SSD, simple edits\n"
+                            "  - 4-8 frames: Network storage, H.264/H.265\n"
+                            "  - 12-24 frames: Slow storage, complex timelines");
+                    }
+
+                    if (font_regular) ImGui::PushFont(font_regular);
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                        "Current: %d frames (%.1fs at 24fps)",
+                        cache_settings.video_buffer_frames,
+                        cache_settings.video_buffer_frames / 24.0);
+                    if (font_regular) ImGui::PopFont();
+
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+
                     // Restore Default button
                     if (ImGui::Button("Restore Defaults", ImVec2(-1, 0))) {
                         cache_settings.buffer_wait_percent = 88;
+                        cache_settings.video_buffer_frames = 2;
                         settings_changed = true;
                         if (timeline_view) {
                             if (auto* ctrl = timeline_view->GetPlaybackController()) {
                                 ctrl->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                                ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                             }
                         }
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Reset buffer wait threshold to default (88%%)");
+                        ImGui::SetTooltip("Reset buffer settings to defaults:\n- Buffer Wait: 88%%\n- Video Buffer Frames: 2");
                     }
 
                         ImGui::EndTabItem();
@@ -16603,14 +16686,48 @@ private:
                 SaveSettings();
                 Debug::Log("Buffer wait: " + std::string(buffer_wait_enabled ? "enabled" : "disabled"));
             }
+
+            // Right-click popup for video buffer frames quick selection
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup("VideoBufferFramesPopup");
+            }
+            // Style popup to match timecode mode popup
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
+            if (ImGui::BeginPopup("VideoBufferFramesPopup")) {
+                ImGui::TextDisabled("Video Buffer Frames");
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+                const int presets[] = {2, 4, 8, 12, 24, 48};
+                const char* labels[] = {"2 frames (~80ms)", "4 frames (~160ms)", "8 frames (~330ms)",
+                                        "12 frames (~500ms)", "24 frames (~1s)", "48 frames (~2s)"};
+                for (int i = 0; i < 6; i++) {
+                    bool is_selected = (cache_settings.video_buffer_frames == presets[i]);
+                    if (ImGui::MenuItem(labels[i], nullptr, is_selected)) {
+                        cache_settings.video_buffer_frames = presets[i];
+                        playback_ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                        SaveSettings();
+                        Debug::Log("Video buffer frames: " + std::to_string(presets[i]));
+                    }
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+
             if (buffer_wait_hovered) {
                 if (playback_ctrl->IsWaitingForBuffer()) {
                     int filled, needed;
                     playback_ctrl->GetBufferFillStatus(filled, needed);
-                    ImGui::SetTooltip("Buffer Wait: Buffering %d/%d\nWaits for sequential buffer before playback\n(Click to %s)",
-                                      filled, needed, buffer_wait_enabled ? "disable" : "enable");
+                    ImGui::SetTooltip("Buffer Wait: Buffering %d/%d\nVideo: %d frames\n(Click to %s, Right-click for options)",
+                                      filled, needed, cache_settings.video_buffer_frames,
+                                      buffer_wait_enabled ? "disable" : "enable");
                 } else {
-                    ImGui::SetTooltip("Buffer Wait\nWaits for sequential buffer before playback\n(Click to %s)",
+                    ImGui::SetTooltip("Buffer Wait\nVideo: %d frames\n(Click to %s, Right-click for options)",
+                                      cache_settings.video_buffer_frames,
                                       buffer_wait_enabled ? "disable" : "enable");
                 }
             }
@@ -16645,14 +16762,48 @@ private:
                 SaveSettings();
                 Debug::Log("Dual view buffer wait: " + std::string(dv_buffer_wait_enabled ? "enabled" : "disabled"));
             }
+
+            // Right-click popup for video buffer frames quick selection (dual view)
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                ImGui::OpenPopup("DVVideoBufferFramesPopup");
+            }
+            // Style popup to match timecode mode popup
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
+            if (ImGui::BeginPopup("DVVideoBufferFramesPopup")) {
+                ImGui::TextDisabled("Video Buffer Frames");
+                ImGui::Spacing();
+                ImGui::Separator();
+                ImGui::Spacing();
+                const int presets[] = {2, 4, 8, 12, 24, 48};
+                const char* labels[] = {"2 frames (~80ms)", "4 frames (~160ms)", "8 frames (~330ms)",
+                                        "12 frames (~500ms)", "24 frames (~1s)", "48 frames (~2s)"};
+                for (int i = 0; i < 6; i++) {
+                    bool is_selected = (cache_settings.video_buffer_frames == presets[i]);
+                    if (ImGui::MenuItem(labels[i], nullptr, is_selected)) {
+                        cache_settings.video_buffer_frames = presets[i];
+                        scratch_timeline_controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                        SaveSettings();
+                        Debug::Log("Video buffer frames: " + std::to_string(presets[i]));
+                    }
+                }
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+
             if (dv_buffer_wait_hovered) {
                 if (scratch_timeline_controller->IsWaitingForBuffer()) {
                     int filled, needed;
                     scratch_timeline_controller->GetBufferFillStatus(filled, needed);
-                    ImGui::SetTooltip("Buffer Wait: Buffering %d/%d\nWaits for sequential buffer before playback\n(Click to %s)",
-                                      filled, needed, dv_buffer_wait_enabled ? "disable" : "enable");
+                    ImGui::SetTooltip("Buffer Wait: Buffering %d/%d\nVideo: %d frames\n(Click to %s, Right-click for options)",
+                                      filled, needed, cache_settings.video_buffer_frames,
+                                      dv_buffer_wait_enabled ? "disable" : "enable");
                 } else {
-                    ImGui::SetTooltip("Buffer Wait\nWaits for sequential buffer before playback\n(Click to %s)",
+                    ImGui::SetTooltip("Buffer Wait\nVideo: %d frames\n(Click to %s, Right-click for options)",
+                                      cache_settings.video_buffer_frames,
                                       dv_buffer_wait_enabled ? "disable" : "enable");
                 }
             }
@@ -20874,6 +21025,12 @@ private:
                 if (j["playback"].contains("buffer_wait_percent")) {
                     cache_settings.buffer_wait_percent = j["playback"]["buffer_wait_percent"].get<int>();
                 }
+                if (j["playback"].contains("video_buffer_frames")) {
+                    cache_settings.video_buffer_frames = j["playback"]["video_buffer_frames"].get<int>();
+                    // Clamp to valid range
+                    if (cache_settings.video_buffer_frames < 2) cache_settings.video_buffer_frames = 2;
+                    if (cache_settings.video_buffer_frames > 48) cache_settings.video_buffer_frames = 48;
+                }
             }
 
             // Color management settings
@@ -21079,6 +21236,7 @@ private:
             j["playback"]["adaptive_throttle_enabled"] = cache_settings.adaptive_throttle_enabled;
             j["playback"]["buffer_wait_enabled"] = cache_settings.buffer_wait_enabled;
             j["playback"]["buffer_wait_percent"] = cache_settings.buffer_wait_percent;
+            j["playback"]["video_buffer_frames"] = cache_settings.video_buffer_frames;
 
             // Color management settings
             j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;

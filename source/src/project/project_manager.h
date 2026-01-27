@@ -395,6 +395,14 @@ namespace ump {
         FrameCache::CacheStats GetCacheStats() const;
         std::vector<FrameCache::CacheSegment> GetCacheSegments() const;
 
+        // Project-level pipeline mode (8-bit or 16-bit for all video)
+        void SetProjectPipelineMode(PipelineMode mode) { project_pipeline_mode_ = mode; }
+        PipelineMode GetProjectPipelineMode() const { return project_pipeline_mode_; }
+
+        // Reload current video/image sequence with new pipeline mode
+        // Updates project pipeline mode and reloads to apply the change
+        void ReloadWithPipelineMode(PipelineMode mode);
+
         // Note: Opportunistic GPU caching removed - using window-based extraction only
 
         // Note: Global memory management removed - using seconds-based cache per video
@@ -507,6 +515,9 @@ namespace ump {
         bool user_cache_preference = true;            // User's saved preference (for restoration after codec auto-disable)
         bool cache_auto_disabled_for_codec = false;   // Track if cache was auto-disabled for H.264/H.265
         std::string current_video_codec = "";         // Track current video codec for logging
+
+        // Project-level pipeline mode (applies to all video in the project)
+        PipelineMode project_pipeline_mode_ = PipelineMode::NORMAL;
 
         // Transcode queue management
         std::unique_ptr<TranscodeQueue> transcode_queue_;

@@ -341,6 +341,9 @@ namespace ump {
             project_data["version"] = "1.0";
             project_data["project_name"] = GetProjectName(save_path);
 
+            // Project-level settings
+            project_data["pipeline_mode"] = PipelineModeToString(project_pipeline_mode_);
+
             // Serialize bins
             json bins_array = json::array();
             for (const auto& bin : bins) {
@@ -825,6 +828,10 @@ namespace ump {
             media_pool.clear();
             current_timeline_id.clear();
             selected_media_items.clear();
+
+            // Load project-level settings
+            project_pipeline_mode_ = StringToPipelineMode(project_data.value("pipeline_mode", "Normal"));
+            Debug::Log("LoadProject: Project pipeline mode = " + std::string(PipelineModeToString(project_pipeline_mode_)));
 
             // Load media_pool first (needed for bins)
             if (project_data.contains("media_pool")) {
@@ -1418,6 +1425,7 @@ namespace ump {
         current_timeline_id.clear();
         selected_media_items.clear();
         current_project_path.clear();
+        project_pipeline_mode_ = PipelineMode::NORMAL;  // Reset to default
 
         // Stop playback and clear current media
         if (video_player) {
@@ -4104,6 +4112,33 @@ namespace ump {
 
     MediaItem* ProjectManager::GetCurrentPlayingMediaItem() {
         return GetMediaItemFromCurrentPath();
+    }
+
+    void ProjectManager::ReloadWithPipelineMode(PipelineMode mode) {
+        // Set the new project-level pipeline mode
+        project_pipeline_mode_ = mode;
+        Debug::Log("ProjectManager::ReloadWithPipelineMode: Set project pipeline mode to " +
+                   std::string(PipelineModeToString(mode)));
+
+        // Get the current playing media item
+        MediaItem* current_item = GetCurrentPlayingMediaItem();
+        if (!current_item) {
+            Debug::Log("ProjectManager::ReloadWithPipelineMode: No current media item to reload");
+            return;
+        }
+
+        // Reload based on media type
+        if (current_item->type == MediaType::VIDEO && video_file_timeline_callback) {
+            Debug::Log("ProjectManager::ReloadWithPipelineMode: Reloading video: " + current_item->name);
+            video_file_timeline_callback(current_item);
+        } else if ((current_item->type == MediaType::IMAGE_SEQUENCE ||
+                    current_item->type == MediaType::EXR_SEQUENCE) &&
+                   image_sequence_timeline_callback) {
+            Debug::Log("ProjectManager::ReloadWithPipelineMode: Reloading image sequence: " + current_item->name);
+            image_sequence_timeline_callback(current_item);
+        } else {
+            Debug::Log("ProjectManager::ReloadWithPipelineMode: Unsupported media type or no callback for: " + current_item->name);
+        }
     }
 
     int ProjectManager::GetTimelineCount() const {

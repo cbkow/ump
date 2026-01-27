@@ -368,6 +368,9 @@ struct TimelineCacheConfig {
     // Max GPU textures to keep (safety cap - window eviction is primary limiter)
     int max_textures = 120;         // Should be > readAheadFrames + readBehindFrames
 
+    // Video pipeline mode (8-bit NORMAL or 16-bit HIGH_RES)
+    PipelineMode pipeline_mode = PipelineMode::NORMAL;
+
     // Computed helpers
     int GetReadBehindFrames() const {
         return static_cast<int>(readBehindSeconds * fps);

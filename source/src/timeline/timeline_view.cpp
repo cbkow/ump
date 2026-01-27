@@ -503,10 +503,16 @@ bool TimelineView::InitializePlayback() {
     }
 
     Debug::Log("TimelineView::InitializePlayback: Initializing with " +
-               std::to_string(usable_count) + " clips with media paths");
+               std::to_string(usable_count) + " clips with media paths" +
+               ", pipeline_mode=" + std::string(PipelineModeToString(pending_pipeline_mode_)));
 
     // Create and initialize playback controller
     playback_controller_ = std::make_unique<TimelinePlaybackController>();
+
+    // Set pipeline mode from pending (set by caller before InitializePlayback)
+    TimelinePlaybackConfig config = playback_controller_->GetConfig();
+    config.pipeline_mode = pending_pipeline_mode_;
+    playback_controller_->SetConfig(config);
 
     // Use virtual timeline mode (no dummy video required)
     // Pass canvas dimensions for consistent output sizing (prevents flickering with mixed resolutions)
@@ -677,6 +683,57 @@ void TimelineView::SetInitialZoomForDuration() {
         if (zoom_level_ > 1400.0f) zoom_level_ = 1400.0f;
         scroll_offset_x_ = 0.0f;
     }
+}
+
+void TimelineView::UpdateVisibleWidth(float width) {
+    // Handle proportional zoom adjustment when window resizes
+    // This keeps the same "view" - if you were seeing 10% of the timeline, you still see 10%
+
+    // Skip if this is the first update or width is invalid
+    if (last_visible_width_ <= 0 || width <= 0) {
+        last_visible_width_ = width;
+        return;
+    }
+
+    // Calculate width change ratio
+    float width_ratio = width / last_visible_width_;
+
+    // Only adjust if the change is significant (>1% change to avoid jitter)
+    // This also handles DPI changes smoothly since they cause proportional width changes
+    if (std::abs(width_ratio - 1.0f) > 0.01f) {
+        // Calculate the center time of the current view (what we want to keep centered)
+        float old_visible_duration = last_visible_width_ / zoom_level_;
+        float center_time = (scroll_offset_x_ / zoom_level_) + (old_visible_duration * 0.5f);
+
+        // Proportionally adjust zoom level to maintain the same visible time range
+        float new_zoom = zoom_level_ * width_ratio;
+
+        // Calculate minimum zoom (can't zoom out past full timeline)
+        float min_zoom = 2.5f;
+        if (timeline_duration_ > 0) {
+            min_zoom = width / static_cast<float>(timeline_duration_);
+        }
+
+        // Clamp to valid range
+        if (new_zoom < min_zoom) new_zoom = min_zoom;
+        if (new_zoom > 1400.0f) new_zoom = 1400.0f;
+
+        // Calculate new scroll to keep the center time in the center
+        float new_visible_duration = width / new_zoom;
+        float new_scroll = (center_time - new_visible_duration * 0.5f) * new_zoom;
+
+        // Clamp scroll to valid range
+        float max_scroll = std::max(0.0f, static_cast<float>(timeline_duration_) * new_zoom - width);
+        if (new_scroll < 0) new_scroll = 0;
+        if (new_scroll > max_scroll) new_scroll = max_scroll;
+
+        // Apply the new zoom and scroll
+        zoom_level_ = new_zoom;
+        scroll_offset_x_ = new_scroll;
+    }
+
+    // Always update the cached width
+    last_visible_width_ = width;
 }
 
 void TimelineView::SetScrollOffset(float offset) {

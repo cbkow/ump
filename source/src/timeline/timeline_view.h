@@ -236,10 +236,14 @@ public:
     void SetZoomLevelAroundTime(float zoom, double time);  // Zoom keeping time position stable
     void FitZoomToWidth(float visible_width);  // Auto-fit zoom so timeline fills visible width
     void SetInitialZoomForDuration();  // Set reasonable initial zoom based on timeline_duration_
-    void UpdateVisibleWidth(float width) { last_visible_width_ = width; }  // Update for zoom limits
+    void UpdateVisibleWidth(float width);  // Update for zoom limits and proportional resize
     void RequestFitZoomOnNextRender() { fit_zoom_pending_ = true; }  // Defer fit to next render
     bool HasPendingFitZoom() const { return fit_zoom_pending_; }
     void ClearPendingFitZoom() { fit_zoom_pending_ = false; }
+
+    // Pipeline mode - set before InitializePlayback() to ensure correct mode from start
+    void SetPendingPipelineMode(PipelineMode mode) { pending_pipeline_mode_ = mode; }
+    PipelineMode GetPendingPipelineMode() const { return pending_pipeline_mode_; }
     float GetScrollOffset() const { return scroll_offset_x_; }
     void SetScrollOffset(float offset);
     float GetMaxScrollOffset() const;
@@ -336,6 +340,7 @@ private:
     bool show_thumbnails_ = true;     // Clip thumbnail previews
     bool fit_zoom_pending_ = false;   // Request zoom fit on next render (deferred)
     float last_visible_width_ = 0.0f; // Cached visible width for zoom limit calculations
+    PipelineMode pending_pipeline_mode_ = PipelineMode::NORMAL;  // Pipeline mode for next InitializePlayback
 
     // Timeline In/Out points and loop mode (separate from solo video MediaItem)
     double timeline_in_point_ = -1.0;   // In point in seconds (-1 = not set)

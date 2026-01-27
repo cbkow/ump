@@ -102,6 +102,7 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
     cache_config.max_textures = g_timeline_max_textures;
     cache_config.fps = fps_;
     cache_config.use_shared_pool = true;
+    cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
 
     cache_->SetConfig(cache_config);
 
@@ -516,6 +517,7 @@ void TimelinePlaybackController::SetConfig(const TimelinePlaybackConfig& config)
         cache_config.io_threads = config_.io_threads;
         cache_config.fps = fps_;
         cache_config.use_shared_pool = true;
+        cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
         cache_->SetConfig(cache_config);
     }
 }
@@ -566,6 +568,12 @@ void TimelinePlaybackController::SetBufferWaitPercent(int percent) {
                std::to_string(buffer_wait_percent_) + "%");
 }
 
+void TimelinePlaybackController::SetVideoBufferFrames(int frames) {
+    video_buffer_frames_ = std::clamp(frames, 2, 48);
+    Debug::Log("TimelinePlaybackController: Video buffer frames set to " +
+               std::to_string(video_buffer_frames_));
+}
+
 int TimelinePlaybackController::GetEffectiveBufferWaitPercent() const {
     return buffer_wait_percent_;
 }
@@ -579,8 +587,9 @@ bool TimelinePlaybackController::IsSequentialBufferReady() const {
 
     int needed;
     if (cache_->IsVideoOnly()) {
-        // Video mode: GStreamer is fast, only need 2 frames ahead
-        needed = 2;
+        // Video mode: use configurable video buffer frames (default 2)
+        // User can increase this for slow storage or complex H.264/H.265 content
+        needed = video_buffer_frames_;
     } else {
         // Image/EXR mode: use configured % of readahead
         int read_ahead = cache_->GetReadAheadFrames();
@@ -611,8 +620,8 @@ void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) c
     if (priority_frames.empty()) return;
 
     if (cache_->IsVideoOnly()) {
-        // Video mode: GStreamer is fast, only need 2 frames ahead
-        needed = 2;
+        // Video mode: use configurable video buffer frames
+        needed = video_buffer_frames_;
     } else {
         // Image/EXR mode: use configured % of readahead
         int read_ahead = cache_->GetReadAheadFrames();
@@ -785,6 +794,7 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     cache_config.max_textures = g_timeline_max_textures;
     cache_config.fps = fps_;
     cache_config.use_shared_pool = true;
+    cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
 
     cache_->SetConfig(cache_config);
     cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_,
@@ -1168,6 +1178,9 @@ void TimelinePlaybackController::Seek(double position) {
         if (position < 0) position = 0;
         if (position > timeline_duration_) position = timeline_duration_;
 
+        // Check if we're currently playing (need to enter buffer wait after seek)
+        bool was_playing = is_playing_.load() && !waiting_for_frame_;
+
         timeline_timer_->Seek(position);
 
         // Reset timing accumulator to prevent accumulated time from causing jumps
@@ -1189,6 +1202,23 @@ void TimelinePlaybackController::Seek(double position) {
         current_frame_ = target_frame;
         if (cache_) {
             cache_->UpdatePlayhead(target_frame, timeline_timer_->IsPlaying());
+        }
+
+        // If playing, enter buffer wait to ensure frames are ready at new position
+        // This prevents stuttering after seeks, especially for H.264/H.265 which need
+        // keyframe catch-up. Uses the configurable video_buffer_frames_ threshold.
+        if (was_playing && buffer_wait_enabled_) {
+            waiting_for_frame_ = true;
+            waiting_start_time_ = std::chrono::steady_clock::now();
+
+            // Pause timer/audio until buffer ready (UpdateTimer will resume)
+            timeline_timer_->Pause();
+            if (audio_mixer_) {
+                audio_mixer_->Pause();
+            }
+
+            Debug::Log("TimelinePlaybackController: Seek while playing - entering buffer wait at frame " +
+                       std::to_string(target_frame));
         }
     }
 }

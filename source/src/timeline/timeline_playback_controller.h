@@ -34,6 +34,7 @@ struct TimelinePlaybackConfig {
     int readAheadFrames = 72;               // Frames to prefetch ahead (~3s @ 24fps)
     double readBehindSeconds = 0.5;         // Seconds to keep behind for backward scrub
     int io_threads = 8;                     // Background I/O threads
+    PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Video pipeline mode (8-bit/16-bit)
 };
 
 //=============================================================================
@@ -241,9 +242,10 @@ private:
     double accumulated_time_ = 0.0;
     bool timer_initialized_ = false;
 
-    // Wait-for-frame state: after Play() or Seek(), don't advance timer until
-    // we confirm the decoder has the current frame ready. This prevents the
-    // timer from running ahead of H.264 decoders that need keyframe catch-up.
+    // Wait-for-frame state: after Play(), Seek() while playing, or loop boundary,
+    // don't advance timer until we confirm the decoder has frames ready. This prevents
+    // the timer from running ahead of H.264 decoders that need keyframe catch-up.
+    // Uses video_buffer_frames_ for video mode, buffer_wait_percent_ for image sequences.
     bool waiting_for_frame_ = false;
     std::chrono::steady_clock::time_point waiting_start_time_;
     static constexpr int kMaxWaitMs = 2000;  // Max 2 seconds waiting for buffer
@@ -282,6 +284,10 @@ public:
     int GetBufferWaitPercent() const { return buffer_wait_percent_; }
     int GetEffectiveBufferWaitPercent() const;
 
+    // Video buffer frames - how many frames to wait for GStreamer video
+    void SetVideoBufferFrames(int frames);
+    int GetVideoBufferFrames() const { return video_buffer_frames_; }
+
     // Get max source width across all clips (computed at initialization)
     int GetMaxSourceWidth() const { return max_source_width_; }
 
@@ -299,6 +305,7 @@ private:
     bool throttle_enabled_ = true;              // User toggle (defaults ON)
     bool buffer_wait_enabled_ = true;           // User toggle for buffer-wait (defaults ON)
     int buffer_wait_percent_ = 88;              // Percent of readahead to wait for (default 88%)
+    int video_buffer_frames_ = 2;               // Frames to wait for video (GStreamer) mode (2-48)
     ThrottleState throttle_state_ = ThrottleState::FULL;
     double current_speed_factor_ = 1.0;
     std::chrono::steady_clock::time_point last_healthy_time_;
