@@ -89,26 +89,11 @@ void PlaylistPanel::RenderEmptyState() {
     ImGui::Spacing();
     ImGui::Spacing();
 
-    // Center the text
-    float window_width = ImGui::GetContentRegionAvail().x;
-    const char* text1 = "No playlist loaded.";
-    const char* text2 = "Create or open a playlist from the";
-    const char* text3 = "Project panel to get started.";
-
-    float text1_width = ImGui::CalcTextSize(text1).x;
-    float text2_width = ImGui::CalcTextSize(text2).x;
-    float text3_width = ImGui::CalcTextSize(text3).x;
-
-    ImGui::SetCursorPosX((window_width - text1_width) * 0.5f);
-    ImGui::TextDisabled("%s", text1);
-
+    // Left-aligned with small indent
+    ImGui::TextDisabled("No playlist loaded.");
     ImGui::Spacing();
-
-    ImGui::SetCursorPosX((window_width - text2_width) * 0.5f);
-    ImGui::TextDisabled("%s", text2);
-
-    ImGui::SetCursorPosX((window_width - text3_width) * 0.5f);
-    ImGui::TextDisabled("%s", text3);
+    ImGui::TextDisabled("Create or open a playlist from the");
+    ImGui::TextDisabled("Project panel to get started.");
 
     ImGui::Spacing();
     ImGui::Spacing();

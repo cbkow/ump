@@ -5600,7 +5600,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.6.9");
+                ImGui::TextDisabled("About u.m.p. v0.7.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -9889,7 +9889,7 @@ private:
         float playback_box_padding = 5.0f;
         float playback_box_width = (playback_button_count * small_button) + ((playback_button_count - 1) * item_spacing) + (playback_box_padding * 2 + 12);
 
-        int utility_button_count = 14;  // Match OTIO exactly
+        int utility_button_count = 10;  // Panels consolidated into popup
         int separator_count = 5;
         float separator_spacing = spacer_width * 2 + 2.0f;
 
@@ -9924,8 +9924,7 @@ private:
         bool hover_next = false, hover_ff = false, hover_end = false;
         bool hover_colorspace = false, hover_safety = false, hover_background = false;
         bool hover_ss_clip = false, hover_ss_desk = false, hover_fullscreen = false, hover_dual = false;
-        bool hover_inspector = false, hover_project = false, hover_color = false;
-        bool hover_annotations = false, hover_all = false, hover_minimal = false;
+        bool hover_all = false, hover_minimal = false;
 
         // For OTIO mode, use IsActuallyPlaying() which excludes buffer-wait state
         bool is_playing = false;
@@ -10183,38 +10182,61 @@ private:
             ImGui::Dummy(ImVec2(spacer_width, 0));
             ImGui::SameLine();
 
-            // Panel toggles
-            ImGui::PushStyleColor(ImGuiCol_Text, show_inspector_panel ? ImVec4(1,1,1,1) : ImVec4(0.6f,0.6f,0.6f,1));
-            if (ImGui::Button(ICON_ARTICLE "##dv_inspector", ImVec2(small_button, button_size))) {
-                show_inspector_panel = !show_inspector_panel;
+            // === PANELS POPUP MENU ===
+            bool any_panel_open_dv = show_inspector_panel || show_project_panel || show_color_panels ||
+                                     show_annotation_panel || show_playlist_panel;
+            ImGui::PushStyleColor(ImGuiCol_Text, any_panel_open_dv ? ImVec4(1,1,1,1) : ImVec4(0.6f,0.6f,0.6f,1));
+            if (ImGui::Button(ICON_WINDOWS "##dv_panels", ImVec2(small_button, button_size))) {
+                ImGui::OpenPopup("DVPanelsPopup");
             }
             ImGui::PopStyleColor();
-            hover_inspector = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            bool hover_panels_dv = ImGui::IsItemHovered();
 
-            ImGui::PushStyleColor(ImGuiCol_Text, show_project_panel ? ImVec4(1,1,1,1) : ImVec4(0.6f,0.6f,0.6f,1));
-            if (ImGui::Button(ICON_VIEW_TIMELINE "##dv_project", ImVec2(small_button, button_size))) {
-                show_project_panel = !show_project_panel;
-            }
-            ImGui::PopStyleColor();
-            hover_project = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            // Panels popup menu - temporarily exit icon font for regular text
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopFont();
 
-            ImGui::PushStyleColor(ImGuiCol_Text, show_color_panels ? ImVec4(1,1,1,1) : ImVec4(0.6f,0.6f,0.6f,1));
-            if (ImGui::Button(ICON_FLOWCHART "##dv_color", ImVec2(small_button, button_size))) {
-                show_color_panels = !show_color_panels;
-                first_time_setup = true;
-            }
-            ImGui::PopStyleColor();
-            hover_color = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            // Style popup to match Timecode Mode panel
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
 
-            ImGui::PushStyleColor(ImGuiCol_Text, show_annotation_panel ? ImVec4(1,1,1,1) : ImVec4(0.6f,0.6f,0.6f,1));
-            if (ImGui::Button(ICON_NOTE_STACK "##dv_annotations", ImVec2(small_button, button_size))) {
-                show_annotation_panel = !show_annotation_panel;
+            if (ImGui::BeginPopup("DVPanelsPopup")) {
+                if (ImGui::MenuItem("Inspector", "Ctrl+1", show_inspector_panel)) {
+                    show_inspector_panel = !show_inspector_panel;
+                    if (show_inspector_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Project", "Ctrl+2", show_project_panel)) {
+                    show_project_panel = !show_project_panel;
+                    if (show_project_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Color", "Ctrl+3", show_color_panels)) {
+                    show_color_panels = !show_color_panels;
+                    first_time_setup = true;
+                }
+                if (ImGui::MenuItem("Annotations", "Ctrl+5", show_annotation_panel)) {
+                    show_annotation_panel = !show_annotation_panel;
+                    if (show_annotation_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Playlist", "Ctrl+7", show_playlist_panel)) {
+                    show_playlist_panel = !show_playlist_panel;
+                    if (show_playlist_panel) minimal_view_mode = false;
+                }
+                ImGui::EndPopup();
             }
-            ImGui::PopStyleColor();
-            hover_annotations = ImGui::IsItemHovered();
+
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+
+            // Tooltip for panels button (render in regular font before restoring icon font)
+            if (hover_panels_dv) {
+                ImGui::SetTooltip("Panels");
+            }
+
+            // Restore icon font for subsequent buttons
+            ImGui::PushFont(font_icons);
+            ImGui::SetWindowFontScale(utility_icon_scale);
             ImGui::SameLine();
 
             // All panels
@@ -10285,10 +10307,6 @@ private:
         if (hover_ss_desk) ImGui::SetTooltip("Screenshot to desktop");
         if (hover_fullscreen) ImGui::SetTooltip("Fullscreen");
         if (hover_dual) ImGui::SetTooltip(dual_view_enabled ? "Dual View ON" : "Dual View OFF");
-        if (hover_inspector) ImGui::SetTooltip(show_inspector_panel ? "Hide Inspector (Ctrl+2)" : "Show Inspector (Ctrl+2)");
-        if (hover_project) ImGui::SetTooltip(show_project_panel ? "Hide Project (Ctrl+1)" : "Show Project (Ctrl+1)");
-        if (hover_color) ImGui::SetTooltip(show_color_panels ? "Hide Color (Ctrl+4)" : "Show Color (Ctrl+4)");
-        if (hover_annotations) ImGui::SetTooltip(show_annotation_panel ? "Hide Annotations (Ctrl+5)" : "Show Annotations (Ctrl+5)");
         if (hover_all) ImGui::SetTooltip("Show All Panels (Ctrl+9)");
         if (hover_minimal) ImGui::SetTooltip(minimal_view_mode ? "Exit Minimal View (Ctrl+-)" : "Minimal View (Ctrl+-)");
 
@@ -12245,8 +12263,8 @@ private:
         float playback_box_padding = 5.0f;
         float playback_box_width = (playback_button_count * small_button) + ((playback_button_count - 1) * item_spacing) + (playback_box_padding * 2 + 12);
 
-        // Utility buttons after playback: 3 + 2 + 2 + 6 = 13 buttons (resolution moved to left)
-        int utility_button_count = 13;
+        // Utility buttons after playback: 3 + 2 + 1 + 3 = 9 buttons (panels consolidated into popup)
+        int utility_button_count = 9;
         // Separators: 5 separators with spacers on each side (2 spacers each)
         int separator_count = 5;
         float separator_spacing = spacer_width * 2 + 2.0f;  // Two spacers + separator width
@@ -12489,8 +12507,7 @@ private:
         bool hover_colorspace = false, hover_safety = false, hover_background = false;
         bool hover_ss_clip = false, hover_ss_desk = false;
         bool hover_dual = false, hover_fullscreen = false;
-        bool hover_inspector = false, hover_project = false, hover_color = false;
-        bool hover_annotations = false, hover_all = false, hover_minimal = false;
+        bool hover_all = false, hover_minimal = false;
         bool dual_view_enabled = false;
 
         if (font_icons) {
@@ -12593,45 +12610,62 @@ private:
             ImGui::Dummy(ImVec2(spacer_width, 0));
             ImGui::SameLine();
 
-            // === VIEW PANEL TOGGLES ===
-            // Inspector
-            ImGui::PushStyleColor(ImGuiCol_Text, show_inspector_panel ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
-            if (ImGui::Button(ICON_ARTICLE "##otio_inspector", ImVec2(small_button, button_size))) {
-                show_inspector_panel = !show_inspector_panel;
-                if (show_inspector_panel) minimal_view_mode = false;
+            // === PANELS POPUP MENU ===
+            // Single button that opens a popup with all panel toggles
+            bool any_panel_open = show_inspector_panel || show_project_panel || show_color_panels ||
+                                  show_annotation_panel || show_playlist_panel;
+            ImGui::PushStyleColor(ImGuiCol_Text, any_panel_open ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
+            if (ImGui::Button(ICON_WINDOWS "##otio_panels", ImVec2(small_button, button_size))) {
+                ImGui::OpenPopup("PanelsPopup");
             }
             ImGui::PopStyleColor();
-            hover_inspector = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            bool hover_panels = ImGui::IsItemHovered();
 
-            // Project
-            ImGui::PushStyleColor(ImGuiCol_Text, show_project_panel ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
-            if (ImGui::Button(ICON_VIEW_TIMELINE "##otio_project", ImVec2(small_button, button_size))) {
-                show_project_panel = !show_project_panel;
-                if (show_project_panel) minimal_view_mode = false;
-            }
-            ImGui::PopStyleColor();
-            hover_project = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            // Panels popup menu - temporarily exit icon font for regular text
+            ImGui::SetWindowFontScale(1.0f);
+            ImGui::PopFont();
 
-            // Color
-            ImGui::PushStyleColor(ImGuiCol_Text, show_color_panels ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
-            if (ImGui::Button(ICON_FLOWCHART "##otio_color", ImVec2(small_button, button_size))) {
-                show_color_panels = !show_color_panels;
-                first_time_setup = true;
-            }
-            ImGui::PopStyleColor();
-            hover_color = ImGui::IsItemHovered();
-            ImGui::SameLine();
+            // Style popup to match Timecode Mode panel
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
+            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
 
-            // Annotations
-            ImGui::PushStyleColor(ImGuiCol_Text, show_annotation_panel ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
-            if (ImGui::Button(ICON_NOTE_STACK "##otio_annotations", ImVec2(small_button, button_size))) {
-                show_annotation_panel = !show_annotation_panel;
-                if (show_annotation_panel) minimal_view_mode = false;
+            if (ImGui::BeginPopup("PanelsPopup")) {
+                if (ImGui::MenuItem("Inspector", "Ctrl+1", show_inspector_panel)) {
+                    show_inspector_panel = !show_inspector_panel;
+                    if (show_inspector_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Project", "Ctrl+2", show_project_panel)) {
+                    show_project_panel = !show_project_panel;
+                    if (show_project_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Color", "Ctrl+3", show_color_panels)) {
+                    show_color_panels = !show_color_panels;
+                    first_time_setup = true;
+                }
+                if (ImGui::MenuItem("Annotations", "Ctrl+5", show_annotation_panel)) {
+                    show_annotation_panel = !show_annotation_panel;
+                    if (show_annotation_panel) minimal_view_mode = false;
+                }
+                if (ImGui::MenuItem("Playlist", "Ctrl+7", show_playlist_panel)) {
+                    show_playlist_panel = !show_playlist_panel;
+                    if (show_playlist_panel) minimal_view_mode = false;
+                }
+                ImGui::EndPopup();
             }
-            ImGui::PopStyleColor();
-            hover_annotations = ImGui::IsItemHovered();
+
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(2);
+
+            // Tooltip for panels button (render in regular font before restoring icon font)
+            if (hover_panels) {
+                ImGui::SetTooltip("Panels");
+            }
+
+            // Restore icon font for subsequent buttons
+            ImGui::PushFont(font_icons);
+            ImGui::SetWindowFontScale(utility_icon_scale);
             ImGui::SameLine();
 
             // All panels
@@ -12792,10 +12826,6 @@ private:
         if (hover_ss_desk) ImGui::SetTooltip("Screenshot to desktop");
         if (hover_dual) ImGui::SetTooltip(dual_view_enabled ? "Dual View ON" : "Dual View OFF");
         if (hover_fullscreen) ImGui::SetTooltip("Fullscreen");
-        if (hover_inspector) ImGui::SetTooltip(show_inspector_panel ? "Hide Inspector (Ctrl+2)" : "Show Inspector (Ctrl+2)");
-        if (hover_project) ImGui::SetTooltip(show_project_panel ? "Hide Project (Ctrl+1)" : "Show Project (Ctrl+1)");
-        if (hover_color) ImGui::SetTooltip(show_color_panels ? "Hide Color (Ctrl+4)" : "Show Color (Ctrl+4)");
-        if (hover_annotations) ImGui::SetTooltip(show_annotation_panel ? "Hide Annotations (Ctrl+5)" : "Show Annotations (Ctrl+5)");
         if (hover_all) ImGui::SetTooltip("Show All Panels (Ctrl+9)");
         if (hover_minimal) ImGui::SetTooltip(minimal_view_mode ? "Exit Minimal View (Ctrl+-)" : "Minimal View (Ctrl+-)");
         if (hover_link) ImGui::SetTooltip("Link Media to Clips");

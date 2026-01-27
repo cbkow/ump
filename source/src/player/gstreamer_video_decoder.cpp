@@ -1048,11 +1048,12 @@ bool GStreamerVideoDecoder::SeekToFrame(int target_frame) {
         // if we seek to the "center" of frame 0 (past where decoding needs to start)
         timestamp_ns = 0;
     } else {
-        // Seek to slightly BEFORE the frame start to ensure we get the target frame
+        // Seek to the frame start (or slightly before) to ensure we get the target frame
         // GStreamer's GST_SEEK_FLAG_ACCURATE returns the frame AT OR AFTER the timestamp
         // Using +0.5 (center) caused consistent +1 frame offset on ProRes and other codecs
-        // Using +0.1 (10% into frame) gives buffer while still landing on correct frame
-        double frame_offset = 0.1;
+        // Using +0.1 still caused +1 offset at 30fps due to timing precision
+        // Using 0.0 seeks to exact frame boundary
+        double frame_offset = 0.0;
         timestamp_ns = static_cast<int64_t>(
             ((static_cast<double>(seek_frame) + frame_offset) / fps_) * GST_SECOND
         );
