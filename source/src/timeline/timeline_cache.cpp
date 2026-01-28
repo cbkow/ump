@@ -153,8 +153,8 @@ ClipMediaType DetectMediaType(const std::string& path) {
 TimelineCache::TimelineCache() {
     // GStreamer-optimized defaults
     // GStreamer handles internal threading/buffering, I/O worker just transfers between buffers
-    config_.readAheadFrames = 72;       // 3 seconds @ 24fps
-    config_.readBehindSeconds = 0.5;    // 0.5s behind for backward scrub
+    config_.readAheadFrames = 108;      // ~4.5 seconds @ 24fps
+    config_.readBehindFrames = 12;      // ~0.5s behind for backward scrub @ 24fps
     config_.io_threads = 1;             // 1 thread sufficient - GStreamer does the actual decoding
     config_.fps = 24.0;
     config_.use_shared_pool = true;
@@ -211,7 +211,10 @@ void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
 
     // Initialize cache window engine with timeline parameters
     cache_engine_.SetTotalFrames(total_timeline_frames_);
-    cache_engine_.SetWindow(config_.GetReadBehindFrames(), config_.readAheadFrames);
+    cache_engine_.SetWindow(config_.readBehindFrames, config_.readAheadFrames);
+    Debug::Log("TimelineCache: Window set - behind=" + std::to_string(config_.readBehindFrames) +
+               " ahead=" + std::to_string(config_.readAheadFrames) +
+               " total=" + std::to_string(config_.readBehindFrames + config_.readAheadFrames));
 
     // Reset state for EXR-style caching
     // Initialize to frame 0 so CacheManagementThread starts pre-warming immediately
@@ -243,7 +246,7 @@ void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
     initialized_ = true;
     Debug::Log("TimelineCache: Initialized with " + std::to_string(config_.io_threads) +
                " I/O threads, readAhead=" + std::to_string(config_.readAheadFrames) +
-               " frames, readBehind=" + std::to_string(config_.readBehindSeconds) + "s");
+               " frames, readBehind=" + std::to_string(config_.readBehindFrames) + " frames");
 }
 
 void TimelineCache::Shutdown() {
@@ -1419,11 +1422,13 @@ void TimelineCache::SetConfig(const TimelineCacheConfig& config) {
 
     // Apply pipeline mode from config (must be set before Initialize creates decoders)
     video_pipeline_mode_ = config_.pipeline_mode;
-    Debug::Log("TimelineCache::SetConfig: pipeline_mode set to " +
-               std::string(PipelineModeToString(video_pipeline_mode_)));
+    Debug::Log("TimelineCache::SetConfig: pipeline_mode=" +
+               std::string(PipelineModeToString(video_pipeline_mode_)) +
+               " window: behind=" + std::to_string(config_.readBehindFrames) +
+               " ahead=" + std::to_string(config_.readAheadFrames));
 
     // Update the cache window engine with new window size
-    cache_engine_.SetWindow(config_.GetReadBehindFrames(), config_.readAheadFrames);
+    cache_engine_.SetWindow(config_.readBehindFrames, config_.readAheadFrames);
 
     if (need_restart && initialized_) {
         // Restart with new thread count
@@ -1453,7 +1458,7 @@ void TimelineCache::SetFPS(double fps) {
 
     // Update cache window engine
     cache_engine_.SetTotalFrames(total_timeline_frames_);
-    cache_engine_.SetWindow(config_.GetReadBehindFrames(), config_.readAheadFrames);
+    cache_engine_.SetWindow(config_.readBehindFrames, config_.readAheadFrames);
 
     // Clear cache - old frames have stale frame numbers
     ClearCache();
@@ -2357,6 +2362,12 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                 // Set pipeline mode BEFORE Initialize() to avoid double pipeline build
                 decoder->SetPipelineMode(video_pipeline_mode_);
 
+                // Configure buffer settings from TimelineCacheConfig
+                StreamingDecoderConfig dec_config;
+                dec_config.readAheadFrames = config_.readAheadFrames;
+                dec_config.readBehindFrames = config_.readBehindFrames;
+                decoder->SetConfig(dec_config);
+
                 if (!decoder->Initialize()) {
                     Debug::Log("TimelineCache: Failed to initialize GStreamer decoder for " + source_path);
                     return nullptr;
@@ -2384,6 +2395,13 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
 
                 // Set pipeline mode BEFORE Initialize()
                 decoder->SetPipelineMode(video_pipeline_mode_);
+
+                // Configure decode threads from TimelineCacheConfig
+                StreamingDecoderConfig dec_config;
+                dec_config.decodeThreads = config_.decodeThreads;
+                dec_config.readAheadFrames = config_.readAheadFrames;
+                dec_config.readBehindFrames = config_.readBehindFrames;
+                decoder->SetConfig(dec_config);
 
                 if (!decoder->Initialize()) {
                     Debug::Log("TimelineCache: Failed to initialize ManagedVideoDecoder for " + source_path);
@@ -2419,7 +2437,7 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                     // Configure decoder to match timeline cache settings
                     StreamingDecoderConfig dec_config;
                     dec_config.readAheadFrames = config_.readAheadFrames;
-                    dec_config.readBehindFrames = static_cast<int>(config_.readBehindSeconds * config_.fps);
+                    dec_config.readBehindFrames = config_.readBehindFrames;
                     decoder->SetConfig(dec_config);
 
                     info->sequence_decoder = std::move(decoder);
@@ -2458,7 +2476,7 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                     // Configure decoder to match timeline cache settings
                     StreamingDecoderConfig dec_config;
                     dec_config.readAheadFrames = config_.readAheadFrames;
-                    dec_config.readBehindFrames = static_cast<int>(config_.readBehindSeconds * config_.fps);
+                    dec_config.readBehindFrames = config_.readBehindFrames;
                     decoder->SetConfig(dec_config);
 
                     info->sequence_decoder = std::move(decoder);
@@ -2568,8 +2586,8 @@ void TimelineCache::IOWorkerThread() {
             {
                 std::unique_lock<std::mutex> lock(request_mutex_);
 
-                // Wait for work
-                request_cv_.wait(lock, [this] {
+                // Wait for work (with timeout to self-heal from missed wakeups on NUMA systems)
+                request_cv_.wait_for(lock, std::chrono::milliseconds(100), [this] {
                     return !io_running_ || !video_requests_.empty() || !direct_source_requests_.empty();
                 });
 
@@ -2942,7 +2960,7 @@ void TimelineCache::CacheManagementThread() {
         // Step 1: Window-based eviction (like EXR cache)
         // Build set of keys that SHOULD stay, evict anything else
         //=====================================================================
-        int readBehindFrames = config_.GetReadBehindFrames();
+        int readBehindFrames = config_.readBehindFrames;
         int readAheadFrames = config_.readAheadFrames;
 
         {
@@ -3279,8 +3297,8 @@ void TimelineCache::CacheManagementThread() {
                 if (dist_to_end < config_.readAheadFrames &&
                     (frame - boundary_start) < config_.readAheadFrames) {
                     is_wrapped = true;
-                } else if (dist_from_start < config_.GetReadBehindFrames() &&
-                           (boundary_end - frame) < config_.GetReadBehindFrames()) {
+                } else if (dist_from_start < config_.readBehindFrames &&
+                           (boundary_end - frame) < config_.readBehindFrames) {
                     is_wrapped = true;
                 }
 

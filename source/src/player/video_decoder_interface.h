@@ -69,8 +69,8 @@ inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
 //=============================================================================
 
 struct StreamingDecoderConfig {
-    int readAheadFrames = 120;     // ~5 seconds @ 24fps (larger buffer for 4K)
-    int readBehindFrames = 48;     // ~2 seconds for backward scrub
+    int readAheadFrames = 108;     // ~4.5 seconds @ 24fps
+    int readBehindFrames = 12;     // ~0.5 seconds for backward scrub
     bool useHardwareAccel = true;  // Enable hardware acceleration
     int decodeThreads = 4;         // Decode threads (for software fallback)
 

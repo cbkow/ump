@@ -299,6 +299,11 @@ bool GStreamerVideoDecoder::ConfigureAppSink() {
     // Memory cost: ~20 frames at 4K 16-bit = ~1.3GB, 4K 8-bit = ~660MB
     gst_app_sink_set_max_buffers(GST_APP_SINK(appsink_), 20);
 
+    // CRITICAL: Disable clock sync to allow faster-than-realtime decoding
+    // Without this, GStreamer paces buffer delivery at playback rate, preventing
+    // the buffer from filling ahead of the playhead
+    g_object_set(appsink_, "sync", FALSE, nullptr);
+
     return true;
 }
 

@@ -350,12 +350,13 @@ struct SequenceMetadata {
 
 struct TimelineCacheConfig {
     // Read-ahead for smooth playback
-    int readAheadFrames = 72;       // ~3 seconds ahead @ 24fps (was prefetch_ahead)
+    int readAheadFrames = 108;      // ~4.5 seconds ahead @ 24fps
 
     // Read-behind for instant backward scrubbing
-    double readBehindSeconds = 0.5; // Keep 0.5s behind playhead
+    int readBehindFrames = 12;      // ~0.5 seconds behind @ 24fps
 
     int io_threads = 1;             // GStreamer does decoding internally
+    int decodeThreads = 4;          // FFmpeg decode threads per video (for ManagedVideoDecoder)
     double fps = 24.0;              // Timeline frame rate
     bool use_shared_pool = true;    // Use SharedMemoryPool for eviction
 
@@ -371,13 +372,9 @@ struct TimelineCacheConfig {
     // Video pipeline mode (8-bit NORMAL or 16-bit HIGH_RES)
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
 
-    // Computed helpers
-    int GetReadBehindFrames() const {
-        return static_cast<int>(readBehindSeconds * fps);
-    }
-
+    // Computed helper
     int GetWindowSize() const {
-        return readAheadFrames + GetReadBehindFrames();
+        return readAheadFrames + readBehindFrames;
     }
 };
 

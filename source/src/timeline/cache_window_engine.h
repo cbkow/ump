@@ -124,7 +124,7 @@ private:
     // Configuration
     int total_frames_ = 0;
     int read_behind_ = 12;   // ~0.5s @ 24fps (default)
-    int read_ahead_ = 72;    // ~3s @ 24fps (default)
+    int read_ahead_ = 108;   // ~4.5s @ 24fps (default)
 
     // Custom boundaries (-1 = use default)
     std::atomic<int> boundary_start_{-1};

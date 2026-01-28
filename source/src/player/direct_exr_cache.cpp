@@ -243,7 +243,7 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
 
     // Set cache size as safety cap (frame-based eviction is the primary limiter)
     // Estimate: (readAhead + readBehind) frames * ~64MB per 4K frame * 1.5 buffer
-    int totalWindowFrames = config_.readAheadFrames + static_cast<int>(config_.readBehindSeconds * fps_) + 50;
+    int totalWindowFrames = config_.readAheadFrames + config_.readBehindFrames + 50;
     size_t estimatedMaxBytes = static_cast<size_t>(totalWindowFrames) * 64 * 1024 * 1024;
     pixelCache_.SetMaxSize(estimatedMaxBytes);
 
@@ -845,12 +845,12 @@ void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
 
     // Check if window size changed
     bool windowChanged = (config.readAheadFrames != config_.readAheadFrames ||
-                          config.readBehindSeconds != config_.readBehindSeconds);
+                          config.readBehindFrames != config_.readBehindFrames);
 
     config_ = config;
 
     // Update cache size as safety cap (frame-based eviction is primary limiter)
-    int totalWindowFrames = config_.readAheadFrames + static_cast<int>(config_.readBehindSeconds * fps_) + 50;
+    int totalWindowFrames = config_.readAheadFrames + config_.readBehindFrames + 50;
     size_t estimatedMaxBytes = static_cast<size_t>(totalWindowFrames) * 64 * 1024 * 1024;
     pixelCache_.SetMaxSize(estimatedMaxBytes);
 
@@ -862,7 +862,7 @@ void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
     //Debug::Log("DirectEXRCache: Config updated - threads=" +
     //           std::to_string(config_.threadCount) + ", cache=" +
     //           std::to_string(config_.cacheGB) + "GB, readBehind=" +
-    //           std::to_string(config_.readBehindSeconds) + "s");
+    //           std::to_string(config_.readBehindFrames) + " frames");
 }
 
 DirectEXRCache::Stats DirectEXRCache::GetStats() const {
@@ -1031,7 +1031,7 @@ void DirectEXRCache::CacheThread() {
 
                 // Immediately evict stale frames on major seek
                 // This prevents memory tracking issues where old frames consume budget
-                int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
+                int readBehindFrames = config_.readBehindFrames;
                 int readAheadFrames = std::min(config_.readAheadFrames, 72);  // Smaller immediate window for seek
 
                 auto cached_frames_pre = pixelCache_.GetKeys();
@@ -1080,7 +1080,7 @@ void DirectEXRCache::CacheThread() {
 
             // Evict old frames with read-behind + read-ahead window
             // Calculate read-behind/read-ahead in frames
-            int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
+            int readBehindFrames = config_.readBehindFrames;
             // Use configured read-ahead window for eviction
             int readAheadFrames = config_.readAheadFrames;
 
@@ -1216,7 +1216,7 @@ void DirectEXRCache::CacheThread() {
                 int requested_count = 0;
 
                 // Calculate frame ranges for both directions
-                int readBehindFrames = static_cast<int>(config_.readBehindSeconds * fps_);
+                int readBehindFrames = config_.readBehindFrames;
 
                 // Fill read-ahead frames (priority for forward playback)
                 // When loop range is active, cache ONLY frames within the loop zone

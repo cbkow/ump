@@ -15,7 +15,7 @@
 
 // Global timeline cache settings (defined in main.cpp)
 extern int g_timeline_read_ahead_frames;
-extern float g_timeline_read_behind_seconds;
+extern int g_timeline_read_behind_frames;
 extern int g_timeline_max_textures;
 extern int g_timeline_io_threads;
 
@@ -58,7 +58,7 @@ TimelinePlaybackController::TimelinePlaybackController() {
     config_.scratch_duration = 1.0;  // Start at 1 second - auto-extends as clips are added
     // Use global settings instead of hardcoded defaults
     config_.readAheadFrames = g_timeline_read_ahead_frames;
-    config_.readBehindSeconds = g_timeline_read_behind_seconds;
+    config_.readBehindFrames = g_timeline_read_behind_frames;
     config_.io_threads = g_timeline_io_threads;
 }
 
@@ -97,7 +97,7 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
 
     TimelineCacheConfig cache_config;
     cache_config.readAheadFrames = config_.readAheadFrames;
-    cache_config.readBehindSeconds = config_.readBehindSeconds;
+    cache_config.readBehindFrames = config_.readBehindFrames;
     cache_config.io_threads = config_.io_threads;
     cache_config.max_textures = g_timeline_max_textures;
     cache_config.fps = fps_;
@@ -513,7 +513,7 @@ void TimelinePlaybackController::SetConfig(const TimelinePlaybackConfig& config)
     if (cache_) {
         TimelineCacheConfig cache_config;
         cache_config.readAheadFrames = config_.readAheadFrames;
-        cache_config.readBehindSeconds = config_.readBehindSeconds;
+        cache_config.readBehindFrames = config_.readBehindFrames;
         cache_config.io_threads = config_.io_threads;
         cache_config.fps = fps_;
         cache_config.use_shared_pool = true;
@@ -789,7 +789,7 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
 
     TimelineCacheConfig cache_config;
     cache_config.readAheadFrames = config_.readAheadFrames;
-    cache_config.readBehindSeconds = config_.readBehindSeconds;
+    cache_config.readBehindFrames = config_.readBehindFrames;
     cache_config.io_threads = config_.io_threads;
     cache_config.max_textures = g_timeline_max_textures;
     cache_config.fps = fps_;
@@ -1150,6 +1150,9 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
         if (cache_) {
             cache_->UpdatePlayhead(current_frame_.load(), true);
         }
+        if (dual_view_mode_ && right_cache_) {
+            right_cache_->UpdatePlayhead(current_frame_.load(), true);
+        }
         return;
     }
 
@@ -1166,6 +1169,9 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
     // Notify cache of new position so it prioritizes these frames
     if (cache_) {
         cache_->UpdatePlayhead(current_frame_.load(), true);
+    }
+    if (dual_view_mode_ && right_cache_) {
+        right_cache_->UpdatePlayhead(current_frame_.load(), true);
     }
 
     Debug::Log("TimelinePlaybackController: Loop buffer-wait triggered at frame " +
@@ -1202,6 +1208,10 @@ void TimelinePlaybackController::Seek(double position) {
         current_frame_ = target_frame;
         if (cache_) {
             cache_->UpdatePlayhead(target_frame, timeline_timer_->IsPlaying());
+        }
+        // Also update right cache in dual view mode
+        if (dual_view_mode_ && right_cache_) {
+            right_cache_->UpdatePlayhead(target_frame, timeline_timer_->IsPlaying());
         }
 
         // If playing, enter buffer wait to ensure frames are ready at new position
@@ -1734,7 +1744,7 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
 
     TimelineCacheConfig cache_config;
     cache_config.readAheadFrames = config_.readAheadFrames;
-    cache_config.readBehindSeconds = config_.readBehindSeconds;
+    cache_config.readBehindFrames = config_.readBehindFrames;
     cache_config.io_threads = config_.io_threads;  // Full threads for each cache (was /2)
     cache_config.max_textures = g_timeline_max_textures;  // Full textures for each cache (was /2)
     cache_config.fps = fps_;

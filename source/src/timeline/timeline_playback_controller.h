@@ -31,8 +31,8 @@ class PlaybackTimer;
 
 struct TimelinePlaybackConfig {
     double scratch_duration = 1.0;          // Start at 1 second - auto-extends as clips are added
-    int readAheadFrames = 72;               // Frames to prefetch ahead (~3s @ 24fps)
-    double readBehindSeconds = 0.5;         // Seconds to keep behind for backward scrub
+    int readAheadFrames = 108;              // Frames to prefetch ahead (~4.5s @ 24fps)
+    int readBehindFrames = 12;              // Frames to keep behind for backward scrub (~0.5s @ 24fps)
     int io_threads = 8;                     // Background I/O threads
     PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Video pipeline mode (8-bit/16-bit)
 };

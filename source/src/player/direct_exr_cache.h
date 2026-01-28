@@ -69,7 +69,7 @@ struct EXRCacheConfig {
 
     // Frame-based cache window (replaces GB-based sizing)
     int readAheadFrames = 72;          // Frames to cache ahead of playhead (~3s @ 24fps)
-    double readBehindSeconds = 0.5;    // Seconds to keep behind playhead for backward scrubbing
+    int readBehindFrames = 12;         // Frames to keep behind playhead (~0.5s @ 24fps)
 
     // SharedMemoryPool integration
     bool use_shared_pool = false;      // Use global SharedMemoryPool instead of local LRU
@@ -77,7 +77,7 @@ struct EXRCacheConfig {
     bool IsValid() const {
         return threadCount >= 1 && threadCount <= 32 &&
                readAheadFrames >= 12 && readAheadFrames <= 600 &&
-               readBehindSeconds >= 0.0 && readBehindSeconds <= 5.0;
+               readBehindFrames >= 0 && readBehindFrames <= 120;
     }
 };
 

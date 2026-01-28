@@ -779,15 +779,16 @@ void AutoConfigureEXRThreading(decltype(cache_settings)& settings) {
 // Create DirectEXRCacheConfig from current cache_settings
 // Global EXR cache settings (visible to project_manager)
 int g_exr_read_ahead_frames = 72;     // Frames to cache ahead (~3s @ 24fps)
-float g_read_behind_seconds = 0.5f;   // Seconds to keep behind playhead
+int g_read_behind_frames = 12;        // Frames to keep behind playhead (~0.5s @ 24fps)
 int g_exr_thread_count = 16;          // DirectEXRCache parallel I/O threads
 int g_exr_transcode_threads = 8;      // EXRTranscoder parallel transcode threads
 
 // Global timeline cache settings (EDL/OTIO playback)
-int g_timeline_read_ahead_frames = 72;      // ~3 seconds @ 24fps
-float g_timeline_read_behind_seconds = 0.5f; // 0.5s behind playhead
+int g_timeline_read_ahead_frames = 108;     // ~4.5 seconds @ 24fps
+int g_timeline_read_behind_frames = 12;     // ~0.5 seconds @ 24fps
 int g_timeline_max_textures = 120;          // Max GPU textures (safety cap)
 int g_timeline_io_threads = 8;              // Background I/O threads
+int g_video_decode_threads = 4;             // FFmpeg decode threads per video (4 default, 8+ for high-core systems)
 
 // Global disk cache settings
 std::string g_custom_cache_path = "";  // Empty = use default %LOCALAPPDATA%
@@ -800,7 +801,7 @@ ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
 
     // Use UI-configured values
     config.readAheadFrames = g_exr_read_ahead_frames;
-    config.readBehindSeconds = g_read_behind_seconds;
+    config.readBehindFrames = g_read_behind_frames;
     config.threadCount = static_cast<size_t>(g_exr_thread_count);
 
     return config;
@@ -811,9 +812,10 @@ ump::TimelineCacheConfig GetCurrentTimelineCacheConfig() {
 
     // Use UI-configured values
     config.readAheadFrames = g_timeline_read_ahead_frames;
-    config.readBehindSeconds = g_timeline_read_behind_seconds;
+    config.readBehindFrames = g_timeline_read_behind_frames;
     config.max_textures = g_timeline_max_textures;
     config.io_threads = g_timeline_io_threads;
+    config.decodeThreads = g_video_decode_threads;
 
     return config;
 }
@@ -5627,7 +5629,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.3");
+                ImGui::TextDisabled("About u.m.p. v0.7.4");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6358,8 +6360,123 @@ private:
             if (ImGui::BeginChild("SettingsContent", ImVec2(0, -60), false)) {
                 if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
 
-                    // === TAB 1: Playback ===
-                    if (ImGui::BeginTabItem("Playback")) {
+                    // === TAB 2: Buffering ===
+                    if (ImGui::BeginTabItem("Buffering")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer wait settings for playback startup");
+                        ImGui::Spacing();
+
+                        // Buffer Wait Threshold
+                        ImGui::Text("Buffer Wait Threshold:");
+                        if (ImGui::SliderInt("##BufferWaitPercent", &cache_settings.buffer_wait_percent, 10, 100, "%d%%")) {
+                            settings_changed = true;
+                            // Apply to playback controller immediately if available
+                            if (timeline_view) {
+                                if (auto* ctrl = timeline_view->GetPlaybackController()) {
+                                    ctrl->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                                }
+                            }
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "Percent of read-ahead frames that must be cached before playback starts.\n\n"
+                                "Lower = faster start, may stutter on slow storage\n"
+                                "Higher = longer wait, smoother playback\n\n"
+                                "Examples with 72 read-ahead frames:\n"
+                                "  - 50%% = wait for 36 frames\n"
+                                "  - 88%% = wait for 63 frames (default)\n"
+                                "  - 100%% = wait for full buffer");
+                        }
+
+                        // Show current effective frame count
+                        int effective_frames = (g_exr_read_ahead_frames * cache_settings.buffer_wait_percent) / 100;
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Wait for %d frames before playback", effective_frames);
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Video Buffer Frames (GStreamer)
+                        ImGui::TextColored(GetWindowsAccentColor(), "Video Buffer Frames");
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames to buffer for video files (GStreamer)");
+                        ImGui::Spacing();
+
+                        ImGui::Text("Buffer Frames:");
+                        // Preset buttons
+                        const int video_buffer_presets[] = { 2, 4, 8, 12, 24, 48 };
+                        const char* video_buffer_labels[] = { "2", "4", "8", "12", "24", "48" };
+                        for (int i = 0; i < 6; i++) {
+                            if (i > 0) ImGui::SameLine();
+                            bool is_selected = (cache_settings.video_buffer_frames == video_buffer_presets[i]);
+                            if (is_selected) {
+                                ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
+                            }
+                            if (ImGui::Button(video_buffer_labels[i], ImVec2(40, 0))) {
+                                cache_settings.video_buffer_frames = video_buffer_presets[i];
+                                settings_changed = true;
+                                // Apply to playback controller immediately if available
+                                if (timeline_view) {
+                                    if (auto* ctrl = timeline_view->GetPlaybackController()) {
+                                        ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                                    }
+                                }
+                            }
+                            if (is_selected) {
+                                ImGui::PopStyleColor();
+                            }
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "Number of frames to buffer before video playback starts or resumes after seek.\n\n"
+                                "Lower values = faster response, may stutter on slow decode\n"
+                                "Higher values = smoother playback, longer wait after seek\n\n"
+                                "Applies to: Play, Seek while playing, Loop boundaries\n\n"
+                                "Recommended:\n"
+                                "  - 2 frames: Fast SSD, simple edits\n"
+                                "  - 4-8 frames: Network storage, H.264/H.265\n"
+                                "  - 12-24 frames: Slow storage, complex timelines");
+                        }
+
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Current: %d frames (%.1fs at 24fps)",
+                            cache_settings.video_buffer_frames,
+                            cache_settings.video_buffer_frames / 24.0);
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Restore Default button
+                        if (ImGui::Button("Restore Defaults", ImVec2(-1, 0))) {
+                            cache_settings.buffer_wait_percent = 88;
+                            cache_settings.video_buffer_frames = 2;
+                            settings_changed = true;
+                            if (timeline_view) {
+                                if (auto* ctrl = timeline_view->GetPlaybackController()) {
+                                    ctrl->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                                    ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+                                }
+                            }
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("Reset buffer settings to defaults:\n- Buffer Wait: 88%%\n- Video Buffer Frames: 2");
+                        }
+
+                        ImGui::EndTabItem();
+                    } // End Buffering tab
+
+                    // === TAB 2: Image Playback ===
+                    if (ImGui::BeginTabItem("Image Playback")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cache window settings for image sequences (EXR/TIFF/PNG/JPEG)");
                     ImGui::Spacing();
 
@@ -6395,141 +6512,26 @@ private:
                         estimated_seconds, estimated_ram_gb);
                     if (font_regular) ImGui::PopFont();
 
-                    // Read-Behind Time
+                    // Read-Behind Frames
                     ImGui::Spacing();
                     ImGui::Separator();
                     ImGui::Spacing();
 
-                    ImGui::Text("Read-Behind Time:");
-                    if (ImGui::SliderFloat("##ReadBehind", &g_read_behind_seconds, 0.0f, 5.0f, "%.1f sec")) {
+                    ImGui::Text("Read-Behind Frames:");
+                    if (ImGui::SliderInt("##ReadBehind", &g_read_behind_frames, 0, 120)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Seconds to keep cached behind current frame.\nUseful for smooth reverse scrubbing.");
+                        ImGui::SetTooltip("Frames to keep cached behind current frame.\nUseful for smooth reverse scrubbing.\n\n12 frames = ~0.5s @ 24fps");
                     }
 
                         ImGui::EndTabItem();
                     } // End Playback tab
 
-                    // === TAB 2: Buffering ===
-                    if (ImGui::BeginTabItem("Buffering")) {
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer wait settings for playback startup");
-                    ImGui::Spacing();
-
-                    // Buffer Wait Threshold
-                    ImGui::Text("Buffer Wait Threshold:");
-                    if (ImGui::SliderInt("##BufferWaitPercent", &cache_settings.buffer_wait_percent, 10, 100, "%d%%")) {
-                        settings_changed = true;
-                        // Apply to playback controller immediately if available
-                        if (timeline_view) {
-                            if (auto* ctrl = timeline_view->GetPlaybackController()) {
-                                ctrl->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
-                            }
-                        }
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Percent of read-ahead frames that must be cached before playback starts.\n\n"
-                            "Lower = faster start, may stutter on slow storage\n"
-                            "Higher = longer wait, smoother playback\n\n"
-                            "Examples with 72 read-ahead frames:\n"
-                            "  - 50%% = wait for 36 frames\n"
-                            "  - 88%% = wait for 63 frames (default)\n"
-                            "  - 100%% = wait for full buffer");
-                    }
-
-                    // Show current effective frame count
-                    int effective_frames = (g_exr_read_ahead_frames * cache_settings.buffer_wait_percent) / 100;
-                    if (font_regular) ImGui::PushFont(font_regular);
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                        "Wait for %d frames before playback", effective_frames);
-                    if (font_regular) ImGui::PopFont();
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Video Buffer Frames (GStreamer)
-                    ImGui::TextColored(GetWindowsAccentColor(), "Video Buffer Frames");
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames to buffer for video files (GStreamer)");
-                    ImGui::Spacing();
-
-                    ImGui::Text("Buffer Frames:");
-                    // Preset buttons
-                    const int video_buffer_presets[] = {2, 4, 8, 12, 24, 48};
-                    const char* video_buffer_labels[] = {"2", "4", "8", "12", "24", "48"};
-                    for (int i = 0; i < 6; i++) {
-                        if (i > 0) ImGui::SameLine();
-                        bool is_selected = (cache_settings.video_buffer_frames == video_buffer_presets[i]);
-                        if (is_selected) {
-                            ImGui::PushStyleColor(ImGuiCol_Button, GetWindowsAccentColor());
-                        }
-                        if (ImGui::Button(video_buffer_labels[i], ImVec2(40, 0))) {
-                            cache_settings.video_buffer_frames = video_buffer_presets[i];
-                            settings_changed = true;
-                            // Apply to playback controller immediately if available
-                            if (timeline_view) {
-                                if (auto* ctrl = timeline_view->GetPlaybackController()) {
-                                    ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
-                                }
-                            }
-                        }
-                        if (is_selected) {
-                            ImGui::PopStyleColor();
-                        }
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Number of frames to buffer before video playback starts or resumes after seek.\n\n"
-                            "Lower values = faster response, may stutter on slow decode\n"
-                            "Higher values = smoother playback, longer wait after seek\n\n"
-                            "Applies to: Play, Seek while playing, Loop boundaries\n\n"
-                            "Recommended:\n"
-                            "  - 2 frames: Fast SSD, simple edits\n"
-                            "  - 4-8 frames: Network storage, H.264/H.265\n"
-                            "  - 12-24 frames: Slow storage, complex timelines");
-                    }
-
-                    if (font_regular) ImGui::PushFont(font_regular);
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                        "Current: %d frames (%.1fs at 24fps)",
-                        cache_settings.video_buffer_frames,
-                        cache_settings.video_buffer_frames / 24.0);
-                    if (font_regular) ImGui::PopFont();
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Restore Default button
-                    if (ImGui::Button("Restore Defaults", ImVec2(-1, 0))) {
-                        cache_settings.buffer_wait_percent = 88;
-                        cache_settings.video_buffer_frames = 2;
-                        settings_changed = true;
-                        if (timeline_view) {
-                            if (auto* ctrl = timeline_view->GetPlaybackController()) {
-                                ctrl->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
-                                ctrl->SetVideoBufferFrames(cache_settings.video_buffer_frames);
-                            }
-                        }
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Reset buffer settings to defaults:\n- Buffer Wait: 88%%\n- Video Buffer Frames: 2");
-                    }
-
-                        ImGui::EndTabItem();
-                    } // End Buffering tab
-
-                    // === TAB 3: Threading ===
-                    if (ImGui::BeginTabItem("Threading")) {
+                    // === TAB 3: Image Threading ===
+                    if (ImGui::BeginTabItem("Image Threading")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Thread settings for I/O and transcoding");
                     ImGui::Spacing();
 
@@ -6610,7 +6612,7 @@ private:
                     } // End Threading tab
 
                     // === TAB 4: Disk Cache ===
-                    if (ImGui::BeginTabItem("Disk Cache")) {
+                    if (ImGui::BeginTabItem("Image Transcode Cache")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Storage settings for EXR transcode files");
                     ImGui::Spacing();
 
@@ -6694,161 +6696,123 @@ private:
                         ImGui::EndTabItem();
                     } // End Disk Cache tab
 
-                    // === TAB 5: Timeline ===
-                    if (ImGui::BeginTabItem("Timeline")) {
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cache settings for EDL/OTIO timeline playback");
+                    // === TAB 5: Video ===
+                    if (ImGui::BeginTabItem("Video")) {
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer settings for video file playback (GStreamer)");
                     ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Get active cache if exists (for applying changes and showing stats)
-                    ump::TimelineCache* active_cache_tl = nullptr;
-                    if (timeline_view && timeline_view->HasPlaybackController()) {
-                        active_cache_tl = timeline_view->GetEffectivePlaybackController()->GetCache();
-                    }
 
                     // Read-Ahead Frames
                     ImGui::Text("Read-Ahead Frames:");
-                    if (ImGui::SliderInt("##TimelineReadAheadTL", &g_timeline_read_ahead_frames, 12, 180)) {
-                        if (active_cache_tl) {
-                            auto config = active_cache_tl->GetConfig();
-                            config.readAheadFrames = g_timeline_read_ahead_frames;
-                            active_cache_tl->SetConfig(config);
-                        }
+                    if (ImGui::SliderInt("##VideoReadAhead", &g_timeline_read_ahead_frames, 12, 180)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
-                            "Number of frames to prefetch ahead of playhead.\n\n"
-                            "More frames = smoother playback\n"
-                            "Fewer frames = lower memory usage\n\n"
+                            "Number of frames to buffer ahead of playhead.\n\n"
+                            "More frames = smoother playback, higher memory\n"
+                            "Fewer frames = lower memory, may stutter\n\n"
                             "72 frames = 3 seconds @ 24fps (default)\n"
-                            "180 frames = 7.5 seconds @ 24fps");
+                            "180 frames = 7.5 seconds @ 24fps\n\n"
+                            "Also applies to timeline playback.");
                     }
 
-                    // Read-Behind Seconds
+                    // Read-Behind Frames
                     ImGui::Spacing();
-                    ImGui::Text("Read-Behind (seconds):");
-                    if (ImGui::SliderFloat("##TimelineReadBehindTL", &g_timeline_read_behind_seconds, 0.0f, 2.0f, "%.1f s")) {
-                        if (active_cache_tl) {
-                            auto config = active_cache_tl->GetConfig();
-                            config.readBehindSeconds = g_timeline_read_behind_seconds;
-                            active_cache_tl->SetConfig(config);
-                        }
+                    ImGui::Text("Read-Behind Frames:");
+                    if (ImGui::SliderInt("##VideoReadBehind", &g_timeline_read_behind_frames, 0, 48)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
-                            "Seconds of frames to keep behind playhead.\n\n"
+                            "Frames to keep behind playhead.\n\n"
                             "Enables instant backward scrubbing.\n"
-                            "0.5s = 12 frames @ 24fps (default)");
+                            "12 frames = 0.5s @ 24fps (default)\n\n"
+                            "Also applies to timeline playback.");
                     }
+
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                        "GStreamer handles decode threading automatically.");
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                        "Settings take effect on next video load.");
+
+                        ImGui::EndTabItem();
+                    } // End Video tab
+
+                    // === TAB 6: Timeline ===
+                    if (ImGui::BeginTabItem("Timeline")) {
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Threading settings for EDL/OTIO timeline playback (FFmpeg)");
+                    ImGui::Spacing();
 
                     // I/O Threads
-                    ImGui::Spacing();
                     ImGui::Text("I/O Threads:");
-                    if (ImGui::SliderInt("##TimelineIOThreadsTL", &g_timeline_io_threads, 1, 16)) {
+                    if (ImGui::SliderInt("##TimelineIOThreads", &g_timeline_io_threads, 1, 16)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
-                            "Number of background threads for loading frames.\n\n"
+                            "Background threads for loading frames into cache.\n\n"
                             "More threads = faster cache fill\n"
-                            "Default: 8 threads\n\n"
-                            "Note: Only applies to EDL/OTIO multi-track timelines.\n"
-                            "Single video files use GStreamer (1 thread).");
+                            "Default: 8 threads");
                     }
 
-                    // Max Textures (safety cap)
+                    // Decode Threads
                     ImGui::Spacing();
-                    ImGui::Text("Max Cached Textures:");
-                    int window_size_tl = g_timeline_read_ahead_frames +
-                        static_cast<int>(g_timeline_read_behind_seconds * 24.0f);  // Approximate
-                    int min_textures_tl = std::max(window_size_tl, 32);
-                    if (ImGui::SliderInt("##TimelineMaxTexturesTL", &g_timeline_max_textures, min_textures_tl, 300)) {
-                        if (active_cache_tl) {
-                            auto config = active_cache_tl->GetConfig();
-                            config.max_textures = g_timeline_max_textures;
-                            active_cache_tl->SetConfig(config);
-                        }
+                    ImGui::Text("Decode Threads:");
+                    if (ImGui::SliderInt("##TimelineDecodeThreads", &g_video_decode_threads, 1, 32)) {
                         settings_changed = true;
                     }
                     ImGui::SameLine();
                     ImGui::TextDisabled("(?)");
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
-                            "Maximum GPU textures to keep in memory.\n\n"
-                            "Should be >= window size (read-ahead + read-behind).\n"
-                            "Estimated window: ~%d frames\n\n"
-                            "Higher = more memory usage but smoother scrubbing\n"
-                            "Lower = less VRAM but may evict needed frames",
+                            "FFmpeg internal decode threads per video clip.\n\n"
+                            "More threads = faster decode, builds buffer ahead\n"
+                            "Effective for intra-frame codecs (ProRes, DNxHR)\n\n"
+                            "Recommended:\n"
+                            "  - 4 threads: Default\n"
+                            "  - 8-16 threads: High-core CPUs\n"
+                            "  - 16-32 threads: Workstations");
+                    }
+                    int hw_cores = std::thread::hardware_concurrency();
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                        "System has %d logical cores", hw_cores);
+
+                    // Max Textures
+                    ImGui::Spacing();
+                    ImGui::Text("Max Cached Textures:");
+                    int window_size_tl = g_timeline_read_ahead_frames + g_timeline_read_behind_frames;
+                    int min_textures_tl = std::max(window_size_tl, 32);
+                    if (ImGui::SliderInt("##TimelineMaxTextures", &g_timeline_max_textures, min_textures_tl, 300)) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Maximum GPU textures in cache.\n\n"
+                            "Should be >= buffer window size (~%d frames).\n"
+                            "Higher = smoother scrubbing, more VRAM",
                             window_size_tl);
                     }
                     if (g_timeline_max_textures < window_size_tl) {
                         ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
-                            "Warning: Max textures (%d) < window size (%d)",
-                            g_timeline_max_textures, window_size_tl);
+                            "Warning: Max textures < window size");
                     }
 
-                    // Stats display (only if cache active)
-                    if (active_cache_tl) {
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                        auto stats = active_cache_tl->GetStats();
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "Cached: %d frames (%.1f MB)",
-                            stats.cached_frames,
-                            stats.cache_bytes / (1024.0 * 1024.0));
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "Hit Ratio: %.1f%% (%d hits / %d misses)",
-                            stats.GetHitRatio() * 100.0,
-                            stats.cache_hits, stats.cache_misses);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "Pending: %d requests, %d uploads",
-                            stats.pending_requests, stats.pending_uploads);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "Active loaders: %d", stats.active_loaders);
-
-                        // SharedMemoryPool stats for memory leak diagnosis
-                        ImGui::Spacing();
-                        auto pool_stats = ump::SharedMemoryPool::Instance().GetStats();
-                        ImGui::TextColored(ImVec4(0.8f, 0.6f, 0.3f, 1.0f),
-                            "MemPool: %.1f / %.1f GB (%.0f%%)",
-                            pool_stats.used_bytes / (1024.0 * 1024.0 * 1024.0),
-                            pool_stats.budget_bytes / (1024.0 * 1024.0 * 1024.0),
-                            pool_stats.GetUsageRatio() * 100.0);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "Entries: %zu tl, %zu exr, %zu vid",
-                            pool_stats.timeline_entries,
-                            pool_stats.exr_entries,
-                            pool_stats.video_entries);
-
-                        // Texture leak detection
-                        ImGui::Spacing();
-                        bool tex_leak_tl = (stats.texture_balance > stats.cached_frames + 10);
-                        ImGui::TextColored(tex_leak_tl ? ImVec4(1.0f, 0.3f, 0.3f, 1.0f) : ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
-                            "GPU Tex: %d alive (created=%d del=%d)",
-                            stats.texture_balance, stats.textures_created, stats.textures_deleted);
-                        if (font_regular) ImGui::PopFont();
-
-                        // Clear button
-                        ImGui::Spacing();
-                        if (ImGui::Button("Clear Timeline Cache##TL", ImVec2(-1, 0))) {
-                            active_cache_tl->ClearCache();
-                        }
-                    } else {
-                        ImGui::Spacing();
-                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                            "No timeline loaded. Settings will apply when a timeline is opened.");
-                    }
+                    ImGui::Spacing();
+                    ImGui::Separator();
+                    ImGui::Spacing();
+                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                        "Settings take effect on next timeline load.");
 
                         ImGui::EndTabItem();
                     } // End Timeline tab
@@ -6945,7 +6909,7 @@ private:
 
                         Debug::Log("Applied image sequence cache settings: " +
                                    std::to_string(exr_config.readAheadFrames) + " frames ahead, " +
-                                   std::to_string(exr_config.readBehindSeconds) + "s behind, " +
+                                   std::to_string(exr_config.readBehindFrames) + " frames behind, " +
                                    std::to_string(exr_config.threadCount) + " threads");
                     } else {
                         Debug::Log("Image sequence cache settings configured (will apply when sequence is loaded)");
@@ -6976,7 +6940,7 @@ private:
                 // Image Sequence settings - Auto-configure based on CPU
                 AutoConfigureEXRThreading(cache_settings);
                 g_exr_read_ahead_frames = 72;   // ~3s @ 24fps
-                g_read_behind_seconds = 0.5f;   // 0.5s behind playhead
+                g_read_behind_frames = 12;      // ~0.5s @ 24fps
 
                 // Disk cache settings
                 g_custom_cache_path = "";
@@ -6985,10 +6949,11 @@ private:
                 g_clear_cache_on_exit = false;
 
                 // Timeline cache settings
-                g_timeline_read_ahead_frames = 72;       // ~3 seconds @ 24fps
-                g_timeline_read_behind_seconds = 0.5f;   // 0.5s behind playhead
+                g_timeline_read_ahead_frames = 108;      // ~4.5 seconds @ 24fps
+                g_timeline_read_behind_frames = 12;      // ~0.5s @ 24fps
                 g_timeline_max_textures = 120;           // Max GPU textures
                 g_timeline_io_threads = 8;               // Background I/O threads
+                g_video_decode_threads = 4;              // FFmpeg decode threads
 
                 // Apply timeline defaults to active cache if present
                 if (timeline_view && timeline_view->HasPlaybackController()) {
@@ -6996,8 +6961,9 @@ private:
                     if (active_cache) {
                         auto config = active_cache->GetConfig();
                         config.readAheadFrames = g_timeline_read_ahead_frames;
-                        config.readBehindSeconds = g_timeline_read_behind_seconds;
+                        config.readBehindFrames = g_timeline_read_behind_frames;
                         config.max_textures = g_timeline_max_textures;
+                        config.decodeThreads = g_video_decode_threads;
                         active_cache->SetConfig(config);
                     }
                 }
@@ -16246,20 +16212,43 @@ private:
             // Ctrl+K = Cut clips at playhead (split)
             if (ImGui::IsKeyPressed(ImGuiKey_K) && ImGui::GetIO().KeyCtrl) {
                 double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
-                auto clips_at_time = timeline_view->GetClipsAtTime(playhead_time);
+                auto& selection = timeline_view->GetSelection();
 
-                if (!clips_at_time.empty()) {
-                    auto composite = std::make_unique<ump::CompositeCommand>("Cut Clips at Playhead");
-                    for (auto* clip : clips_at_time) {
-                        int track_idx = timeline_view->GetTrackIndexForClip(clip->id);
-                        if (track_idx >= 0) {
-                            composite->AddCommand(std::make_unique<ump::CutClipCommand>(
-                                timeline_view.get(), clip->id, track_idx, playhead_time));
+                if (!selection.selected_clip_ids.empty()) {
+                    // Cut only selected clips
+                    auto composite = std::make_unique<ump::CompositeCommand>("Cut Selected Clips at Playhead");
+                    for (const auto& clip_id : selection.selected_clip_ids) {
+                        int track_idx = timeline_view->GetTrackIndexForClip(clip_id);
+                        ump::OTIOClip* clip = timeline_view->FindClipById(clip_id);
+                        if (clip && track_idx >= 0) {
+                            double clip_end = clip->start_time + clip->duration;
+                            if (playhead_time > clip->start_time && playhead_time < clip_end) {
+                                composite->AddCommand(std::make_unique<ump::CutClipCommand>(
+                                    timeline_view.get(), clip_id, track_idx, playhead_time));
+                            }
                         }
                     }
                     if (!composite->IsEmpty()) {
                         timeline_command_manager->Execute(std::move(composite));
-                        Debug::Log("Cut clips at playhead: " + std::to_string(playhead_time));
+                        Debug::Log("Cut selected clips at playhead: " + std::to_string(playhead_time));
+                    }
+                } else {
+                    // No selection - cut all clips at playhead
+                    auto clips_at_time = timeline_view->GetClipsAtTime(playhead_time);
+
+                    if (!clips_at_time.empty()) {
+                        auto composite = std::make_unique<ump::CompositeCommand>("Cut Clips at Playhead");
+                        for (auto* clip : clips_at_time) {
+                            int track_idx = timeline_view->GetTrackIndexForClip(clip->id);
+                            if (track_idx >= 0) {
+                                composite->AddCommand(std::make_unique<ump::CutClipCommand>(
+                                    timeline_view.get(), clip->id, track_idx, playhead_time));
+                            }
+                        }
+                        if (!composite->IsEmpty()) {
+                            timeline_command_manager->Execute(std::move(composite));
+                            Debug::Log("Cut clips at playhead: " + std::to_string(playhead_time));
+                        }
                     }
                 }
             }
@@ -16946,9 +16935,10 @@ private:
                 ImGui::PopStyleVar(2);
 
                 if (cut_clicked) {
-                    // Cut clips at playhead - same as X key
+                    // Cut clips at playhead
                     auto& selection = timeline_view->GetSelection();
                     if (!selection.selected_clip_ids.empty()) {
+                        // Cut only selected clips
                         for (const auto& clip_id : selection.selected_clip_ids) {
                             int track_idx = timeline_view->GetTrackIndexForClip(clip_id);
                             ump::OTIOClip* clip = timeline_view->FindClipById(clip_id);
@@ -16963,6 +16953,7 @@ private:
                             }
                         }
                     } else {
+                        // No selection - cut all clips at playhead
                         auto clips = timeline_view->GetClipsAtTime(tl_current_time);
                         for (auto* clip : clips) {
                             int track_idx = timeline_view->GetTrackIndexForClip(clip->id);
@@ -16979,7 +16970,7 @@ private:
                 }
                 ImGui::PopFont();
                 if (cut_hovered) {
-                    ImGui::SetTooltip("Cut at Playhead (X)");
+                    ImGui::SetTooltip("Cut at Playhead (Ctrl+K)");
                 }
             }
 
@@ -20948,8 +20939,11 @@ private:
                 if (j["exr_cache"].contains("read_ahead_frames")) {
                     g_exr_read_ahead_frames = j["exr_cache"]["read_ahead_frames"].get<int>();
                 }
-                if (j["exr_cache"].contains("read_behind_seconds")) {
-                    g_read_behind_seconds = j["exr_cache"]["read_behind_seconds"].get<float>();
+                if (j["exr_cache"].contains("read_behind_frames")) {
+                    g_read_behind_frames = j["exr_cache"]["read_behind_frames"].get<int>();
+                } else if (j["exr_cache"].contains("read_behind_seconds")) {
+                    // Backwards compatibility: convert old seconds to frames @ 24fps
+                    g_read_behind_frames = static_cast<int>(j["exr_cache"]["read_behind_seconds"].get<float>() * 24.0f);
                 }
             }
 
@@ -20958,14 +20952,17 @@ private:
                 if (j["timeline_cache"].contains("read_ahead_frames")) {
                     g_timeline_read_ahead_frames = j["timeline_cache"]["read_ahead_frames"].get<int>();
                 }
-                if (j["timeline_cache"].contains("read_behind_seconds")) {
-                    g_timeline_read_behind_seconds = j["timeline_cache"]["read_behind_seconds"].get<float>();
+                if (j["timeline_cache"].contains("read_behind_frames")) {
+                    g_timeline_read_behind_frames = j["timeline_cache"]["read_behind_frames"].get<int>();
                 }
                 if (j["timeline_cache"].contains("max_textures")) {
                     g_timeline_max_textures = j["timeline_cache"]["max_textures"].get<int>();
                 }
                 if (j["timeline_cache"].contains("io_threads")) {
                     g_timeline_io_threads = j["timeline_cache"]["io_threads"].get<int>();
+                }
+                if (j["timeline_cache"].contains("decode_threads")) {
+                    g_video_decode_threads = j["timeline_cache"]["decode_threads"].get<int>();
                 }
             }
 
@@ -21207,13 +21204,14 @@ private:
 
             // Image sequence cache settings (EXR/TIFF/PNG/JPEG)
             j["exr_cache"]["read_ahead_frames"] = g_exr_read_ahead_frames;
-            j["exr_cache"]["read_behind_seconds"] = g_read_behind_seconds;
+            j["exr_cache"]["read_behind_frames"] = g_read_behind_frames;
 
             // Timeline cache settings (EDL/OTIO playback)
             j["timeline_cache"]["read_ahead_frames"] = g_timeline_read_ahead_frames;
-            j["timeline_cache"]["read_behind_seconds"] = g_timeline_read_behind_seconds;
+            j["timeline_cache"]["read_behind_frames"] = g_timeline_read_behind_frames;
             j["timeline_cache"]["max_textures"] = g_timeline_max_textures;
             j["timeline_cache"]["io_threads"] = g_timeline_io_threads;
+            j["timeline_cache"]["decode_threads"] = g_video_decode_threads;
 
             // Performance settings (image sequence I/O + EXR transcode)
             j["performance"]["exr_io_threads"] = g_exr_thread_count;
