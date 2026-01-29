@@ -6,31 +6,29 @@ nav_order: 14
 
 # Playlists
 
-## Playlist Overview
+To create a playlist right-click on the playlist bin or navigate to `File > New Playlist`.
 
-Playlists only work for videos and use mpv’s built-in playlist function. Very simply: one video will play after another.
-
-![Window](images/ump_KSXB5hgiT0.png)
+![Window](images/ump_vgjcccqfsG.png)
 
 ---
 
 ## Build a Playlist
 
-To build a playlist, first double-click the playlist in the **Project Manager** to open it. Then select all the media you want and drag that media into the **Playlist Manager** in the **Inspector** panel. Or just right click on the media and select `Create Playlist from Selection`. You can keep dragging into more media as needed.
+To build a playlist, drag in any video or image sequence sources from the `Project Manager`.
 
-![Window](images/ump_BiC5NTnjce.png)
+![Window](images/ump_MXSfR7dVKg.png)
 
 ---
 
 ## Rearrange a Playlist
 
-When a playlist is populated, you will see a list of all the clips in the Playlist Manager, as well as an array of the same at the bottom of the timeline. You can drag and drop them in both interfaces to rearrange.
+Drag to rearrange clip order.
 
-![Window](images/ump_9uNPA3Pn9m.png)
+![Window](images/ump_8YPEfunV5V.png)
 ---
 
 ## Playback
 
-Playback controls are the same as other modes, but now these buttons are live. You can use them to navigate between playlist media. 
+Double-click on any clips in the playlist to start playing at that clip or click the playlist play button to start from the first clip. Toggle `Loop Playlist` to keep the playlist playing in a loop. Using the left/right shuttle buttons to skip to next clip or back up to the previous one.
 
-![Window](images/ump_qBH12zHFXe.png)
+![Window](images/ump_EwEUusSzXl.png)

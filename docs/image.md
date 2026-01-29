@@ -10,7 +10,7 @@ nav_order: 10
 
 Basic image sequence usage is straightforward: Open or drag in a single image from a sequence, and u.m.p. will detect the sequence. Select a framerate, and if a multi-layer EXR, select the layer you want to load.
 
-![Window](images/ump_Zesvu6ssPl.png)
+![Window](images/ump_8HRkWUx3L3.png)
 
 There are some considerations to smooth playback, though:
 
@@ -21,40 +21,30 @@ There are some considerations to smooth playback, though:
 
 ## Transcoding
 
-![Window](images/ump_pUupEDcsEq.png)
+![Window](images/ump_jsLP0yrOnY.png)
 
 With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. `DWAA/DWAB` because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.
 
-![Window](images/ump_NYGTBB4l8c.png)
+![Window](images/ump_zIPwJlWVQe.png)
 
 ## Playback Cache
 
 Image sequences use a custom OTIO-based timeline to playback. Behind the hood, they are extracting textures to RAM and uploading them to the GPU as you traverse the timeline. This is the cache progress bar, which shows how much read-ahead and read-behind you have cached at any given time.
 
-![Window](images/explorer_vb1410KKZo.png)
-
-If playback overruns the cache, you will see a message in the corner of the screen that signals an FPS slowdown. What this means is that the CPU-bound OpenEXR extraction is not keeping up with playback (*a common scenario with 4k+ multilayer EXRs and the Achilles' heel of OpenEXR extraction*). If u.m.p. detects an overrun, it will slow down to 50% of the fps (*for instance, 24 fps will play at 12 fps*), then 25%, and then 12.5%, in an attempt to maintain playback.
-
-![Window](images/ump_C3HnJtQVRW.png)
+![Window](images/explorer_oZMygbm9go.png)
 
 ### Cache Settings
 
 You can adjust these values in the Pipeline & Cache Settings panel.
 
-![Window](images/ump_Gumzf7YqIw.png)
-
 ### Disk Cache for Transcodes
 
 If you choose to transcode a sequence for better playback, this is where the temp cache file will be stored. I would recommend changing this setting to a fast NVME drive, not your system drive. 
 
-![Window](images/ump_0ICCmDWyWl.png)
-
-### Manually Deleting Disk Cache
-
-You can manually trigger a Disk Cache purge.
-
-![Window](images/ump_S1HJudlAvz.png)
+![Window](images/ump_kPYU2MMvtZ.png)
 
 ---
 
 *Note: Because the playback cache is RAM-based, it is affected by our Memory Safety system. If the Memory Safety system has detected full system RAM, Images will not play back. See the Memory Safety page for details.*
+
+*Another Note: See the Inspector page to see you can swith EXR layers after loading.*

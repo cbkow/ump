@@ -31,12 +31,4 @@ Download the zip if you would rather not use the installer.
 
 `Check for Updates` in the `Help` menu will bring you the u.m.p. releases page on GitHub. Here you can find the latest installer. 
 
-![ump image](images/ump_QPcRzk1U4I.png)
-
-### Clean Install
-
-It’s recommended to do a clean install when upgrading. Please close u.m.p and follow these screenshots.
-
-![ump image](images/ump-setup-0.4.9.tmp_txDmGbUVDP.png)
-
-![ump image](images/ump-setup-0.4.9.tmp_DazzZvfVhV.png)
+![ump image](images/ump_Eu03dOzzqP.png)
