@@ -539,7 +539,7 @@ UMP_ENABLE_PYTHON_ADAPTERS:BOOL=ON
 USE_MSVC_RUNTIME_LIBRARY_DLL:BOOL=ON
 
 //Build with GStreamer backend support
-WITH_GSTREAMER:BOOL=ON
+WITH_GSTREAMER:BOOL=OFF
 
 //ZLIB include dir
 ZLIB_INCLUDE_DIR:PATH=D:/z_DevTemp/UnionPlayer/external/ocio/include

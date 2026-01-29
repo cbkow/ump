@@ -36,8 +36,6 @@ D:\z_DevTemp\UnionPlayer\src\player\decoder_cleanup_queue.cpp;D:\z_DevTemp\Union
 D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\direct_exr_cache.obj
 D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\exr_transcoder.obj
 D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\frame_cache.obj
-D:\z_DevTemp\UnionPlayer\src\player\gstreamer_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\gstreamer_manager.obj
-D:\z_DevTemp\UnionPlayer\src\player\gstreamer_video_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\gstreamer_video_decoder.obj
 D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\hw_context_manager.obj
 D:\z_DevTemp\UnionPlayer\src\player\image_loaders.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\image_loaders.obj
 D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\image_sequence_config.obj

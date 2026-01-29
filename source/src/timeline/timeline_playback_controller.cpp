@@ -204,6 +204,12 @@ void TimelinePlaybackController::Shutdown() {
 
     Debug::Log("TimelinePlaybackController: Shutting down...");
 
+    // Shutdown direct MPV mode
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->CleanupMPV();
+        use_direct_mpv_ = false;
+    }
+
     // Shutdown audio mixer
     if (audio_mixer_) {
         audio_mixer_->Shutdown();
@@ -249,6 +255,32 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
         width = 0;
         height = 0;
         return 0;
+    }
+
+    // Direct MPV mode: VideoDisplayComponent's RenderMPVFrame() handles rendering
+    // We just need to sync position and return dimensions
+    if (use_direct_mpv_ && video_player_) {
+        // During scrubbing: use scrub target for instant playhead response
+        // The playhead moves immediately, video catches up async
+        // Outside scrubbing: use actual MPV decoded position
+        double display_pos;
+        if (video_player_->IsMPVScrubbing()) {
+            display_pos = video_player_->GetMPVScrubTarget();
+        } else {
+            display_pos = video_player_->GetMPVPosition();
+        }
+
+        current_frame_ = static_cast<int>(display_pos * fps_ + 0.5);
+
+        // Update audio position (use actual MPV pos for sync, not scrub target)
+        if (audio_mixer_ && !video_player_->IsMPVScrubbing()) {
+            audio_mixer_->SetTimelinePosition(video_player_->GetMPVPosition());
+        }
+
+        // Return dimensions - texture is already in video_texture_ from RenderMPVFrame()
+        width = width_;
+        height = height_;
+        return 0;  // No texture from cache - MPV rendered directly
     }
 
     // Sync playhead from virtual timer (always use virtual timeline mode now)
@@ -523,14 +555,23 @@ void TimelinePlaybackController::SetConfig(const TimelinePlaybackConfig& config)
 }
 
 void TimelinePlaybackController::SetLooping(bool enabled) {
-    // Only update the timer - controls actual playback loop behavior
-    // Cache always loops for prefetch efficiency (never disable cache looping)
+    // Direct MPV mode: route to VideoDisplayComponent's MPV
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVSetLoop(enabled);
+    }
+
+    // Also update timer for consistent state
     if (timeline_timer_) {
         timeline_timer_->SetLooping(enabled);
     }
 }
 
 bool TimelinePlaybackController::IsLooping() const {
+    // Direct MPV mode: query MPV state
+    if (use_direct_mpv_ && video_player_) {
+        return video_player_->IsMPVLooping();
+    }
+
     // Timer is the source of truth for loop state
     if (timeline_timer_) {
         return timeline_timer_->IsLooping();
@@ -538,15 +579,65 @@ bool TimelinePlaybackController::IsLooping() const {
     return false;
 }
 
+//=============================================================================
+// Volume/Mute Control - Routes to MPV or AudioMixer
+//=============================================================================
+
+void TimelinePlaybackController::SetVolume(double volume) {
+    // Clamp to valid range
+    if (volume < 0.0) volume = 0.0;
+    if (volume > 1.0) volume = 1.0;
+
+    volume_ = volume;
+
+    // Route to appropriate backend
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVSetVolume(volume);
+    } else if (audio_mixer_) {
+        audio_mixer_->SetVolume(static_cast<float>(volume));
+    }
+}
+
+void TimelinePlaybackController::SetMuted(bool muted) {
+    muted_ = muted;
+
+    // Route to appropriate backend
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVSetMute(muted);
+    } else if (audio_mixer_) {
+        audio_mixer_->SetMuted(muted);
+    }
+}
+
+double TimelinePlaybackController::GetVolume() const {
+    return volume_;
+}
+
+bool TimelinePlaybackController::IsMuted() const {
+    return muted_;
+}
+
 bool TimelinePlaybackController::IsPlaying() const {
+    // Direct MPV mode: check MPV's actual playing state
+    if (use_direct_mpv_ && video_player_) {
+        return video_player_->IsMPVPlaying();
+    }
     return is_playing_.load();
 }
 
 bool TimelinePlaybackController::IsWaitingForBuffer() const {
+    // Direct MPV mode: never waiting for buffer (MPV handles its own buffering)
+    if (use_direct_mpv_) {
+        return false;
+    }
     return waiting_for_frame_;
 }
 
 bool TimelinePlaybackController::IsActuallyPlaying() const {
+    // Direct MPV mode: check MPV's actual playing state (no buffer wait)
+    if (use_direct_mpv_ && video_player_) {
+        return video_player_->IsMPVPlaying();
+    }
     // True only if playing AND not waiting for buffer to fill
     // Used by UI to show correct play/pause state
     return is_playing_.load() && !waiting_for_frame_;
@@ -784,67 +875,133 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     });
 
-    // Initialize cache
-    cache_ = std::make_unique<TimelineCache>();
+    // Check if this is VIDEO_FILE mode with a video or audio clip
+    // In this mode, use VideoDisplayComponent's direct MPV rendering (no CPU roundtrip)
+    // MPV handles both video and audio files seamlessly
+    bool use_direct_mpv = false;
+    std::string media_file_path;
 
-    TimelineCacheConfig cache_config;
-    cache_config.readAheadFrames = config_.readAheadFrames;
-    cache_config.readBehindFrames = config_.readBehindFrames;
-    cache_config.io_threads = config_.io_threads;
-    cache_config.max_textures = g_timeline_max_textures;
-    cache_config.fps = fps_;
-    cache_config.use_shared_pool = true;
-    cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
+    if (timeline_view_->GetSourceMode() == TimelineSourceMode::VIDEO_FILE) {
+        // First try to find a video clip
+        for (const auto& track : tracks) {
+            if (!track.is_video) continue;
+            for (const auto& clip : track.clips) {
+                if (clip.is_linked && !clip.linked_path.empty()) {
+                    media_file_path = clip.linked_path;
+                    use_direct_mpv = true;
+                    break;
+                }
+            }
+            if (use_direct_mpv) break;
+        }
 
-    cache_->SetConfig(cache_config);
-    cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_,
-                       timeline_view_->GetSourceMode());
-
-    // Register sequence metadata for any image sequence clips
-    // This must happen after cache is created but before it starts loading frames
-    for (const auto& track : tracks) {
-        for (const auto& clip : track.clips) {
-            if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
-                SequenceMetadata seq_meta;
-                seq_meta.directory = clip.sequence_directory;
-                seq_meta.pattern = clip.sequence_pattern;
-                seq_meta.start_frame = clip.sequence_start_frame;
-                seq_meta.end_frame = clip.sequence_end_frame;
-                seq_meta.exr_layer = clip.sequence_exr_layer;
-                seq_meta.pipeline_mode = DetectSequencePipelineMode(clip);
-                seq_meta.valid = true;
-                cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
-                Debug::Log("TimelinePlaybackController: Registered sequence metadata for " + clip.linked_path);
+        // If no video clip found, check audio tracks (audio-only file)
+        if (!use_direct_mpv) {
+            for (const auto& track : tracks) {
+                if (track.is_video) continue;  // Skip video tracks
+                for (const auto& clip : track.clips) {
+                    if (clip.is_linked && !clip.linked_path.empty()) {
+                        media_file_path = clip.linked_path;
+                        use_direct_mpv = true;
+                        Debug::Log("TimelinePlaybackController: Found audio-only file for MPV: " + media_file_path);
+                        break;
+                    }
+                }
+                if (use_direct_mpv) break;
             }
         }
     }
 
-    if (width_ > 0 && height_ > 0) {
-        cache_->SetGapTextureDimensions(width_, height_);
-        cache_->SetCanvasDimensions(width_, height_);  // Ensure consistent output dimensions
+    // For VIDEO_FILE mode: use direct MPV rendering in VideoDisplayComponent
+    // This keeps everything on GPU (no CPU roundtrip like LibMPVVideoDecoder)
+    // MPV handles both video and audio files - audio files just won't have video frames
+    if (use_direct_mpv && !media_file_path.empty()) {
+        Debug::Log("TimelinePlaybackController: Using direct MPV rendering for media file: " + media_file_path);
+
+        // Initialize MPV in VideoDisplayComponent
+        if (!video_player_->InitializeMPV()) {
+            Debug::Log("TimelinePlaybackController: WARNING - Failed to initialize MPV, falling back to cache");
+            use_direct_mpv = false;
+        } else if (!video_player_->LoadVideoFile(media_file_path)) {
+            Debug::Log("TimelinePlaybackController: WARNING - Failed to load media in MPV, falling back to cache");
+            video_player_->CleanupMPV();
+            use_direct_mpv = false;
+        } else {
+            // Successfully initialized direct MPV mode
+            use_direct_mpv_ = true;
+            Debug::Log("TimelinePlaybackController: Direct MPV mode active for: " + media_file_path);
+        }
     }
 
-    // Initialize audio mixer
-    audio_mixer_ = std::make_unique<AudioMixer>();
-    if (audio_mixer_->Initialize()) {
-        audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
-        audio_mixer_->SetTimer(timeline_timer_.get());  // Direct timer access for sync
+    // Initialize cache (skip for direct MPV mode - no decoder needed)
+    if (!use_direct_mpv) {
+        cache_ = std::make_unique<TimelineCache>();
 
-        // Collect all clips with media paths for preloading
-        std::vector<OTIOClip> all_clips;
+        TimelineCacheConfig cache_config;
+        cache_config.readAheadFrames = config_.readAheadFrames;
+        cache_config.readBehindFrames = config_.readBehindFrames;
+        cache_config.io_threads = config_.io_threads;
+        cache_config.max_textures = g_timeline_max_textures;
+        cache_config.fps = fps_;
+        cache_config.use_shared_pool = true;
+        cache_config.pipeline_mode = config_.pipeline_mode;
+
+        cache_->SetConfig(cache_config);
+        cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_,
+                           timeline_view_->GetSourceMode());
+    }
+
+    // Register sequence metadata for any image sequence clips (only if cache exists)
+    // This must happen after cache is created but before it starts loading frames
+    if (cache_) {
         for (const auto& track : tracks) {
             for (const auto& clip : track.clips) {
-                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
-                    all_clips.push_back(clip);
+                if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
+                    SequenceMetadata seq_meta;
+                    seq_meta.directory = clip.sequence_directory;
+                    seq_meta.pattern = clip.sequence_pattern;
+                    seq_meta.start_frame = clip.sequence_start_frame;
+                    seq_meta.end_frame = clip.sequence_end_frame;
+                    seq_meta.exr_layer = clip.sequence_exr_layer;
+                    seq_meta.pipeline_mode = DetectSequencePipelineMode(clip);
+                    seq_meta.valid = true;
+                    cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                    Debug::Log("TimelinePlaybackController: Registered sequence metadata for " + clip.linked_path);
                 }
             }
         }
-        audio_mixer_->PreloadClips(all_clips);
-        Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer initialized with " +
-                   std::to_string(all_clips.size()) + " clips");
+
+        if (width_ > 0 && height_ > 0) {
+            cache_->SetGapTextureDimensions(width_, height_);
+            cache_->SetCanvasDimensions(width_, height_);  // Ensure consistent output dimensions
+        }
+    }
+
+    // Initialize audio mixer (skip for direct MPV mode - MPV handles audio)
+    if (!use_direct_mpv_) {
+        audio_mixer_ = std::make_unique<AudioMixer>();
+        if (audio_mixer_->Initialize()) {
+            audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
+            audio_mixer_->SetTimer(timeline_timer_.get());  // Direct timer access for sync
+
+            // Collect all clips with media paths for preloading
+            std::vector<OTIOClip> all_clips;
+            for (const auto& track : tracks) {
+                for (const auto& clip : track.clips) {
+                    if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
+                        all_clips.push_back(clip);
+                    }
+                }
+            }
+            audio_mixer_->PreloadClips(all_clips);
+            Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer initialized with " +
+                       std::to_string(all_clips.size()) + " clips");
+        } else {
+            Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer init failed");
+            audio_mixer_.reset();
+        }
     } else {
-        Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer init failed");
-        audio_mixer_.reset();
+        Debug::Log("TimelinePlaybackController: Skipping AudioMixer - MPV handles audio in direct mode");
     }
 
     use_virtual_timeline_ = true;
@@ -1034,6 +1191,16 @@ void TimelinePlaybackController::UpdateTimer() {
 }
 
 double TimelinePlaybackController::GetPosition() const {
+    // Direct MPV mode: get position from VideoDisplayComponent's MPV
+    if (use_direct_mpv_ && video_player_) {
+        // During scrubbing: return scrub target for instant playhead response
+        // This makes the playhead feel responsive while decode catches up
+        if (video_player_->IsMPVScrubbing()) {
+            return video_player_->GetMPVScrubTarget();
+        }
+        return video_player_->GetMPVPosition();
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         return timeline_timer_->GetPosition();
     }
@@ -1070,6 +1237,14 @@ void TimelinePlaybackController::ApplyPendingFPSUpdate() {
 }
 
 void TimelinePlaybackController::Play() {
+    // Direct MPV mode: route to VideoDisplayComponent's MPV
+    // MPV handles audio internally - no AudioMixer needed
+    if (use_direct_mpv_ && video_player_) {
+        is_playing_ = true;
+        video_player_->MPVPlay();
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         // Set playing state (UI will show as playing)
         is_playing_ = true;
@@ -1089,6 +1264,13 @@ void TimelinePlaybackController::Play() {
 }
 
 void TimelinePlaybackController::ForcePlay() {
+    // Direct MPV mode: same as Play() - no buffer wait needed
+    if (use_direct_mpv_ && video_player_) {
+        is_playing_ = true;
+        video_player_->MPVPlay();
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         // Skip buffer wait and start immediately
         is_playing_ = true;
@@ -1120,6 +1302,14 @@ void TimelinePlaybackController::ForcePlay() {
 }
 
 void TimelinePlaybackController::Pause() {
+    // Direct MPV mode: route to VideoDisplayComponent's MPV
+    // MPV handles audio internally - no AudioMixer needed
+    if (use_direct_mpv_ && video_player_) {
+        is_playing_ = false;
+        video_player_->MPVPause();
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->Pause();
         is_playing_ = false;
@@ -1179,6 +1369,27 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
 }
 
 void TimelinePlaybackController::Seek(double position) {
+    // Direct MPV mode: route to VideoDisplayComponent's MPV
+    // MPV handles audio internally - seek includes A/V sync
+    if (use_direct_mpv_ && video_player_) {
+        // Clamp position
+        if (position < 0) position = 0;
+        if (position > timeline_duration_) position = timeline_duration_;
+
+        // During active scrub: use async scrub (instant playhead, decode catches up)
+        // Otherwise: use regular seek
+        if (video_player_->IsMPVScrubbing()) {
+            video_player_->MPVUpdateScrub(position);
+        } else {
+            video_player_->MPVSeek(position);
+        }
+
+        // Update frame counter for UI immediately (responsive playhead)
+        int target_frame = static_cast<int>(position * fps_ + 0.5);
+        current_frame_ = target_frame;
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         // Clamp position
         if (position < 0) position = 0;
@@ -1234,6 +1445,13 @@ void TimelinePlaybackController::Seek(double position) {
 }
 
 void TimelinePlaybackController::SeekRelative(double delta) {
+    // Direct MPV mode: use current MPV position
+    if (use_direct_mpv_ && video_player_) {
+        double new_pos = video_player_->GetMPVPosition() + delta;
+        Seek(new_pos);
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         double new_pos = timeline_timer_->GetPosition() + delta;
         Seek(new_pos);
@@ -1241,12 +1459,28 @@ void TimelinePlaybackController::SeekRelative(double delta) {
 }
 
 void TimelinePlaybackController::StepForward(int frames) {
+    // Direct MPV mode: use MPV frame stepping
+    if (use_direct_mpv_ && video_player_) {
+        for (int i = 0; i < frames; i++) {
+            video_player_->MPVStepFrame(1);
+        }
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->StepForward(frames);
     }
 }
 
 void TimelinePlaybackController::StepBackward(int frames) {
+    // Direct MPV mode: use MPV frame stepping
+    if (use_direct_mpv_ && video_player_) {
+        for (int i = 0; i < frames; i++) {
+            video_player_->MPVStepFrame(-1);
+        }
+        return;
+    }
+
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->StepBackward(frames);
     }
@@ -1277,6 +1511,14 @@ void TimelinePlaybackController::StartRewind() {
     fast_seek_speed_ = kFastSeekInitialSpeed;
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
+
+    // Direct MPV mode: use decoupled async fast seek for smooth playhead
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVStartFastSeek(false);  // false = rewind
+        Debug::Log("TimelinePlaybackController: Started rewind (MPV async) at " +
+                   std::to_string(fast_seek_speed_) + "x");
+        return;
+    }
 
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
@@ -1310,6 +1552,14 @@ void TimelinePlaybackController::StartFastForward() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
+    // Direct MPV mode: use decoupled async fast seek for smooth playhead
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVStartFastSeek(true);  // true = forward
+        Debug::Log("TimelinePlaybackController: Started fast forward (MPV async) at " +
+                   std::to_string(fast_seek_speed_) + "x");
+        return;
+    }
+
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
@@ -1334,6 +1584,14 @@ void TimelinePlaybackController::StopFastSeek() {
     is_fast_seeking_ = false;
     fast_seek_speed_ = 1.0;
 
+    // Direct MPV mode: stop async fast seek
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVStopFastSeek();
+        video_player_->MPVSetSpeed(1.0);  // Reset speed just in case
+        Debug::Log("TimelinePlaybackController: Stopped fast seek (MPV async)");
+        return;
+    }
+
     // Disable scrub/shuttle mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
@@ -1356,6 +1614,17 @@ void TimelinePlaybackController::SetScrubMode(bool enabled) {
     if (is_scrubbing_ == enabled) return;
 
     is_scrubbing_ = enabled;
+
+    // Direct MPV mode: use async scrub for instant playhead response
+    if (use_direct_mpv_ && video_player_) {
+        if (enabled) {
+            video_player_->MPVStartScrub();
+        } else {
+            video_player_->MPVEndScrub();
+        }
+        Debug::Log("TimelinePlaybackController: MPV scrub mode " + std::string(enabled ? "ENABLED" : "DISABLED"));
+        return;
+    }
 
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
@@ -1392,6 +1661,21 @@ void TimelinePlaybackController::UpdateFastSeek() {
     fast_seek_speed_ = kFastSeekInitialSpeed * std::pow(kFastSeekAcceleration, elapsed_since_start);
     if (fast_seek_speed_ > kFastSeekMaxSpeed) {
         fast_seek_speed_ = kFastSeekMaxSpeed;
+    }
+
+    // Direct MPV mode: use decoupled async fast seek
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVUpdateFastSeek();
+
+        // Update frame counter from scrub target for instant playhead response
+        double pos = video_player_->IsMPVFastSeeking() ?
+                     video_player_->GetMPVScrubTarget() :
+                     video_player_->GetMPVPosition();
+        current_frame_ = static_cast<int>(pos * fps_ + 0.5);
+
+        // Update our local speed to match MPV's
+        fast_seek_speed_ = video_player_->GetMPVFastSeekSpeed();
+        return;
     }
 
     // Calculate position delta based on current speed
@@ -1897,6 +2181,29 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
     }
 
     return result;
+}
+
+//=============================================================================
+// AB-Loop for In/Out Point Playback (Direct MPV Mode)
+//=============================================================================
+
+void TimelinePlaybackController::SetABLoop(double in_point, double out_point) {
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVSetABLoop(in_point, out_point);
+    }
+}
+
+void TimelinePlaybackController::ClearABLoop() {
+    if (use_direct_mpv_ && video_player_) {
+        video_player_->MPVClearABLoop();
+    }
+}
+
+bool TimelinePlaybackController::HasABLoop() const {
+    if (use_direct_mpv_ && video_player_) {
+        return video_player_->HasMPVABLoop();
+    }
+    return false;
 }
 
 } // namespace ump

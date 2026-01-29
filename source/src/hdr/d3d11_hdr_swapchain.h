@@ -11,6 +11,8 @@
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <array>
+#include <chrono>
 
 // OpenGL types for interop (avoid including glad/gl.h in header)
 #ifndef __gl_h_
@@ -171,14 +173,41 @@ private:
 
     //=========================================================================
     // Shared Render Target (used by all interop methods)
+    // Triple-buffering: 3 buffers for zero-copy interop
     //=========================================================================
+
+    static constexpr int INTEROP_BUFFER_COUNT = 3;
+
+    struct InteropBuffer {
+        // D3D11 side
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> d3d_texture;
+
+        // OpenGL side
+        GLuint gl_texture = 0;
+        GLuint fbo = 0;
+
+        // NV_DX_interop handle
+        HANDLE nv_interop_object = nullptr;
+
+        // EXT_memory_object resources
+        GLuint ext_memory_object = 0;
+        HANDLE shared_handle = nullptr;
+        Microsoft::WRL::ComPtr<IDXGIKeyedMutex> keyed_mutex;
+
+        // State tracking
+        bool initialized = false;
+    };
 
     bool CreateSharedRenderTarget(int width, int height);
     void DestroySharedRenderTarget();
 
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_texture_;
-    GLuint render_texture_ = 0;
-    GLuint render_fbo_ = 0;
+    std::array<InteropBuffer, INTEROP_BUFFER_COUNT> interop_buffers_;
+    int current_write_buffer_ = 0;  // Next buffer to render into
+    int current_present_buffer_ = 0;  // Last buffer sent to Present()
+
+    // Legacy single-buffer members (for backward compatibility during migration)
+    GLuint render_texture_ = 0;  // Deprecated - use interop_buffers_[].gl_texture
+    GLuint render_fbo_ = 0;      // Deprecated - use interop_buffers_[].fbo
 
     InteropMethod interop_method_ = InteropMethod::None;
 
@@ -206,7 +235,7 @@ private:
     PFNWGLDXUNLOCKOBJECTSNV wglDXUnlockObjectsNV_ = nullptr;
 
     HANDLE nv_interop_device_ = nullptr;
-    HANDLE nv_interop_object_ = nullptr;
+    bool nv_interop_available_ = false;
 
     //=========================================================================
     // EXT_external_objects (Intel Arc, AMD, NVIDIA)
@@ -248,11 +277,6 @@ private:
     PFNGLIMPORTSEMAPHOREWIN32HANDLEEXTPROC glImportSemaphoreWin32HandleEXT_ = nullptr;
 
     bool ext_memory_available_ = false;
-    GLuint ext_memory_object_ = 0;
-    HANDLE ext_shared_handle_ = nullptr;
-
-    // Keyed mutex for synchronization
-    Microsoft::WRL::ComPtr<IDXGIKeyedMutex> keyed_mutex_;
 
     //=========================================================================
     // Fallback: CPU Readback Path

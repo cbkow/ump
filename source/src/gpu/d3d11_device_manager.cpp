@@ -56,10 +56,14 @@ bool D3D11DeviceManager::Initialize(HWND hwnd) {
 void D3D11DeviceManager::Shutdown() {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    staging_texture_.Reset();
-    staging_width_ = 0;
-    staging_height_ = 0;
-    staging_format_ = DXGI_FORMAT_UNKNOWN;
+    // Clean up all staging buffers
+    for (auto& buffer : staging_buffers_) {
+        buffer.texture.Reset();
+        buffer.width = 0;
+        buffer.height = 0;
+        buffer.format = DXGI_FORMAT_UNKNOWN;
+    }
+    current_staging_index_ = 0;
 
     factory_.Reset();
     adapter_.Reset();
@@ -457,25 +461,38 @@ bool D3D11DeviceManager::UploadTextureData(
     D3D11_TEXTURE2D_DESC dest_desc;
     dest_texture->GetDesc(&dest_desc);
 
-    // Check if we need to recreate staging texture
-    if (!staging_texture_ ||
-        staging_width_ != width ||
-        staging_height_ != height ||
-        staging_format_ != dest_desc.Format) {
+    // Get the current staging buffer (rotate through the pool)
+    auto& staging = staging_buffers_[current_staging_index_];
 
-        staging_texture_ = CreateStagingTexture(width, height, dest_desc.Format, false, true);
-        if (!staging_texture_) return false;
+    // Check if this buffer needs recreation
+    bool needs_recreation = !staging.texture ||
+                            staging.width != width ||
+                            staging.height != height ||
+                            staging.format != dest_desc.Format;
 
-        staging_width_ = width;
-        staging_height_ = height;
-        staging_format_ = dest_desc.Format;
+    if (needs_recreation) {
+        staging.texture = CreateStagingTexture(width, height, dest_desc.Format, false, true);
+        if (!staging.texture) {
+            Debug::Log("D3D11DeviceManager: Failed to create staging texture " +
+                      std::to_string(current_staging_index_));
+            return false;
+        }
+
+        staging.width = width;
+        staging.height = height;
+        staging.format = dest_desc.Format;
+
+        Debug::Log("D3D11DeviceManager: Created staging buffer " +
+                  std::to_string(current_staging_index_) + " (" +
+                  std::to_string(width) + "x" + std::to_string(height) + ")");
     }
 
     // Map staging texture
     D3D11_MAPPED_SUBRESOURCE mapped;
-    HRESULT hr = context_->Map(staging_texture_.Get(), 0, D3D11_MAP_WRITE, 0, &mapped);
+    HRESULT hr = context_->Map(staging.texture.Get(), 0, D3D11_MAP_WRITE, 0, &mapped);
     if (FAILED(hr)) {
-        Debug::Log("D3D11DeviceManager: Failed to map staging texture");
+        Debug::Log("D3D11DeviceManager: Failed to map staging texture " +
+                  std::to_string(current_staging_index_));
         return false;
     }
 
@@ -490,10 +507,13 @@ bool D3D11DeviceManager::UploadTextureData(
         dst += mapped.RowPitch;
     }
 
-    context_->Unmap(staging_texture_.Get(), 0);
+    context_->Unmap(staging.texture.Get(), 0);
 
-    // Copy to destination texture
-    context_->CopyResource(dest_texture, staging_texture_.Get());
+    // Copy to destination texture (async - GPU can do this while we prep next upload)
+    context_->CopyResource(dest_texture, staging.texture.Get());
+
+    // Advance to next staging buffer for next upload
+    current_staging_index_ = (current_staging_index_ + 1) % STAGING_BUFFER_COUNT;
 
     return true;
 }

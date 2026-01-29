@@ -115,12 +115,6 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_manager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_video_decoder.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -370,12 +364,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\frame_cache.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_manager.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\gstreamer_video_decoder.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.h">

@@ -17,7 +17,6 @@ found in the respective LICENSE file in this directory.
    License: LGPL v2.1+
    Website: https://mpv.io/
    File: libmpv-LICENSE.txt
-   Note: LEGACY - No longer used in current builds. Retained for historical builds.
 
 3. Dear ImGui
    Copyright (c) 2014-2025 Omar Cornut
@@ -216,19 +215,11 @@ found in the respective LICENSE file in this directory.
     File: otio-fcpx-xml-adapter-LICENSE.txt
     Note: OpenTimelineIO adapter for Final Cut Pro X XML file import/export
 
- 37. GStreamer
-      Copyright (C) 1999-2024 GStreamer developers
-      License: LGPL 2.1+
-      Website: https://gstreamer.freedesktop.org/
-      File: GStreamer-LICENSE.txt
-      Note: Multimedia framework for video decoding. Includes gst-plugins-base,
-      gst-plugins-good, gst-plugins-bad, gst-libav, and GLib dependencies.
-
 ================================================================================
 
 Media Assets (used in documentation)
 
-38. Big Buck Bunny
+37. Big Buck Bunny
     (c) 2008 Blender Foundation
     License: Creative Commons Attribution 3.0 (CC-BY 3.0)
     Website: https://www.bigbuckbunny.org/

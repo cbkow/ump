@@ -2343,18 +2343,20 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
     switch (info->media_type) {
         case ClipMediaType::VIDEO: {
             // Select decoder based on source mode:
-            // - VIDEO_FILE: Use GStreamer via factory (single video, HW accel, A/V sync)
+            // - VIDEO_FILE: Normally uses direct MPV in VideoDisplayComponent (no cache).
+            //               If we get here, it's a fallback - use FFmpeg via factory.
             // - MULTI_TRACK/DUAL_VIEW: Use ManagedVideoDecoder (FFmpeg with spawn-and-abandon)
             Debug::Log("TimelineCache::GetOrCreateLoader VIDEO clip, source_mode=" +
                        std::to_string(static_cast<int>(source_mode_)) +
                        " (0=MULTI_TRACK, 1=IMAGE_SEQ, 2=VIDEO_FILE, 4=DUAL_VIEW) path=" + source_path);
             if (source_mode_ == TimelineSourceMode::VIDEO_FILE) {
-                // GStreamer path for single video playback
+                // Fallback path - direct MPV in VideoDisplayComponent is preferred
+                // Factory will use FFmpeg since LibMPV is no longer available
                 auto decoder = VideoDecoderFactory::Instance().CreateDecoder(
-                    source_path, VideoDecoderBackend::GSTREAMER);
+                    source_path, VideoDecoderBackend::FFMPEG);
 
                 if (!decoder) {
-                    Debug::Log("TimelineCache: Failed to create GStreamer decoder for " + source_path +
+                    Debug::Log("TimelineCache: Failed to create video decoder for " + source_path +
                                " - " + VideoDecoderFactory::Instance().GetLastError());
                     return nullptr;
                 }
@@ -2369,7 +2371,7 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                 decoder->SetConfig(dec_config);
 
                 if (!decoder->Initialize()) {
-                    Debug::Log("TimelineCache: Failed to initialize GStreamer decoder for " + source_path);
+                    Debug::Log("TimelineCache: Failed to initialize video decoder for " + source_path);
                     return nullptr;
                 }
 

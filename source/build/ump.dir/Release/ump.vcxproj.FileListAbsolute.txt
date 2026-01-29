@@ -6,5 +6,4 @@ D:\z_DevTemp\UnionPlayer\build\Release\deflate.dll
 D:\z_DevTemp\UnionPlayer\build\Release\openjph.0.25.dll
 D:\z_DevTemp\UnionPlayer\build\Release\Imath-3_2.dll
 D:\z_DevTemp\UnionPlayer\build\Release\zlib1.dll
-D:\z_DevTemp\UnionPlayer\build\Release\liblzma.dll
 D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ump.vcxproj.Up2Date

@@ -587,6 +587,21 @@ void TimelineView::ClearTimelineInOutPoints() {
     Debug::Log("TimelineView: Cleared In/Out points");
 }
 
+void TimelineView::SetTimelineLooping(bool enabled) {
+    timeline_loop_enabled_ = enabled;
+
+    // CRITICAL: Also tell the playback controller so MPV gets the loop-file property
+    auto* controller = GetEffectivePlaybackController();
+    if (controller) {
+        controller->SetLooping(enabled);
+        Debug::Log("TimelineView: Set loop " + std::string(enabled ? "ON" : "OFF") +
+                   " (propagated to playback controller)");
+    } else {
+        Debug::Log("TimelineView: Set loop " + std::string(enabled ? "ON" : "OFF") +
+                   " (no playback controller)");
+    }
+}
+
 //=============================================================================
 // Zoom/Pan Control
 //=============================================================================
@@ -866,12 +881,24 @@ void TimelineView::RenderToolbar() {
         ImGui::EndMenuBar();
     }
     
-    // Timeline info
-    ImGui::Text("Timeline: %s", timeline_name_.c_str());
-    ImGui::SameLine();
-    ImGui::TextDisabled("(%.2f fps, %.2fs duration, %d video tracks, %d audio tracks)",
-                        frame_rate_, timeline_duration_,
-                        GetVideoTrackCount(), GetAudioTrackCount());
+    // Timeline info - prefix based on source mode (hide when no media loaded)
+    if (!timeline_name_.empty()) {
+        const char* prefix = "Timeline";
+        switch (source_mode_) {
+            case TimelineSourceMode::IMAGE_SEQUENCE: prefix = "Image Sequence"; break;
+            case TimelineSourceMode::VIDEO_FILE:
+                // Check if audio-only (no video tracks)
+                prefix = (GetVideoTrackCount() > 0) ? "Video" : "Audio";
+                break;
+            case TimelineSourceMode::DUAL_VIEW: prefix = "Comparison"; break;
+            default: prefix = "Timeline"; break;
+        }
+        ImGui::Text("%s: %s", prefix, timeline_name_.c_str());
+        ImGui::SameLine();
+        ImGui::TextDisabled("(%.2f fps, %.2fs duration, %d video tracks, %d audio tracks)",
+                            frame_rate_, timeline_duration_,
+                            GetVideoTrackCount(), GetAudioTrackCount());
+    }
     
     // Flatten mode selector
     ImGui::Spacing();
@@ -903,9 +930,17 @@ void TimelineView::RenderTrackList() {
     // Reverse order to show top tracks first (V3, V2, V1)
     for (int i = static_cast<int>(tracks_.size()) - 1; i >= 0; i--) {
         auto& track = tracks_[i];
-        
+
+        // Hide audio tracks in Audio-only mode (no video tracks, just audio file)
+        // The A1 track is not needed since MPV handles everything
+        if (source_mode_ == TimelineSourceMode::VIDEO_FILE &&
+            GetVideoTrackCount() == 0 &&
+            !track.is_video) {
+            continue;  // Skip this audio track
+        }
+
         ImGui::PushID(track.id.c_str());
-        
+
         RenderTrackHeader(track, i);
         ImGui::SameLine();
         
@@ -957,33 +992,43 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
         }
 
         // Video track: Speaker icon for audio mute
-        ImGui::SameLine();
-        const char* audio_icon = track.audio_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
-        ImGui::PushID("audio");
-        if (font_icons) ImGui::PushFont(font_icons);
-        if (ImGui::SmallButton(audio_icon)) {
-            track.audio_muted = !track.audio_muted;
-            // AudioMixer will check this flag when selecting clips
-            Debug::Log("Track " + track.name + " audio " + (track.audio_muted ? "muted" : "unmuted"));
-        }
-        if (font_icons) ImGui::PopFont();
-        ImGui::PopID();
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(track.audio_muted ? "Unmute track audio" : "Mute track audio");
+        // Hide in direct MPV mode (MPV handles its own audio)
+        auto* playback_ctrl = GetEffectivePlaybackController();
+        bool is_direct_mpv = playback_ctrl && playback_ctrl->IsDirectMPVMode();
+        if (!is_direct_mpv) {
+            ImGui::SameLine();
+            const char* audio_icon = track.audio_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+            ImGui::PushID("audio");
+            if (font_icons) ImGui::PushFont(font_icons);
+            if (ImGui::SmallButton(audio_icon)) {
+                track.audio_muted = !track.audio_muted;
+                // AudioMixer will check this flag when selecting clips
+                Debug::Log("Track " + track.name + " audio " + (track.audio_muted ? "muted" : "unmuted"));
+            }
+            if (font_icons) ImGui::PopFont();
+            ImGui::PopID();
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(track.audio_muted ? "Unmute track audio" : "Mute track audio");
+            }
         }
     } else {
         // Audio track: Speaker icon for mute
-        ImGui::SameLine();
-        const char* mute_icon = track.muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
-        ImGui::PushID("mute");
-        if (font_icons) ImGui::PushFont(font_icons);
-        if (ImGui::SmallButton(mute_icon)) {
-            HandleTrackMuteToggle(track.id);
-        }
-        if (font_icons) ImGui::PopFont();
-        ImGui::PopID();
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip(track.muted ? "Unmute track" : "Mute track");
+        // Hide in direct MPV mode (MPV handles its own audio)
+        auto* playback_ctrl = GetEffectivePlaybackController();
+        bool is_direct_mpv = playback_ctrl && playback_ctrl->IsDirectMPVMode();
+        if (!is_direct_mpv) {
+            ImGui::SameLine();
+            const char* mute_icon = track.muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
+            ImGui::PushID("mute");
+            if (font_icons) ImGui::PushFont(font_icons);
+            if (ImGui::SmallButton(mute_icon)) {
+                HandleTrackMuteToggle(track.id);
+            }
+            if (font_icons) ImGui::PopFont();
+            ImGui::PopID();
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(track.muted ? "Unmute track" : "Mute track");
+            }
         }
     }
 
@@ -2617,8 +2662,8 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
 
     Debug::Log("Loading audio file as timeline: " + item->name);
 
-    // Set source mode to VIDEO_FILE so GStreamer handles playback
-    // GStreamer can play audio-only files - it just won't produce video frames
+    // Set source mode to VIDEO_FILE so MPV handles playback
+    // MPV can play audio-only files - it just won't produce video frames (black display)
     source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = item;
 

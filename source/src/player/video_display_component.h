@@ -31,6 +31,10 @@
 // Include actual headers to avoid forward declaration conflicts
 #include "direct_exr_cache.h"
 
+// Forward declarations for MPV types
+struct mpv_handle;
+struct mpv_render_context;
+
 // Forward declarations
 class OCIOPipeline;
 
@@ -240,6 +244,9 @@ public:
     PipelineMode GetPipelineMode() const { return current_pipeline_mode_; }
     const PipelineConfig& GetCurrentPipelineConfig() const;
 
+    // Apply MPV configuration for pipeline mode (tone-mapping, fbo-format, etc.)
+    void ApplyPipelineModeConfig(PipelineMode mode);
+
 
     //=========================================================================
     // Callbacks
@@ -248,6 +255,69 @@ public:
     void SetDimensionChangeCallback(std::function<void(int, int)> callback) {
         dimension_change_callback_ = callback;
     }
+
+    //=========================================================================
+    // MPV Video Playback (Direct GPU rendering - no CPU roundtrip)
+    //=========================================================================
+
+    // MPV lifecycle
+    bool InitializeMPV();
+    void CleanupMPV();
+    bool LoadVideoFile(const std::string& path);
+    void UnloadVideoFile();
+
+    // MPV rendering (called from UpdateVideoTexture)
+    void RenderMPVFrame();      // Render MPV to mpv_fbo, blit to video_texture
+    void ProcessMPVEvents();    // Non-blocking event poll
+
+    // MPV playback control
+    void MPVPlay();
+    void MPVPause();
+    void MPVSeek(double position);
+    void MPVStepFrame(int direction);
+    void MPVSetLoop(bool enabled);
+    void MPVSetSpeed(double speed);  // 1.0 = normal, 2.0 = 2x, 0.5 = half speed
+    void MPVSetVolume(double volume);  // 0.0 to 1.0
+    void MPVSetMute(bool muted);
+    bool IsMPVLoaded() const { return mpv_file_loaded_; }
+
+    // MPV state queries
+    double GetMPVPosition() const;
+    double GetMPVDuration() const;
+    double GetMPVSpeed() const;
+    double GetMPVVolume() const { return mpv_volume_; }
+    bool IsMPVMuted() const { return mpv_muted_; }
+    bool IsMPVPlaying() const { return mpv_is_playing_; }
+    bool IsMPVLooping() const { return mpv_loop_enabled_; }
+
+    // Async scrubbing - playhead moves instantly, decode catches up
+    void MPVStartScrub();
+    void MPVUpdateScrub(double position);  // Call as user drags - instant playhead
+    void MPVEndScrub();                     // Triggers final exact seek
+    double GetMPVScrubTarget() const { return mpv_scrub_target_.load(); }
+    bool IsMPVScrubbing() const { return mpv_is_scrubbing_.load(); }
+
+    // AB-loop for in/out point playback
+    void MPVSetABLoop(double in_point, double out_point);  // Set loop region (-1 to clear)
+    void MPVClearABLoop();                                  // Clear AB-loop points
+    bool HasMPVABLoop() const { return mpv_ab_loop_active_; }
+
+    // Async fast seek - decoupled like scrubbing
+    void MPVStartFastSeek(bool forward);    // Start FF/RW
+    void MPVUpdateFastSeek();               // Call from render loop - updates position
+    void MPVStopFastSeek();                 // Stop and resume normal playback
+    bool IsMPVFastSeeking() const { return mpv_fast_seeking_; }
+    bool IsMPVFastForward() const { return mpv_fast_forward_; }
+    double GetMPVFastSeekSpeed() const { return mpv_fast_seek_speed_; }
+
+    // Check if new frame is ready (for async rendering)
+    bool HasMPVFrameReady() const { return mpv_frame_ready_.load(); }
+    void ClearMPVFrameReady() { mpv_frame_ready_.store(false); }
+
+    // EOF callback - called when MPV reaches end of file (non-looping mode)
+    // Use this to trigger playlist transitions
+    using MPVEOFCallback = std::function<void()>;
+    void SetMPVEOFCallback(MPVEOFCallback callback) { mpv_eof_callback_ = callback; }
 
     //=========================================================================
     // Backward Compatibility Stubs (MPV-specific methods now deprecated)
@@ -373,6 +443,52 @@ public:
 
 private:
     //=========================================================================
+    // MPV Instance (Three-FBO Architecture)
+    //=========================================================================
+
+    mpv_handle* mpv_ = nullptr;
+    mpv_render_context* mpv_gl_ = nullptr;
+
+    // Separate MPV FBO (MPV renders here, then blit to video_texture_)
+    GLuint mpv_fbo_ = 0;
+    GLuint mpv_texture_ = 0;
+
+    // MPV state
+    std::string current_video_path_;
+    bool mpv_file_loaded_ = false;
+    double mpv_cached_position_ = 0.0;
+    double mpv_cached_duration_ = 0.0;
+    double mpv_speed_ = 1.0;
+    double mpv_volume_ = 1.0;  // 0.0 to 1.0
+    bool mpv_muted_ = false;
+    bool mpv_loop_enabled_ = false;
+
+    // Async rendering - MPV signals when new frame is ready
+    std::atomic<bool> mpv_frame_ready_{false};
+    std::atomic<bool> mpv_redraw_needed_{false};
+
+    // Scrub position tracking - decouples playhead from decode
+    std::atomic<double> mpv_scrub_target_{0.0};  // Where user is scrubbing to (instant)
+    std::atomic<bool> mpv_is_scrubbing_{false};  // True during active scrub
+    bool mpv_is_playing_ = false;
+
+    // AB-loop state (for in/out point playback)
+    bool mpv_ab_loop_active_ = false;
+    double mpv_ab_loop_a_ = -1.0;  // In point (-1 = not set)
+    double mpv_ab_loop_b_ = -1.0;  // Out point (-1 = not set)
+
+    // Fast seek state - decoupled like scrubbing
+    bool mpv_fast_seeking_ = false;
+    bool mpv_fast_forward_ = true;   // true = forward, false = rewind
+    double mpv_fast_seek_speed_ = 2.0;
+    double mpv_fast_seek_position_ = 0.0;
+    std::chrono::steady_clock::time_point mpv_fast_seek_start_time_;
+    std::chrono::steady_clock::time_point mpv_fast_seek_last_update_;
+
+    // EOF callback - called when MPV reaches end of file (for playlist transitions)
+    MPVEOFCallback mpv_eof_callback_;
+
+    //=========================================================================
     // OpenGL Resources
     //=========================================================================
 
@@ -476,6 +592,8 @@ private:
     void CreateVideoTextures(int width, int height);
     void CreateVideoTexturesForMode(int width, int height, PipelineMode mode);
     void CreateColorProcessingResourcesForMode(int width, int height, PipelineMode mode);
+    void CreateMPVTextures(int width, int height);
+    void CleanupMPVTextures();
     void CreateTransitionPlaceholder();
     void ClearVideoTextureToBackground();
     void ClearColorTextureToBackground();

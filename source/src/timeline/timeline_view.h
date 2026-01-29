@@ -227,7 +227,7 @@ public:
     bool HasTimelineInPoint() const { return timeline_in_point_ >= 0; }
     bool HasTimelineOutPoint() const { return timeline_out_point_ >= 0; }
     bool HasTimelineInOutPoints() const { return timeline_in_point_ >= 0 && timeline_out_point_ >= 0; }
-    void SetTimelineLooping(bool enabled) { timeline_loop_enabled_ = enabled; }
+    void SetTimelineLooping(bool enabled);
     bool IsTimelineLooping() const { return timeline_loop_enabled_; }
 
     // Zoom/Pan control for external UI (sliders)

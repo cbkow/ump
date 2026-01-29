@@ -151,6 +151,15 @@ public:
     // Access to audio mixer for volume control
     AudioMixer* GetAudioMixer() const { return audio_mixer_.get(); }
 
+    // Direct MPV mode: single video file uses MPV for audio (better A/V sync)
+    bool IsDirectMPVMode() const { return use_direct_mpv_; }
+
+    // Volume/Mute control - routes to MPV or AudioMixer depending on mode
+    void SetVolume(double volume);  // 0.0 to 1.0
+    void SetMuted(bool muted);
+    double GetVolume() const;
+    bool IsMuted() const;
+
     // Check if using virtual timeline mode (always true now)
     bool IsVirtualTimelineMode() const { return use_virtual_timeline_; }
 
@@ -199,6 +208,14 @@ public:
     void SetScrubMode(bool enabled);
     bool IsScrubMode() const { return is_scrubbing_; }
 
+    //=========================================================================
+    // AB-Loop for In/Out Point Playback (Direct MPV Mode)
+    //=========================================================================
+
+    void SetABLoop(double in_point, double out_point);  // Set loop region (-1 to clear)
+    void ClearABLoop();                                  // Clear AB-loop points
+    bool HasABLoop() const;
+
     // Notify controller that timeline was edited
     // Clears stale current texture so we don't show old frames
     void NotifyTracksEdited();
@@ -236,6 +253,14 @@ private:
 
     // Virtual timeline mode flag (always true now - dummy video mode removed)
     bool use_virtual_timeline_ = true;
+
+    // Direct MPV mode: VIDEO_FILE uses VideoDisplayComponent's MPV directly
+    // This eliminates GPU→CPU→GPU roundtrip of LibMPVVideoDecoder
+    bool use_direct_mpv_ = false;
+
+    // Volume/mute state (shared between MPV and AudioMixer modes)
+    double volume_ = 1.0;  // 0.0 to 1.0
+    bool muted_ = false;
 
     // Frame-locked timing: accumulate real time and advance by frames
     std::chrono::steady_clock::time_point last_timer_update_;

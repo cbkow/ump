@@ -63,9 +63,21 @@ public:
     using PlayPreviousCallback = std::function<void()>;
     void SetPlayPreviousCallback(PlayPreviousCallback callback) { play_previous_callback_ = callback; }
 
+    // Play/Pause callback - toggles playback, starts playlist if not active
+    using PlayPauseCallback = std::function<void()>;
+    void SetPlayPauseCallback(PlayPauseCallback callback) { play_pause_callback_ = callback; }
+
     // Callback when playlist is modified (items added/removed/reordered)
     using PlaylistModifiedCallback = std::function<void()>;
     void SetPlaylistModifiedCallback(PlaylistModifiedCallback callback) { playlist_modified_callback_ = callback; }
+
+    // Callback to create a new playlist (returns playlist ID)
+    using CreatePlaylistCallback = std::function<std::string()>;
+    void SetCreatePlaylistCallback(CreatePlaylistCallback callback) { create_playlist_callback_ = callback; }
+
+    // Check if currently playing (for play/pause button state)
+    void SetPlaying(bool playing) { is_playing_ = playing; }
+    bool IsPlaying() const { return is_playing_; }
 
     // Active state (set by playlist controller)
     void SetActive(bool active) { is_active_ = active; }
@@ -96,6 +108,7 @@ private:
     PlaylistController* playlist_controller_ = nullptr;
     std::string loaded_playlist_id_;
     bool is_active_ = false;
+    bool is_playing_ = false;
     int current_index_ = 0;
 
     // Drag-drop state for reordering
@@ -106,7 +119,9 @@ private:
     PlayItemCallback play_item_callback_;
     PlayNextCallback play_next_callback_;
     PlayPreviousCallback play_previous_callback_;
+    PlayPauseCallback play_pause_callback_;
     PlaylistModifiedCallback playlist_modified_callback_;
+    CreatePlaylistCallback create_playlist_callback_;
 
     // UI helpers
     void RenderHeader(bool* p_open, ImVec4 accent_color);

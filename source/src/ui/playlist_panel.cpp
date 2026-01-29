@@ -5,8 +5,13 @@
 #include <algorithm>
 
 // Icons
-#define ICON_LIST       u8"\uE896"
-#define ICON_CLOSE      u8"\uE5CD"
+#define ICON_LIST           u8"\uE896"
+#define ICON_CLOSE          u8"\uE5CD"
+#define ICON_PLAY_CIRCLE    u8"\uE039"   // Play circle (distinct from transport play)
+#define ICON_PAUSE_CIRCLE   u8"\uE035"   // Pause circle
+#define ICON_SKIP_PREVIOUS  u8"\uE045"
+#define ICON_SKIP_NEXT      u8"\uE044"
+#define ICON_ADD            u8"\uE145"
 
 extern ImFont* font_icons;
 
@@ -31,7 +36,6 @@ void PlaylistPanel::Render(bool* p_open, ImVec4 accent_color) {
             RenderEmptyState();
         } else {
             RenderItemsList(accent_color);
-            ImGui::Spacing();
             RenderControls(accent_color);
         }
     }
@@ -42,6 +46,8 @@ void PlaylistPanel::Render(bool* p_open, ImVec4 accent_color) {
 
 void PlaylistPanel::RenderHeader(bool* p_open, ImVec4 accent_color) {
     // Header with icon and title (gray text like Project Manager)
+    MediaItem* playlist = GetLoadedPlaylist();
+
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
     if (font_icons) {
         ImGui::PushFont(font_icons);
@@ -49,15 +55,24 @@ void PlaylistPanel::RenderHeader(bool* p_open, ImVec4 accent_color) {
         ImGui::PopFont();
         ImGui::SameLine();
     }
-    ImGui::Text("Playlist");
-    ImGui::PopStyleColor();
+
+    // Show "Playlist: {name}" when loaded, otherwise just "Playlist"
+    if (playlist) {
+        ImGui::Text("Playlist:");
+        ImGui::PopStyleColor();
+        ImGui::SameLine();
+        // Playlist name in white
+        ImGui::Text("%s", playlist->name.c_str());
+    } else {
+        ImGui::Text("Playlist");
+        ImGui::PopStyleColor();
+    }
 
     // Show "Playing" badge when active
-    MediaItem* playlist = GetLoadedPlaylist();
     if (is_active_ && playlist) {
         ImGui::SameLine();
         ImGui::PushStyleColor(ImGuiCol_Text, accent_color);
-        ImGui::Text("[PLAYING %d/%d]", current_index_ + 1, static_cast<int>(playlist->playlist_items.size()));
+        ImGui::Text("[%d/%d]", current_index_ + 1, static_cast<int>(playlist->playlist_items.size()));
         ImGui::PopStyleColor();
     }
 
@@ -92,11 +107,70 @@ void PlaylistPanel::RenderEmptyState() {
     // Left-aligned with small indent
     ImGui::TextDisabled("No playlist loaded.");
     ImGui::Spacing();
-    ImGui::TextDisabled("Create or open a playlist from the");
-    ImGui::TextDisabled("Project panel to get started.");
+    ImGui::TextDisabled("Drag media here to create a playlist,");
+    ImGui::TextDisabled("or open one from the Project panel.");
 
     ImGui::Spacing();
     ImGui::Spacing();
+
+    // Drop zone fills remaining space
+    ImVec2 available = ImGui::GetContentRegionAvail();
+    float drop_height = std::max(available.y - 20.0f, 60.0f);
+    float drop_width = available.x;
+
+    // Invisible button for drop zone
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+
+    ImGui::Button("##EmptyDropZone", ImVec2(drop_width, drop_height));
+
+    ImGui::PopStyleColor(3);
+
+    // Handle drag-drop - auto-create playlist
+    if (ImGui::BeginDragDropTarget()) {
+        bool received_drop = false;
+        std::vector<std::string> media_ids;
+
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+            const char* media_id = static_cast<const char*>(payload->Data);
+            media_ids.push_back(std::string(media_id));
+            received_drop = true;
+        }
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEMS_MULTI")) {
+            const char* payload_str = static_cast<const char*>(payload->Data);
+            // Parse semicolon-separated list
+            std::string str(payload_str);
+            size_t pos = 0;
+            while (pos < str.length()) {
+                size_t next_pos = str.find(';', pos);
+                if (next_pos == std::string::npos) {
+                    std::string id = str.substr(pos);
+                    if (!id.empty()) media_ids.push_back(id);
+                    break;
+                } else {
+                    std::string id = str.substr(pos, next_pos - pos);
+                    if (!id.empty()) media_ids.push_back(id);
+                    pos = next_pos + 1;
+                }
+            }
+            received_drop = true;
+        }
+        ImGui::EndDragDropTarget();
+
+        // If we received a drop, auto-create playlist and add items
+        if (received_drop && !media_ids.empty() && create_playlist_callback_) {
+            std::string new_playlist_id = create_playlist_callback_();
+            if (!new_playlist_id.empty()) {
+                // Load the newly created playlist
+                LoadPlaylist(new_playlist_id);
+                // Add the dropped items
+                AddItems(media_ids);
+                Debug::Log("PlaylistPanel: Auto-created playlist with " +
+                           std::to_string(media_ids.size()) + " items from drag-drop");
+            }
+        }
+    }
 }
 
 void PlaylistPanel::RenderItemsList(ImVec4 accent_color) {
@@ -104,10 +178,11 @@ void PlaylistPanel::RenderItemsList(ImVec4 accent_color) {
     if (!playlist) return;
 
     // Reserve space for controls at bottom
+    // Controls has: Separator (item_spacing + 1 + item_spacing) + Spacing (item_spacing) + checkbox row (frame_height)
     float item_spacing = ImGui::GetStyle().ItemSpacing.y;
     float separator_height = 1.0f;
-    float frame_height = ImGui::GetFrameHeightWithSpacing();
-    float controls_height = item_spacing + separator_height + item_spacing + frame_height + 6.0f;
+    float frame_height = ImGui::GetFrameHeight();
+    float controls_height = item_spacing + separator_height + item_spacing + item_spacing + frame_height + 7.0f;
     float available_height = ImGui::GetContentRegionAvail().y - controls_height;
     if (available_height < 100.0f) available_height = 100.0f;
 
@@ -298,6 +373,102 @@ void PlaylistPanel::RenderControls(ImVec4 accent_color) {
 
     // Item count
     ImGui::TextDisabled("%d items", static_cast<int>(playlist->playlist_items.size()));
+
+    // Transport controls on the right side
+    // Use larger button size (1.5x) to match OTIO transport controls
+    bool has_items = !playlist->playlist_items.empty();
+    float button_size = ImGui::GetFrameHeight();
+    float icon_scale = 1.6f;  // Match OTIO transport icon scale
+    float right_padding = 20.0f;
+
+    // Calculate position for right-aligned buttons (3 buttons + padding)
+    float buttons_width = button_size * 3 + ImGui::GetStyle().ItemSpacing.x * 2 + right_padding;
+    float right_edge = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+
+    ImGui::SameLine(right_edge - buttons_width);
+
+    // Button styling
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.1f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.2f));
+
+    // Push icon font with scale for all transport buttons
+    if (font_icons) {
+        ImGui::PushFont(font_icons);
+        ImGui::SetWindowFontScale(icon_scale);
+    }
+
+    // Previous button
+    bool can_prev = has_items && is_active_ && current_index_ > 0;
+    if (!can_prev) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    if (ImGui::Button(ICON_SKIP_PREVIOUS "##PlaylistPrev", ImVec2(button_size, button_size))) {
+        if (can_prev && play_previous_callback_) {
+            play_previous_callback_();
+        }
+    }
+    if (!can_prev) ImGui::PopStyleColor();
+    bool hover_prev = ImGui::IsItemHovered();
+
+    ImGui::SameLine();
+
+    // Play/Pause button
+    const char* play_icon = (is_active_ && is_playing_) ? ICON_PAUSE_CIRCLE : ICON_PLAY_CIRCLE;
+    ImVec4 play_color = is_active_ ? accent_color : ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    if (!has_items) play_color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    ImGui::PushStyleColor(ImGuiCol_Text, play_color);
+    if (ImGui::Button(play_icon, ImVec2(button_size, button_size))) {
+        if (has_items) {
+            if (is_active_ && play_pause_callback_) {
+                // Toggle play/pause
+                play_pause_callback_();
+            } else if (play_item_callback_) {
+                // Start playlist from first item (or current if resuming)
+                int start_index = 0;  // Always start from first item
+                const auto& entry = playlist->playlist_items[start_index];
+                play_item_callback_(entry.media_id, start_index);
+            }
+        }
+    }
+    ImGui::PopStyleColor();
+    bool hover_play = ImGui::IsItemHovered();
+
+    ImGui::SameLine();
+
+    // Next button
+    bool can_next = has_items && is_active_ && current_index_ < static_cast<int>(playlist->playlist_items.size()) - 1;
+    if (!can_next) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    if (ImGui::Button(ICON_SKIP_NEXT "##PlaylistNext", ImVec2(button_size, button_size))) {
+        if (can_next && play_next_callback_) {
+            play_next_callback_();
+        }
+    }
+    if (!can_next) ImGui::PopStyleColor();
+    bool hover_next = ImGui::IsItemHovered();
+
+    // Reset font scale and pop icon font
+    if (font_icons) {
+        ImGui::SetWindowFontScale(1.0f);
+        ImGui::PopFont();
+    }
+
+    // Tooltips (use regular font)
+    if (hover_prev) ImGui::SetTooltip("Previous");
+    if (hover_play) {
+        if (!has_items) {
+            ImGui::SetTooltip("Add items to playlist");
+        } else if (is_active_ && is_playing_) {
+            ImGui::SetTooltip("Pause");
+        } else if (is_active_) {
+            ImGui::SetTooltip("Resume");
+        } else {
+            ImGui::SetTooltip("Play Playlist");
+        }
+    }
+    if (hover_next) ImGui::SetTooltip("Next");
+
+    ImGui::PopStyleColor(3);
+    ImGui::PopStyleVar();
 }
 
 void PlaylistPanel::LoadPlaylist(const std::string& playlist_id) {

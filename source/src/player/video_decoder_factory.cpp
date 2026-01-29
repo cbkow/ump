@@ -1,10 +1,5 @@
 #include "video_decoder_factory.h"
 
-#ifdef WITH_GSTREAMER
-#include "gstreamer_video_decoder.h"
-#include "gstreamer_manager.h"
-#endif
-
 #include "streaming_video_decoder.h"  // FFmpeg-based decoder
 
 #include <iostream>
@@ -21,17 +16,21 @@ VideoDecoderFactory& VideoDecoderFactory::Instance() {
 }
 
 VideoDecoderFactory::VideoDecoderFactory() {
-    preferred_backend_ = VideoDecoderBackend::GSTREAMER;
+    // Default to FFmpeg backend (LibMPV removed - now handled directly in VideoDisplayComponent)
+    preferred_backend_ = VideoDecoderBackend::FFMPEG;
 }
 
 VideoDecoderFactory::~VideoDecoderFactory() = default;
 
 //=============================================================================
-// Decoder Creation (GStreamer or FFmpeg)
+// Decoder Creation (FFmpeg only - LibMPV removed)
+//
+// NOTE: LibMPV-based decoding for VIDEO_FILE mode is now handled directly
+// in VideoDisplayComponent using direct GPU rendering (no CPU roundtrip).
+// This factory now only supports FFmpeg for MULTI_TRACK/DUAL_VIEW modes.
 //=============================================================================
 
 std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(const std::string& video_path) {
-    // Default: use preferred backend (GStreamer for single file playback)
     return CreateDecoder(video_path, preferred_backend_, false);
 }
 
@@ -42,63 +41,32 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
 {
     last_error_.clear();
 
-    // Handle AUTO mode: use preferred backend
+    // Handle AUTO mode: use FFmpeg (only backend available in factory now)
     if (backend == VideoDecoderBackend::AUTO) {
-        backend = preferred_backend_;
+        backend = VideoDecoderBackend::FFMPEG;
+    }
+
+    // GSTREAMER enum no longer supported through factory
+    // (VIDEO_FILE mode uses direct MPV in VideoDisplayComponent)
+    if (backend == VideoDecoderBackend::GSTREAMER) {
+        std::cout << "[VideoDecoderFactory] GSTREAMER backend deprecated - VIDEO_FILE mode "
+                  << "now uses direct MPV rendering. Falling back to FFmpeg." << std::endl;
+        backend = VideoDecoderBackend::FFMPEG;
     }
 
     //=========================================================================
-    // FFmpeg Backend (for timeline/multi-track mode)
+    // FFmpeg Backend (for MULTI_TRACK/DUAL_VIEW modes)
     //=========================================================================
-    if (backend == VideoDecoderBackend::FFMPEG || force) {
-        try {
-            std::cout << "[VideoDecoderFactory] Creating FFmpeg decoder for: " << video_path << std::endl;
-            auto decoder = std::make_unique<StreamingVideoDecoder>(video_path);
-            decoders_created_++;
-            return decoder;
-        } catch (const std::exception& e) {
-            last_error_ = std::string("FFmpeg decoder creation failed: ") + e.what();
-            std::cerr << "[VideoDecoderFactory] " << last_error_ << std::endl;
-            // If forced, don't fall back
-            if (force) return nullptr;
-            // Otherwise fall through to try GStreamer
-        }
+    try {
+        std::cout << "[VideoDecoderFactory] Creating FFmpeg decoder for: " << video_path << std::endl;
+        auto decoder = std::make_unique<StreamingVideoDecoder>(video_path);
+        decoders_created_++;
+        return decoder;
+    } catch (const std::exception& e) {
+        last_error_ = std::string("FFmpeg decoder creation failed: ") + e.what();
+        std::cerr << "[VideoDecoderFactory] " << last_error_ << std::endl;
+        return nullptr;
     }
-
-    //=========================================================================
-    // GStreamer Backend (for single file playback with HW accel + A/V sync)
-    //=========================================================================
-#ifdef WITH_GSTREAMER
-    if (backend == VideoDecoderBackend::GSTREAMER || backend == VideoDecoderBackend::AUTO) {
-        // Initialize GStreamer if not already done
-        if (!GStreamerManager::Instance().IsInitialized()) {
-            std::cout << "[VideoDecoderFactory] GStreamer not initialized, initializing now..." << std::endl;
-            if (!GStreamerManager::Instance().Initialize()) {
-                last_error_ = "Failed to initialize GStreamer: " + GStreamerManager::Instance().GetInitError();
-                std::cerr << "[VideoDecoderFactory] " << last_error_ << std::endl;
-                return nullptr;
-            }
-            std::cout << "[VideoDecoderFactory] GStreamer initialized: "
-                      << GStreamerManager::Instance().GetVersionString() << std::endl;
-        }
-
-        // Create GStreamer decoder
-        try {
-            std::cout << "[VideoDecoderFactory] Creating GStreamer decoder for: " << video_path << std::endl;
-            auto decoder = std::make_unique<GStreamerVideoDecoder>(video_path);
-            decoders_created_++;
-            return decoder;
-        } catch (const std::exception& e) {
-            last_error_ = std::string("GStreamer decoder creation failed: ") + e.what();
-            std::cerr << "[VideoDecoderFactory] " << last_error_ << std::endl;
-            return nullptr;
-        }
-    }
-#endif
-
-    last_error_ = "No video decoder backend available";
-    std::cerr << "[VideoDecoderFactory] " << last_error_ << std::endl;
-    return nullptr;
 }
 
 //=============================================================================
@@ -106,11 +74,9 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
 //=============================================================================
 
 bool VideoDecoderFactory::IsGStreamerAvailable() const {
-#ifdef WITH_GSTREAMER
-    return GStreamerManager::Instance().IsInitialized();
-#else
+    // GSTREAMER/LibMPV no longer available through factory
+    // VIDEO_FILE mode uses direct MPV in VideoDisplayComponent
     return false;
-#endif
 }
 
 bool VideoDecoderFactory::IsFFmpegAvailable() const {
@@ -124,7 +90,7 @@ bool VideoDecoderFactory::IsBackendAvailable(VideoDecoderBackend backend) const 
         case VideoDecoderBackend::FFMPEG:
             return IsFFmpegAvailable();
         case VideoDecoderBackend::AUTO:
-            return IsGStreamerAvailable() || IsFFmpegAvailable();
+            return IsFFmpegAvailable();
         default:
             return false;
     }
@@ -135,9 +101,7 @@ std::vector<VideoDecoderBackend> VideoDecoderFactory::GetAvailableBackends() con
     if (IsFFmpegAvailable()) {
         backends.push_back(VideoDecoderBackend::FFMPEG);
     }
-    if (IsGStreamerAvailable()) {
-        backends.push_back(VideoDecoderBackend::GSTREAMER);
-    }
+    // GSTREAMER no longer available through factory
     return backends;
 }
 
@@ -146,6 +110,12 @@ std::vector<VideoDecoderBackend> VideoDecoderFactory::GetAvailableBackends() con
 //=============================================================================
 
 void VideoDecoderFactory::SetPreferredBackend(VideoDecoderBackend backend) {
+    if (backend == VideoDecoderBackend::GSTREAMER) {
+        std::cerr << "[VideoDecoderFactory] GSTREAMER backend deprecated - "
+                  << "VIDEO_FILE mode uses direct MPV in VideoDisplayComponent" << std::endl;
+        return;
+    }
+
     if (IsBackendAvailable(backend)) {
         preferred_backend_ = backend;
         std::cout << "[VideoDecoderFactory] Preferred backend set to: "

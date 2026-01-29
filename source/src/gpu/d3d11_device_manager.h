@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <array>
 
 namespace ump {
 
@@ -180,11 +181,18 @@ private:
     Microsoft::WRL::ComPtr<IDXGIAdapter> adapter_;
     Microsoft::WRL::ComPtr<IDXGIFactory2> factory_;
 
-    // Staging texture pool for uploads (reused to avoid allocation overhead)
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;
-    UINT staging_width_ = 0;
-    UINT staging_height_ = 0;
-    DXGI_FORMAT staging_format_ = DXGI_FORMAT_UNKNOWN;
+    // Staging texture pool for uploads - triple-buffering to eliminate CPU blocking
+    static constexpr int STAGING_BUFFER_COUNT = 3;
+
+    struct StagingBuffer {
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+        UINT width = 0;
+        UINT height = 0;
+        DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    };
+
+    std::array<StagingBuffer, STAGING_BUFFER_COUNT> staging_buffers_;
+    int current_staging_index_ = 0;
 
     D3D_FEATURE_LEVEL feature_level_ = D3D_FEATURE_LEVEL_11_0;
     size_t dedicated_video_memory_ = 0;

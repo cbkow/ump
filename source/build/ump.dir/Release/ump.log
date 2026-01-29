@@ -39,12 +39,10 @@
   direct_exr_cache.cpp
   exr_transcoder.cpp
   frame_cache.cpp
-  gstreamer_manager.cpp
-  gstreamer_video_decoder.cpp
-  Generating Code...
-  Compiling...
   hw_context_manager.cpp
   image_loaders.cpp
+  Generating Code...
+  Compiling...
   image_sequence_config.cpp
   image_sequence_decoder.cpp
   managed_video_decoder.cpp
@@ -63,10 +61,10 @@
   edl_parser.cpp
   media_linker.cpp
   nested_timeline_manager.cpp
-  Generating Code...
-  Compiling...
   python_adapter_bridge.cpp
   timeline_cache.cpp
+  Generating Code...
+  Compiling...
   timeline_commands.cpp
   timeline_playback_controller.cpp
   timeline_thumbnail_cache.cpp
@@ -85,13 +83,13 @@
   playlist_panel.cpp
   timeline_manager.cpp
   transcode_queue_window.cpp
-  Generating Code...
-  Compiling...
   exiftool_helper.cpp
   exr_layer_detector.cpp
+  Generating Code...
+  Compiling...
   system_pressure_monitor.cpp
   Generating Code...
   ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe
   'pwsh.exe' is not recognized as an internal or external command,
   operable program or batch file.
-  Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script	Copying GStreamer DLL: gstreamer-1.0-0.dll	Copying GStreamer DLL: gstbase-1.0-0.dll	Copying GStreamer DLL: gstapp-1.0-0.dll	Copying GStreamer DLL: gstaudio-1.0-0.dll	Copying GStreamer DLL: gstvideo-1.0-0.dll	Copying GStreamer DLL: gstpbutils-1.0-0.dll	Copying GStreamer DLL: gsttag-1.0-0.dll	Copying GStreamer DLL: gstriff-1.0-0.dll	Copying GStreamer DLL: gstfft-1.0-0.dll	Copying GStreamer DLL: gstgl-1.0-0.dll	Copying GStreamer DLL: gstcontroller-1.0-0.dll	Copying GStreamer DLL: gstallocators-1.0-0.dll	Copying GStreamer DLL: gstcodecparsers-1.0-0.dll	Copying GStreamer DLL: gstcodecs-1.0-0.dll	Copying GStreamer DLL: gstrtp-1.0-0.dll	Copying GStreamer DLL: gstd3d11-1.0-0.dll	Copying GStreamer DLL: gstd3dshader-1.0-0.dll	Copying GStreamer DLL: gstdxva-1.0-0.dll	Copying GStreamer DLL: glib-2.0-0.dll	Copying GStreamer DLL: gobject-2.0-0.dll	Copying GStreamer DLL: gmodule-2.0-0.dll	Copying GStreamer DLL: gio-2.0-0.dll	Copying GStreamer DLL: gthread-2.0-0.dll	Copying GStreamer DLL: intl-8.dll	Copying GStreamer DLL: ffi-7.dll	Copying GStreamer DLL: pcre2-8-0.dll	Copying GStreamer DLL: z-1.dll	Copying GStreamer DLL: orc-0.4-0.dll	Copying GStreamer DLL: libwinpthread-1.dll	Copying GStreamer DLL: libgcc_s_seh-1.dll	Copying GStreamer DLL: libstdc++-6.dll	Copying GStreamer DLL: libiconv-2.dll	Copying GStreamer DLL: libcharset-1.dll	Copying GStreamer DLL: avcodec-61.dll	Copying GStreamer DLL: avformat-61.dll	Copying GStreamer DLL: avutil-59.dll	Copying GStreamer DLL: avfilter-10.dll	Copying GStreamer DLL: swresample-5.dll	Copying GStreamer DLL: swscale-8.dll	Copying GStreamer DLL: ogg-0.dll	Copying GStreamer DLL: vorbis-0.dll	Copying GStreamer DLL: vorbisenc-2.dll	Copying GStreamer DLL: vorbisfile-3.dll	Copying GStreamer DLL: FLAC-8.dll	Copying GStreamer DLL: opus-0.dll	Copying GStreamer DLL: libmpg123-1.dll	Copying GStreamer DLL: mp3lame-0.dll	Copying GStreamer DLL: dav1d.dll	Copying GStreamer DLL: x264-164.dll	Copying GStreamer DLL: x265.dll	Copying GStreamer DLL: openh264-7.dll	Copying GStreamer DLL: openjp2.dll	Copying GStreamer DLL: png16.dll	Copying GStreamer DLL: jpeg8.dll	Copying GStreamer DLL: turbojpeg.dll	Copying GStreamer DLL: bz2.dll	Copying GStreamer DLL: xml2-2.dll	Copying GStreamer DLL: ass-9.dll	Copying GStreamer DLL: fontconfig-1.dll	Copying GStreamer DLL: freetype-6.dll	Copying GStreamer DLL: fribidi-0.dll	Copying GStreamer DLL: harfbuzz.dll	Creating GStreamer plugins directory	Copying GStreamer plugin: gstcoreelements.dll	Copying GStreamer plugin: gstplayback.dll	Copying GStreamer plugin: gstautodetect.dll	Copying GStreamer plugin: gstapp.dll	Copying GStreamer plugin: gstaudioconvert.dll	Copying GStreamer plugin: gstaudioresample.dll	Copying GStreamer plugin: gstvolume.dll	Copying GStreamer plugin: gstaudiomixer.dll	Copying GStreamer plugin: gstaudioparsers.dll	Copying GStreamer plugin: gstaudiorate.dll	Copying GStreamer plugin: gstvideoconvertscale.dll	Copying GStreamer plugin: gstvideofilter.dll	Copying GStreamer plugin: gstvideorate.dll	Copying GStreamer plugin: gstvideoparsersbad.dll	Copying GStreamer plugin: gstlibav.dll	Copying GStreamer plugin: gstisomp4.dll	Copying GStreamer plugin: gstmatroska.dll	Copying GStreamer plugin: gstavi.dll	Copying GStreamer plugin: gstflv.dll	Copying GStreamer plugin: gstogg.dll	Copying GStreamer plugin: gstmxf.dll	Copying GStreamer plugin: gstwavparse.dll	Copying GStreamer plugin: gstaiff.dll	Copying GStreamer plugin: gstasf.dll	Copying GStreamer plugin: gstflac.dll	Copying GStreamer plugin: gstmpg123.dll	Copying GStreamer plugin: gstvorbis.dll	Copying GStreamer plugin: gstopus.dll	Copying GStreamer plugin: gsta52dec.dll	Copying GStreamer plugin: gstdtsdec.dll	Copying GStreamer plugin: gstalaw.dll	Copying GStreamer plugin: gstmulaw.dll	Copying GStreamer plugin: gstdav1d.dll	Copying GStreamer plugin: gstopenh264.dll	Copying GStreamer plugin: gstx264.dll	Copying GStreamer plugin: gstx265.dll	Copying GStreamer plugin: gstjpeg.dll	Copying GStreamer plugin: gstpng.dll	Copying GStreamer plugin: gstvpx.dll	Copying GStreamer plugin: gstmediafoundation.dll	Copying GStreamer plugin: gstd3d11.dll	Copying GStreamer plugin: gstdirectsound.dll	Copying GStreamer plugin: gstwasapi.dll	Copying GStreamer plugin: gstwasapi2.dll	Copying GStreamer plugin: gsttypefindfunctions.dll	Copying GStreamer plugin: gstgio.dll	Copying GStreamer plugin: gstdebug.dll	Copying GStreamer plugin: gstvideobox.dll	Copying GStreamer plugin: gstimagefreeze.dll	Copying GStreamer plugin: gstdeinterlace.dll	Copying GStreamer plugin: gstgif.dll	Copying GStreamer plugin: gstsubparse.dll	Copying GStreamer plugin: gstassrender.dll	Copying GStreamer plugin: gstclosedcaption.dll	Copying GStreamer plugin: gstdvbsuboverlay.dll	Copying GStreamer plugin: gstdvdsub.dll	Clearing GStreamer registry cache
+  Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying LibMPV DLL (libmpv-2.dll)	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script

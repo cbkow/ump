@@ -167,7 +167,6 @@ void D3D11HDRSwapchain::Shutdown() {
     ShutdownNVInterop();
     ShutdownEXTMemoryInterop();
 
-    keyed_mutex_.Reset();
     rtv_.Reset();
     back_buffer_.Reset();
     staging_texture_.Reset();
@@ -557,95 +556,125 @@ void D3D11HDRSwapchain::ShutdownNVInterop() {
 bool D3D11HDRSwapchain::CreateNVInteropRenderTarget(int width, int height) {
     if (!nv_interop_device_) return false;
 
-    // Create D3D11 texture
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    DestroyNVInteropRenderTarget();  // Clean up old resources
 
-    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &shared_texture_))) {
-        Debug::Log("D3D11HDRSwapchain: Failed to create NV interop texture");
-        return false;
+    Debug::Log("D3D11HDRSwapchain: Creating " + std::to_string(INTEROP_BUFFER_COUNT) +
+               " NV interop buffers for triple-buffering...");
+
+    // Create 3 shared textures for triple-buffering
+    for (int i = 0; i < INTEROP_BUFFER_COUNT; i++) {
+        auto& buffer = interop_buffers_[i];
+
+        // 1. Create D3D11 texture
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;  // HDR10
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+        desc.MiscFlags = 0;
+
+        HRESULT hr = device_->CreateTexture2D(&desc, nullptr, &buffer.d3d_texture);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11HDRSwapchain: Failed to create shared texture " + std::to_string(i));
+            DestroyNVInteropRenderTarget();
+            return false;
+        }
+
+        // 2. Create GL texture
+        glGenTextures(1, &buffer.gl_texture);
+        if (!buffer.gl_texture) {
+            Debug::Log("D3D11HDRSwapchain: Failed to create GL texture " + std::to_string(i));
+            DestroyNVInteropRenderTarget();
+            return false;
+        }
+
+        // 3. Register with NV_DX_interop
+        buffer.nv_interop_object = wglDXRegisterObjectNV_(
+            nv_interop_device_,
+            buffer.d3d_texture.Get(),
+            buffer.gl_texture,
+            GL_TEXTURE_2D,
+            WGL_ACCESS_READ_WRITE_NV
+        );
+
+        if (!buffer.nv_interop_object) {
+            Debug::Log("D3D11HDRSwapchain: Failed to register NV interop object " + std::to_string(i));
+            DestroyNVInteropRenderTarget();
+            return false;
+        }
+
+        // 4. Create FBO for this buffer
+        glGenFramebuffers(1, &buffer.fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
+
+        // Lock to attach to FBO
+        if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &buffer.nv_interop_object)) {
+            Debug::Log("D3D11HDRSwapchain: Failed to lock for FBO setup " + std::to_string(i));
+            DestroyNVInteropRenderTarget();
+            return false;
+        }
+
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                               GL_TEXTURE_2D, buffer.gl_texture, 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        wglDXUnlockObjectsNV_(nv_interop_device_, 1, &buffer.nv_interop_object);
+
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            Debug::Log("D3D11HDRSwapchain: FBO incomplete for buffer " + std::to_string(i));
+            DestroyNVInteropRenderTarget();
+            return false;
+        }
+
+        buffer.initialized = true;
+
+        Debug::Log("D3D11HDRSwapchain: Created interop buffer " + std::to_string(i) +
+                   " (GL texture " + std::to_string(buffer.gl_texture) +
+                   ", FBO " + std::to_string(buffer.fbo) + ")");
     }
 
-    // Create GL texture
-    glGenTextures(1, &render_texture_);
-    if (!render_texture_) {
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Register with NV interop
-    nv_interop_object_ = wglDXRegisterObjectNV_(
-        nv_interop_device_, shared_texture_.Get(), render_texture_,
-        GL_TEXTURE_2D, WGL_ACCESS_WRITE_DISCARD_NV
-    );
-
-    if (!nv_interop_object_) {
-        Debug::Log("D3D11HDRSwapchain: wglDXRegisterObjectNV failed");
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create FBO
-    glGenFramebuffers(1, &render_fbo_);
-    glBindFramebuffer(GL_FRAMEBUFFER, render_fbo_);
-
-    if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_)) {
-        glDeleteFramebuffers(1, &render_fbo_);
-        render_fbo_ = 0;
-        wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_object_);
-        nv_interop_object_ = nullptr;
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-        shared_texture_.Reset();
-        return false;
-    }
-
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, render_texture_, 0);
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
-        Debug::Log("D3D11HDRSwapchain: NV interop FBO incomplete");
-        glDeleteFramebuffers(1, &render_fbo_);
-        render_fbo_ = 0;
-        wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_object_);
-        nv_interop_object_ = nullptr;
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-        shared_texture_.Reset();
-        return false;
-    }
+    // Set legacy members for backward compatibility
+    render_texture_ = interop_buffers_[0].gl_texture;
+    render_fbo_ = interop_buffers_[0].fbo;
 
+    Debug::Log("D3D11HDRSwapchain: Successfully created " + std::to_string(INTEROP_BUFFER_COUNT) +
+               " NV interop buffers for triple-buffering");
     return true;
 }
 
 void D3D11HDRSwapchain::DestroyNVInteropRenderTarget() {
-    if (render_fbo_) {
-        glDeleteFramebuffers(1, &render_fbo_);
-        render_fbo_ = 0;
+    for (auto& buffer : interop_buffers_) {
+        if (buffer.fbo) {
+            glDeleteFramebuffers(1, &buffer.fbo);
+            buffer.fbo = 0;
+        }
+
+        if (buffer.nv_interop_object && nv_interop_device_ && wglDXUnregisterObjectNV_) {
+            wglDXUnregisterObjectNV_(nv_interop_device_, buffer.nv_interop_object);
+            buffer.nv_interop_object = nullptr;
+        }
+
+        if (buffer.gl_texture) {
+            glDeleteTextures(1, &buffer.gl_texture);
+            buffer.gl_texture = 0;
+        }
+
+        buffer.d3d_texture.Reset();
+        buffer.initialized = false;
     }
 
-    if (nv_interop_object_ && nv_interop_device_ && wglDXUnregisterObjectNV_) {
-        wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_object_);
-        nv_interop_object_ = nullptr;
-    }
+    current_write_buffer_ = 0;
+    current_present_buffer_ = 0;
 
-    if (render_texture_) {
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-    }
-
-    shared_texture_.Reset();
+    // Clear legacy members
+    render_texture_ = 0;
+    render_fbo_ = 0;
 }
 
 //=============================================================================
@@ -690,150 +719,160 @@ void D3D11HDRSwapchain::ShutdownEXTMemoryInterop() {
 bool D3D11HDRSwapchain::CreateEXTMemoryRenderTarget(int width, int height) {
     if (!ext_memory_available_) return false;
 
-    // Create D3D11 texture with shared handle support
-    D3D11_TEXTURE2D_DESC desc = {};
-    desc.Width = width;
-    desc.Height = height;
-    desc.MipLevels = 1;
-    desc.ArraySize = 1;
-    desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-    desc.SampleDesc.Count = 1;
-    desc.Usage = D3D11_USAGE_DEFAULT;
-    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
-    desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+    DestroyEXTMemoryRenderTarget();  // Clean up old resources
 
-    if (FAILED(device_->CreateTexture2D(&desc, nullptr, &shared_texture_))) {
-        Debug::Log("D3D11HDRSwapchain: Failed to create shared texture for EXT_memory");
-        return false;
+    Debug::Log("D3D11HDRSwapchain: Creating " + std::to_string(INTEROP_BUFFER_COUNT) +
+               " EXT_memory interop buffers for triple-buffering...");
+
+    // Create 3 shared textures for triple-buffering
+    for (int i = 0; i < INTEROP_BUFFER_COUNT; i++) {
+        auto& buffer = interop_buffers_[i];
+
+        // 1. Create D3D11 texture with shared handle support
+        D3D11_TEXTURE2D_DESC desc = {};
+        desc.Width = width;
+        desc.Height = height;
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
+
+        if (FAILED(device_->CreateTexture2D(&desc, nullptr, &buffer.d3d_texture))) {
+            Debug::Log("D3D11HDRSwapchain: Failed to create shared texture " + std::to_string(i));
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        // 2. Get keyed mutex for synchronization
+        if (FAILED(buffer.d3d_texture.As(&buffer.keyed_mutex))) {
+            Debug::Log("D3D11HDRSwapchain: Failed to get keyed mutex " + std::to_string(i));
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        // 3. Get shared handle
+        Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
+        if (FAILED(buffer.d3d_texture.As(&dxgi_resource))) {
+            Debug::Log("D3D11HDRSwapchain: Failed to get DXGI resource " + std::to_string(i));
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        if (FAILED(dxgi_resource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &buffer.shared_handle))) {
+            Debug::Log("D3D11HDRSwapchain: Failed to create shared handle " + std::to_string(i));
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        // 4. Create GL memory object and import the D3D11 texture
+        glCreateMemoryObjectsEXT_(1, &buffer.ext_memory_object);
+        if (!buffer.ext_memory_object) {
+            Debug::Log("D3D11HDRSwapchain: Failed to create GL memory object " + std::to_string(i));
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        // Calculate texture size (R10G10B10A2 = 4 bytes per pixel)
+        GLuint64 texture_size = (GLuint64)width * height * 4;
+
+        // Import the D3D11 texture into GL
+        glImportMemoryWin32HandleEXT_(buffer.ext_memory_object, texture_size,
+                                       GL_HANDLE_TYPE_D3D11_IMAGE_EXT, buffer.shared_handle);
+
+        GLenum err = glGetError();
+        if (err != GL_NO_ERROR) {
+            Debug::Log("D3D11HDRSwapchain: glImportMemoryWin32HandleEXT failed for buffer " +
+                      std::to_string(i) + " (GL error " + std::to_string(err) + ")");
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        // 5. Create GL texture backed by the shared memory
+        glGenTextures(1, &buffer.gl_texture);
+        glBindTexture(GL_TEXTURE_2D, buffer.gl_texture);
+        glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, GL_RGB10_A2, width, height, buffer.ext_memory_object, 0);
+
+        err = glGetError();
+        if (err != GL_NO_ERROR) {
+            Debug::Log("D3D11HDRSwapchain: glTexStorageMem2DEXT failed for buffer " +
+                      std::to_string(i) + " (GL error " + std::to_string(err) + ")");
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // 6. Create FBO
+        glGenFramebuffers(1, &buffer.fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, buffer.fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, buffer.gl_texture, 0);
+
+        GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        if (status != GL_FRAMEBUFFER_COMPLETE) {
+            Debug::Log("D3D11HDRSwapchain: EXT_memory FBO incomplete for buffer " +
+                      std::to_string(i) + " (status " + std::to_string(status) + ")");
+            DestroyEXTMemoryRenderTarget();
+            return false;
+        }
+
+        buffer.initialized = true;
+
+        Debug::Log("D3D11HDRSwapchain: Created EXT_memory buffer " + std::to_string(i) +
+                   " (GL texture " + std::to_string(buffer.gl_texture) +
+                   ", FBO " + std::to_string(buffer.fbo) + ")");
     }
 
-    // Get keyed mutex for synchronization
-    if (FAILED(shared_texture_.As(&keyed_mutex_))) {
-        Debug::Log("D3D11HDRSwapchain: Failed to get keyed mutex");
-        shared_texture_.Reset();
-        return false;
-    }
+    // Set legacy members for backward compatibility
+    render_texture_ = interop_buffers_[0].gl_texture;
+    render_fbo_ = interop_buffers_[0].fbo;
 
-    // Get shared handle
-    Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
-    if (FAILED(shared_texture_.As(&dxgi_resource))) {
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    if (FAILED(dxgi_resource->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &ext_shared_handle_))) {
-        Debug::Log("D3D11HDRSwapchain: Failed to create shared handle");
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    // Create GL memory object and import the D3D11 texture
-    glCreateMemoryObjectsEXT_(1, &ext_memory_object_);
-    if (!ext_memory_object_) {
-        Debug::Log("D3D11HDRSwapchain: Failed to create GL memory object");
-        CloseHandle(ext_shared_handle_);
-        ext_shared_handle_ = nullptr;
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    // Calculate texture size (R10G10B10A2 = 4 bytes per pixel)
-    GLuint64 texture_size = (GLuint64)width * height * 4;
-
-    // Import the D3D11 texture into GL
-    glImportMemoryWin32HandleEXT_(ext_memory_object_, texture_size,
-                                   GL_HANDLE_TYPE_D3D11_IMAGE_EXT, ext_shared_handle_);
-
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        Debug::Log("D3D11HDRSwapchain: glImportMemoryWin32HandleEXT failed (GL error " + std::to_string(err) + ")");
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-        CloseHandle(ext_shared_handle_);
-        ext_shared_handle_ = nullptr;
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    // Create GL texture backed by the shared memory
-    glGenTextures(1, &render_texture_);
-    glBindTexture(GL_TEXTURE_2D, render_texture_);
-    glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, GL_RGB10_A2, width, height, ext_memory_object_, 0);
-
-    err = glGetError();
-    if (err != GL_NO_ERROR) {
-        Debug::Log("D3D11HDRSwapchain: glTexStorageMem2DEXT failed (GL error " + std::to_string(err) + ")");
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-        CloseHandle(ext_shared_handle_);
-        ext_shared_handle_ = nullptr;
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    // Create FBO
-    glGenFramebuffers(1, &render_fbo_);
-    glBindFramebuffer(GL_FRAMEBUFFER, render_fbo_);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, render_texture_, 0);
-
-    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    if (status != GL_FRAMEBUFFER_COMPLETE) {
-        Debug::Log("D3D11HDRSwapchain: EXT_memory FBO incomplete (status " + std::to_string(status) + ")");
-        glDeleteFramebuffers(1, &render_fbo_);
-        render_fbo_ = 0;
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-        CloseHandle(ext_shared_handle_);
-        ext_shared_handle_ = nullptr;
-        shared_texture_.Reset();
-        keyed_mutex_.Reset();
-        return false;
-    }
-
-    Debug::Log("D3D11HDRSwapchain: EXT_memory render target created");
+    Debug::Log("D3D11HDRSwapchain: Successfully created " + std::to_string(INTEROP_BUFFER_COUNT) +
+               " EXT_memory buffers for triple-buffering");
     return true;
 }
 
 void D3D11HDRSwapchain::DestroyEXTMemoryRenderTarget() {
-    if (render_fbo_ && interop_method_ == InteropMethod::EXT_Memory) {
-        glDeleteFramebuffers(1, &render_fbo_);
-        render_fbo_ = 0;
+    for (auto& buffer : interop_buffers_) {
+        if (buffer.fbo) {
+            glDeleteFramebuffers(1, &buffer.fbo);
+            buffer.fbo = 0;
+        }
+
+        if (buffer.gl_texture) {
+            glDeleteTextures(1, &buffer.gl_texture);
+            buffer.gl_texture = 0;
+        }
+
+        if (buffer.ext_memory_object) {
+            if (glDeleteMemoryObjectsEXT_) {
+                glDeleteMemoryObjectsEXT_(1, &buffer.ext_memory_object);
+            }
+            buffer.ext_memory_object = 0;
+        }
+
+        if (buffer.shared_handle) {
+            CloseHandle(buffer.shared_handle);
+            buffer.shared_handle = nullptr;
+        }
+
+        buffer.keyed_mutex.Reset();
+        buffer.d3d_texture.Reset();
+        buffer.initialized = false;
     }
 
-    if (render_texture_ && interop_method_ == InteropMethod::EXT_Memory) {
-        glDeleteTextures(1, &render_texture_);
-        render_texture_ = 0;
-    }
+    current_write_buffer_ = 0;
+    current_present_buffer_ = 0;
 
-    if (ext_memory_object_) {
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-    }
-
-    if (ext_shared_handle_) {
-        CloseHandle(ext_shared_handle_);
-        ext_shared_handle_ = nullptr;
-    }
-
-    if (interop_method_ == InteropMethod::EXT_Memory) {
-        keyed_mutex_.Reset();
-        shared_texture_.Reset();
-    }
+    // Clear legacy members
+    render_texture_ = 0;
+    render_fbo_ = 0;
 }
 
 //=============================================================================
@@ -961,33 +1000,89 @@ GLuint D3D11HDRSwapchain::BeginFrame() {
     std::lock_guard<std::mutex> lock(mutex_);
     if (!initialized_ || in_frame_) return 0;
 
-    GLuint fbo = 0;
+    GLuint result_fbo = 0;
 
     switch (interop_method_) {
-        case InteropMethod::NV_DX_Interop:
-            if (nv_interop_object_ && wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_)) {
-                fbo = render_fbo_;
-            }
-            break;
+        case InteropMethod::NV_DX_Interop: {
+            // Try to find a free buffer (prefer round-robin order)
+            int attempts = INTEROP_BUFFER_COUNT;
+            int start_index = current_write_buffer_;
 
-        case InteropMethod::EXT_Memory:
-            // Acquire keyed mutex for GL access
-            if (keyed_mutex_ && SUCCEEDED(keyed_mutex_->AcquireSync(0, INFINITE))) {
-                fbo = render_fbo_;
+            while (attempts-- > 0) {
+                auto& buffer = interop_buffers_[current_write_buffer_];
+
+                if (!buffer.initialized) {
+                    // Skip uninitialized buffers
+                    current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+                    continue;
+                }
+
+                // Try to lock this buffer (non-blocking on modern drivers)
+                if (wglDXLockObjectsNV_(nv_interop_device_, 1, &buffer.nv_interop_object)) {
+                    // Success! This buffer is free
+                    result_fbo = buffer.fbo;
+                    //Debug::Log("BeginFrame: Using NV interop buffer " + std::to_string(current_write_buffer_));
+                    break;
+                }
+
+                // Buffer is busy, try next one
+                Debug::Log("BeginFrame: Buffer " + std::to_string(current_write_buffer_) +
+                          " busy, trying next");
+                current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+            }
+
+            if (!result_fbo) {
+                // All buffers are locked - this should rarely happen with 3 buffers
+                Debug::Log("ERROR: All " + std::to_string(INTEROP_BUFFER_COUNT) +
+                          " interop buffers are locked! GPU may be stalled.");
+                // Fall back to blocking wait on the original buffer
+                auto& buffer = interop_buffers_[start_index];
+                if (wglDXLockObjectsNV_(nv_interop_device_, 1, &buffer.nv_interop_object)) {
+                    result_fbo = buffer.fbo;
+                    current_write_buffer_ = start_index;
+                }
             }
             break;
+        }
+
+        case InteropMethod::EXT_Memory: {
+            // Similar pattern for EXT_memory_object (use keyed mutex)
+            int attempts = INTEROP_BUFFER_COUNT;
+
+            while (attempts-- > 0) {
+                auto& buffer = interop_buffers_[current_write_buffer_];
+
+                if (!buffer.initialized || !buffer.keyed_mutex) {
+                    current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+                    continue;
+                }
+
+                // Try to acquire with 0ms timeout (non-blocking)
+                HRESULT hr = buffer.keyed_mutex->AcquireSync(0, 0);
+                if (SUCCEEDED(hr)) {
+                    result_fbo = buffer.fbo;
+                    Debug::Log("BeginFrame: Using EXT_Memory buffer " + std::to_string(current_write_buffer_));
+                    break;
+                }
+
+                // Busy, try next buffer
+                current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+            }
+            break;
+        }
 
         default:
-            fbo = fallback_fbo_;
+            // CPU fallback - single buffer is fine
+            result_fbo = fallback_fbo_;
             break;
     }
 
-    if (fbo) {
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    if (result_fbo) {
+        glBindFramebuffer(GL_FRAMEBUFFER, result_fbo);
         in_frame_ = true;
     }
 
-    return fbo;
+    return result_fbo;
 }
 
 void D3D11HDRSwapchain::EndFrame(bool vsync) {
@@ -1000,40 +1095,73 @@ void D3D11HDRSwapchain::EndFrame(bool vsync) {
     bool copy_success = false;
 
     switch (interop_method_) {
-        case InteropMethod::NV_DX_Interop:
-            if (nv_interop_object_) {
-                wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_);
-                context_->CopyResource(back_buffer_.Get(), shared_texture_.Get());
+        case InteropMethod::NV_DX_Interop: {
+            auto& buffer = interop_buffers_[current_write_buffer_];
+
+            if (buffer.nv_interop_object) {
+                // Unlock the buffer we just rendered into
+                wglDXUnlockObjectsNV_(nv_interop_device_, 1, &buffer.nv_interop_object);
+
+                // Copy to back buffer for presentation
+                // This is async - GPU can do this while CPU prepares next frame
+                context_->CopyResource(back_buffer_.Get(), buffer.d3d_texture.Get());
+
                 copy_success = true;
                 stats_.zero_copy_frames++;
+
+                // Track which buffer we're presenting
+                current_present_buffer_ = current_write_buffer_;
+
+                // Advance to next buffer for next BeginFrame()
+                current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+
+                /*Debug::Log("EndFrame: Released buffer " + std::to_string(current_present_buffer_) +
+                          ", next buffer will be " + std::to_string(current_write_buffer_));*/
             }
             break;
+        }
 
-        case InteropMethod::EXT_Memory:
-            if (keyed_mutex_) {
-                // Flush GL commands
+        case InteropMethod::EXT_Memory: {
+            auto& buffer = interop_buffers_[current_write_buffer_];
+
+            if (buffer.keyed_mutex) {
+                // Flush GL commands before releasing
                 glFlush();
-                // Release mutex for D3D access
-                keyed_mutex_->ReleaseSync(0);
-                context_->CopyResource(back_buffer_.Get(), shared_texture_.Get());
+
+                // Release keyed mutex for D3D access
+                buffer.keyed_mutex->ReleaseSync(0);
+
+                // Copy to back buffer
+                context_->CopyResource(back_buffer_.Get(), buffer.d3d_texture.Get());
+
                 copy_success = true;
                 stats_.zero_copy_frames++;
+
+                current_present_buffer_ = current_write_buffer_;
+                current_write_buffer_ = (current_write_buffer_ + 1) % INTEROP_BUFFER_COUNT;
+
+                Debug::Log("EndFrame: Released EXT_Memory buffer " + std::to_string(current_present_buffer_));
             }
             break;
+        }
 
-        default:
+        default: {
+            // CPU fallback
             auto copy_start = std::chrono::high_resolution_clock::now();
             copy_success = CopyViaFallback();
             auto copy_end = std::chrono::high_resolution_clock::now();
             stats_.last_copy_time_ms = std::chrono::duration<double, std::milli>(copy_end - copy_start).count();
             if (copy_success) stats_.cpu_readback_frames++;
             break;
+        }
     }
 
     in_frame_ = false;
 
     if (!copy_success) return;
 
+    // Present - this may block on vsync, but doesn't affect next BeginFrame()
+    // because we already released the buffer and advanced to the next one
     HRESULT hr = swapchain_->Present(vsync ? 1 : 0, 0);
     if (SUCCEEDED(hr)) stats_.frames_presented++;
 
