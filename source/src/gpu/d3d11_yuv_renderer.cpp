@@ -112,40 +112,19 @@ float4 PSMain(PS_INPUT input) : SV_TARGET {
         UV = texUV.Sample(sampLinear, uv);
     }
 
-    //=========================================================================
-    // Video Range Conversion
-    //
-    // Limited Range (video/studio range):
-    //   - Y:  16-235 (8-bit) or 64-940 (10-bit)  -> black to white
-    //   - UV: 16-240 (8-bit) or 64-960 (10-bit)  -> color range
-    //   - Values outside this range are "headroom" for broadcast signals
-    //
-    // Full Range (PC/data range):
-    //   - Y:  0-255 (8-bit) or 0-1023 (10-bit)
-    //   - UV: 0-255 (8-bit) or 0-1023 (10-bit)
-    //   - Uses the entire value range
-    //
-    // If limited range content is treated as full range:
-    //   - Black (Y=16) appears as dark gray (~6%)
-    //   - White (Y=235) appears as light gray (~92%)
-    //   - Result: washed out, low contrast image
-    //=========================================================================
+    // Range expansion for limited range content
+    // Applied when isFullRange is false (user selected Limited or Auto detected limited)
+    // Respects user override for all pipelines including HDR/float
     if (isFullRange < 0.5) {
-        // Limited range -> expand to full range
-        // Constants work for both 8-bit and 10-bit (normalized values are nearly identical)
-        const float foot = 16.0 / 255.0;           // 0.0627 - black point
-        const float yHead = 235.0 / 255.0;         // 0.922 - white point for Y
-        const float uvHead = 240.0 / 255.0;        // 0.941 - max for UV
+        const float foot = 16.0 / 255.0;
+        const float yHead = 235.0 / 255.0;
+        const float uvHead = 240.0 / 255.0;
 
-        // Expand Y from [foot, yHead] to [0, 1]
         Y = saturate((Y - foot) / (yHead - foot));
-
-        // Expand UV from [foot, uvHead] to [0, 1]
         UV = saturate((UV - foot) / (uvHead - foot));
     }
 
-    // Convert UV to signed range: [0, 1] -> [-0.5, 0.5]
-    // Neutral chroma (no color) is at 0.5 in unsigned, 0.0 in signed
+    // Convert UV to signed: [0, 1] -> [-0.5, 0.5]
     UV = UV - 0.5;
 
     // Select color matrix based on color space
@@ -154,11 +133,6 @@ float4 PSMain(PS_INPUT input) : SV_TARGET {
     // Apply YUV to RGB conversion
     float3 yuv = float3(Y, UV.x, UV.y);
     float3 rgb = mul(colorMat, yuv);
-
-    // Apply PQ EOTF for HDR content (decode PQ to linear light)
-    if (applyPQ > 0.5) {
-        rgb = PQToLinear(rgb);
-    }
 
     return float4(saturate(rgb), 1.0);
 }
@@ -552,7 +526,10 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_y,
     params.height = height;
     params.bit_depth = is_hdr ? 10 : 8;
     params.is_hdr = is_hdr;
-    params.is_full_range = false;  // Most video content uses video range
+    // HDR content is ALWAYS full range (PQ needs full 10-bit range for 0-10000 nits)
+    // SDR defaults to limited range (most broadcast/streaming content)
+    // Note: The shader also enforces this - HDR paths skip range conversion regardless
+    params.is_full_range = is_hdr;
     params.color_space = color_space;
 
     return Render(srv_y, srv_uv, dest_rtv, params);

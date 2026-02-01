@@ -1065,20 +1065,36 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
 
     // DEBUG: Log when play state changes
     if (is_playing != was_playing) {
-        size_t cache_size = 0;
-        int min_frame = INT_MAX, max_frame = INT_MIN;
-        {
-            std::lock_guard<std::mutex> lock(cache_mutex_);
-            cache_size = frame_cache_.size();
-            for (const auto& [key, frame] : frame_cache_) {
-                if (key.timeline_frame < min_frame) min_frame = key.timeline_frame;
-                if (key.timeline_frame > max_frame) max_frame = key.timeline_frame;
+#ifdef _WIN32
+        // For D3D11 modes, frame_cache_ is empty - D3D11 decoders handle frames directly
+        if (source_mode_ == TimelineSourceMode::MULTI_TRACK ||
+            source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            size_t decoder_count = 0;
+            {
+                std::lock_guard<std::mutex> lock(loaders_mutex_);
+                decoder_count = loaders_.size();
             }
+            Debug::Log("TimelineCache: [PLAY STATE CHANGE] is_playing=" + std::to_string(is_playing) +
+                       " frame=" + std::to_string(timeline_frame) +
+                       " [D3D11 direct - " + std::to_string(decoder_count) + " decoder(s)]");
+        } else
+#endif
+        {
+            size_t cache_size = 0;
+            int min_frame = INT_MAX, max_frame = INT_MIN;
+            {
+                std::lock_guard<std::mutex> lock(cache_mutex_);
+                cache_size = frame_cache_.size();
+                for (const auto& [key, frame] : frame_cache_) {
+                    if (key.timeline_frame < min_frame) min_frame = key.timeline_frame;
+                    if (key.timeline_frame > max_frame) max_frame = key.timeline_frame;
+                }
+            }
+            Debug::Log("TimelineCache: [PLAY STATE CHANGE] is_playing=" + std::to_string(is_playing) +
+                       " frame=" + std::to_string(timeline_frame) +
+                       " cached=" + std::to_string(cache_size) +
+                       " range=[" + std::to_string(min_frame) + "-" + std::to_string(max_frame) + "]");
         }
-        Debug::Log("TimelineCache: [PLAY STATE CHANGE] is_playing=" + std::to_string(is_playing) +
-                   " frame=" + std::to_string(timeline_frame) +
-                   " cached=" + std::to_string(cache_size) +
-                   " range=[" + std::to_string(min_frame) + "-" + std::to_string(max_frame) + "]");
     }
 
     // Propagate playback mode changes to all decoders
@@ -3099,6 +3115,18 @@ void TimelineCache::CacheManagementThread() {
         HandleAggressiveScrubSettling();
 
         //=====================================================================
+        // D3D11 FAST PATH: For MULTI_TRACK/DUAL_VIEW, skip cache window management
+        // D3D11VideoDecoder handles frames directly via GetGLTexture() - no CPU cache needed.
+        // Jump straight to Step 1.5 for decoder creation and playhead updates.
+        //=====================================================================
+#ifdef _WIN32
+        if (source_mode_ == TimelineSourceMode::MULTI_TRACK ||
+            source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            goto skip_to_step1_5;
+        }
+#endif
+
+        //=====================================================================
         // Step 1: Window-based eviction (like EXR cache)
         // Build set of keys that SHOULD stay, evict anything else
         //=====================================================================
@@ -3415,6 +3443,7 @@ void TimelineCache::CacheManagementThread() {
         // This ensures decoders exist BEFORE we reach clips (smooth gap→clip transitions)
         // Only the CacheManagementThread updates playheads, not I/O workers
         //=====================================================================
+    skip_to_step1_5:
         AggressiveScrubMode scrub_mode_step1_5 = aggressive_scrub_mode_.load();
         {
             // Find which video sources are in the upcoming window

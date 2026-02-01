@@ -4111,7 +4111,27 @@ namespace ump {
     }
 
     MediaItem* ProjectManager::GetCurrentPlayingMediaItem() {
-        return GetMediaItemFromCurrentPath();
+        // First check file-based media (videos, image sequences)
+        MediaItem* item = GetMediaItemFromCurrentPath();
+        if (item) {
+            return item;
+        }
+
+        // Check for active OTIO timeline
+        if (!current_timeline_id.empty()) {
+            item = GetTimelineItem(current_timeline_id);
+            if (item && item->type == MediaType::TIMELINE) {
+                return item;
+            }
+        }
+
+        // Check for active dual view
+        item = GetActiveDualViewItem();
+        if (item) {
+            return item;
+        }
+
+        return nullptr;
     }
 
     void ProjectManager::ReloadWithPipelineMode(PipelineMode mode) {

@@ -22,14 +22,27 @@ enum class YUVColorSpace {
 // YUV Render Params
 //
 // Parameters for YUV to RGB conversion shader.
+//
+// IMPORTANT - HDR/PQ Content and Video Range:
+//   HDR content using PQ transfer function (is_hdr=true) is ALWAYS full range.
+//   The PQ EOTF requires the full 10-bit range (0-1023) to represent the
+//   0-10000 nit dynamic range. The shader enforces this: when is_hdr=true,
+//   limited range expansion is NEVER applied, regardless of is_full_range.
+//
+//   This means RGBA16F output paths (HDR/linear light) are protected from
+//   accidental range conversion that would destroy highlights and corrupt
+//   the PQ decode.
+//
+//   For SDR content: is_full_range controls whether limited->full expansion
+//   is applied. Most broadcast/streaming SDR content uses limited range.
 //=============================================================================
 
 struct YUVRenderParams {
     int width = 0;
     int height = 0;
     int bit_depth = 8;           // 8 for NV12, 10 for P010
-    bool is_hdr = false;         // Apply PQ EOTF decode
-    bool is_full_range = false;  // Video vs full range
+    bool is_hdr = false;         // Apply PQ EOTF decode (forces full range path)
+    bool is_full_range = false;  // Video vs full range (ignored when is_hdr=true)
     bool use_texture_array = false; // True for D3D11VA (texture arrays)
     YUVColorSpace color_space = YUVColorSpace::BT_709;
 };

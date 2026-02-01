@@ -1328,6 +1328,13 @@ public:
                 if (video_player) {
                     // Create new controller (stored in unique_ptr for lifetime management)
                     scratch_timeline_controller = std::make_unique<ump::TimelinePlaybackController>();
+
+                    // Set pipeline mode from project settings BEFORE initialization
+                    ump::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
+                    config.pipeline_mode = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
+                    scratch_timeline_controller->SetConfig(config);
+                    Debug::Log("Scratch timeline: Set pipeline mode to " + std::string(PipelineModeToString(config.pipeline_mode)));
+
                     if (scratch_timeline_controller->InitializeForVirtualScratchTimeline(
                             video_player.get(),
                             timeline_item->timeline_width,
@@ -1594,6 +1601,11 @@ public:
                                    std::to_string(restored_links) + " cached links");
 
                         if (!timeline_view->HasPlaybackController()) {
+                            // Set pipeline mode from project settings BEFORE initialization
+                            PipelineMode project_mode = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
+                            timeline_view->SetPendingPipelineMode(project_mode);
+                            Debug::Log("OTIO timeline: Set pending pipeline mode to " + std::string(PipelineModeToString(project_mode)));
+
                             if (timeline_view->InitializePlayback()) {
                                 Debug::Log("Timeline playback initialized from cached links");
                                 video_player->SetTimelineMode(true, timeline_view->GetPlaybackController());
@@ -2226,6 +2238,13 @@ public:
             // Initialize dual view playback with separate LEFT/RIGHT caches
             if (video_player) {
                 scratch_timeline_controller = std::make_unique<ump::TimelinePlaybackController>();
+
+                // Set pipeline mode from project settings BEFORE initialization
+                ump::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
+                config.pipeline_mode = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
+                scratch_timeline_controller->SetConfig(config);
+                Debug::Log("Dual view: Set pipeline mode to " + std::string(PipelineModeToString(config.pipeline_mode)));
+
                 if (scratch_timeline_controller->InitializeForDualView(
                         timeline_view.get(),
                         video_player.get())) {
@@ -3460,6 +3479,94 @@ public:
 
         // Shutdown async logger last (flushes remaining messages)
         Debug::ShutdownLogging();
+    }
+
+    // ------------------------------------------------------------------------
+    // FORCE RELOAD CURRENT MEDIA
+    // Comprehensive cleanup and reload for pipeline/range changes.
+    // Brute-force approach: fully exit all modes, then reload as if double-clicked.
+    // ------------------------------------------------------------------------
+    void ForceReloadCurrentMedia() {
+        Debug::Log("ForceReloadCurrentMedia: Starting comprehensive cleanup and reload");
+
+        // Get current media item before cleanup
+        ump::MediaItem* current_item = project_manager ? project_manager->GetCurrentPlayingMediaItem() : nullptr;
+        if (!current_item) {
+            Debug::Log("ForceReloadCurrentMedia: No current media item to reload");
+            return;
+        }
+
+        // Store info we need after cleanup (timeline_id is used after clearing current_timeline_id)
+        ump::MediaType media_type = current_item->type;
+        std::string item_name = current_item->name;
+        std::string item_timeline_id = current_item->timeline_id;
+        Debug::Log("ForceReloadCurrentMedia: Will reload " + item_name + " (type=" + std::to_string(static_cast<int>(media_type)) + ")");
+
+        // === STEP 1: Clear mode flags FIRST to prevent callbacks from caching stale state ===
+        otio_timeline_mode = false;
+        otio_dual_view_mode = false;
+        current_timeline_path.clear();
+        current_timeline_id.clear();
+
+        // === STEP 2: Tell video_player it's no longer in timeline mode ===
+        if (video_player) {
+            video_player->SetTimelineMode(false, nullptr);
+        }
+
+        // === STEP 3: Shutdown all playback controllers ===
+
+        // Shutdown scratch timeline controller (dual view, scratch timelines)
+        if (scratch_timeline_controller) {
+            Debug::Log("ForceReloadCurrentMedia: Shutting down scratch_timeline_controller");
+            scratch_timeline_controller->Shutdown();
+            scratch_timeline_controller.reset();
+        }
+
+        // Shutdown timeline view playback AND reset its state
+        if (timeline_view) {
+            Debug::Log("ForceReloadCurrentMedia: Shutting down timeline_view");
+            timeline_view->ShutdownPlayback();
+            timeline_view->ResetSourceMode();
+        }
+
+        // Cleanup MPV in VideoDisplayComponent
+        if (video_player && video_player->IsMPVLoaded()) {
+            Debug::Log("ForceReloadCurrentMedia: Cleaning up MPV context");
+            video_player->UnloadVideoFile();
+            video_player->CleanupMPV();
+        }
+
+        // Clear cached textures
+        cached_dual_view_textures = {};
+
+        Debug::Log("ForceReloadCurrentMedia: Cleanup complete, initiating reload");
+
+        // === STEP 4: Reload based on media type ===
+        // current_item pointer is still valid (MediaItem lives in project_manager's pool)
+        if (media_type == ump::MediaType::VIDEO && project_manager) {
+            if (auto callback = project_manager->GetVideoFileTimelineCallback()) {
+                Debug::Log("ForceReloadCurrentMedia: Reloading video via callback");
+                callback(current_item);
+            }
+        } else if ((media_type == ump::MediaType::IMAGE_SEQUENCE ||
+                    media_type == ump::MediaType::EXR_SEQUENCE) && project_manager) {
+            if (auto callback = project_manager->GetImageSequenceTimelineCallback()) {
+                Debug::Log("ForceReloadCurrentMedia: Reloading image sequence via callback");
+                callback(current_item);
+            }
+        } else if (media_type == ump::MediaType::TIMELINE && project_manager) {
+            // Use copied timeline_id (current_timeline_id was cleared above)
+            Debug::Log("ForceReloadCurrentMedia: Reloading OTIO timeline: " + item_timeline_id);
+            project_manager->OpenTimelineInEditor(item_timeline_id);
+        } else if (media_type == ump::MediaType::DUAL_VIEW && project_manager) {
+            // Use copied timeline_id
+            Debug::Log("ForceReloadCurrentMedia: Reloading dual view: " + item_timeline_id);
+            project_manager->OpenDualViewInEditor(item_timeline_id);
+        } else {
+            Debug::Log("ForceReloadCurrentMedia: Unknown media type or no callback available");
+        }
+
+        Debug::Log("ForceReloadCurrentMedia: Reload complete");
     }
 
 private:
@@ -5466,48 +5573,37 @@ private:
                         // Display current mode
                         ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video File - %s", PipelineModeToString(current));
 
-                        // Show pipeline options (NORMAL/HIGH_RES)
-                        // These are PROJECT-LEVEL settings - changing reloads the video
+                        // Show pipeline options (NORMAL/HIGH_RES/ULTRA_HIGH_RES)
+                        // Brute-force reload: full cleanup and reload to avoid edge cases
                         // Normal (8-bit)
                         if (ImGui::MenuItem("Normal (8-bit)", nullptr, current == PipelineMode::NORMAL)) {
                             if (current != PipelineMode::NORMAL && project_manager) {
-                                // Reload video with new pipeline mode (project-level setting)
-                                project_manager->ReloadWithPipelineMode(PipelineMode::NORMAL);
+                                project_manager->SetProjectPipelineMode(PipelineMode::NORMAL);
+                                Debug::Log("Pipeline mode changed to NORMAL - forcing full reload");
+                                ForceReloadCurrentMedia();
                             }
                         }
 
                         // High-Res (16-bit) - for OCIO grading precision
                         if (ImGui::MenuItem("High-Res (16-bit)", nullptr, current == PipelineMode::HIGH_RES)) {
                             if (current != PipelineMode::HIGH_RES && project_manager) {
-                                // Reload video with new pipeline mode (project-level setting)
-                                project_manager->ReloadWithPipelineMode(PipelineMode::HIGH_RES);
+                                project_manager->SetProjectPipelineMode(PipelineMode::HIGH_RES);
+                                Debug::Log("Pipeline mode changed to HIGH_RES - forcing full reload");
+                                ForceReloadCurrentMedia();
                             }
                         }
 
                         // Ultra-High-Res (Float) - float16 for maximum precision
                         if (ImGui::MenuItem("Ultra-High-Res (Float)", nullptr, current == PipelineMode::ULTRA_HIGH_RES)) {
                             if (current != PipelineMode::ULTRA_HIGH_RES && project_manager) {
-                                project_manager->ReloadWithPipelineMode(PipelineMode::ULTRA_HIGH_RES);
+                                project_manager->SetProjectPipelineMode(PipelineMode::ULTRA_HIGH_RES);
+                                Debug::Log("Pipeline mode changed to ULTRA_HIGH_RES - forcing full reload");
+                                ForceReloadCurrentMedia();
                             }
                         }
                         if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("16-bit floating point pipeline.\nFor ProRes 4444, EXR, and complex OCIO transforms.");
+                            ImGui::SetTooltip("16-bit floating point pipeline.\nFor ProRes 4444, EXR, and complex OCIO transforms.\nVideo range options disabled (always full range).");
                         }
-
-// MF_HDR option commented out - Ultra-High-Res (Float) provides same functionality
-// with better SW fallback support. Kept for developer testing.
-#if 0  // #ifdef _WIN32
-                        // D3D11 GPU-Native (Experimental) - D3D11VA accelerated decode
-                        ImGui::Separator();
-                        if (ImGui::MenuItem("D3D11 GPU-Native (Experimental)", nullptr, current == PipelineMode::MF_HDR)) {
-                            if (current != PipelineMode::MF_HDR && project_manager) {
-                                project_manager->ReloadWithPipelineMode(PipelineMode::MF_HDR);
-                            }
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("D3D11 GPU-native video pipeline.\nHardware decode for H.264/HEVC/VP9/AV1.\nSoftware decode for ProRes/DNxHD.\nFull audio support via AudioMixer.");
-                        }
-#endif
                     }
                     else if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
                         // Image sequences: locked to detected bit depth
@@ -5621,6 +5717,7 @@ private:
                         }
 
                         // Pipeline mode selector for video clips in timeline
+                        // Brute-force reload: full cleanup and reload to avoid edge cases
                         ImGui::Separator();
                         ImGui::TextDisabled("Video Pipeline Mode:");
                         auto* cache = controller ? controller->GetCache() : nullptr;
@@ -5632,14 +5729,15 @@ private:
                             bool is_selected = (cache_mode == mode);
 
                             if (ImGui::MenuItem(timeline_pipeline_modes[i], nullptr, is_selected)) {
-                                if (!is_selected && cache) {
-                                    cache->SetPipelineMode(mode);
-                                    Debug::Log("Timeline pipeline mode changed to: " + std::string(PipelineModeToString(mode)));
+                                if (!is_selected && project_manager) {
+                                    project_manager->SetProjectPipelineMode(mode);
+                                    Debug::Log("Timeline pipeline mode changed to: " + std::string(PipelineModeToString(mode)) + " - forcing full reload");
+                                    ForceReloadCurrentMedia();
                                 }
                             }
                         }
                         if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing");
+                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing\n(Full reload on change)");
                         }
                     }
                     else if (source_mode == ump::TimelineSourceMode::DUAL_VIEW) {
@@ -5683,6 +5781,7 @@ private:
                         }
 
                         // Pipeline mode selector for dual view
+                        // Brute-force reload: full cleanup and reload to avoid edge cases
                         ImGui::Separator();
                         ImGui::TextDisabled("Video Pipeline Mode:");
                         auto* dv_cache = controller ? controller->GetCache() : nullptr;
@@ -5694,14 +5793,15 @@ private:
                             bool is_selected = (dv_cache_mode == mode);
 
                             if (ImGui::MenuItem(dv_pipeline_modes[i], nullptr, is_selected)) {
-                                if (!is_selected && dv_cache) {
-                                    dv_cache->SetPipelineMode(mode);
-                                    Debug::Log("Dual view pipeline mode changed to: " + std::string(PipelineModeToString(mode)));
+                                if (!is_selected && project_manager) {
+                                    project_manager->SetProjectPipelineMode(mode);
+                                    Debug::Log("Dual view pipeline mode changed to: " + std::string(PipelineModeToString(mode)) + " - forcing full reload");
+                                    ForceReloadCurrentMedia();
                                 }
                             }
                         }
                         if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing");
+                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing\n(Full reload on change)");
                         }
                     }
                 }
@@ -5776,20 +5876,13 @@ private:
                                 if (i != current_mode_index) {
                                     PipelineMode new_mode = static_cast<PipelineMode>(i);
                                     if (video_player->SupportsPipelineMode(new_mode)) {
-                                        video_player->SetPipelineMode(new_mode);
-                                        Debug::Log("Pipeline mode changed to: " + std::string(PipelineModeToString(new_mode)));
-
-                                        if (!current_file_path.empty()) {
-                                            Debug::Log("Reloading media for new pipeline mode: " + current_file_path);
-                                            if (project_manager) {
-                                                project_manager->LoadSingleFileFromDrop(current_file_path);
-                                            } else {
-                                                video_player->LoadFile(current_file_path);
-                                                if (timeline_manager) {
-                                                    timeline_manager->SetVideoFile(current_file_path);
-                                                }
-                                            }
+                                        // Brute-force reload: set mode and force full reload
+                                        if (project_manager) {
+                                            project_manager->SetProjectPipelineMode(new_mode);
                                         }
+                                        video_player->SetPipelineMode(new_mode);
+                                        Debug::Log("Pipeline mode changed to: " + std::string(PipelineModeToString(new_mode)) + " - forcing full reload");
+                                        ForceReloadCurrentMedia();
                                     }
                                 }
                             }
@@ -5830,29 +5923,39 @@ private:
                 // Video Range Override (for D3D11 YUV decoding)
                 ImGui::Separator();
                 ImGui::TextDisabled("Video Range:");
+
                 if (ImGui::MenuItem("Auto (Detect)", nullptr, cache_settings.video_range_mode == 0)) {
-                    cache_settings.video_range_mode = 0;
-                    ump::g_video_range_override = VideoRangeMode::AUTO;
-                    SaveSettings();
-                    Debug::Log("Video range mode set to AUTO");
+                    if (cache_settings.video_range_mode != 0) {
+                        cache_settings.video_range_mode = 0;
+                        ump::g_video_range_override = VideoRangeMode::AUTO;
+                        SaveSettings();
+                        Debug::Log("Video range mode set to AUTO - forcing reload");
+                        ForceReloadCurrentMedia();
+                    }
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Use range detected from video metadata");
                 }
                 if (ImGui::MenuItem("Full Range", nullptr, cache_settings.video_range_mode == 1)) {
-                    cache_settings.video_range_mode = 1;
-                    ump::g_video_range_override = VideoRangeMode::FULL;
-                    SaveSettings();
-                    Debug::Log("Video range mode set to FULL");
+                    if (cache_settings.video_range_mode != 1) {
+                        cache_settings.video_range_mode = 1;
+                        ump::g_video_range_override = VideoRangeMode::FULL;
+                        SaveSettings();
+                        Debug::Log("Video range mode set to FULL - forcing reload");
+                        ForceReloadCurrentMedia();
+                    }
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Force full range (0-255 / 0-1023)\nUse if blacks appear crushed");
                 }
                 if (ImGui::MenuItem("Limited Range", nullptr, cache_settings.video_range_mode == 2)) {
-                    cache_settings.video_range_mode = 2;
-                    ump::g_video_range_override = VideoRangeMode::LIMITED;
-                    SaveSettings();
-                    Debug::Log("Video range mode set to LIMITED");
+                    if (cache_settings.video_range_mode != 2) {
+                        cache_settings.video_range_mode = 2;
+                        ump::g_video_range_override = VideoRangeMode::LIMITED;
+                        SaveSettings();
+                        Debug::Log("Video range mode set to LIMITED - forcing reload");
+                        ForceReloadCurrentMedia();
+                    }
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Force limited/legal range (16-235 / 64-940)\nUse if blacks appear washed out");
@@ -5945,7 +6048,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.7");
+                ImGui::TextDisabled("About u.m.p. v0.7.8");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -7153,25 +7256,13 @@ private:
                 if (!is_exr_mode && !is_image_sequence) {
                     // Regular video: allow pipeline mode changes
                     if (video_player && cache_settings.current_pipeline_mode != video_player->GetPipelineMode()) {
-                        video_player->SetPipelineMode(cache_settings.current_pipeline_mode);
-                        Debug::Log("Applied pipeline mode: " + std::string(PipelineModeToString(cache_settings.current_pipeline_mode)));
-
-                        // Reload current media to apply new pipeline settings
-                        if (!current_file_path.empty()) {
-                            Debug::Log("Reloading media for new pipeline mode: " + current_file_path);
-
-                            // Route through project manager for proper cache eviction
-                            if (project_manager) {
-                                project_manager->LoadSingleFileFromDrop(current_file_path);
-                            } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                                // Fallback to direct loading if project manager unavailable
-                                video_player->LoadFile(current_file_path);
-                                if (timeline_manager) {
-                                    timeline_manager->SetVideoFile(current_file_path);
-                                }
-                            }
+                        // Brute-force reload: set mode and force full reload
+                        if (project_manager) {
+                            project_manager->SetProjectPipelineMode(cache_settings.current_pipeline_mode);
                         }
+                        video_player->SetPipelineMode(cache_settings.current_pipeline_mode);
+                        Debug::Log("Applied pipeline mode: " + std::string(PipelineModeToString(cache_settings.current_pipeline_mode)) + " - forcing full reload");
+                        ForceReloadCurrentMedia();
                     }
                 } else {
                     // EXR/image sequences: pipeline mode is locked, just log

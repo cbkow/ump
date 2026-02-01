@@ -190,6 +190,8 @@ public:
     VideoRangeMode GetVideoRangeOverride() const { return video_range_override_; }
 
     // Get effective full range considering override
+    // User override is respected for all content (including HDR) for testing
+    // AUTO mode uses detected range; FULL/LIMITED override detection
     bool GetEffectiveFullRange() const {
         switch (video_range_override_) {
             case VideoRangeMode::FULL: return true;

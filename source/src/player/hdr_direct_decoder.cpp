@@ -4,6 +4,7 @@
 
 #include <chrono>
 #include "streaming_video_decoder.h"
+#include "video_decoder_factory.h"  // For g_video_range_override
 #include "../gpu/d3d11_hwframe_extractor.h"
 #include "../gpu/d3d11_yuv_renderer.h"
 #include "../gpu/d3d11_video_interop.h"
@@ -224,7 +225,13 @@ bool HDRDirectVideoDecoder::ProcessFrame(int frame_number) {
     params.height = extracted->height;
     params.bit_depth = extracted->bit_depth;
     params.is_hdr = extracted->is_hdr;
-    params.is_full_range = false;  // Most video content uses video range
+    // Respect user video range override (FULL/LIMITED/AUTO)
+    // AUTO uses detected range from content metadata
+    switch (g_video_range_override) {
+        case VideoRangeMode::FULL: params.is_full_range = true; break;
+        case VideoRangeMode::LIMITED: params.is_full_range = false; break;
+        default: params.is_full_range = extracted->is_hdr; break;  // AUTO: HDR=full, SDR=limited
+    }
     params.color_space = extracted->is_hdr ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
 
     bool render_success = yuv_renderer_->Render(

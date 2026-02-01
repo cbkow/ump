@@ -355,6 +355,8 @@ bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMA
         gl_internal_format = GL_RGBA8;
     } else if (format == DXGI_FORMAT_R10G10B10A2_UNORM) {
         gl_internal_format = GL_RGB10_A2;
+    } else if (format == DXGI_FORMAT_R16G16B16A16_UNORM) {
+        gl_internal_format = GL_RGBA16;  // HIGH_RES mode (16-bit integer)
     }
 
     glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, gl_internal_format, width, height, ext_memory_object_, 0);
@@ -423,6 +425,9 @@ bool D3D11VideoInterop::CreateFallbackTexture(int width, int height, DXGI_FORMAT
     } else if (format == DXGI_FORMAT_R10G10B10A2_UNORM) {
         gl_internal_format = GL_RGB10_A2;
         gl_type = GL_UNSIGNED_INT_2_10_10_10_REV;
+    } else if (format == DXGI_FORMAT_R16G16B16A16_UNORM) {
+        gl_internal_format = GL_RGBA16;  // HIGH_RES mode (16-bit integer)
+        gl_type = GL_UNSIGNED_SHORT;
     }
 
     glTexImage2D(GL_TEXTURE_2D, 0, gl_internal_format, width, height, 0, gl_format, gl_type, nullptr);
@@ -569,6 +574,8 @@ bool D3D11VideoInterop::UnlockForGL() {
                 gl_type = GL_UNSIGNED_BYTE;
             } else if (format_ == DXGI_FORMAT_R10G10B10A2_UNORM) {
                 gl_type = GL_UNSIGNED_INT_2_10_10_10_REV;
+            } else if (format_ == DXGI_FORMAT_R16G16B16A16_UNORM) {
+                gl_type = GL_UNSIGNED_SHORT;  // HIGH_RES mode (16-bit integer)
             }
 
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_,

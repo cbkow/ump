@@ -321,10 +321,16 @@ namespace ump {
         void SetImageSequenceTimelineCallback(std::function<void(MediaItem*)> callback) {
             image_sequence_timeline_callback = callback;
         }
+        std::function<void(MediaItem*)> GetImageSequenceTimelineCallback() const {
+            return image_sequence_timeline_callback;
+        }
 
         // Video file timeline callback (loads video files into OTIO timeline view)
         void SetVideoFileTimelineCallback(std::function<void(MediaItem*)> callback) {
             video_file_timeline_callback = callback;
+        }
+        std::function<void(MediaItem*)> GetVideoFileTimelineCallback() const {
+            return video_file_timeline_callback;
         }
 
         // Audio file timeline callback (loads audio files into OTIO timeline view)

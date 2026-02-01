@@ -2702,6 +2702,7 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
     cache_config.io_threads = config_.io_threads;  // Full threads for each cache (was /2)
     cache_config.max_textures = g_timeline_max_textures;  // Full textures for each cache (was /2)
     cache_config.fps = fps_;
+    cache_config.pipeline_mode = config_.pipeline_mode;  // Use project pipeline mode for D3D11 decoders
     // Note: use_shared_pool = false for dual view because both caches may reference
     // the same source frames (same file, different slips), causing key collisions.
     cache_config.use_shared_pool = false;
