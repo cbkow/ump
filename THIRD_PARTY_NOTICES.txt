@@ -185,7 +185,7 @@ found in the respective LICENSE file in this directory.
     Website: https://miniaud.io/
     GitHub: https://github.com/mackron/miniaudio
     File: miniaudio-LICENSE.txt
-    Note: Single-header audio playback and capture library for cross-platform audio
+    Note: miniaudio is no longer used, but still found in older u.m.p. versions
 
 33. Python
     Copyright (c) 2001-2023 Python Software Foundation

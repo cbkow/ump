@@ -1,6 +1,6 @@
 # Acknowledgments
 
-This document acknowledges projects and individuals that inspired the design and architecture of u.m.p., even though no actual code from these projects was used in our implementation. It's also worth noting that I am an artist and not a developer, so I heavily leaned on LLMs or so-called "vibe-coding" workflows to help me build u.m.p. This is a personal app, built as an in-house tool, that I am sharing online out of respect for the Open-Source community and ethos. 
+This document acknowledges projects and individuals that inspired the design and architecture of u.m.p., even though no actual code from these projects was used in our implementation. It's also worth noting that I am an artist and not a developer, so I heavily leaned on LLMs or so-called "vibe-coding" workflows to help me build u.m.p. This is a personal app, built as an in-house tool.
 
 ---
 
