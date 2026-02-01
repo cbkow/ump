@@ -5,8 +5,13 @@
 #include <vector>
 
 #include "video_decoder_interface.h"
+#include "pipeline_mode.h"  // For VideoRangeMode
 
 namespace ump {
+
+// Global video range override - set from main.cpp, read by factory when creating decoders
+// NOTE: VideoRangeMode is defined in pipeline_mode.h (global namespace)
+extern VideoRangeMode g_video_range_override;
 
 //=============================================================================
 // Video Decoder Factory
@@ -48,6 +53,7 @@ public:
     // Check backend availability
     bool IsGStreamerAvailable() const;
     bool IsFFmpegAvailable() const;
+    bool IsD3D11Available() const;
     bool IsBackendAvailable(VideoDecoderBackend backend) const;
 
     // Get list of available backends

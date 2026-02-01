@@ -461,6 +461,12 @@ bool D3D11HDRSwapchain::SetColorSpace(DXGI_COLOR_SPACE_TYPE colorspace) {
 
 bool D3D11HDRSwapchain::Resize(int width, int height) {
     std::lock_guard<std::mutex> lock(mutex_);
+
+    // Ignore invalid dimensions (e.g., when window is minimized)
+    if (width <= 0 || height <= 0) {
+        return true;  // Not an error, just skip resize
+    }
+
     if (!initialized_ || (width == width_ && height == height_)) return true;
 
     rtv_.Reset();

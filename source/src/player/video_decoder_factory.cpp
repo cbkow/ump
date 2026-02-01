@@ -2,9 +2,16 @@
 
 #include "streaming_video_decoder.h"  // FFmpeg-based decoder
 
+#ifdef _WIN32
+#include "d3d11_video_decoder.h"      // D3D11 GPU-native decoder
+#endif
+
 #include <iostream>
 
 namespace ump {
+
+// Global video range override - set from main.cpp, read by factory when creating decoders
+VideoRangeMode g_video_range_override = VideoRangeMode::AUTO;
 
 //=============================================================================
 // Singleton Implementation
@@ -41,9 +48,16 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
 {
     last_error_.clear();
 
-    // Handle AUTO mode: use FFmpeg (only backend available in factory now)
+    // Handle AUTO mode: prefer D3D11 on Windows for GPU-native decoding
+    // D3D11VideoDecoder returns GL textures directly via GetFrameAsGLTexture()
+    // TimelineCache's D3D11 direct path handles this (no PixelData needed)
+    // Falls back to FFmpeg only if D3D11 init fails
     if (backend == VideoDecoderBackend::AUTO) {
+#ifdef _WIN32
+        backend = VideoDecoderBackend::D3D11;
+#else
         backend = VideoDecoderBackend::FFMPEG;
+#endif
     }
 
     // GSTREAMER enum no longer supported through factory
@@ -53,6 +67,32 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
                   << "now uses direct MPV rendering. Falling back to FFmpeg." << std::endl;
         backend = VideoDecoderBackend::FFMPEG;
     }
+
+#ifdef _WIN32
+    //=========================================================================
+    // D3D11 Backend (GPU-native, Windows only)
+    //=========================================================================
+    if (backend == VideoDecoderBackend::D3D11) {
+        try {
+            std::cout << "[VideoDecoderFactory] Creating D3D11 decoder for: " << video_path << std::endl;
+            auto decoder = std::make_unique<D3D11VideoDecoder>();
+            decoder->SetVideoPath(video_path);
+            // Apply global video range override
+            decoder->SetVideoRangeOverride(g_video_range_override);
+            if (decoder->Initialize()) {
+                decoders_created_++;
+                return decoder;
+            } else {
+                std::cout << "[VideoDecoderFactory] D3D11 decoder init failed, falling back to FFmpeg" << std::endl;
+                // Fall through to FFmpeg
+            }
+        } catch (const std::exception& e) {
+            std::cout << "[VideoDecoderFactory] D3D11 decoder exception: " << e.what()
+                      << ", falling back to FFmpeg" << std::endl;
+            // Fall through to FFmpeg
+        }
+    }
+#endif
 
     //=========================================================================
     // FFmpeg Backend (for MULTI_TRACK/DUAL_VIEW modes)
@@ -83,14 +123,24 @@ bool VideoDecoderFactory::IsFFmpegAvailable() const {
     return true;  // FFmpeg backend available (StreamingVideoDecoder)
 }
 
+bool VideoDecoderFactory::IsD3D11Available() const {
+#ifdef _WIN32
+    return true;  // D3D11 backend available on Windows
+#else
+    return false;
+#endif
+}
+
 bool VideoDecoderFactory::IsBackendAvailable(VideoDecoderBackend backend) const {
     switch (backend) {
         case VideoDecoderBackend::GSTREAMER:
             return IsGStreamerAvailable();
         case VideoDecoderBackend::FFMPEG:
             return IsFFmpegAvailable();
+        case VideoDecoderBackend::D3D11:
+            return IsD3D11Available();
         case VideoDecoderBackend::AUTO:
-            return IsFFmpegAvailable();
+            return IsFFmpegAvailable() || IsD3D11Available();
         default:
             return false;
     }
@@ -98,10 +148,12 @@ bool VideoDecoderFactory::IsBackendAvailable(VideoDecoderBackend backend) const 
 
 std::vector<VideoDecoderBackend> VideoDecoderFactory::GetAvailableBackends() const {
     std::vector<VideoDecoderBackend> backends;
+#ifdef _WIN32
+    backends.push_back(VideoDecoderBackend::D3D11);
+#endif
     if (IsFFmpegAvailable()) {
         backends.push_back(VideoDecoderBackend::FFMPEG);
     }
-    // GSTREAMER no longer available through factory
     return backends;
 }
 
@@ -115,6 +167,13 @@ void VideoDecoderFactory::SetPreferredBackend(VideoDecoderBackend backend) {
                   << "VIDEO_FILE mode uses direct MPV in VideoDisplayComponent" << std::endl;
         return;
     }
+
+#ifndef _WIN32
+    if (backend == VideoDecoderBackend::D3D11) {
+        std::cerr << "[VideoDecoderFactory] D3D11 backend only available on Windows" << std::endl;
+        return;
+    }
+#endif
 
     if (IsBackendAvailable(backend)) {
         preferred_backend_ = backend;

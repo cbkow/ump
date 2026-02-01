@@ -7,6 +7,13 @@
 #include "../audio/audio_mixer.h"
 #include "../utils/debug_utils.h"
 
+#ifdef _WIN32
+#include "../player/d3d11va_video_decoder.h"
+#include "../player/d3d11_video_decoder.h"
+#include "../gpu/d3d11_device_manager.h"
+#include "../audio/audio_player.h"
+#endif
+
 #include <cmath>
 #include <sstream>
 #include <iomanip>
@@ -210,6 +217,22 @@ void TimelinePlaybackController::Shutdown() {
         use_direct_mpv_ = false;
     }
 
+#ifdef _WIN32
+    // Shutdown D3D11VA HDR decoder
+    if (d3d11va_decoder_) {
+        d3d11va_decoder_->Shutdown();
+        d3d11va_decoder_.reset();
+        use_d3d11va_hdr_ = false;
+    }
+
+    // Shutdown D3D11 GPU-native decoder
+    if (d3d11_decoder_) {
+        d3d11_decoder_->Shutdown();
+        d3d11_decoder_.reset();
+        use_d3d11_decoder_ = false;
+    }
+#endif
+
     // Shutdown audio mixer
     if (audio_mixer_) {
         audio_mixer_->Shutdown();
@@ -282,6 +305,264 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
         height = height_;
         return 0;  // No texture from cache - MPV rendered directly
     }
+
+#ifdef _WIN32
+    // D3D11VA HDR mode: FFmpeg D3D11VA decode with D3D11-to-GL interop
+    if (use_d3d11va_hdr_ && d3d11va_decoder_) {
+        // Sync playhead from virtual timer
+        UpdateTimer();
+
+        int frame = current_frame_.load();
+
+        // Use OUR timeline duration/fps (from container metadata via FFmpeg)
+        // NOT FFmpeg's frame count which may differ slightly
+        // This ensures we loop based on playhead position, not decoder internal state
+        double fps = fps_;
+        int total_frames = static_cast<int>(timeline_duration_ * fps + 0.5);
+
+        // Account for embedded timecode offset
+        // If timecode starts at frame N (e.g., 00:00:00:01 = frame 1), decoder's frame indices
+        // are offset by N from what the container reports. Subtract to get actual frame count.
+        int timecode_offset = config_.timecode_start_frame;
+        if (timecode_offset > 0) {
+            total_frames -= timecode_offset;
+            if (total_frames < 1) total_frames = 1;
+        }
+
+        // Use probed actual_last_frame if available (discovered during init)
+        // This is the real last decodable frame before decoder hits EOS
+        // Add small margin for decoder's read-ahead
+        int actual_last = d3d11va_decoder_->GetActualLastFrame();
+        int safe_last_frame;
+        if (actual_last >= 0) {
+            // Use probed value with small margin for read-ahead safety
+            safe_last_frame = actual_last - kD3D11VASafetyMarginFrames;
+        } else {
+            // Fallback: use container frame count with margin
+            safe_last_frame = total_frames - kD3D11VASafetyMarginFrames - 1;
+        }
+        if (safe_last_frame < 0) safe_last_frame = 0;
+
+        // Determine loop/playback boundaries from our timeline, not decoder
+        int boundary_start = 0;
+        int boundary_end = safe_last_frame;
+
+        // Use In/Out points if set
+        if (timeline_view_ && timeline_view_->HasTimelineInOutPoints()) {
+            boundary_start = static_cast<int>(timeline_view_->GetTimelineInPoint() * fps + 0.5);
+            boundary_end = static_cast<int>(timeline_view_->GetTimelineOutPoint() * fps + 0.5);
+        }
+
+        // Clamp boundary_end to safe last frame
+        if (boundary_end > safe_last_frame) {
+            boundary_end = safe_last_frame;
+        }
+
+        // Clamp frame to valid range
+        if (frame > boundary_end) {
+            frame = boundary_end;
+        }
+        if (frame < boundary_start) {
+            frame = boundary_start;
+        }
+
+        // If waiting for buffer (after seek/loop), return last texture
+        // UpdateTimer will handle decoding and resuming
+        if (waiting_for_frame_) {
+            if (current_texture_ != 0) {
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            }
+            width = 0;
+            height = 0;
+            return 0;
+        }
+
+        // Loop/end handling for D3D11VA HDR mode
+        // Triggered by OUR playhead position, not decoder's internal state
+        // Strategy: Pause cleanly on last frame, then restart fresh from frame 0
+        if (is_playing_.load() && frame >= boundary_end) {
+            bool is_looping = timeline_view_ && timeline_view_->IsTimelineLooping();
+
+            Debug::Log("D3D11VA_HDR LOOP: frame=" + std::to_string(frame) +
+                       " >= boundary_end=" + std::to_string(boundary_end) +
+                       ", total_frames=" + std::to_string(total_frames) +
+                       " (tc_offset=" + std::to_string(timecode_offset) + ")" +
+                       ", actual_last=" + std::to_string(actual_last) +
+                       ", safe_last=" + std::to_string(safe_last_frame) +
+                       ", looping=" + std::to_string(is_looping));
+
+            // Step 1: Pause everything first (stops decoder's background read-ahead)
+            if (timeline_timer_) {
+                timeline_timer_->Pause();
+            }
+            is_playing_ = false;  // Mark as not playing during transition
+
+            if (is_looping) {
+                // Step 2: Set up loop restart state
+                // Don't seek decoder yet - let it fully stop first
+                // The seek will happen in UpdateTimer's buffer wait handling
+                double start_time = static_cast<double>(boundary_start) / fps;
+                if (timeline_timer_) {
+                    timeline_timer_->Seek(start_time);
+                }
+                current_frame_ = boundary_start;
+
+                Debug::Log("D3D11VA_HDR LOOP: Seeking to boundary_start=" + std::to_string(boundary_start) +
+                           " (time=" + std::to_string(start_time) + "s)");
+
+                // Step 3: Enter buffer wait with seek flag
+                // Decoder will be seeked to boundary_start before resuming
+                waiting_for_frame_ = true;
+                d3d11va_needs_seek_ = true;  // Signal that decoder needs to seek before decoding
+                waiting_start_time_ = std::chrono::steady_clock::now();
+                is_playing_ = true;  // Mark as playing so buffer wait will resume
+
+                // Return cached texture (last successfully decoded frame) while transitioning
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            } else {
+                // Not looping - stay paused on last frame
+                // Don't request any more frames from decoder
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            }
+        }
+
+        // Get frame from D3D11VA decoder as GL texture
+        GLuint texture = d3d11va_decoder_->GetFrameAsGLTexture(frame);
+
+        if (texture != 0) {
+            current_texture_ = texture;
+            current_texture_width_ = d3d11va_decoder_->GetWidth();
+            current_texture_height_ = d3d11va_decoder_->GetHeight();
+
+            width = current_texture_width_;
+            height = current_texture_height_;
+            return texture;
+        }
+
+        // Fallback to previous frame on decode failure
+        if (current_texture_ != 0) {
+            width = current_texture_width_;
+            height = current_texture_height_;
+            return current_texture_;
+        }
+
+        width = 0;
+        height = 0;
+        return 0;
+    }
+
+    // D3D11 GPU-native mode: New D3D11VideoDecoder (supports HW + SW decode)
+    if (use_d3d11_decoder_ && d3d11_decoder_) {
+        // Sync playhead from virtual timer
+        UpdateTimer();
+
+        int frame = current_frame_.load();
+        double fps = fps_;
+        int total_frames = static_cast<int>(timeline_duration_ * fps + 0.5);
+
+        // Determine loop/playback boundaries
+        int boundary_start = 0;
+        int boundary_end = total_frames - 1;
+
+        // Use In/Out points if set
+        if (timeline_view_ && timeline_view_->HasTimelineInOutPoints()) {
+            boundary_start = static_cast<int>(timeline_view_->GetTimelineInPoint() * fps + 0.5);
+            boundary_end = static_cast<int>(timeline_view_->GetTimelineOutPoint() * fps + 0.5);
+        }
+
+        // Clamp frame to valid range
+        if (frame > boundary_end) {
+            frame = boundary_end;
+        }
+        if (frame < boundary_start) {
+            frame = boundary_start;
+        }
+
+        // If waiting for buffer (after seek/loop), return last texture
+        if (waiting_for_frame_) {
+            if (current_texture_ != 0) {
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            }
+            width = 0;
+            height = 0;
+            return 0;
+        }
+
+        // Loop/end handling
+        if (is_playing_.load() && frame >= boundary_end) {
+            bool is_looping = timeline_view_ && timeline_view_->IsTimelineLooping();
+
+            Debug::Log("D3D11_DECODER LOOP: frame=" + std::to_string(frame) +
+                       " >= boundary_end=" + std::to_string(boundary_end) +
+                       ", looping=" + std::to_string(is_looping));
+
+            // Pause timer
+            if (timeline_timer_) {
+                timeline_timer_->Pause();
+            }
+            is_playing_ = false;
+
+            if (is_looping) {
+                // Seek to start
+                double start_time = static_cast<double>(boundary_start) / fps;
+                if (timeline_timer_) {
+                    timeline_timer_->Seek(start_time);
+                }
+                current_frame_ = boundary_start;
+
+                // Seek decoder
+                d3d11_decoder_->UpdatePlayhead(boundary_start, SeekQuality::NORMAL, true);
+
+                // Enter buffer wait then resume
+                waiting_for_frame_ = true;
+                waiting_start_time_ = std::chrono::steady_clock::now();
+                is_playing_ = true;
+
+                // Return cached texture while transitioning
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            } else {
+                // Not looping - stay paused on last frame
+                width = current_texture_width_;
+                height = current_texture_height_;
+                return current_texture_;
+            }
+        }
+
+        // Get frame from D3D11 decoder as GL texture
+        GLuint texture = d3d11_decoder_->GetFrameAsGLTexture(frame);
+
+        if (texture != 0) {
+            current_texture_ = texture;
+            current_texture_width_ = d3d11_decoder_->GetWidth();
+            current_texture_height_ = d3d11_decoder_->GetHeight();
+
+            width = current_texture_width_;
+            height = current_texture_height_;
+            return texture;
+        }
+
+        // Fallback to previous frame on decode failure
+        if (current_texture_ != 0) {
+            width = current_texture_width_;
+            height = current_texture_height_;
+            return current_texture_;
+        }
+
+        width = 0;
+        height = 0;
+        return 0;
+    }
+#endif
 
     // Sync playhead from virtual timer (always use virtual timeline mode now)
     // This must happen even if cache isn't initialized yet (for scratch timelines)
@@ -672,21 +953,21 @@ int TimelinePlaybackController::GetEffectiveBufferWaitPercent() const {
 bool TimelinePlaybackController::IsSequentialBufferReady() const {
     if (!cache_) return true;  // No cache = ready (nothing to wait for)
 
+    // D3D11 video decodes on-demand via GetGLTexture() - no buffer to wait for
+    // Buffer wait only makes sense for image sequences with pre-decoded ring buffers
+    if (cache_->IsVideoOnly()) {
+        return true;  // Video is always "ready" - D3D11 decodes on-demand
+    }
+
+    // Image sequence / mixed timeline: check sequential buffer fill
     // Get priority-sorted frames from engine: [current, ahead1, ahead2, ..., behind1, ...]
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
     if (priority_frames.empty()) return true;
 
-    int needed;
-    if (cache_->IsVideoOnly()) {
-        // Video mode: use configurable video buffer frames (default 2)
-        // User can increase this for slow storage or complex H.264/H.265 content
-        needed = video_buffer_frames_;
-    } else {
-        // Image/EXR mode: use configured % of readahead
-        int read_ahead = cache_->GetReadAheadFrames();
-        int effective_percent = GetEffectiveBufferWaitPercent();
-        needed = std::max(1, (read_ahead * effective_percent) / 100);
-    }
+    // Image/EXR mode: use configured % of readahead
+    int read_ahead = cache_->GetReadAheadFrames();
+    int effective_percent = GetEffectiveBufferWaitPercent();
+    int needed = std::max(1, (read_ahead * effective_percent) / 100);
 
     // The first (1 + needed) frames in priority order are: current, ahead1, ahead2, ...
     // Check if these are ALL ready (sequential from playhead)
@@ -707,18 +988,21 @@ void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) c
 
     if (!cache_) return;
 
+    // D3D11 video: buffer wait not applicable (on-demand decode)
+    if (cache_->IsVideoOnly()) {
+        filled = 1;
+        needed = 1;
+        return;
+    }
+
+    // Image sequence / mixed timeline: check buffer fill status
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
     if (priority_frames.empty()) return;
 
-    if (cache_->IsVideoOnly()) {
-        // Video mode: use configurable video buffer frames
-        needed = video_buffer_frames_;
-    } else {
-        // Image/EXR mode: use configured % of readahead
-        int read_ahead = cache_->GetReadAheadFrames();
-        int effective_percent = GetEffectiveBufferWaitPercent();
-        needed = std::max(1, (read_ahead * effective_percent) / 100);
-    }
+    // Image/EXR mode: use configured % of readahead
+    int read_ahead = cache_->GetReadAheadFrames();
+    int effective_percent = GetEffectiveBufferWaitPercent();
+    needed = std::max(1, (read_ahead * effective_percent) / 100);
 
     int frames_to_check = std::min(needed + 1, static_cast<int>(priority_frames.size()));
 
@@ -875,46 +1159,164 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     });
 
-    // Check if this is VIDEO_FILE mode with a video or audio clip
-    // In this mode, use VideoDisplayComponent's direct MPV rendering (no CPU roundtrip)
-    // MPV handles both video and audio files seamlessly
-    bool use_direct_mpv = false;
+    // Check if this is VIDEO_FILE mode - extract media file path first
+    // Then decide which decoder to use based on pipeline mode
     std::string media_file_path;
+    bool is_video_file_mode = (timeline_view_->GetSourceMode() == TimelineSourceMode::VIDEO_FILE);
 
-    if (timeline_view_->GetSourceMode() == TimelineSourceMode::VIDEO_FILE) {
+    if (is_video_file_mode) {
         // First try to find a video clip
         for (const auto& track : tracks) {
             if (!track.is_video) continue;
             for (const auto& clip : track.clips) {
                 if (clip.is_linked && !clip.linked_path.empty()) {
                     media_file_path = clip.linked_path;
-                    use_direct_mpv = true;
                     break;
                 }
             }
-            if (use_direct_mpv) break;
+            if (!media_file_path.empty()) break;
         }
 
         // If no video clip found, check audio tracks (audio-only file)
-        if (!use_direct_mpv) {
+        if (media_file_path.empty()) {
             for (const auto& track : tracks) {
                 if (track.is_video) continue;  // Skip video tracks
                 for (const auto& clip : track.clips) {
                     if (clip.is_linked && !clip.linked_path.empty()) {
                         media_file_path = clip.linked_path;
-                        use_direct_mpv = true;
-                        Debug::Log("TimelinePlaybackController: Found audio-only file for MPV: " + media_file_path);
+                        Debug::Log("TimelinePlaybackController: Found audio-only file: " + media_file_path);
                         break;
                     }
                 }
-                if (use_direct_mpv) break;
+                if (!media_file_path.empty()) break;
             }
         }
     }
 
-    // For VIDEO_FILE mode: use direct MPV rendering in VideoDisplayComponent
+    // Decoder selection: D3D11VA_HDR mode uses FFmpeg D3D11VA, otherwise use MPV for VIDEO_FILE
+    bool use_direct_mpv = false;
+
+#ifdef _WIN32
+    // D3D11VA_HDR pipeline mode: use FFmpeg + D3D11VA hardware decode (bypasses MPV entirely)
+    // Key: Our D3D11 device is passed TO FFmpeg for texture compatibility
+    bool use_d3d11va_hdr = (config_.pipeline_mode == PipelineMode::MF_HDR);
+
+    if (use_d3d11va_hdr && is_video_file_mode && !media_file_path.empty()) {
+        Debug::Log("TimelinePlaybackController: D3D11VA HDR mode - using FFmpeg + D3D11VA for: " + media_file_path);
+
+        // Ensure D3D11 device manager is initialized
+        auto& device_mgr = D3D11DeviceManager::Instance();
+        if (!device_mgr.IsInitialized()) {
+            device_mgr.Initialize(nullptr);  // Initialize without HWND - will use default adapter
+        }
+        auto* device = device_mgr.GetDevice();
+        if (device) {
+            d3d11va_decoder_ = std::make_unique<D3D11VAVideoDecoder>();
+            if (d3d11va_decoder_->Initialize(device, media_file_path)) {
+                use_d3d11va_hdr_ = true;
+
+                // Update dimensions from D3D11VA decoder
+                if (d3d11va_decoder_->GetWidth() > 0 && d3d11va_decoder_->GetHeight() > 0) {
+                    width_ = d3d11va_decoder_->GetWidth();
+                    height_ = d3d11va_decoder_->GetHeight();
+                    video_player_->SetContentDimensions(width_, height_);
+                }
+
+                // Update FPS if detected
+                if (d3d11va_decoder_->GetFPS() > 0) {
+                    fps_ = d3d11va_decoder_->GetFPS();
+                    timeline_timer_->SetFrameRate(fps_);
+                }
+
+                // Clear the timer's on_end callback - D3D11VA handles loop/end internally
+                timeline_timer_->SetOnEnd(nullptr);
+
+                Debug::Log("TimelinePlaybackController: D3D11VA HDR mode active - " +
+                           std::to_string(width_) + "x" + std::to_string(height_) +
+                           " @ " + std::to_string(fps_) + " fps" +
+                           (d3d11va_decoder_->IsHDRContent() ? " [HDR]" : " [SDR]") +
+                           (d3d11va_decoder_->Is10BitOutput() ? " [10-bit]" : " [8-bit]"));
+
+                // Log timecode offset if present
+                if (config_.timecode_start_frame > 0) {
+                    Debug::Log("TimelinePlaybackController: Timecode offset = " +
+                               std::to_string(config_.timecode_start_frame) + " frames");
+                }
+            } else {
+                Debug::Log("TimelinePlaybackController: WARNING - D3D11VA init failed, falling back to MPV");
+                d3d11va_decoder_.reset();
+                use_d3d11va_hdr_ = false;
+            }
+        } else {
+            Debug::Log("TimelinePlaybackController: WARNING - No D3D11 device, falling back to MPV");
+            use_d3d11va_hdr_ = false;
+        }
+    }
+
+    // ULTRA_HIGH_RES pipeline mode: use new D3D11VideoDecoder (supports HW + SW decode)
+    bool use_d3d11_decoder = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES);
+
+    if (use_d3d11_decoder && !use_d3d11va_hdr_ && is_video_file_mode && !media_file_path.empty()) {
+        Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode (ULTRA_HIGH_RES) for: " + media_file_path);
+
+        // Ensure D3D11 device manager is initialized
+        auto& device_mgr = D3D11DeviceManager::Instance();
+        if (!device_mgr.IsInitialized()) {
+            device_mgr.Initialize(nullptr);
+        }
+
+        d3d11_decoder_ = std::make_unique<D3D11VideoDecoder>();
+        d3d11_decoder_->SetVideoPath(media_file_path);
+        d3d11_decoder_->SetPipelineMode(config_.pipeline_mode);
+
+        if (d3d11_decoder_->Initialize()) {
+            use_d3d11_decoder_ = true;
+
+            // Update dimensions from decoder
+            if (d3d11_decoder_->GetWidth() > 0 && d3d11_decoder_->GetHeight() > 0) {
+                width_ = d3d11_decoder_->GetWidth();
+                height_ = d3d11_decoder_->GetHeight();
+                video_player_->SetContentDimensions(width_, height_);
+            }
+
+            // Update FPS
+            if (d3d11_decoder_->GetFPS() > 0) {
+                fps_ = d3d11_decoder_->GetFPS();
+                timeline_timer_->SetFrameRate(fps_);
+            }
+
+            // Update duration
+            if (d3d11_decoder_->GetDuration() > 0) {
+                timeline_duration_ = d3d11_decoder_->GetDuration();
+                timeline_timer_->SetDuration(timeline_duration_);
+            }
+
+            Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode active - " +
+                       std::to_string(width_) + "x" + std::to_string(height_) +
+                       " @ " + std::to_string(fps_) + " fps" +
+                       (d3d11_decoder_->IsHDRContent() ? " [HDR]" : " [SDR]") +
+                       (d3d11_decoder_->Is10BitOutput() ? " [10-bit]" : " [8-bit]") +
+                       " [" + std::string(d3d11_decoder_->IsHardwareAccelerated() ? "HW" : "SW") + " decode]");
+        } else {
+            Debug::Log("TimelinePlaybackController: WARNING - D3D11VideoDecoder init failed, falling back to MPV");
+            d3d11_decoder_.reset();
+            use_d3d11_decoder_ = false;
+        }
+    }
+
+    // Only use MPV if neither D3D11VA HDR nor D3D11 decoder is active
+    if (!use_d3d11va_hdr_ && !use_d3d11_decoder_ && is_video_file_mode && !media_file_path.empty()) {
+        use_direct_mpv = true;
+    }
+#else
+    // Non-Windows: always use MPV for VIDEO_FILE mode
+    if (is_video_file_mode && !media_file_path.empty()) {
+        use_direct_mpv = true;
+    }
+#endif
+
+    // For VIDEO_FILE mode with MPV: direct rendering in VideoDisplayComponent
     // This keeps everything on GPU (no CPU roundtrip like LibMPVVideoDecoder)
-    // MPV handles both video and audio files - audio files just won't have video frames
     if (use_direct_mpv && !media_file_path.empty()) {
         Debug::Log("TimelinePlaybackController: Using direct MPV rendering for media file: " + media_file_path);
 
@@ -933,8 +1335,13 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     }
 
-    // Initialize cache (skip for direct MPV mode - no decoder needed)
-    if (!use_direct_mpv) {
+    // Initialize cache (skip for direct MPV mode and D3D11 decoder modes - no decoder needed)
+#ifdef _WIN32
+    bool skip_cache = use_direct_mpv || use_d3d11va_hdr_ || use_d3d11_decoder_;
+#else
+    bool skip_cache = use_direct_mpv;
+#endif
+    if (!skip_cache) {
         cache_ = std::make_unique<TimelineCache>();
 
         TimelineCacheConfig cache_config;
@@ -978,7 +1385,9 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     }
 
     // Initialize audio mixer (skip for direct MPV mode - MPV handles audio)
-    if (!use_direct_mpv_) {
+    // D3D11 GPU-native mode now supports audio via AudioMixer
+    bool skip_audio_mixer = use_direct_mpv_;
+    if (!skip_audio_mixer) {
         audio_mixer_ = std::make_unique<AudioMixer>();
         if (audio_mixer_->Initialize()) {
             audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
@@ -1097,6 +1506,39 @@ void TimelinePlaybackController::UpdateTimer() {
             }
             return;
         }
+
+#ifdef _WIN32
+        // D3D11VA HDR mode: seek (if needed for loop restart) and try to decode
+        if (use_d3d11va_hdr_ && d3d11va_decoder_) {
+            int target_frame = current_frame_.load();
+
+            // Seek decoder if this is a loop restart (from end -> start)
+            // SeekToFrame is safe when paused - no background read-ahead
+            if (d3d11va_needs_seek_) {
+                Debug::Log("D3D11VA_HDR BUFFER_WAIT: Seeking decoder to frame " + std::to_string(target_frame));
+                d3d11va_decoder_->SeekToFrame(target_frame);
+                d3d11va_needs_seek_ = false;  // Only seek once
+            }
+
+            // Now try to decode the frame
+            GLuint texture = d3d11va_decoder_->GetFrameAsGLTexture(target_frame);
+
+            if (texture != 0) {
+                // Frame ready - resume playback
+                Debug::Log("D3D11VA_HDR BUFFER_WAIT: Frame " + std::to_string(target_frame) + " ready, resuming playback");
+                current_texture_ = texture;
+                current_texture_width_ = d3d11va_decoder_->GetWidth();
+                current_texture_height_ = d3d11va_decoder_->GetHeight();
+
+                waiting_for_frame_ = false;
+                accumulated_time_ = 0.0;
+                last_timer_update_ = now;
+                timeline_timer_->Play();
+            }
+            // If not ready, keep waiting (timer stays paused)
+            return;
+        }
+#endif
 
         // Use engine-aware sequential buffer check
         // Needs 50% of readahead filled SEQUENTIALLY from playhead
@@ -1245,6 +1687,38 @@ void TimelinePlaybackController::Play() {
         return;
     }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: start playing directly (no buffer wait needed)
+    // Buffer wait is only used for loop transitions
+    if (use_d3d11va_hdr_ && d3d11va_decoder_) {
+        is_playing_ = true;
+        waiting_for_frame_ = false;
+        d3d11va_needs_seek_ = false;  // No pending seek when starting fresh
+        accumulated_time_ = 0.0;
+        last_timer_update_ = std::chrono::steady_clock::now();
+        timer_initialized_ = true;
+        timeline_timer_->Play();
+        if (audio_mixer_) {
+            audio_mixer_->Play();
+        }
+        return;
+    }
+
+    // D3D11 GPU-native mode: start playing with audio
+    if (use_d3d11_decoder_ && d3d11_decoder_) {
+        is_playing_ = true;
+        waiting_for_frame_ = false;
+        accumulated_time_ = 0.0;
+        last_timer_update_ = std::chrono::steady_clock::now();
+        timer_initialized_ = true;
+        timeline_timer_->Play();
+        if (audio_mixer_) {
+            audio_mixer_->Play();
+        }
+        return;
+    }
+#endif
+
     if (use_virtual_timeline_ && timeline_timer_) {
         // Set playing state (UI will show as playing)
         is_playing_ = true;
@@ -1310,10 +1784,36 @@ void TimelinePlaybackController::Pause() {
         return;
     }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: pause timer and clear pending states
+    if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
+        timeline_timer_->Pause();
+        is_playing_ = false;
+        waiting_for_frame_ = false;
+        d3d11va_needs_seek_ = false;  // Cancel any pending loop seek
+        if (audio_mixer_) {
+            audio_mixer_->Pause();
+        }
+        return;
+    }
+
+    // D3D11 GPU-native mode: pause timer, audio, and clear pending states
+    if (use_d3d11_decoder_ && d3d11_decoder_ && timeline_timer_) {
+        timeline_timer_->Pause();
+        is_playing_ = false;
+        waiting_for_frame_ = false;
+        if (audio_mixer_) {
+            audio_mixer_->Pause();
+        }
+        return;
+    }
+#endif
+
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->Pause();
         is_playing_ = false;
         waiting_for_frame_ = false;  // Cancel waiting if paused
+        d3d11va_needs_seek_ = false;  // Reset seek flag
         force_play_active_ = false;  // Clear ForcePlay cooldown on pause
         ResetThrottle();  // Reset to full speed on pause
         if (audio_mixer_) {
@@ -1390,6 +1890,74 @@ void TimelinePlaybackController::Seek(double position) {
         return;
     }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: seek decoder and timer directly (no buffer wait)
+    if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
+        // Clamp position to valid range
+        if (position < 0) position = 0;
+
+        // Calculate safe end boundary using probed actual_last_frame
+        int total_frames = static_cast<int>(timeline_duration_ * fps_ + 0.5);
+
+        // Account for embedded timecode offset
+        int timecode_offset = config_.timecode_start_frame;
+        if (timecode_offset > 0) {
+            total_frames -= timecode_offset;
+            if (total_frames < 1) total_frames = 1;
+        }
+
+        int actual_last = d3d11va_decoder_->GetActualLastFrame();
+        int safe_last_frame;
+        if (actual_last >= 0) {
+            safe_last_frame = actual_last - kD3D11VASafetyMarginFrames;
+        } else {
+            safe_last_frame = total_frames - kD3D11VASafetyMarginFrames - 1;
+        }
+        if (safe_last_frame < 0) safe_last_frame = 0;
+        double safe_end_position = static_cast<double>(safe_last_frame) / fps_;
+
+        if (position > safe_end_position) position = safe_end_position;
+
+        // Seek timer
+        timeline_timer_->Seek(position);
+
+        // Seek D3D11VA decoder
+        int target_frame = static_cast<int>(position * fps_ + 0.5);
+        d3d11va_decoder_->SeekToFrame(target_frame);
+        current_frame_ = target_frame;
+
+        // Reset timing
+        accumulated_time_ = 0.0;
+        last_timer_update_ = std::chrono::steady_clock::now();
+        return;
+    }
+
+    // D3D11 GPU-native mode: seek decoder and timer
+    if (use_d3d11_decoder_ && d3d11_decoder_ && timeline_timer_) {
+        // Clamp position to valid range
+        if (position < 0) position = 0;
+        if (position > timeline_duration_) position = timeline_duration_;
+
+        // Seek timer
+        timeline_timer_->Seek(position);
+
+        // Seek decoder
+        int target_frame = static_cast<int>(position * fps_ + 0.5);
+        d3d11_decoder_->UpdatePlayhead(target_frame, SeekQuality::NORMAL, true);
+        current_frame_ = target_frame;
+
+        // Sync audio
+        if (audio_mixer_) {
+            audio_mixer_->SetTimelinePosition(position);
+        }
+
+        // Reset timing
+        accumulated_time_ = 0.0;
+        last_timer_update_ = std::chrono::steady_clock::now();
+        return;
+    }
+#endif
+
     if (use_virtual_timeline_ && timeline_timer_) {
         // Clamp position
         if (position < 0) position = 0;
@@ -1452,6 +2020,15 @@ void TimelinePlaybackController::SeekRelative(double delta) {
         return;
     }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: use timer position and route through protected Seek()
+    if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
+        double new_pos = timeline_timer_->GetPosition() + delta;
+        Seek(new_pos);
+        return;
+    }
+#endif
+
     if (use_virtual_timeline_ && timeline_timer_) {
         double new_pos = timeline_timer_->GetPosition() + delta;
         Seek(new_pos);
@@ -1467,6 +2044,55 @@ void TimelinePlaybackController::StepForward(int frames) {
         return;
     }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: step with boundary clamping
+    if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
+        // Calculate safe boundary using probed actual_last_frame
+        int total_frames = static_cast<int>(timeline_duration_ * fps_ + 0.5);
+
+        // Account for embedded timecode offset
+        int timecode_offset = config_.timecode_start_frame;
+        if (timecode_offset > 0) {
+            total_frames -= timecode_offset;
+            if (total_frames < 1) total_frames = 1;
+        }
+
+        int actual_last = d3d11va_decoder_->GetActualLastFrame();
+        int safe_last_frame;
+        if (actual_last >= 0) {
+            safe_last_frame = actual_last - kD3D11VASafetyMarginFrames;
+        } else {
+            safe_last_frame = total_frames - kD3D11VASafetyMarginFrames - 1;
+        }
+        if (safe_last_frame < 0) safe_last_frame = 0;
+
+        int current = current_frame_.load();
+        int target = current + frames;
+        if (target > safe_last_frame) target = safe_last_frame;
+
+        // Seek to target frame
+        double position = static_cast<double>(target) / fps_;
+        Seek(position);
+        return;
+    }
+
+    // D3D11 GPU-native mode: step with boundary clamping
+    if (use_d3d11_decoder_ && d3d11_decoder_ && timeline_timer_) {
+        int total_frames = static_cast<int>(timeline_duration_ * fps_ + 0.5);
+        int safe_last_frame = total_frames - 1;
+        if (safe_last_frame < 0) safe_last_frame = 0;
+
+        int current = current_frame_.load();
+        int target = current + frames;
+        if (target > safe_last_frame) target = safe_last_frame;
+
+        // Seek to target frame
+        double position = static_cast<double>(target) / fps_;
+        Seek(position);
+        return;
+    }
+#endif
+
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->StepForward(frames);
     }
@@ -1480,6 +2106,32 @@ void TimelinePlaybackController::StepBackward(int frames) {
         }
         return;
     }
+
+#ifdef _WIN32
+    // D3D11VA HDR mode: step with boundary clamping
+    if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
+        int current = current_frame_.load();
+        int target = current - frames;
+        if (target < 0) target = 0;
+
+        // Seek to target frame
+        double position = static_cast<double>(target) / fps_;
+        Seek(position);
+        return;
+    }
+
+    // D3D11 GPU-native mode: step with boundary clamping
+    if (use_d3d11_decoder_ && d3d11_decoder_ && timeline_timer_) {
+        int current = current_frame_.load();
+        int target = current - frames;
+        if (target < 0) target = 0;
+
+        // Seek to target frame
+        double position = static_cast<double>(target) / fps_;
+        Seek(position);
+        return;
+    }
+#endif
 
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->StepBackward(frames);
@@ -1677,6 +2329,24 @@ void TimelinePlaybackController::UpdateFastSeek() {
         fast_seek_speed_ = video_player_->GetMPVFastSeekSpeed();
         return;
     }
+
+#ifdef _WIN32
+    // D3D11VA HDR mode: use protected Seek() which handles safe boundaries
+    if (use_d3d11va_hdr_ && d3d11va_decoder_) {
+        // Calculate position delta based on current speed
+        double position_delta = delta_seconds * fast_seek_speed_;
+        if (!fast_forward_) {
+            position_delta = -position_delta;  // Rewind
+        }
+
+        double current_pos = GetPosition();
+        double new_pos = current_pos + position_delta;
+
+        // Seek() will handle safe boundary clamping for D3D11VA HDR
+        Seek(new_pos);
+        return;
+    }
+#endif
 
     // Calculate position delta based on current speed
     double position_delta = delta_seconds * fast_seek_speed_;

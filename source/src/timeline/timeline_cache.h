@@ -29,6 +29,9 @@
 #include "../player/managed_video_decoder.h"    // For ManagedVideoDecoder (MULTI_TRACK mode)
 #include "../player/image_sequence_decoder.h"   // For ImageSequenceDecoder
 #include "../player/scrub_decoder.h"            // For ScrubDecoderManager (scrub-only decoders)
+#ifdef _WIN32
+#include "../player/d3d11_video_decoder.h"      // For D3D11VideoDecoder (GPU-native)
+#endif
 #include "cache_window_engine.h"                // Central circular cache engine
 #include "timeline_types.h"                     // For TimelineSourceMode
 
@@ -153,6 +156,12 @@ struct ClipLoaderInfo {
     // Legacy: For image sequences without full metadata (falls back to per-file loading)
     std::unique_ptr<IImageLoader> image_loader;
 
+    // Direct D3D11 decoder for MULTI_TRACK video (bypasses ManagedVideoDecoder)
+    // This avoids the spawn-and-abandon logic that conflicts with D3D11's on-demand model
+#ifdef _WIN32
+    std::unique_ptr<D3D11VideoDecoder> d3d11_decoder;
+#endif
+
     ClipMediaType media_type = ClipMediaType::UNKNOWN;
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
     int width = 0;
@@ -176,6 +185,10 @@ struct ClipLoaderInfo {
 
     // Get frame from appropriate decoder
     std::shared_ptr<PixelData> GetFrame(int frame) {
+#ifdef _WIN32
+        // D3D11 decoder uses GetGLTexture() path, not PixelData
+        if (d3d11_decoder) return d3d11_decoder->GetFrame(frame);
+#endif
         if (managed_decoder) return managed_decoder->GetFrame(frame);
         if (video_decoder) return video_decoder->GetFrame(frame);
         if (sequence_decoder) return sequence_decoder->GetFrame(frame);
@@ -184,6 +197,9 @@ struct ClipLoaderInfo {
 
     // Get closest frame (for scrubbing fallback)
     std::shared_ptr<PixelData> GetClosestFrame(int frame, int* actual = nullptr) {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->GetClosestFrame(frame, actual);
+#endif
         if (managed_decoder) return managed_decoder->GetClosestFrame(frame, actual);
         if (video_decoder) return video_decoder->GetClosestFrame(frame, actual);
         if (sequence_decoder) return sequence_decoder->GetClosestFrame(frame, actual);
@@ -192,6 +208,9 @@ struct ClipLoaderInfo {
 
     // Update playhead position
     void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false, bool is_prefetch = false) {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->UpdatePlayhead(frame, quality, force); return; }
+#endif
         if (managed_decoder) managed_decoder->UpdatePlayhead(frame, quality, force, is_prefetch);
         if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
         if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
@@ -206,6 +225,9 @@ struct ClipLoaderInfo {
 
     // Check if frame is buffered
     bool HasFrame(int frame) const {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->HasFrame(frame);
+#endif
         if (managed_decoder) return managed_decoder->HasFrame(frame);
         if (video_decoder) return video_decoder->HasFrame(frame);
         if (sequence_decoder) return sequence_decoder->HasFrame(frame);
@@ -214,6 +236,9 @@ struct ClipLoaderInfo {
 
     // Get buffered range
     void GetBufferedRange(int& start, int& end) const {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->GetBufferedRange(start, end); return; }
+#endif
         if (managed_decoder) { managed_decoder->GetBufferedRange(start, end); return; }
         if (video_decoder) { video_decoder->GetBufferedRange(start, end); return; }
         if (sequence_decoder) { sequence_decoder->GetBufferedRange(start, end); return; }
@@ -222,6 +247,9 @@ struct ClipLoaderInfo {
 
     // Get buffer size
     int GetBufferSize() const {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->GetBufferSize();
+#endif
         if (managed_decoder) return managed_decoder->GetBufferSize();
         if (video_decoder) return video_decoder->GetBufferSize();
         if (sequence_decoder) return sequence_decoder->GetBufferSize();
@@ -230,6 +258,9 @@ struct ClipLoaderInfo {
 
     // Clear buffer
     void ClearBuffer() {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->ClearBuffer(); return; }
+#endif
         if (managed_decoder) managed_decoder->ClearBuffer();
         if (video_decoder) video_decoder->ClearBuffer();
         if (sequence_decoder) sequence_decoder->ClearBuffer();
@@ -237,6 +268,9 @@ struct ClipLoaderInfo {
 
     // Hard reset
     void HardReset(int frame) {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->HardReset(frame); return; }
+#endif
         if (managed_decoder) managed_decoder->HardReset(frame);
         if (video_decoder) video_decoder->HardReset(frame);
         if (sequence_decoder) sequence_decoder->HardReset(frame);
@@ -244,6 +278,9 @@ struct ClipLoaderInfo {
 
     // Check if this is a buffered decoder (vs legacy per-file loader)
     bool HasBufferedDecoder() const {
+#ifdef _WIN32
+        if (d3d11_decoder) return true;
+#endif
         return managed_decoder != nullptr || video_decoder != nullptr || sequence_decoder != nullptr;
     }
 
@@ -253,6 +290,9 @@ struct ClipLoaderInfo {
 
     // Set which source frames are needed, in priority order
     void SetNeededFrames(const std::vector<int>& frames_by_priority) {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->SetNeededFrames(frames_by_priority); return; }
+#endif
         if (managed_decoder) managed_decoder->SetNeededFrames(frames_by_priority);
         if (video_decoder) video_decoder->SetNeededFrames(frames_by_priority);
         // ImageSequenceDecoder doesn't need this - it decodes on demand
@@ -260,6 +300,9 @@ struct ClipLoaderInfo {
 
     // Evict frames outside the given keep set
     void EvictOutsideWindow(const std::set<int>& keep_frames) {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->EvictOutsideWindow(keep_frames); return; }
+#endif
         if (managed_decoder) managed_decoder->EvictOutsideWindow(keep_frames);
         if (video_decoder) video_decoder->EvictOutsideWindow(keep_frames);
         // ImageSequenceDecoder doesn't need this - it manages its own buffer
@@ -267,6 +310,9 @@ struct ClipLoaderInfo {
 
     // Get frames currently in buffer as a set
     std::set<int> GetBufferedFramesSet() const {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->GetBufferedFramesSet();
+#endif
         if (managed_decoder) return managed_decoder->GetBufferedFramesSet();
         if (video_decoder) return video_decoder->GetBufferedFramesSet();
         return std::set<int>{};
@@ -277,12 +323,18 @@ struct ClipLoaderInfo {
     //=========================================================================
 
     void SetShuttleMode(bool enabled, int direction) {
+#ifdef _WIN32
+        if (d3d11_decoder) { d3d11_decoder->SetShuttleMode(enabled); return; }
+#endif
         if (managed_decoder) managed_decoder->SetShuttleMode(enabled, direction);
         if (video_decoder) video_decoder->SetShuttleMode(enabled);
         // ImageSequenceDecoder doesn't need shuttle mode - it's fast enough
     }
 
     bool IsShuttleMode() const {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->IsShuttleMode();
+#endif
         if (managed_decoder) return managed_decoder->IsShuttleMode();
         if (video_decoder) return video_decoder->IsShuttleMode();
         return false;
@@ -290,6 +342,9 @@ struct ClipLoaderInfo {
 
     // For shuttle, get best available frame
     std::shared_ptr<PixelData> UpdateShuttle(int frame) {
+#ifdef _WIN32
+        if (d3d11_decoder) return d3d11_decoder->GetClosestFrame(frame, nullptr);
+#endif
         if (managed_decoder) return managed_decoder->UpdateShuttle(frame);
         if (video_decoder) return video_decoder->GetClosestFrame(frame, nullptr);
         return nullptr;
@@ -297,6 +352,13 @@ struct ClipLoaderInfo {
 
     // Exit shuttle - return frame to snap to
     int ExitShuttle() {
+#ifdef _WIN32
+        if (d3d11_decoder) {
+            d3d11_decoder->SetShuttleMode(false);
+            d3d11_decoder->ClearBuffer();
+            return 0;
+        }
+#endif
         if (managed_decoder) return managed_decoder->ExitShuttle();
         // GStreamer - disable shuttle mode and return current position
         if (video_decoder) {
@@ -312,6 +374,12 @@ struct ClipLoaderInfo {
     //=========================================================================
 
     void SetLoopBoundaries(int loop_start, int loop_end) {
+#ifdef _WIN32
+        if (d3d11_decoder) {
+            d3d11_decoder->SetLoopPoints(loop_start, loop_end);
+            return;
+        }
+#endif
         if (managed_decoder) {
             managed_decoder->SetLoopBoundaries(loop_start, loop_end);
         }
@@ -321,6 +389,12 @@ struct ClipLoaderInfo {
     }
 
     void ClearLoopBoundaries() {
+#ifdef _WIN32
+        if (d3d11_decoder) {
+            d3d11_decoder->ClearLoopPoints();
+            return;
+        }
+#endif
         if (managed_decoder) {
             managed_decoder->ClearLoopBoundaries();
         }
@@ -328,6 +402,54 @@ struct ClipLoaderInfo {
             video_decoder->ClearLoopPoints();
         }
     }
+
+    //=========================================================================
+    // D3D11 Direct GL Texture Access (zero-copy path)
+    //=========================================================================
+
+#ifdef _WIN32
+    // Get frame as GL texture directly from D3D11VideoDecoder (bypasses PixelData)
+    // Returns 0 if decoder is not D3D11 type or frame not available
+    GLuint GetGLTexture(int frame) {
+        // Check direct d3d11_decoder first (MULTI_TRACK direct path)
+        if (d3d11_decoder) {
+            return d3d11_decoder->GetFrameAsGLTexture(frame);
+        }
+
+        // Check if managed_decoder has a D3D11VideoDecoder internally (fallback path)
+        if (managed_decoder) {
+            GLuint tex = managed_decoder->GetFrameAsGLTexture(frame);
+            if (tex != 0) return tex;
+        }
+
+        // Check if video_decoder is D3D11VideoDecoder
+        if (video_decoder) {
+            auto* d3d11_dec = dynamic_cast<D3D11VideoDecoder*>(video_decoder.get());
+            if (d3d11_dec) {
+                return d3d11_dec->GetFrameAsGLTexture(frame);
+            }
+        }
+
+        return 0;  // Not a D3D11 decoder
+    }
+
+    // Check if this loader uses D3D11 backend
+    bool IsD3D11Decoder() const {
+        // Check direct d3d11_decoder first (MULTI_TRACK direct path)
+        if (d3d11_decoder) {
+            return true;
+        }
+        // Check ManagedVideoDecoder (fallback MULTI_TRACK path)
+        if (managed_decoder && managed_decoder->IsD3D11Backend()) {
+            return true;
+        }
+        // Check standalone video_decoder (VIDEO_FILE mode)
+        if (video_decoder) {
+            return dynamic_cast<D3D11VideoDecoder*>(video_decoder.get()) != nullptr;
+        }
+        return false;
+    }
+#endif
 };
 
 //=============================================================================

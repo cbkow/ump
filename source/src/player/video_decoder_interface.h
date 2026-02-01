@@ -51,15 +51,17 @@ enum class SeekQuality {
 //=============================================================================
 
 enum class VideoDecoderBackend {
-    AUTO,       // Auto-select best available (GStreamer preferred, FFmpeg fallback)
-    FFMPEG,     // Force FFmpeg backend
-    GSTREAMER   // Force GStreamer backend
+    AUTO,       // Auto-select best available
+    FFMPEG,     // Force FFmpeg backend (CPU ring buffer)
+    GSTREAMER,  // Force GStreamer backend
+    D3D11       // D3D11 GPU-native backend (Windows only)
 };
 
 inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
     switch (backend) {
         case VideoDecoderBackend::FFMPEG: return "FFmpeg";
         case VideoDecoderBackend::GSTREAMER: return "GStreamer";
+        case VideoDecoderBackend::D3D11: return "D3D11";
         default: return "Auto";
     }
 }

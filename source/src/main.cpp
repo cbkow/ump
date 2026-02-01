@@ -122,6 +122,7 @@ extern "C" {
 #include "timeline/timeline_selection.h"
 #include "player/shared_memory_pool.h"
 #include "player/hw_context_manager.h"
+#include "player/video_decoder_factory.h"
 #include "timeline/media_linker.h"
 #include "audio/audio_player.h"
 #include "audio/audio_mixer.h"
@@ -226,6 +227,9 @@ static struct {
 
     // COLOR MANAGEMENT SETTINGS
     bool auto_121_enabled = true;         // Auto-apply Rec.709 -> sRGB OCIO when 1-2-1 NCLC detected
+
+    // VIDEO RANGE OVERRIDE (for D3D11 decoders)
+    int video_range_mode = 0;             // 0=AUTO, 1=FULL, 2=LIMITED - override YUV color range
 } cache_settings;
 
 // ============================================================================
@@ -1226,6 +1230,13 @@ public:
                     video_player->ResetState();
                     Debug::Log("Timeline entry: Cleaned up EXR/image sequence state");
                 }
+
+                // 4. Clean up MPV if it was active (important for D3D11VA HDR -> timeline switch)
+                if (video_player->IsMPVLoaded()) {
+                    video_player->UnloadVideoFile();
+                    video_player->CleanupMPV();
+                    Debug::Log("Timeline entry: Cleaned up MPV context");
+                }
             }
 
             // 4. Clear current file path (timeline uses its own playback system)
@@ -1825,6 +1836,18 @@ public:
             if (!timeline_view) {
                 Debug::Log("ImageSequenceTimelineCallback: Creating TimelineView for first use");
                 timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+            } else {
+                // Shutdown existing playback to properly clean up previous decoder/cache
+                // This is critical when switching from video (especially D3D11VA HDR) to image sequence
+                Debug::Log("ImageSequenceTimelineCallback: Shutting down existing playback before loading new sequence");
+                timeline_view->ShutdownPlayback();
+
+                // Also cleanup MPV in VideoDisplayComponent if it was active
+                if (video_player && video_player->IsMPVLoaded()) {
+                    video_player->UnloadVideoFile();
+                    video_player->CleanupMPV();
+                    Debug::Log("ImageSequenceTimelineCallback: Cleaned up previous MPV context");
+                }
             }
 
             Debug::Log("ImageSequenceTimelineCallback: Loading " + item->name + " into timeline view");
@@ -1935,7 +1958,34 @@ public:
                 Debug::Log("VideoFileTimelineCallback: Set pending pipeline mode to " +
                            std::string(PipelineModeToString(project_mode)) + " (from project)");
 
-                // Initialize playback (will use the pending pipeline mode)
+                // Set video codec from cached metadata (for D3D11VA HDR eligibility - HEVC only)
+                const auto* cached_meta = project_manager->GetCachedMetadata(item->path);
+                if (cached_meta && cached_meta->video_meta) {
+                    timeline_view->SetPendingVideoCodec(cached_meta->video_meta->video_codec);
+                    Debug::Log("VideoFileTimelineCallback: Set video codec to '" +
+                               cached_meta->video_meta->video_codec + "' for D3D11VA HDR check");
+
+                    // Parse embedded timecode to get start frame offset (for D3D11VA HDR frame alignment)
+                    if (cached_meta->video_meta->has_embedded_timecode &&
+                        !cached_meta->video_meta->timecode_format.empty()) {
+                        // Parse SMPTE timecode: HH:MM:SS:FF
+                        int hours = 0, minutes = 0, seconds = 0, frames = 0;
+                        if (sscanf(cached_meta->video_meta->timecode_format.c_str(),
+                                   "%d:%d:%d:%d", &hours, &minutes, &seconds, &frames) == 4) {
+                            // Convert to total frames (use video's fps)
+                            double fps = cached_meta->video_meta->frame_rate;
+                            if (fps <= 0) fps = 24.0;  // Fallback
+                            int fps_int = static_cast<int>(fps + 0.5);
+                            int start_frame = ((hours * 60 + minutes) * 60 + seconds) * fps_int + frames;
+                            timeline_view->SetPendingTimecodeStartFrame(start_frame);
+                            Debug::Log("VideoFileTimelineCallback: Embedded timecode '" +
+                                       cached_meta->video_meta->timecode_format +
+                                       "' -> start frame " + std::to_string(start_frame));
+                        }
+                    }
+                }
+
+                // Initialize playback (will use the pending pipeline mode and codec)
                 timeline_view->InitializePlayback();
 
                 // Ensure timeline starts paused (don't auto-play when switching)
@@ -1999,6 +2049,17 @@ public:
             if (!timeline_view) {
                 Debug::Log("AudioFileTimelineCallback: Creating TimelineView for first use");
                 timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+            } else {
+                // Shutdown existing playback to properly clean up previous decoder/cache
+                Debug::Log("AudioFileTimelineCallback: Shutting down existing playback before loading new audio");
+                timeline_view->ShutdownPlayback();
+
+                // Also cleanup MPV in VideoDisplayComponent if it was active
+                if (video_player && video_player->IsMPVLoaded()) {
+                    video_player->UnloadVideoFile();
+                    video_player->CleanupMPV();
+                    Debug::Log("AudioFileTimelineCallback: Cleaned up previous MPV context");
+                }
             }
 
             Debug::Log("AudioFileTimelineCallback: Loading " + item->name + " into timeline view");
@@ -2118,6 +2179,13 @@ public:
             } else {
                 // Shutdown existing playback
                 timeline_view->ShutdownPlayback();
+
+                // Also cleanup MPV in VideoDisplayComponent if it was active
+                if (video_player && video_player->IsMPVLoaded()) {
+                    video_player->UnloadVideoFile();
+                    video_player->CleanupMPV();
+                    Debug::Log("DualViewEditorCallback: Cleaned up previous MPV context");
+                }
             }
 
             // Cleanup previous scratch timeline controller if exists
@@ -3184,13 +3252,18 @@ public:
                 // HDR presentation: render to D3D11-backed FBO, present via DXGI
                 auto& hdr = ump::HDROutputManager::Instance();
 
+                // Handle resize BEFORE BeginFrame to avoid invalidating the FBO mid-frame
+                // This prevents crashes when maximizing/restoring the window
+                if (display_w > 0 && display_h > 0) {
+                    hdr.OnResize(display_w, display_h);
+                }
+
                 // Single-pass HDR rendering (video and UI on same surface)
                 // UI colors are adjusted for HDR brightness via ImGui style conversion
                 GLuint hdr_fbo = hdr.BeginFrame();  // Returns FBO or 0 if bypass/unavailable
 
                 if (hdr_fbo != 0) {
                     // Rendering to HDR swapchain FBO
-                    hdr.OnResize(display_w, display_h);  // Handle resize
                     glViewport(0, 0, display_w, display_h);
                     ApplyBackgroundColor();
                     glClear(GL_COLOR_BUFFER_BIT);
@@ -5389,7 +5462,6 @@ private:
                         // Video files: show current pipeline mode and allow switching
                         // Use project-level pipeline mode as the source of truth
                         PipelineMode current = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
-                        bool windows_hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
 
                         // Display current mode
                         ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video File - %s", PipelineModeToString(current));
@@ -5412,8 +5484,30 @@ private:
                             }
                         }
 
-                        // HDR Passthrough - disabled until proper HDR swapchain support is implemented
-                        // Would require D3D11/Vulkan swapchain with HDR format, not available via OpenGL FBO
+                        // Ultra-High-Res (Float) - float16 for maximum precision
+                        if (ImGui::MenuItem("Ultra-High-Res (Float)", nullptr, current == PipelineMode::ULTRA_HIGH_RES)) {
+                            if (current != PipelineMode::ULTRA_HIGH_RES && project_manager) {
+                                project_manager->ReloadWithPipelineMode(PipelineMode::ULTRA_HIGH_RES);
+                            }
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("16-bit floating point pipeline.\nFor ProRes 4444, EXR, and complex OCIO transforms.");
+                        }
+
+// MF_HDR option commented out - Ultra-High-Res (Float) provides same functionality
+// with better SW fallback support. Kept for developer testing.
+#if 0  // #ifdef _WIN32
+                        // D3D11 GPU-Native (Experimental) - D3D11VA accelerated decode
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("D3D11 GPU-Native (Experimental)", nullptr, current == PipelineMode::MF_HDR)) {
+                            if (current != PipelineMode::MF_HDR && project_manager) {
+                                project_manager->ReloadWithPipelineMode(PipelineMode::MF_HDR);
+                            }
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("D3D11 GPU-native video pipeline.\nHardware decode for H.264/HEVC/VP9/AV1.\nSoftware decode for ProRes/DNxHD.\nFull audio support via AudioMixer.");
+                        }
+#endif
                     }
                     else if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
                         // Image sequences: locked to detected bit depth
@@ -5515,6 +5609,8 @@ private:
                             ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (Video) - %s", PipelineModeToString(current));
                             if (current == PipelineMode::HIGH_RES) {
                                 ImGui::TextDisabled("Pipeline: GL_RGBA16 (10/12-bit)");
+                            } else if (current == PipelineMode::ULTRA_HIGH_RES) {
+                                ImGui::TextDisabled("Pipeline: GL_RGBA16F (float)");
                             } else {
                                 ImGui::TextDisabled("Pipeline: GL_RGBA8");
                             }
@@ -5523,7 +5619,28 @@ private:
                         } else {
                             ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline - %s", PipelineModeToString(current));
                         }
-                        ImGui::TextDisabled("Pipeline varies per clip");
+
+                        // Pipeline mode selector for video clips in timeline
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Video Pipeline Mode:");
+                        auto* cache = controller ? controller->GetCache() : nullptr;
+                        PipelineMode cache_mode = cache ? cache->GetPipelineMode() : PipelineMode::NORMAL;
+
+                        const char* timeline_pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit)", "Ultra-High-Res (Float)" };
+                        for (int i = 0; i < 3; i++) {
+                            PipelineMode mode = static_cast<PipelineMode>(i);
+                            bool is_selected = (cache_mode == mode);
+
+                            if (ImGui::MenuItem(timeline_pipeline_modes[i], nullptr, is_selected)) {
+                                if (!is_selected && cache) {
+                                    cache->SetPipelineMode(mode);
+                                    Debug::Log("Timeline pipeline mode changed to: " + std::string(PipelineModeToString(mode)));
+                                }
+                            }
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing");
+                        }
                     }
                     else if (source_mode == ump::TimelineSourceMode::DUAL_VIEW) {
                         // Dual view: show format-specific info for current clip
@@ -5564,7 +5681,28 @@ private:
                         } else if (!source_path.empty()) {
                             ImGui::TextDisabled("Current: %s", PipelineModeToString(current));
                         }
-                        ImGui::TextDisabled("Pipeline varies per side");
+
+                        // Pipeline mode selector for dual view
+                        ImGui::Separator();
+                        ImGui::TextDisabled("Video Pipeline Mode:");
+                        auto* dv_cache = controller ? controller->GetCache() : nullptr;
+                        PipelineMode dv_cache_mode = dv_cache ? dv_cache->GetPipelineMode() : PipelineMode::NORMAL;
+
+                        const char* dv_pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit)", "Ultra-High-Res (Float)" };
+                        for (int i = 0; i < 3; i++) {
+                            PipelineMode mode = static_cast<PipelineMode>(i);
+                            bool is_selected = (dv_cache_mode == mode);
+
+                            if (ImGui::MenuItem(dv_pipeline_modes[i], nullptr, is_selected)) {
+                                if (!is_selected && dv_cache) {
+                                    dv_cache->SetPipelineMode(mode);
+                                    Debug::Log("Dual view pipeline mode changed to: " + std::string(PipelineModeToString(mode)));
+                                }
+                            }
+                        }
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing");
+                        }
                     }
                 }
                 else {
@@ -5603,14 +5741,32 @@ private:
                         }
                         ImGui::TextDisabled("Pipeline locked to detected image bit depth");
                     } else if (video_player) {
-                        const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)" };
+                        const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)", "HDR Passthrough (PQ/BT.2020)" };
 
                         PipelineMode current_mode = video_player->GetPipelineMode();
                         int current_mode_index = static_cast<int>(current_mode);
 
-                        for (int i = 0; i < 3; i++) {
+                        // Check if Windows HDR is active for HDR Passthrough option
+#ifdef _WIN32
+                        bool windows_hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
+#else
+                        bool windows_hdr_active = false;
+#endif
+
+                        for (int i = 0; i < 4; i++) {
                             bool is_selected = (i == current_mode_index);
-                            bool should_disable = (i == 2); // Ultra-High-Res index
+                            bool should_disable = false;
+                            const char* disable_tooltip = nullptr;
+
+                            if (i == 2) {
+                                // Ultra-High-Res - disabled (no float video formats)
+                                should_disable = true;
+                                disable_tooltip = "Ultra-High-Res disabled for video\n(no float video formats exist)";
+                            } else if (i == 3) {
+                                // HDR Passthrough - requires Windows HDR to be enabled
+                                should_disable = !windows_hdr_active;
+                                disable_tooltip = "HDR Passthrough requires Windows HDR to be enabled.\nEnable HDR in Windows Display Settings.";
+                            }
 
                             if (should_disable) {
                                 ImGui::BeginDisabled();
@@ -5640,8 +5796,8 @@ private:
 
                             if (should_disable) {
                                 ImGui::EndDisabled();
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                                    ImGui::SetTooltip("Ultra-High-Res disabled for video\n(no float video formats exist)");
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && disable_tooltip) {
+                                    ImGui::SetTooltip("%s", disable_tooltip);
                                 }
                             }
                         }
@@ -5669,6 +5825,37 @@ private:
                     if (it != PIPELINE_CONFIGS.end()) {
                         ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", it->second.description.c_str());
                     }
+                }
+
+                // Video Range Override (for D3D11 YUV decoding)
+                ImGui::Separator();
+                ImGui::TextDisabled("Video Range:");
+                if (ImGui::MenuItem("Auto (Detect)", nullptr, cache_settings.video_range_mode == 0)) {
+                    cache_settings.video_range_mode = 0;
+                    ump::g_video_range_override = VideoRangeMode::AUTO;
+                    SaveSettings();
+                    Debug::Log("Video range mode set to AUTO");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Use range detected from video metadata");
+                }
+                if (ImGui::MenuItem("Full Range", nullptr, cache_settings.video_range_mode == 1)) {
+                    cache_settings.video_range_mode = 1;
+                    ump::g_video_range_override = VideoRangeMode::FULL;
+                    SaveSettings();
+                    Debug::Log("Video range mode set to FULL");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Force full range (0-255 / 0-1023)\nUse if blacks appear crushed");
+                }
+                if (ImGui::MenuItem("Limited Range", nullptr, cache_settings.video_range_mode == 2)) {
+                    cache_settings.video_range_mode = 2;
+                    ump::g_video_range_override = VideoRangeMode::LIMITED;
+                    SaveSettings();
+                    Debug::Log("Video range mode set to LIMITED");
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Force limited/legal range (16-235 / 64-940)\nUse if blacks appear washed out");
                 }
 
                 ImGui::EndMenu();
@@ -5758,7 +5945,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.6");
+                ImGui::TextDisabled("About u.m.p. v0.7.7");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6489,9 +6676,10 @@ private:
             if (ImGui::BeginChild("SettingsContent", ImVec2(0, -60), false)) {
                 if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
 
-                    // === TAB 2: Buffering ===
-                    if (ImGui::BeginTabItem("Image/Timeline Buffering")) {
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer wait settings for playback startup");
+                    // === TAB 2: Image Buffering ===
+                    // Note: Video uses D3D11 on-demand decode, so buffering only applies to image sequences
+                    if (ImGui::BeginTabItem("Image Buffering")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer settings for image sequence playback");
                         ImGui::Spacing();
 
                         // Buffer Wait Threshold
@@ -6825,6 +7013,10 @@ private:
                         ImGui::EndTabItem();
                     } // End Disk Cache tab
 
+// Timeline ring buffer tab commented out - D3D11 video uses on-demand decode,
+// ring buffer only used for image sequences (configured in Image Buffering tab)
+// Kept for reference/future use.
+#if 0
                     // === TAB 5: Timeline ===
                     if (ImGui::BeginTabItem("Timeline")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer and threading settings for timeline playback");
@@ -6934,6 +7126,7 @@ private:
 
                         ImGui::EndTabItem();
                     } // End Timeline tab
+#endif
 
                     ImGui::EndTabBar();
                 } // End tab bar
@@ -16872,8 +17065,9 @@ private:
             bool is_video_only = cache && cache->IsVideoOnly();
             bool is_direct_mpv = playback_ctrl->IsDirectMPVMode();
 
-            // Only show adaptive speed button for non-video content and non-MPV mode
-            if (!is_video_only && !is_direct_mpv) {
+            // Only show adaptive speed button for non-video content and non-MPV/D3D11VA-HDR mode
+            bool is_d3d11va_hdr = playback_ctrl->IsD3D11VAHDRMode();
+            if (!is_video_only && !is_direct_mpv && !is_d3d11va_hdr) {
                 bool throttle_enabled = playback_ctrl->IsThrottleEnabled();
                 ImVec4 throttle_color = throttle_enabled ? MutedLight(GetWindowsAccentColor()) : UI_WHITE_VEC4;
 
@@ -16914,7 +17108,8 @@ private:
 
             // Buffer Wait toggle button - waits for sequential buffer before playback
             // Hide in direct MPV mode (MPV handles its own buffering)
-            if (!is_direct_mpv) {
+            // Hide for video-only timelines (D3D11 decodes on-demand, no buffer to wait for)
+            if (!is_direct_mpv && !is_video_only) {
             ImGui::SameLine();
             bool buffer_wait_enabled = playback_ctrl->IsBufferWaitEnabled();
             ImVec4 buffer_wait_color = buffer_wait_enabled ? MutedLight(GetWindowsAccentColor()) : UI_WHITE_VEC4;
@@ -16991,7 +17186,11 @@ private:
         }
         // DUAL VIEW SPECIFIC: Buffer Wait button (uses scratch_timeline_controller)
         // This block only runs for dual view mode since GetPlaybackController() returns nullptr
+        // Hide for video-only (D3D11 decodes on-demand, no buffer to wait for)
         else if (timeline_view && timeline_view->IsDualViewMode() && scratch_timeline_controller) {
+            bool dv_is_video_only = scratch_timeline_controller->GetCache() &&
+                                    scratch_timeline_controller->GetCache()->IsVideoOnly();
+            if (!dv_is_video_only) {
             ImGui::SameLine();
             bool dv_buffer_wait_enabled = scratch_timeline_controller->IsBufferWaitEnabled();
             ImVec4 dv_buffer_wait_color = dv_buffer_wait_enabled ? MutedLight(GetWindowsAccentColor()) : UI_WHITE_VEC4;
@@ -17064,6 +17263,7 @@ private:
                                       dv_buffer_wait_enabled ? "disable" : "enable");
                 }
             }
+            } // End of dv_is_video_only check
         }
 
         // Spacer
@@ -17184,12 +17384,13 @@ private:
                 }
             }
 
-            // Check if we're in direct MPV mode - hide Edit/Refresh sections
+            // Check if we're in direct MPV mode or D3D11VA HDR mode - hide Edit/Refresh sections
             auto* playback_ctrl_for_ui = timeline_view->GetEffectivePlaybackController();
             bool is_direct_mpv_mode = playback_ctrl_for_ui && playback_ctrl_for_ui->IsDirectMPVMode();
+            bool is_d3d11va_hdr_mode = playback_ctrl_for_ui && playback_ctrl_for_ui->IsD3D11VAHDRMode();
 
-            // Edit section: only show when NOT in direct MPV mode
-            if (!is_direct_mpv_mode) {
+            // Edit section: only show when NOT in direct MPV mode or D3D11VA HDR mode
+            if (!is_direct_mpv_mode && !is_d3d11va_hdr_mode) {
                 ImGui::SameLine();
 
                 // Spacer
@@ -21345,6 +21546,18 @@ private:
                 }
             }
 
+            // Video settings
+            if (j.contains("video")) {
+                if (j["video"].contains("range_mode")) {
+                    cache_settings.video_range_mode = j["video"]["range_mode"].get<int>();
+                    // Clamp to valid range
+                    if (cache_settings.video_range_mode < 0) cache_settings.video_range_mode = 0;
+                    if (cache_settings.video_range_mode > 2) cache_settings.video_range_mode = 2;
+                    // Apply to global decoder setting
+                    ump::g_video_range_override = static_cast<VideoRangeMode>(cache_settings.video_range_mode);
+                }
+            }
+
             // Safety overlay settings
             if (j.contains("safety_overlay")) {
                 if (j["safety_overlay"].contains("type")) {
@@ -21547,6 +21760,9 @@ private:
 
             // Color management settings
             j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;
+
+            // Video settings
+            j["video"]["range_mode"] = cache_settings.video_range_mode;
 
             // Safety overlay settings
             std::string overlay_type_str = "NONE";
@@ -22971,13 +23187,14 @@ private:
         // Exit minimal view if active
         minimal_view_mode = false;
 
-        // Standard panels visible, color panels and annotations hidden
+        // Standard panels visible, others hidden
         show_project_panel = true;
         show_inspector_panel = true;
         show_timeline_panel = true;
         show_annotation_panel = false;
-
+        show_playlist_panel = false;
         show_color_panels = false;
+
         first_time_setup = true;
         Debug::Log("Default view activated");
     }

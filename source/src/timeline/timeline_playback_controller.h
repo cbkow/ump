@@ -18,6 +18,11 @@
 
 namespace ump {
 
+// Forward declaration for D3D11VA HDR decoder (old)
+class D3D11VAVideoDecoder;
+// Forward declaration for D3D11 GPU-native decoder (new)
+class D3D11VideoDecoder;
+
 // Forward declarations
 class TimelineView;
 class TimelineCache;
@@ -35,6 +40,8 @@ struct TimelinePlaybackConfig {
     int readBehindFrames = 12;              // Frames to keep behind for backward scrub (~0.5s @ 24fps)
     int io_threads = 8;                     // Background I/O threads
     PipelineMode pipeline_mode = PipelineMode::NORMAL;  // Video pipeline mode (8-bit/16-bit)
+    std::string video_codec;                // Video codec name (for MF HDR eligibility check)
+    int timecode_start_frame = 0;           // Embedded timecode start frame (0 if starts at 00:00:00:00)
 };
 
 //=============================================================================
@@ -154,6 +161,14 @@ public:
     // Direct MPV mode: single video file uses MPV for audio (better A/V sync)
     bool IsDirectMPVMode() const { return use_direct_mpv_; }
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: FFmpeg + D3D11VA hardware decode (Windows only) - OLD
+    bool IsD3D11VAHDRMode() const { return use_d3d11va_hdr_; }
+
+    // D3D11 GPU-native mode: New D3D11VideoDecoder for VIDEO_FILE + ULTRA_HIGH_RES
+    bool IsD3D11DecoderMode() const { return use_d3d11_decoder_; }
+#endif
+
     // Volume/Mute control - routes to MPV or AudioMixer depending on mode
     void SetVolume(double volume);  // 0.0 to 1.0
     void SetMuted(bool muted);
@@ -258,6 +273,18 @@ private:
     // This eliminates GPU→CPU→GPU roundtrip of LibMPVVideoDecoder
     bool use_direct_mpv_ = false;
 
+#ifdef _WIN32
+    // D3D11VA HDR mode: Use FFmpeg + D3D11VA for HDR video decode (Windows only) - OLD
+    // Our D3D11 device is passed to FFmpeg for texture compatibility
+    bool use_d3d11va_hdr_ = false;
+    std::unique_ptr<D3D11VAVideoDecoder> d3d11va_decoder_;
+
+    // D3D11 GPU-native mode: New D3D11VideoDecoder for VIDEO_FILE + ULTRA_HIGH_RES
+    // Supports both HW decode (H.264/HEVC) and SW decode (ProRes/DNxHD)
+    bool use_d3d11_decoder_ = false;
+    std::unique_ptr<D3D11VideoDecoder> d3d11_decoder_;
+#endif
+
     // Volume/mute state (shared between MPV and AudioMixer modes)
     double volume_ = 1.0;  // 0.0 to 1.0
     bool muted_ = false;
@@ -272,8 +299,13 @@ private:
     // the timer from running ahead of H.264 decoders that need keyframe catch-up.
     // Uses video_buffer_frames_ for video mode, buffer_wait_percent_ for image sequences.
     bool waiting_for_frame_ = false;
+    bool d3d11va_needs_seek_ = false;  // D3D11VA: need to seek before decoding (loop restart)
     std::chrono::steady_clock::time_point waiting_start_time_;
     static constexpr int kMaxWaitMs = 2000;  // Max 2 seconds waiting for buffer
+
+    // D3D11VA safety margin: frames to subtract from frame_count to avoid hitting EOS
+    // Set to 0 - frame boundaries should be handled correctly.
+    static constexpr int kD3D11VASafetyMarginFrames = 0;
 
     //=========================================================================
     // Adaptive Throttle - slows playback when cache can't keep up

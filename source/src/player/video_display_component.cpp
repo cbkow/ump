@@ -75,7 +75,17 @@ const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS = {
         true,   // linear_processing
         false,  // constrain_primaries (no hardcoded colorspace)
         8,      // bytes_per_pixel
-        "HDR (Float)",
+        "HDR Passthrough (PQ/BT.2020)",
+        1024, 4096
+    }},
+    {PipelineMode::MF_HDR, {
+        PipelineMode::MF_HDR,
+        GL_RGBA16F,
+        GL_HALF_FLOAT,
+        true,   // linear_processing
+        false,  // constrain_primaries
+        8,      // bytes_per_pixel
+        "D3D11VA HDR (Experimental)",
         1024, 4096
     }}
 };
@@ -87,6 +97,7 @@ const char* PipelineModeToString(PipelineMode mode) {
         case PipelineMode::HIGH_RES: return "High-Res";
         case PipelineMode::ULTRA_HIGH_RES: return "Ultra-High-Res";
         case PipelineMode::HDR_RES: return "HDR";
+        case PipelineMode::MF_HDR: return "MF-HDR";
         default: return "Unknown";
     }
 }
@@ -593,6 +604,15 @@ void VideoDisplayComponent::RenderPlaceholder() {
 //=============================================================================
 
 void VideoDisplayComponent::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipeline) {
+    // In HDR_RES mode, ignore non-passthrough pipeline changes
+    // HDR content must pass through unchanged to the HDR10 swapchain
+    if (current_pipeline_mode_ == PipelineMode::HDR_RES) {
+        if (pipeline && !pipeline->IsPassthrough()) {
+            Debug::Log("SetColorPipeline: Ignoring non-passthrough pipeline in HDR_RES mode (HDR passthrough requires identity transform)");
+            return;
+        }
+    }
+
     // Clear any existing pipeline first
     if (color_pipeline_) {
         color_pipeline_.reset();
@@ -1549,15 +1569,15 @@ void VideoDisplayComponent::ApplyPipelineModeConfig(PipelineMode mode) {
             break;
 
         case PipelineMode::HDR_RES:
-            // HDR Passthrough - NOT YET IMPLEMENTED
-            // Would require HDR swapchain support which OpenGL doesn't provide easily
-            // Fall back to HIGH_RES behavior for now
+            // HDR Passthrough - requires MPV reinitialization with HDR options
+            // Runtime property changes don't affect MPV's color output
+            // For now, use same settings as HIGH_RES until we implement MPV reinit
             mpv_set_property_string(mpv_, "tone-mapping", "clip");
-            mpv_set_property_string(mpv_, "target-trc", "auto");
-            mpv_set_property_string(mpv_, "target-prim", "auto");
-            mpv_set_property_string(mpv_, "hdr-compute-peak", "auto");
-            mpv_set_property_string(mpv_, "target-peak", "auto");
-            Debug::Log("Applied HDR_RES pipeline config - HDR passthrough not yet implemented, using HIGH_RES fallback");
+            mpv_set_property_string(mpv_, "target-trc", "pq");           // Request PQ output (may be ignored)
+            mpv_set_property_string(mpv_, "target-prim", "bt.2020");     // Request BT.2020 (may be ignored)
+            mpv_set_property_string(mpv_, "hdr-compute-peak", "no");
+            mpv_set_property_string(mpv_, "target-peak", "10000");
+            Debug::Log("Applied HDR_RES pipeline config - NOTE: Full HDR passthrough requires MPV reinit");
             break;
     }
 }
@@ -1578,6 +1598,13 @@ void VideoDisplayComponent::SetPipelineMode(PipelineMode mode) {
 
     // Apply MPV configuration for new mode
     ApplyPipelineModeConfig(mode);
+
+    // For HDR_RES mode, force OCIO passthrough pipeline
+    // HDR content must pass through unchanged to the HDR10 swapchain
+    if (mode == PipelineMode::HDR_RES) {
+        ClearColorPipeline();
+        Debug::Log("HDR_RES mode: Forced OCIO passthrough for HDR10 output");
+    }
 
     // Update mode and internal format
     current_pipeline_mode_ = mode;
@@ -1783,7 +1810,7 @@ bool VideoDisplayComponent::InitializeMPV() {
     mpv_set_property_string(mpv_, "target-peak", "10000");
     mpv_set_option_string(mpv_, "tone-mapping", "off");
     //mpv_set_option_string(mpv_, "target-trc", "auto");
-    //mpv_set_option_string(mpv_, "target-prim=auto", "auto");
+    //mpv_set_option_string(mpv_, "target-prim", "auto");
 
     // Visual settings
     mpv_set_option_string(mpv_, "alpha", "blend");

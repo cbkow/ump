@@ -35,16 +35,6 @@ HWContextManager::~HWContextManager() {
 //=============================================================================
 
 AVBufferRef* HWContextManager::GetContext(int hw_type) {
-    // TEMPORARY: Force software decode to test flickering
-    // Remove this block to re-enable hardware decode
-    static bool logged_once = false;
-    if (!logged_once) {
-        Debug::Log("HWContextManager: *** HARDWARE DECODE DISABLED FOR TESTING ***");
-        logged_once = true;
-    }
-    return nullptr;  // Force software decode
-    // END TEMPORARY
-
     AVHWDeviceType type = static_cast<AVHWDeviceType>(hw_type);
     switch (type) {
         case AV_HWDEVICE_TYPE_CUDA:    return GetCUDAContext();

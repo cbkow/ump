@@ -4,6 +4,10 @@
 #include "decoder_cleanup_queue.h"
 #include "../utils/debug_utils.h"
 
+#ifdef _WIN32
+#include "d3d11_video_decoder.h"      // For D3D11 direct GL texture access
+#endif
+
 #include <cmath>
 #include <algorithm>
 
@@ -28,16 +32,17 @@ ManagedVideoDecoder::~ManagedVideoDecoder() {
 bool ManagedVideoDecoder::Initialize() {
     if (initialized_.load()) return true;
 
-    // Create decoder using FFmpeg backend (ManagedVideoDecoder is for MULTI_TRACK mode)
-    // GStreamer is used directly for VIDEO_FILE mode via timeline_cache
+    // Create decoder using AUTO backend (prefers D3D11 on Windows, FFmpeg elsewhere)
+    // The factory handles fallback to FFmpeg if D3D11 initialization fails
     auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
-        video_path_, VideoDecoderBackend::FFMPEG);
+        video_path_, VideoDecoderBackend::AUTO);
     if (!decoder_ptr) {
         Debug::Log("ManagedVideoDecoder: Factory failed to create decoder for " + video_path_);
         return false;
     }
     auto decoder = std::shared_ptr<IVideoDecoder>(std::move(decoder_ptr));
     decoder->SetConfig(config_);
+    decoder->SetPipelineMode(pipeline_mode_);
 
     if (!decoder->Initialize()) {
         Debug::Log("ManagedVideoDecoder: Failed to initialize decoder for " + video_path_);
@@ -91,7 +96,8 @@ void ManagedVideoDecoder::Shutdown() {
         if (ffmpeg_decoder) {
             DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
         }
-        // GStreamer decoders clean up when shared_ptr goes out of scope
+        // D3D11 and GStreamer decoders clean up when shared_ptr goes out of scope
+        // (D3D11 cleanup is fast enough to not need background queue)
     }
 }
 
@@ -313,19 +319,21 @@ void ManagedVideoDecoder::SpawnFreshDecoder(int target_frame) {
         if (ffmpeg_decoder) {
             DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
         }
-        // GStreamer decoders clean up when shared_ptr goes out of scope
+        // D3D11 and GStreamer decoders clean up when shared_ptr goes out of scope
+        // (D3D11 cleanup is fast enough to not need background queue)
         abandon_count_++;
     }
 
-    // Create fresh decoder using FFmpeg backend (ManagedVideoDecoder is for MULTI_TRACK mode)
+    // Create fresh decoder using AUTO backend (prefers D3D11 on Windows, FFmpeg elsewhere)
     auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
-        video_path_, VideoDecoderBackend::FFMPEG);
+        video_path_, VideoDecoderBackend::AUTO);
     if (!decoder_ptr) {
-        Debug::Log("ManagedVideoDecoder: Factory failed to create FFmpeg decoder");
+        Debug::Log("ManagedVideoDecoder: Factory failed to create decoder");
         return;
     }
     auto new_decoder = std::shared_ptr<IVideoDecoder>(std::move(decoder_ptr));
     new_decoder->SetConfig(config_);
+    new_decoder->SetPipelineMode(pipeline_mode_);
 
     if (new_decoder->Initialize()) {
         // Propagate shuttle mode to new decoder (for unthrottled decoding)
@@ -339,7 +347,14 @@ void ManagedVideoDecoder::SpawnFreshDecoder(int target_frame) {
         // Wait for at least one frame to be decoded before installing
         // EXCEPT during shuttle mode - we already have harvested frames to display,
         // so don't block the UI waiting for the new decoder
-        if (!shuttle_.active) {
+        // ALSO skip for D3D11 decoders - they decode on-demand via GetGLTexture(),
+        // not pre-filling a buffer like StreamingVideoDecoder
+#ifdef _WIN32
+        bool is_d3d11 = dynamic_cast<D3D11VideoDecoder*>(new_decoder.get()) != nullptr;
+#else
+        bool is_d3d11 = false;
+#endif
+        if (!shuttle_.active && !is_d3d11) {
             auto start = std::chrono::steady_clock::now();
             const int kMaxWaitMs = 2000;  // 2 second max wait
             while (new_decoder->GetBufferSize() == 0) {
@@ -392,6 +407,17 @@ bool ManagedVideoDecoder::CheckWatchdogAndRecover() {
     if (shuttle_.active) {
         return false;
     }
+
+#ifdef _WIN32
+    // Skip watchdog for D3D11 decoders - they decode on-demand via GetGLTexture(),
+    // not pre-filling a buffer. GetBufferSize() returns 0, which is normal.
+    {
+        std::lock_guard<std::mutex> lock(active_mutex_);
+        if (active_ && dynamic_cast<D3D11VideoDecoder*>(active_.get()) != nullptr) {
+            return false;
+        }
+    }
+#endif
 
     // Check how long since we got a frame
     auto now = std::chrono::steady_clock::now();
@@ -846,5 +872,30 @@ int ManagedVideoDecoder::GetChunkSize() const {
     double fps = fps_ > 0 ? fps_ : 24.0;
     return static_cast<int>(fps * 2.0);
 }
+
+//=============================================================================
+// D3D11 Direct GL Texture Access
+//=============================================================================
+
+#ifdef _WIN32
+GLuint ManagedVideoDecoder::GetFrameAsGLTexture(int frame_number) {
+    std::lock_guard<std::mutex> lock(active_mutex_);
+    if (!active_) return 0;
+
+    // Check if active decoder is D3D11VideoDecoder
+    auto* d3d11_decoder = dynamic_cast<D3D11VideoDecoder*>(active_.get());
+    if (d3d11_decoder) {
+        return d3d11_decoder->GetFrameAsGLTexture(frame_number);
+    }
+
+    return 0;  // Not a D3D11 decoder
+}
+
+bool ManagedVideoDecoder::IsD3D11Backend() const {
+    std::lock_guard<std::mutex> lock(active_mutex_);
+    if (!active_) return false;
+    return dynamic_cast<D3D11VideoDecoder*>(active_.get()) != nullptr;
+}
+#endif
 
 } // namespace ump

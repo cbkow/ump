@@ -509,9 +509,11 @@ bool TimelineView::InitializePlayback() {
     // Create and initialize playback controller
     playback_controller_ = std::make_unique<TimelinePlaybackController>();
 
-    // Set pipeline mode from pending (set by caller before InitializePlayback)
+    // Set pipeline mode and video codec from pending (set by caller before InitializePlayback)
     TimelinePlaybackConfig config = playback_controller_->GetConfig();
     config.pipeline_mode = pending_pipeline_mode_;
+    config.video_codec = pending_video_codec_;  // For MF HDR eligibility check (HEVC only)
+    config.timecode_start_frame = pending_timecode_start_frame_;  // For MF HDR frame alignment
     playback_controller_->SetConfig(config);
 
     // Use virtual timeline mode (no dummy video required)

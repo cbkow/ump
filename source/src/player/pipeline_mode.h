@@ -8,8 +8,25 @@ enum class PipelineMode {
     NORMAL,           // RGBA8, standard 8-bit processing (best performance)
     HIGH_RES,         // RGBA16, 12-bit precision without float overhead (OCIO optimized)
     ULTRA_HIGH_RES,   // RGBA16F, maximum precision for complex OCIO workflows
-    HDR_RES          // RGBA16F, HDR video (float for wide dynamic range and OCIO processing)
+    HDR_RES,          // RGBA16F, HDR video (float for wide dynamic range and OCIO processing)
+    MF_HDR            // RGBA16F, FFmpeg D3D11VA HDR decode (Windows only, experimental)
 };
+
+// Video Range Mode - Override for YUV color range interpretation
+enum class VideoRangeMode {
+    AUTO,      // Use detected range from metadata (default)
+    FULL,      // Force full range (0-255 / 0-1023)
+    LIMITED    // Force limited range (16-235 / 64-940)
+};
+
+// Helper function to convert video range mode to display string
+inline const char* VideoRangeModeToString(VideoRangeMode mode) {
+    switch (mode) {
+        case VideoRangeMode::FULL: return "Full";
+        case VideoRangeMode::LIMITED: return "Limited";
+        default: return "Auto";
+    }
+}
 
 struct PipelineConfig {
     PipelineMode mode;
@@ -38,6 +55,7 @@ inline PipelineMode StringToPipelineMode(const std::string& str) {
     if (str == "High-Res" || str == "HIGH_RES") return PipelineMode::HIGH_RES;
     if (str == "Ultra-High-Res" || str == "ULTRA_HIGH_RES") return PipelineMode::ULTRA_HIGH_RES;
     if (str == "HDR" || str == "HDR_RES") return PipelineMode::HDR_RES;
+    if (str == "MF-HDR" || str == "MF_HDR") return PipelineMode::MF_HDR;
     return PipelineMode::NORMAL;
 }
 

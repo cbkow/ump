@@ -244,6 +244,15 @@ public:
     // Pipeline mode - set before InitializePlayback() to ensure correct mode from start
     void SetPendingPipelineMode(PipelineMode mode) { pending_pipeline_mode_ = mode; }
     PipelineMode GetPendingPipelineMode() const { return pending_pipeline_mode_; }
+
+    // Video codec - set before InitializePlayback() for MF HDR eligibility check
+    void SetPendingVideoCodec(const std::string& codec) { pending_video_codec_ = codec; }
+    const std::string& GetPendingVideoCodec() const { return pending_video_codec_; }
+
+    // Timecode start frame - set before InitializePlayback() for MF HDR frame offset
+    void SetPendingTimecodeStartFrame(int frame) { pending_timecode_start_frame_ = frame; }
+    int GetPendingTimecodeStartFrame() const { return pending_timecode_start_frame_; }
+
     float GetScrollOffset() const { return scroll_offset_x_; }
     void SetScrollOffset(float offset);
     float GetMaxScrollOffset() const;
@@ -341,6 +350,8 @@ private:
     bool fit_zoom_pending_ = false;   // Request zoom fit on next render (deferred)
     float last_visible_width_ = 0.0f; // Cached visible width for zoom limit calculations
     PipelineMode pending_pipeline_mode_ = PipelineMode::NORMAL;  // Pipeline mode for next InitializePlayback
+    std::string pending_video_codec_;  // Video codec for MF HDR eligibility check
+    int pending_timecode_start_frame_ = 0;  // Embedded timecode start frame for MF HDR
 
     // Timeline In/Out points and loop mode (separate from solo video MediaItem)
     double timeline_in_point_ = -1.0;   // In point in seconds (-1 = not set)

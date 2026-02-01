@@ -8,6 +8,8 @@
 #include <chrono>
 #include <set>
 
+#include <glad/gl.h>  // For GLuint
+
 #include "video_decoder_interface.h"
 
 namespace ump {
@@ -204,6 +206,20 @@ public:
 
     void SetLoopBoundaries(int /*loop_start*/, int /*loop_end*/) {}
     void ClearLoopBoundaries() {}
+
+    //=========================================================================
+    // D3D11 Direct GL Texture Access (if underlying decoder supports it)
+    //=========================================================================
+
+#ifdef _WIN32
+    // Get frame as GL texture directly from D3D11VideoDecoder
+    // Returns 0 if decoder is not D3D11 type or frame not available
+    GLuint GetFrameAsGLTexture(int frame_number);
+
+    // Check if the active decoder is D3D11VideoDecoder
+    // Used by timeline cache to select the appropriate path
+    bool IsD3D11Backend() const;
+#endif
 
     //=========================================================================
     // Stats (for monitoring spawn-and-abandon behavior)
