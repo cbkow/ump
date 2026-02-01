@@ -1031,6 +1031,22 @@ std::string TimelinePlaybackController::GetCurrentSourcePath() const {
 }
 
 PipelineMode TimelinePlaybackController::GetCurrentPipelineMode() const {
+#ifdef _WIN32
+    // For D3D11 decoder modes, get mode directly from decoder (cache is null)
+    if (use_d3d11_decoder_ && d3d11_decoder_) {
+        return d3d11_decoder_->GetPipelineMode();
+    }
+    if (use_d3d11va_hdr_ && d3d11va_decoder_) {
+        // D3D11VA HDR mode is always ULTRA_HIGH_RES
+        return PipelineMode::ULTRA_HIGH_RES;
+    }
+#endif
+
+    // For direct MPV mode, return config pipeline mode (cache is null)
+    if (use_direct_mpv_) {
+        return config_.pipeline_mode;
+    }
+
     if (!cache_) return PipelineMode::NORMAL;
 
     // For VIDEO_FILE mode, return the global video pipeline mode (user-selectable)

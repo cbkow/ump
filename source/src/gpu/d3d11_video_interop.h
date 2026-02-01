@@ -98,6 +98,19 @@ public:
     bool IsLockedForD3D11() const { return locked_for_d3d11_; }
 
     //=========================================================================
+    // Triple-Buffer Management
+    //=========================================================================
+
+    // Advance to next buffer in ring (call after each frame completes)
+    void AdvanceBuffers();
+
+    // Get current write index (for debugging)
+    int GetWriteIndex() const { return write_index_; }
+
+    // Get current read index (for debugging)
+    int GetReadIndex() const { return read_index_; }
+
+    //=========================================================================
     // Interop Status
     //=========================================================================
 
@@ -168,21 +181,34 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Device> d3d_device_;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> d3d_context_;
 
-    // Shared texture (D3D11 side)
-    Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_texture_;
-    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv_;
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv_;
+    // Triple-buffer constants
+    static constexpr int kInteropBufferCount = 3;
 
-    // OpenGL texture
-    GLuint gl_texture_ = 0;
+    // Triple-buffered shared textures (D3D11 side)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_textures_[kInteropBufferCount];
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtvs_[kInteropBufferCount];
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srvs_[kInteropBufferCount];
 
-    // NV_DX_interop handles
+    // Triple-buffered OpenGL textures
+    GLuint gl_textures_[kInteropBufferCount] = {0, 0, 0};
+
+    // Triple-buffered NV_DX_interop handles
     HANDLE nv_interop_device_ = nullptr;
-    HANDLE nv_interop_object_ = nullptr;
+    HANDLE nv_interop_objects_[kInteropBufferCount] = {nullptr, nullptr, nullptr};
 
-    // EXT_memory_object handles
-    GLuint ext_memory_object_ = 0;
-    HANDLE shared_handle_ = nullptr;
+    // Triple-buffer ring indices
+    int write_index_ = 0;  // D3D11 writes here (current render target)
+    int read_index_ = 2;   // GL reads here (2 frames behind write for max parallelism)
+
+    // Legacy single-buffer pointers (point into arrays for API compatibility)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> shared_texture_;  // Points to shared_textures_[write_index_]
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv_;      // Points to rtvs_[write_index_]
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv_;    // Points to srvs_[write_index_]
+    GLuint gl_texture_ = 0;  // Points to gl_textures_[read_index_]
+
+    // EXT_memory_object handles (per-buffer)
+    GLuint ext_memory_objects_[kInteropBufferCount] = {0, 0, 0};
+    HANDLE shared_handles_[kInteropBufferCount] = {nullptr, nullptr, nullptr};
 
     // Fallback staging texture
     Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_texture_;
@@ -195,6 +221,9 @@ private:
     bool has_nv_interop_ = false;
     bool has_ext_memory_ = false;
     bool locked_for_d3d11_ = false;
+
+    // Track which buffers are locked
+    bool buffer_locked_[kInteropBufferCount] = {false, false, false};
 };
 
 } // namespace ump

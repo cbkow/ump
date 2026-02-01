@@ -38,6 +38,23 @@ if(WIN32)
     set(FFMPEG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/include")
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
     set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
+
+    # LibMPV paths (replaces GStreamer for OTIO video path)
+    set(LIBMPV_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/include")
+    set(LIBMPV_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/lib")
+    set(LIBMPV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/bin")
+    set(LIBMPV_DLL_PATH "${LIBMPV_BIN_DIR}/libmpv-2.dll")
+
+    # Check if MSVC import library exists
+    set(LIBMPV_LIB "${LIBMPV_LIB_DIR}/mpv.lib")
+    if(NOT EXISTS "${LIBMPV_LIB}")
+        message(WARNING "LibMPV MSVC import library not found at: ${LIBMPV_LIB}")
+        message(WARNING "Please run: external/mpv/generate_msvc_lib.bat from a Visual Studio Developer Command Prompt")
+        message(WARNING "Falling back to MinGW .dll.a file (may cause linking issues)")
+        set(LIBMPV_LIB "${LIBMPV_LIB_DIR}/libmpv.dll.a")
+    else()
+        message(STATUS "Found LibMPV MSVC import library: ${LIBMPV_LIB}")
+    endif()
 endif()
 
 # =============================================================================
@@ -81,6 +98,9 @@ file(GLOB_RECURSE SOURCES
 # Exclude OLD files
 list(FILTER SOURCES EXCLUDE REGEX ".*_OLD\\.(cpp|h)$")
 
+# Exclude broken hdr_direct_decoder (failed FFmpeg D3D11VA approach, replaced by MF HDR)
+list(FILTER SOURCES EXCLUDE REGEX ".*hdr_direct_decoder\\.(cpp|h)$")
+
 
 # Create executable
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
@@ -114,10 +134,7 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/video_decoder_interface.h"
     "src/player/video_decoder_factory.h"
     "src/player/video_decoder_factory.cpp"
-    "src/player/gstreamer_manager.h"
-    "src/player/gstreamer_manager.cpp"
-    "src/player/gstreamer_video_decoder.h"
-    "src/player/gstreamer_video_decoder.cpp"
+    # libmpv_video_decoder removed - MPV now handled directly in VideoDisplayComponent
     "src/player/streaming_video_decoder.h"
     "src/player/streaming_video_decoder.cpp"
     "src/player/image_sequence_decoder.h"
@@ -130,6 +147,12 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/thumbnail_cache.cpp"
     "src/player/playback_timer.h"
     "src/player/playback_timer.cpp"
+    # FFmpeg + D3D11VA HDR video decoder (Windows only)
+    "src/player/d3d11va_video_decoder.h"
+    "src/player/d3d11va_video_decoder.cpp"
+    # D3D11 GPU-native video decoder implementing IVideoDecoder (Windows only)
+    "src/player/d3d11_video_decoder.h"
+    "src/player/d3d11_video_decoder.cpp"
     "src/annotations/annotation_note.h"
     "src/annotations/annotation_manager.h"
     "src/annotations/annotation_manager.cpp"
@@ -208,6 +231,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/implot
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
     ${FFMPEG_INCLUDE_DIR}
+    ${LIBMPV_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/OpenEXR
@@ -216,7 +240,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/png/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/nlohmann
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/miniaudio
     ${CMAKE_BINARY_DIR}/_deps/libharu-src/include
     ${CMAKE_BINARY_DIR}/_deps/libharu-build/include
     # OpenTimelineIO headers
@@ -237,6 +260,7 @@ endif()
 if(WIN32)
     target_link_directories(${PROJECT_NAME} PRIVATE
         ${FFMPEG_LIB_DIR}
+        ${LIBMPV_LIB_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/external/tiff/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/external/png/lib
@@ -285,6 +309,8 @@ target_link_libraries(${PROJECT_NAME}
     avfilter
     swscale
     swresample
+    # LibMPV library
+    "${LIBMPV_LIB}"
     # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
     Imath-3_2          # Must be first for half-float support
     Iex-3_4
@@ -314,6 +340,8 @@ if(WIN32)
         d3dcompiler # For HLSL shader compilation
         dxguid      # For D3D11 GUIDs
         dcomp       # For DirectComposition (HDR over OpenGL window)
+        avrt        # For MMCSS (Multimedia Class Scheduler Service) thread priority
+        ole32       # For COM (WASAPI audio)
     )
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
@@ -393,6 +421,14 @@ if(WIN32)
             COMMENT "Copying FFmpeg DLL: ${DLL_NAME}"
         )
     endforeach()
+
+    # Copy LibMPV DLL
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${LIBMPV_DLL_PATH}"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
+        COMMENT "Copying LibMPV DLL (libmpv-2.dll)"
+    )
 
     # Copy OCIO DLLs - using explicit list for reliability across Debug/Release
     # Hybrid approach: Core API + C++ API for DWAB support

@@ -136,11 +136,21 @@ void TranscodeQueueWindow::Render() {
     float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;  // Dampened scaling for height
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImVec2 center = viewport->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(1300 * ui_scale, 950 * height_scale), ImGuiCond_FirstUseEver);
+    ImVec2 viewport_size = viewport->Size;
 
-    // Begin modal popup (this creates the darkened background automatically)
-    if (!ImGui::BeginPopupModal("Transcode Queue Manager", &is_open_, ImGuiWindowFlags_NoScrollbar)) {
+    // Calculate modal size - fit within viewport (95% max) while respecting preferred size
+    float preferred_width = 1300.0f * ui_scale;
+    float preferred_height = 950.0f * height_scale;
+    float max_width = std::min(preferred_width, viewport_size.x * 0.95f);
+    float max_height = std::min(preferred_height, viewport_size.y * 0.95f);
+
+    // Always center and size to fit viewport (prevents modal from becoming separate OS window)
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(max_width, max_height), ImGuiCond_Always);
+
+    // Begin modal popup - NoResize/NoMove since we're managing size/position automatically
+    ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    if (!ImGui::BeginPopupModal("Transcode Queue Manager", &is_open_, modal_flags)) {
         return;
     }
 

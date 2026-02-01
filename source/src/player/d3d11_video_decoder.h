@@ -7,6 +7,7 @@
 #include <array>
 #include <vector>
 #include <set>
+#include <unordered_map>
 #include <mutex>
 #include <atomic>
 #include <thread>
@@ -21,6 +22,7 @@ extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/cpu.h>
 #include <libswscale/swscale.h>
 }
 
@@ -31,6 +33,26 @@ namespace ump {
 
 class D3D11YUVRenderer;
 class D3D11VideoInterop;
+
+//=============================================================================
+// YUVFormatDesc
+//
+// Describes how to upload and render a YUV format.
+// Maps FFmpeg pixel formats to D3D11 texture formats.
+//=============================================================================
+
+struct YUVFormatDesc {
+    int plane_count;              // 2 for NV12/P010, 3 for planar YUV, 4 for YUVA/GBRAP
+    int chroma_w;                 // Chroma width divisor (1=4:4:4, 2=4:2:2/4:2:0)
+    int chroma_h;                 // Chroma height divisor (1=4:4:4/4:2:2, 2=4:2:0)
+    DXGI_FORMAT plane_formats[4]; // Format for each plane texture (extended for alpha)
+    bool is_10bit;
+    int bit_depth = 8;            // 8, 10, or 12
+    bool has_alpha = false;       // YUVA/GBRAP formats
+    bool is_rgb_planar = false;   // GBRP/GBRAP formats (plane order: G, B, R, [A])
+
+    static YUVFormatDesc FromAVPixelFormat(AVPixelFormat fmt);
+};
 
 //=============================================================================
 // D3D11VideoDecoder
@@ -210,6 +232,75 @@ private:
         SOFTWARE    // FFmpeg SW → D3D11 upload (ProRes, DNxHD, etc.)
     };
 
+    //=========================================================================
+    // Frame Buffer Entry (defined early for use in method signatures)
+    //=========================================================================
+
+    struct BufferedFrame {
+        int frame_number = -1;
+        double pts = 0.0;
+        bool valid = false;
+        bool is_hw_frame = false;  // True if from D3D11VA, false if SW upload
+        bool hw_copied = false;    // True if HW frame was copied to local texture
+
+        // Hardware decode (D3D11VA) - copied to local texture to avoid pool reuse
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> hw_texture;      // Our own copy
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> hw_srv_y;   // Y plane SRV
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> hw_srv_uv;  // UV plane SRV
+        int texture_array_index = 0;  // Only used during copy
+
+        // Software decode - up to 4 plane textures (GPU-side, render target)
+        int plane_count = 0;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> plane_textures[4];
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> plane_srvs[4];
+        int plane_widths[4] = {0, 0, 0, 0};   // Actual width of each plane
+        int plane_heights[4] = {0, 0, 0, 0};  // Actual height of each plane
+
+        // Staging textures for async upload (CPU-writable, D3D11_USAGE_STAGING)
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> staging_textures[4];
+
+        // Format info for shader
+        int chroma_w = 1;  // Chroma subsampling (1=4:4:4, 2=4:2:2/4:2:0)
+        int chroma_h = 1;
+        int bit_depth = 8; // 8, 10, or 12
+        bool is_nv12_layout = false;  // True for 2-plane interleaved UV
+        bool has_alpha = false;       // YUVA/GBRAP formats
+        bool is_rgb_planar = false;   // GBRP/GBRAP formats
+
+        // Legacy SW textures (kept for fallback path)
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> sw_texture_y;
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> sw_texture_uv;
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sw_srv_y;
+        Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> sw_srv_uv;
+
+        void Reset() {
+            frame_number = -1;
+            pts = 0.0;
+            valid = false;
+            is_hw_frame = false;
+            hw_copied = false;
+            // Don't reset hw_texture - keep allocated for reuse
+            hw_srv_y.Reset();
+            hw_srv_uv.Reset();
+            texture_array_index = 0;
+            plane_count = 0;
+            for (int i = 0; i < 4; i++) {
+                plane_textures[i].Reset();
+                plane_srvs[i].Reset();
+                staging_textures[i].Reset();
+                plane_widths[i] = 0;
+                plane_heights[i] = 0;
+            }
+            chroma_w = 1;
+            chroma_h = 1;
+            bit_depth = 8;
+            is_nv12_layout = false;
+            has_alpha = false;
+            is_rgb_planar = false;
+            // Keep legacy sw textures allocated for reuse in fallback path
+        }
+    };
+
     // Check if codec supports hardware decode
     bool SupportsHardwareDecode(AVCodecID codec_id) const;
 
@@ -237,6 +328,8 @@ private:
 
     // Software decode specific: Upload YUV planes to D3D11
     bool UploadSoftwareFrame(AVFrame* frame);
+    bool UploadSoftwareFrameToSlot(AVFrame* frame, BufferedFrame& slot);
+    bool UploadSoftwareFrameToSlotLegacy(AVFrame* frame, BufferedFrame& slot);  // Fallback with sws_scale
     DXGI_FORMAT GetYPlaneFormat(AVPixelFormat pix_fmt) const;
     DXGI_FORMAT GetUVPlaneFormat(AVPixelFormat pix_fmt) const;
 
@@ -247,32 +340,22 @@ private:
     bool EnsureInteropTexture();
 
     //=========================================================================
-    // Frame Buffer Management (2-frame GPU buffer)
+    // Frame Buffer Management
     //=========================================================================
 
-    struct BufferedFrame {
-        int frame_number = -1;
-        Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
-        int texture_array_index = 0;  // For D3D11VA texture arrays
-        double pts = 0.0;
-        bool valid = false;
-        bool is_hw_frame = false;  // True if from D3D11VA, false if SW upload
-
-        void Reset() {
-            frame_number = -1;
-            texture.Reset();
-            texture_array_index = 0;
-            pts = 0.0;
-            valid = false;
-            is_hw_frame = false;
-        }
-    };
-
-    static constexpr int kFrameBufferSize = 2;  // MPV-style delay queue
+    static constexpr int kFrameBufferSize = 16;  // ~667ms lookahead at 24fps
+    static constexpr int kDelayQueueDepth = 4;   // Min frames to buffer before output (B-frame reordering)
     std::array<BufferedFrame, kFrameBufferSize> frame_buffer_;
     int buffer_head_ = 0;
     int buffer_count_ = 0;
     mutable std::mutex buffer_mutex_;
+
+    // O(1) frame lookup: frame_number -> buffer_index
+    std::unordered_map<int, int> frame_map_;
+
+    // Delay queue for B-frame reordering (MPV-style)
+    std::atomic<int> frames_since_seek_{0};      // Frames decoded since last seek
+    std::atomic<bool> delay_queue_filling_{false}; // True while filling delay queue after seek
 
     void ClearFrameBuffer();
     bool BufferContainsFrame(int frame_number) const;
@@ -298,6 +381,21 @@ private:
     mutable std::mutex decode_mutex_;
     std::vector<int> needed_frames_;  // Frames to decode, in priority order
 
+    // Async decode control
+    std::atomic<int> decode_target_{0};          // Frame render thread needs
+    std::atomic<int> decode_head_{-1};           // Last frame decoded
+    std::atomic<bool> decode_seeking_{false};    // Seek in progress
+
+    // Frame ready notification
+    std::condition_variable frame_ready_cv_;
+    std::mutex frame_ready_mutex_;
+
+    // Async decode helpers
+    bool NeedsMoreFrames() const;
+    void AddCurrentFrameToBuffer();
+    void PerformSeekInternal(int target_frame);
+    BufferedFrame* GetClosestBufferedFrame(int frame_number);
+
     //=========================================================================
     // State
     //=========================================================================
@@ -313,6 +411,8 @@ private:
     std::atomic<int> current_playhead_{0};
     std::atomic<int> last_seek_target_{-1};
     std::atomic<bool> seek_pending_{false};
+    std::atomic<bool> eof_reached_{false};  // True when video reaches end
+    int consecutive_decode_failures_{0};    // Track failures to detect true EOF
     bool shuttle_mode_ = false;
 
     // Loop points
@@ -382,6 +482,7 @@ private:
     bool is_hdr_ = false;
     bool is_10bit_ = false;
     bool is_full_range_ = false;
+    bool is_bt2020_ = false;  // True if BT.2020 color primaries (separate from is_hdr_)
     VideoRangeMode video_range_override_ = VideoRangeMode::AUTO;
 
     // Surface format

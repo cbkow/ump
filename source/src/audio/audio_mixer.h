@@ -12,8 +12,8 @@
 
 #include "audio_decoder.h"
 
-// Forward declare miniaudio types
-struct ma_device;
+// Forward declare WASAPI device
+namespace ump { class WasapiAudioDevice; }
 
 namespace ump {
 
@@ -129,11 +129,11 @@ public:
 
 private:
     //=========================================================================
-    // miniaudio Callbacks
+    // WASAPI Callbacks
     //=========================================================================
 
-    static void DataCallback(ma_device* device, void* output,
-                            const void* input, unsigned int frame_count);
+    static void DataCallback(void* device, float* output,
+                            uint32_t frame_count, void* userData);
 
     void ProcessAudio(float* output, unsigned int frame_count);
 
@@ -178,8 +178,8 @@ private:
     TimelineFlattener* flattener_ = nullptr;
     PlaybackTimer* timer_ = nullptr;
 
-    // miniaudio device
-    ma_device* device_ = nullptr;
+    // WASAPI audio device
+    std::unique_ptr<WasapiAudioDevice> device_;
 
     // Clip decoders (keyed by source path)
     std::unordered_map<std::string, std::shared_ptr<AudioDecoder>> decoders_;

@@ -3417,6 +3417,19 @@ public:
         glfwPollEvents(); // Process one last event cycle
         Debug::Log("Cleanup: Final frame rendered");
 
+        // Shutdown audio/playback first for graceful exit
+        // This stops WASAPI threads before other resources are destroyed
+        Debug::Log("Cleanup: Shutting down playback controllers...");
+        if (scratch_timeline_controller) {
+            scratch_timeline_controller->Shutdown();
+            scratch_timeline_controller.reset();
+            Debug::Log("Cleanup: Scratch timeline controller shutdown");
+        }
+        if (timeline_view) {
+            timeline_view->ShutdownPlayback();
+            Debug::Log("Cleanup: Timeline view playback shutdown");
+        }
+
 #ifdef _WIN32
         // Shutdown HDR output manager
         ump::HDROutputManager::Instance().Shutdown();
@@ -4592,13 +4605,13 @@ private:
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
         if (is_fullscreen) {
-            // Fullscreen ImGui window - use same monitor size as GLFW resize
+            // Fullscreen ImGui window - use full monitor size (no decorations)
             GLFWmonitor* monitor = glfwGetPrimaryMonitor();
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
 
-            // Adjust for title bar - position ImGui content to start below title bar
-            ImGui::SetNextWindowPos(ImVec2(0.0f, 32.0f)); // Start below 32px title bar
-            ImGui::SetNextWindowSize(ImVec2((float)mode->width, (float)mode->height - 32.0f)); // Reduce height by title bar
+            // True borderless fullscreen - use entire screen
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2((float)mode->width, (float)mode->height));
             ImGui::SetNextWindowViewport(viewport->ID);
 
             ImGuiWindowFlags fullscreen_flags = ImGuiWindowFlags_NoDecoration |
@@ -5554,374 +5567,166 @@ private:
             }
 
             if (ImGui::BeginMenu("Pipeline")) {
-                // Pipeline Mode Selection
-                ImGui::TextDisabled("Video Processing Pipeline:");
 
-                // Check if we're in OTIO timeline mode
+                ImGui::TextDisabled("Pipeline Modes:");
+
+                // Determine current state for pipeline mode selection
+                PipelineMode current_mode = PipelineMode::NORMAL;
+                bool is_audio_only = false;
+                bool is_image_sequence = false;
+                bool is_exr = false;
+                bool is_16bit_image = false;  // TIFF/PNG detected as 16-bit
+                bool has_media = false;
+
+                // Check OTIO timeline mode first
                 if (otio_timeline_mode && timeline_view) {
                     ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
                     auto* controller = timeline_view->GetEffectivePlaybackController();
 
                     if (source_mode == ump::TimelineSourceMode::AUDIO_FILE) {
-                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Audio Only (no video pipeline)");
-                    }
-                    else if (source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
-                        // Video files: show current pipeline mode and allow switching
-                        // Use project-level pipeline mode as the source of truth
-                        PipelineMode current = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
-
-                        // Display current mode
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video File - %s", PipelineModeToString(current));
-
-                        // Show pipeline options (NORMAL/HIGH_RES/ULTRA_HIGH_RES)
-                        // Brute-force reload: full cleanup and reload to avoid edge cases
-                        // Normal (8-bit)
-                        if (ImGui::MenuItem("Normal (8-bit)", nullptr, current == PipelineMode::NORMAL)) {
-                            if (current != PipelineMode::NORMAL && project_manager) {
-                                project_manager->SetProjectPipelineMode(PipelineMode::NORMAL);
-                                Debug::Log("Pipeline mode changed to NORMAL - forcing full reload");
-                                ForceReloadCurrentMedia();
-                            }
-                        }
-
-                        // High-Res (16-bit) - for OCIO grading precision
-                        if (ImGui::MenuItem("High-Res (16-bit)", nullptr, current == PipelineMode::HIGH_RES)) {
-                            if (current != PipelineMode::HIGH_RES && project_manager) {
-                                project_manager->SetProjectPipelineMode(PipelineMode::HIGH_RES);
-                                Debug::Log("Pipeline mode changed to HIGH_RES - forcing full reload");
-                                ForceReloadCurrentMedia();
-                            }
-                        }
-
-                        // Ultra-High-Res (Float) - float16 for maximum precision
-                        if (ImGui::MenuItem("Ultra-High-Res (Float)", nullptr, current == PipelineMode::ULTRA_HIGH_RES)) {
-                            if (current != PipelineMode::ULTRA_HIGH_RES && project_manager) {
-                                project_manager->SetProjectPipelineMode(PipelineMode::ULTRA_HIGH_RES);
-                                Debug::Log("Pipeline mode changed to ULTRA_HIGH_RES - forcing full reload");
-                                ForceReloadCurrentMedia();
-                            }
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("16-bit floating point pipeline.\nFor ProRes 4444, EXR, and complex OCIO transforms.\nVideo range options disabled (always full range).");
-                        }
-                    }
-                    else if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
-                        // Image sequences: locked to detected bit depth
-                        PipelineMode current = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
-                        std::string source_path = controller ? controller->GetCurrentSourcePath() : "";
-
-                        // Detect format from source path extension
-                        std::string ext = "";
-                        size_t dot_pos = source_path.rfind('.');
-                        if (dot_pos != std::string::npos) {
-                            ext = source_path.substr(dot_pos);
-                            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                        }
-
-                        bool is_exr = (ext == ".exr");
-                        bool is_tiff = (ext == ".tiff" || ext == ".tif");
-                        bool is_png = (ext == ".png");
-                        bool is_jpeg = (ext == ".jpg" || ext == ".jpeg");
-
-                        if (is_exr) {
-                            // EXR: Always float
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "EXR Sequence - Float16 Pipeline");
-                            ImGui::TextDisabled("Half-precision floating point (16-bit float per channel)");
-                            ImGui::TextDisabled("Pipeline: GL_RGBA16F");
-                        } else if (is_tiff) {
-                            // TIFF: 8-bit or 16-bit integer
-                            if (current == PipelineMode::HIGH_RES) {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "TIFF Sequence - 16-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16");
-                            } else {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "TIFF Sequence - 8-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                            }
-                        } else if (is_png) {
-                            // PNG: 8-bit or 16-bit integer
-                            if (current == PipelineMode::HIGH_RES) {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "PNG Sequence - 16-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16");
-                            } else {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "PNG Sequence - 8-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                            }
-                        } else if (is_jpeg) {
-                            // JPEG: Always 8-bit
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "JPEG Sequence - 8-bit Integer");
-                            ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                        } else {
-                            // Unknown format - show generic info
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image Sequence - %s", PipelineModeToString(current));
-                        }
-                        ImGui::TextDisabled("Pipeline locked to image bit depth");
-                    }
-                    else if (source_mode == ump::TimelineSourceMode::MULTI_TRACK) {
-                        // OTIO timeline: show current clip's format-specific pipeline info
-                        PipelineMode current = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
-                        std::string clip_name = controller ? controller->GetCurrentClipName() : "No clip";
-                        std::string source_path = controller ? controller->GetCurrentSourcePath() : "";
-
-                        // Detect format from source path extension
-                        std::string ext = "";
-                        size_t dot_pos = source_path.rfind('.');
-                        if (dot_pos != std::string::npos) {
-                            ext = source_path.substr(dot_pos);
-                            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                        }
-
-                        bool is_exr = (ext == ".exr");
-                        bool is_tiff = (ext == ".tiff" || ext == ".tif");
-                        bool is_png = (ext == ".png");
-                        bool is_jpeg = (ext == ".jpg" || ext == ".jpeg");
-                        bool is_video = (ext == ".mov" || ext == ".mp4" || ext == ".mxf" || ext == ".avi" || ext == ".mkv");
-
-                        ImGui::TextDisabled("Current clip: %s", clip_name.c_str());
-
-                        if (is_exr) {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (EXR) - Float16 Pipeline");
-                            ImGui::TextDisabled("Half-precision floating point (16-bit float per channel)");
-                            ImGui::TextDisabled("Pipeline: GL_RGBA16F");
-                        } else if (is_tiff) {
-                            if (current == PipelineMode::HIGH_RES || current == PipelineMode::ULTRA_HIGH_RES) {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (TIFF) - 16-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16");
-                            } else {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (TIFF) - 8-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                            }
-                        } else if (is_png) {
-                            if (current == PipelineMode::HIGH_RES) {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (PNG) - 16-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16");
-                            } else {
-                                ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (PNG) - 8-bit Integer");
-                                ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                            }
-                        } else if (is_jpeg) {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (JPEG) - 8-bit Integer");
-                            ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                        } else if (is_video) {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline (Video) - %s", PipelineModeToString(current));
-                            if (current == PipelineMode::HIGH_RES) {
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16 (10/12-bit)");
-                            } else if (current == PipelineMode::ULTRA_HIGH_RES) {
-                                ImGui::TextDisabled("Pipeline: GL_RGBA16F (float)");
-                            } else {
-                                ImGui::TextDisabled("Pipeline: GL_RGBA8");
-                            }
-                        } else if (source_path.empty()) {
-                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Timeline - No clip at playhead");
-                        } else {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Timeline - %s", PipelineModeToString(current));
-                        }
-
-                        // Pipeline mode selector for video clips in timeline
-                        // Brute-force reload: full cleanup and reload to avoid edge cases
-                        ImGui::Separator();
-                        ImGui::TextDisabled("Video Pipeline Mode:");
-                        auto* cache = controller ? controller->GetCache() : nullptr;
-                        PipelineMode cache_mode = cache ? cache->GetPipelineMode() : PipelineMode::NORMAL;
-
-                        const char* timeline_pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit)", "Ultra-High-Res (Float)" };
-                        for (int i = 0; i < 3; i++) {
-                            PipelineMode mode = static_cast<PipelineMode>(i);
-                            bool is_selected = (cache_mode == mode);
-
-                            if (ImGui::MenuItem(timeline_pipeline_modes[i], nullptr, is_selected)) {
-                                if (!is_selected && project_manager) {
-                                    project_manager->SetProjectPipelineMode(mode);
-                                    Debug::Log("Timeline pipeline mode changed to: " + std::string(PipelineModeToString(mode)) + " - forcing full reload");
-                                    ForceReloadCurrentMedia();
-                                }
-                            }
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing\n(Full reload on change)");
-                        }
-                    }
-                    else if (source_mode == ump::TimelineSourceMode::DUAL_VIEW) {
-                        // Dual view: show format-specific info for current clip
-                        PipelineMode current = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
-                        std::string source_path = controller ? controller->GetCurrentSourcePath() : "";
-
-                        // Detect format from source path extension
-                        std::string ext = "";
-                        size_t dot_pos = source_path.rfind('.');
-                        if (dot_pos != std::string::npos) {
-                            ext = source_path.substr(dot_pos);
-                            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-                        }
-
-                        bool is_exr = (ext == ".exr");
-                        bool is_tiff = (ext == ".tiff" || ext == ".tif");
-                        bool is_png = (ext == ".png");
-                        bool is_jpeg = (ext == ".jpg" || ext == ".jpeg");
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Dual View Comparison");
-
-                        if (is_exr) {
-                            ImGui::TextDisabled("Current: EXR Float16 (GL_RGBA16F)");
-                        } else if (is_tiff) {
-                            if (current == PipelineMode::HIGH_RES || current == PipelineMode::ULTRA_HIGH_RES) {
-                                ImGui::TextDisabled("Current: TIFF 16-bit (GL_RGBA16)");
-                            } else {
-                                ImGui::TextDisabled("Current: TIFF 8-bit (GL_RGBA8)");
-                            }
-                        } else if (is_png) {
-                            if (current == PipelineMode::HIGH_RES) {
-                                ImGui::TextDisabled("Current: PNG 16-bit (GL_RGBA16)");
-                            } else {
-                                ImGui::TextDisabled("Current: PNG 8-bit (GL_RGBA8)");
-                            }
-                        } else if (is_jpeg) {
-                            ImGui::TextDisabled("Current: JPEG 8-bit (GL_RGBA8)");
-                        } else if (!source_path.empty()) {
-                            ImGui::TextDisabled("Current: %s", PipelineModeToString(current));
-                        }
-
-                        // Pipeline mode selector for dual view
-                        // Brute-force reload: full cleanup and reload to avoid edge cases
-                        ImGui::Separator();
-                        ImGui::TextDisabled("Video Pipeline Mode:");
-                        auto* dv_cache = controller ? controller->GetCache() : nullptr;
-                        PipelineMode dv_cache_mode = dv_cache ? dv_cache->GetPipelineMode() : PipelineMode::NORMAL;
-
-                        const char* dv_pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit)", "Ultra-High-Res (Float)" };
-                        for (int i = 0; i < 3; i++) {
-                            PipelineMode mode = static_cast<PipelineMode>(i);
-                            bool is_selected = (dv_cache_mode == mode);
-
-                            if (ImGui::MenuItem(dv_pipeline_modes[i], nullptr, is_selected)) {
-                                if (!is_selected && project_manager) {
-                                    project_manager->SetProjectPipelineMode(mode);
-                                    Debug::Log("Dual view pipeline mode changed to: " + std::string(PipelineModeToString(mode)) + " - forcing full reload");
-                                    ForceReloadCurrentMedia();
-                                }
-                            }
-                        }
-                        if (ImGui::IsItemHovered()) {
-                            ImGui::SetTooltip("High-Res: For ProRes 4444, DNxHR 444\nUltra-High-Res: For floating-point compositing\n(Full reload on change)");
-                        }
-                    }
-                }
-                else {
-                    // Fallback to old system (legacy mode or no timeline loaded)
-                    bool is_image_sequence_mode = video_player && video_player->IsInEXRMode();
-                    std::string sequence_format = video_player ? video_player->GetImageSequenceFormat() : "";
-
-                    if (is_image_sequence_mode && !sequence_format.empty()) {
-                        // Get the actual pipeline mode being used
-                        PipelineMode seq_mode = video_player->GetPipelineMode();
-                        std::string mode_str = PipelineModeToString(seq_mode);
-
-                        // Display format-specific information
-                        if (sequence_format == "EXR") {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), ("EXR Sequence - " + mode_str + " Pipeline").c_str());
-                            ImGui::TextDisabled("Pipeline: Float16 (Half-precision floating point)");
-                        } else if (sequence_format == "PNG") {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), ("PNG Sequence - " + mode_str + " Pipeline").c_str());
-                            if (seq_mode == PipelineMode::NORMAL) {
-                                ImGui::TextDisabled("Pipeline: 8-bit RGBA");
-                            } else if (seq_mode == PipelineMode::HIGH_RES) {
-                                ImGui::TextDisabled("Pipeline: 16-bit RGBA");
-                            }
-                        } else if (sequence_format == "JPEG") {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), ("JPEG Sequence - " + mode_str + " Pipeline").c_str());
-                            ImGui::TextDisabled("Pipeline: 8-bit RGB");
-                        } else if (sequence_format == "TIFF") {
-                            ImGui::TextColored(Bright(GetWindowsAccentColor()), ("TIFF Sequence - " + mode_str + " Pipeline").c_str());
-                            if (seq_mode == PipelineMode::NORMAL) {
-                                ImGui::TextDisabled("Pipeline: 8-bit RGBA");
-                            } else if (seq_mode == PipelineMode::HIGH_RES) {
-                                ImGui::TextDisabled("Pipeline: 16-bit RGBA");
-                            } else if (seq_mode == PipelineMode::ULTRA_HIGH_RES) {
-                                ImGui::TextDisabled("Pipeline: 32-bit Float RGBA");
-                            }
-                        }
-                        ImGui::TextDisabled("Pipeline locked to detected image bit depth");
-                    } else if (video_player) {
-                        const char* pipeline_modes[] = { "Normal (8-bit)", "High-Res (12-bit/16-bit)", "Ultra-High-Res (Float)", "HDR Passthrough (PQ/BT.2020)" };
-
-                        PipelineMode current_mode = video_player->GetPipelineMode();
-                        int current_mode_index = static_cast<int>(current_mode);
-
-                        // Check if Windows HDR is active for HDR Passthrough option
-#ifdef _WIN32
-                        bool windows_hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
-#else
-                        bool windows_hdr_active = false;
-#endif
-
-                        for (int i = 0; i < 4; i++) {
-                            bool is_selected = (i == current_mode_index);
-                            bool should_disable = false;
-                            const char* disable_tooltip = nullptr;
-
-                            if (i == 2) {
-                                // Ultra-High-Res - disabled (no float video formats)
-                                should_disable = true;
-                                disable_tooltip = "Ultra-High-Res disabled for video\n(no float video formats exist)";
-                            } else if (i == 3) {
-                                // HDR Passthrough - requires Windows HDR to be enabled
-                                should_disable = !windows_hdr_active;
-                                disable_tooltip = "HDR Passthrough requires Windows HDR to be enabled.\nEnable HDR in Windows Display Settings.";
-                            }
-
-                            if (should_disable) {
-                                ImGui::BeginDisabled();
-                            }
-
-                            if (ImGui::MenuItem(pipeline_modes[i], nullptr, is_selected)) {
-                                if (i != current_mode_index) {
-                                    PipelineMode new_mode = static_cast<PipelineMode>(i);
-                                    if (video_player->SupportsPipelineMode(new_mode)) {
-                                        // Brute-force reload: set mode and force full reload
-                                        if (project_manager) {
-                                            project_manager->SetProjectPipelineMode(new_mode);
-                                        }
-                                        video_player->SetPipelineMode(new_mode);
-                                        Debug::Log("Pipeline mode changed to: " + std::string(PipelineModeToString(new_mode)) + " - forcing full reload");
-                                        ForceReloadCurrentMedia();
-                                    }
-                                }
-                            }
-
-                            if (should_disable) {
-                                ImGui::EndDisabled();
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && disable_tooltip) {
-                                    ImGui::SetTooltip("%s", disable_tooltip);
-                                }
-                            }
-                        }
+                        is_audio_only = true;
                     } else {
-                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No media loaded");
-                    }
-                }
+                        has_media = true;
+                        current_mode = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
 
-                ImGui::Separator();
+                        // Get source path for format detection
+                        std::string source_path = controller ? controller->GetCurrentSourcePath() : "";
+                        if (!source_path.empty()) {
+                            std::string ext = "";
+                            size_t dot_pos = source_path.rfind('.');
+                            if (dot_pos != std::string::npos) {
+                                ext = source_path.substr(dot_pos);
+                                std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                            }
 
-                // Current Pipeline Summary
-                ImGui::TextDisabled("Current Pipeline:");
-                if (otio_timeline_mode && timeline_view) {
-                    auto* controller = timeline_view->GetEffectivePlaybackController();
-                    PipelineMode current = controller ? controller->GetCurrentPipelineMode() : PipelineMode::NORMAL;
-                    auto it = PIPELINE_CONFIGS.find(current);
-                    if (it != PIPELINE_CONFIGS.end()) {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", it->second.description.c_str());
-                    } else {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", PipelineModeToString(current));
+                            is_exr = (ext == ".exr");
+                            bool is_tiff = (ext == ".tiff" || ext == ".tif");
+                            bool is_png = (ext == ".png");
+
+                            // Check if it's an image sequence
+                            is_image_sequence = (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) ||
+                                                is_exr || is_tiff || is_png || (ext == ".jpg" || ext == ".jpeg");
+
+                            // Check if 16-bit based on current mode (system detected it)
+                            is_16bit_image = (is_tiff || is_png) && (current_mode == PipelineMode::HIGH_RES);
+                        }
                     }
                 } else if (video_player) {
-                    PipelineMode current_mode = video_player->GetPipelineMode();
-                    auto it = PIPELINE_CONFIGS.find(current_mode);
-                    if (it != PIPELINE_CONFIGS.end()) {
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", it->second.description.c_str());
+                    has_media = true;
+                    current_mode = video_player->GetPipelineMode();
+
+                    // Check for image sequence mode
+                    is_image_sequence = video_player->IsInEXRMode();
+                    std::string seq_format = video_player->GetImageSequenceFormat();
+                    is_exr = (seq_format == "EXR");
+                    is_16bit_image = (seq_format == "TIFF" || seq_format == "PNG") &&
+                                     (current_mode == PipelineMode::HIGH_RES);
+                }
+
+                // Pipeline Mode menu items - standardized labels
+                const char* mode_labels[] = {
+                    "Normal (8-bit)",
+                    "High-Res (12/16-bit)",
+                    "Ultra-High-Res (Float/HDR)"
+                };
+
+                const char* mode_tooltips[] = {
+                    "8-bit integer pipeline (GL_RGBA8)\nFor standard video and 8-bit images",
+                    "12/16-bit integer pipeline (GL_RGBA16)\nFor ProRes 4444, DNxHR 444, 16-bit TIFF/PNG",
+                    "16-bit float pipeline (GL_RGBA16F)\nFor HDR video, EXR sequences, and complex OCIO transforms"
+                };
+
+                if (is_audio_only) {
+                    // All options disabled for audio-only
+                    ImGui::BeginDisabled();
+                    for (int i = 0; i < 3; i++) {
+                        ImGui::MenuItem(mode_labels[i], nullptr, false);
+                    }
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("No video pipeline for audio-only content");
+                    }
+                } else if (!has_media) {
+                    // No media loaded - all disabled
+                    ImGui::BeginDisabled();
+                    for (int i = 0; i < 3; i++) {
+                        ImGui::MenuItem(mode_labels[i], nullptr, false);
+                    }
+                    ImGui::EndDisabled();
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                        ImGui::SetTooltip("No media loaded");
+                    }
+                } else if (is_image_sequence) {
+                    // Image sequence - show all options, disable unavailable ones
+                    for (int i = 0; i < 3; i++) {
+                        PipelineMode mode = static_cast<PipelineMode>(i);
+                        bool is_selected = (current_mode == mode);
+                        bool should_disable = false;
+                        const char* disable_reason = nullptr;
+
+                        if (is_exr) {
+                            // EXR: only Ultra-High-Res available
+                            if (mode != PipelineMode::ULTRA_HIGH_RES) {
+                                should_disable = true;
+                                disable_reason = "EXR sequences use Float pipeline";
+                            }
+                        } else if (is_16bit_image) {
+                            // 16-bit TIFF/PNG: only High-Res available
+                            if (mode != PipelineMode::HIGH_RES) {
+                                should_disable = true;
+                                disable_reason = "16-bit images use High-Res pipeline";
+                            }
+                        } else {
+                            // 8-bit images (JPEG, 8-bit PNG/TIFF): only Normal available
+                            if (mode != PipelineMode::NORMAL) {
+                                should_disable = true;
+                                disable_reason = "8-bit images use Normal pipeline";
+                            }
+                        }
+
+                        if (should_disable) ImGui::BeginDisabled();
+
+                        if (ImGui::MenuItem(mode_labels[i], nullptr, is_selected)) {
+                            // Image sequences are locked - no action needed
+                        }
+
+                        if (should_disable) {
+                            ImGui::EndDisabled();
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && disable_reason) {
+                                ImGui::SetTooltip("%s", disable_reason);
+                            }
+                        } else if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("%s", mode_tooltips[i]);
+                        }
+                    }
+                } else {
+                    // Video content - all modes available
+                    for (int i = 0; i < 3; i++) {
+                        PipelineMode mode = static_cast<PipelineMode>(i);
+                        bool is_selected = (current_mode == mode);
+
+                        if (ImGui::MenuItem(mode_labels[i], nullptr, is_selected)) {
+                            if (!is_selected) {
+                                if (project_manager) {
+                                    project_manager->SetProjectPipelineMode(mode);
+                                }
+                                if (video_player) {
+                                    video_player->SetPipelineMode(mode);
+                                }
+                                Debug::Log("Pipeline mode changed to: " + std::string(PipelineModeToString(mode)));
+                                ForceReloadCurrentMedia();
+                            }
+                        }
+
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip("%s", mode_tooltips[i]);
+                        }
                     }
                 }
 
-                // Video Range Override (for D3D11 YUV decoding)
                 ImGui::Separator();
+
+                // Video Range Override (for D3D11 YUV decoding)
                 ImGui::TextDisabled("Video Range:");
 
                 if (ImGui::MenuItem("Auto (Detect)", nullptr, cache_settings.video_range_mode == 0)) {
@@ -6048,7 +5853,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.8");
+                ImGui::TextDisabled("About u.m.p. v0.7.9");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6725,17 +6530,25 @@ private:
 
         static bool settings_changed = false;
 
-        // Set popup to center on screen
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        // Set popup to center on screen, fit within viewport
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImVec2 center = viewport->GetCenter();
+        ImVec2 viewport_size = viewport->Size;
         float scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        // Calculate modal size - fit within viewport (95% max)
+        float preferred_width = 900 * scale;
+        float preferred_height = 650 * scale;
+        float max_width = std::min(preferred_width, viewport_size.x * 0.95f);
+        float max_height = std::min(preferred_height, viewport_size.y * 0.95f);
+
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(max_width, max_height), ImGuiCond_Always);
 
         bool open = true;
 
-        // Set modal size BEFORE BeginPopupModal
-        ImGui::SetNextWindowSize(ImVec2(900 * scale, 650 * scale), ImGuiCond_Always);
-
-        if (ImGui::BeginPopupModal("u.m.p. Settings", &open, ImGuiWindowFlags_NoResize)) {
+        ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+        if (ImGui::BeginPopupModal("u.m.p. Settings", &open, modal_flags)) {
 
             ImGui::Text("u.m.p. Settings");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Configure video processing, cache, and memory settings");
@@ -7400,17 +7213,25 @@ private:
             show_font_settings_window = false; // Reset flag
         }
 
-        // Set popup to center on screen
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        // Set popup to center on screen, fit within viewport
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImVec2 center = viewport->GetCenter();
+        ImVec2 viewport_size = viewport->Size;
         float scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        // Calculate modal size - fit within viewport (95% max)
+        float preferred_width = 600 * scale;
+        float preferred_height = 400 * scale;  // Fixed height for consistency
+        float max_width = std::min(preferred_width, viewport_size.x * 0.95f);
+        float max_height = std::min(preferred_height, viewport_size.y * 0.95f);
+
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(max_width, max_height), ImGuiCond_Always);
 
         bool open = true;
 
-        // Set modal width with auto-height
-        ImGui::SetNextWindowSize(ImVec2(600 * scale, 0), ImGuiCond_Always);
-
-        if (ImGui::BeginPopupModal("Font Settings", &open, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+        if (ImGui::BeginPopupModal("Font Settings", &open, modal_flags)) {
 
             ImGui::Text("Font Scale Settings");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Adjust the user interface font size");
@@ -7553,14 +7374,24 @@ private:
             show_shortcuts_popup = false;
         }
 
-        // Center popup on screen
+        // Center popup on screen, fit within viewport
+        ImGuiViewport* viewport = ImGui::GetMainViewport();
+        ImVec2 center = viewport->GetCenter();
+        ImVec2 viewport_size = viewport->Size;
         float scale = ImGui::GetIO().FontGlobalScale;
-        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(750 * scale, 650 * scale), ImGuiCond_Always);
+
+        // Calculate modal size - fit within viewport (95% max)
+        float preferred_width = 750 * scale;
+        float preferred_height = 650 * scale;
+        float max_width = std::min(preferred_width, viewport_size.x * 0.95f);
+        float max_height = std::min(preferred_height, viewport_size.y * 0.95f);
+
+        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+        ImGui::SetNextWindowSize(ImVec2(max_width, max_height), ImGuiCond_Always);
 
         bool open = true;
-        if (ImGui::BeginPopupModal("Keyboard Shortcuts", &open, ImGuiWindowFlags_NoResize)) {
+        ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+        if (ImGui::BeginPopupModal("Keyboard Shortcuts", &open, modal_flags)) {
 
             // Get accent color once for all shortcut rows
             ImVec4 accent_color = Bright(GetWindowsAccentColor());
@@ -14921,6 +14752,10 @@ private:
                                                ImU32 cache_color, ImU32 target_color) {
                     if (!cache || !cache->IsInitialized()) return;
 
+                    // Skip progress bar for video-only content - D3D11 streaming decoders handle
+                    // their own buffering internally. Progress bar only makes sense for image sequences.
+                    if (cache->IsVideoOnly()) return;
+
                     // Layer 1: Boundary region (if custom boundaries set)
                     auto boundary_segments = cache->GetBoundarySegments();
                     for (const auto& segment : boundary_segments) {
@@ -14954,13 +14789,8 @@ private:
                     }
 
                     // Layer 3: Actually cached/buffered frames (solid fill)
-                    // Use video buffer segments for video-only content, otherwise image cache segments
-                    std::vector<ump::TimelineCacheSegment> cached_segments;
-                    if (cache->IsVideoOnly()) {
-                        cached_segments = cache->GetVideoBufferSegments();
-                    } else {
-                        cached_segments = cache->GetCacheSegments();
-                    }
+                    // Only image sequences reach here (video-only returns early above)
+                    auto cached_segments = cache->GetCacheSegments();
                     for (const auto& segment : cached_segments) {
                         float start_x = cache_bar_left + static_cast<float>(segment.start_time) * pixels_per_second - scroll_offset_x;
                         float end_x = cache_bar_left + static_cast<float>(segment.end_time) * pixels_per_second - scroll_offset_x;
@@ -23461,67 +23291,32 @@ private:
 
     void ToggleFullscreen() {
         static int saved_x, saved_y, saved_width, saved_height;
-        static bool saved_decorated = true;
 
         is_fullscreen = !is_fullscreen;
 
         if (is_fullscreen) {
-            Debug::Log("Entering fast fullscreen mode");
+            Debug::Log("Entering borderless fullscreen");
 
             // Save current window state
             glfwGetWindowPos(window, &saved_x, &saved_y);
             glfwGetWindowSize(window, &saved_width, &saved_height);
 
-            // Customize title bar buttons for fullscreen - hide minimize and maximize
-            HWND hwnd = glfwGetWin32Window(window);
-            LONG style = GetWindowLong(hwnd, GWL_STYLE);
-            SetWindowLong(hwnd, GWL_STYLE, style & ~(WS_MINIMIZEBOX | WS_MAXIMIZEBOX)); // Hide both buttons
+            // Remove window decorations (no context rebuild)
+            glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 
-            // Hook window procedure to intercept close button
-            if (!original_wndproc) {
-                original_wndproc = (WNDPROC)SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)CustomWndProc);
-            }
-
-            // Enable DWM composition and extend frame for transparent title bar
-            DwmEnableBlurBehindWindow(hwnd, nullptr); // Enable DWM effects
-
-            MARGINS margins = { 0, 0, 32, 0 }; // Extend glass 32px into client area (title bar height)
-            HRESULT hr = DwmExtendFrameIntoClientArea(hwnd, &margins);
-            if (FAILED(hr)) {
-                Debug::Log("Failed to extend glass frame for transparent title bar");
-            }
-
-            // Change window title to indicate fullscreen mode
-            glfwSetWindowTitle(window, "ump - Fullscreen");
-
-            // Fast operations only: resize + position
+            // Cover entire screen
             GLFWmonitor* monitor = glfwGetPrimaryMonitor();
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-            glfwSetWindowSize(window, mode->width, mode->height - 32);
-            glfwSetWindowPos(window, 0, 32);
+            glfwSetWindowPos(window, 0, 0);
+            glfwSetWindowSize(window, mode->width, mode->height);
         }
         else {
-            Debug::Log("Exiting fast fullscreen mode");
+            Debug::Log("Exiting borderless fullscreen");
 
-            // Restore title bar buttons and window procedure
-            HWND hwnd = glfwGetWin32Window(window);
-            LONG style = GetWindowLong(hwnd, GWL_STYLE);
-            SetWindowLong(hwnd, GWL_STYLE, style | WS_MINIMIZEBOX | WS_MAXIMIZEBOX); // Restore both buttons
+            // Restore window decorations
+            glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
 
-            // Restore normal title bar (remove glass extension)
-            MARGINS margins = { 0, 0, 0, 0 }; // Reset glass extension
-            DwmExtendFrameIntoClientArea(hwnd, &margins);
-
-            // Restore original window procedure
-            if (original_wndproc) {
-                SetWindowLongPtr(hwnd, GWLP_WNDPROC, (LONG_PTR)original_wndproc);
-                original_wndproc = nullptr;
-            }
-
-            // Restore original window title
-            glfwSetWindowTitle(window, "ump");
-
-            // Fast restore: size + position only
+            // Restore size and position
             glfwSetWindowSize(window, saved_width > 0 ? saved_width : 1914, saved_height > 0 ? saved_height : 1060);
             glfwSetWindowPos(window, saved_x, saved_y);
         }

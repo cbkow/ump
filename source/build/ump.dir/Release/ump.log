@@ -11,16 +11,21 @@
   audio_mixer.cpp
   audio_player.cpp
   gstreamer_audio_manager.cpp
+  wasapi_audio_device.cpp
   d3d11_ocio_renderer.cpp
   ocio_config_manager.cpp
   ocio_pipeline.cpp
   d3d11_device_manager.cpp
+  d3d11_hwframe_extractor.cpp
   d3d11_texture_pool.cpp
-  texture_pool.cpp
-  d3d11_hdr_swapchain.cpp
-  hdr_output_manager.cpp
+  d3d11_video_interop.cpp
   Generating Code...
   Compiling...
+  d3d11_yuv_renderer.cpp
+  texture_pool.cpp
+  video_range_converter.cpp
+  d3d11_hdr_swapchain.cpp
+  hdr_output_manager.cpp
   imnodes.cpp
   frameio_client.cpp
   frameio_converter.cpp
@@ -35,14 +40,16 @@
   safety_overlay_system.cpp
   svg_overlay_renderer.cpp
   conversion_strategy.cpp
+  d3d11_video_decoder.cpp
+  Generating Code...
+  Compiling...
+  d3d11va_video_decoder.cpp
   decoder_cleanup_queue.cpp
   direct_exr_cache.cpp
   exr_transcoder.cpp
   frame_cache.cpp
   hw_context_manager.cpp
   image_loaders.cpp
-  Generating Code...
-  Compiling...
   image_sequence_config.cpp
   image_sequence_decoder.cpp
   managed_video_decoder.cpp
@@ -56,6 +63,8 @@
   video_decoder_factory.cpp
   video_display_component.cpp
   project_manager.cpp
+  Generating Code...
+  Compiling...
   project_manager_transcode.cpp
   cache_window_engine.cpp
   edl_parser.cpp
@@ -63,8 +72,6 @@
   nested_timeline_manager.cpp
   python_adapter_bridge.cpp
   timeline_cache.cpp
-  Generating Code...
-  Compiling...
   timeline_commands.cpp
   timeline_playback_controller.cpp
   timeline_thumbnail_cache.cpp
@@ -78,6 +85,8 @@
   transcode_worker_pool.cpp
   video_sequence_transcoder.cpp
   video_transcoder.cpp
+  Generating Code...
+  Compiling...
   annotation_panel.cpp
   node_editor_theme.cpp
   playlist_panel.cpp
@@ -85,8 +94,6 @@
   transcode_queue_window.cpp
   exiftool_helper.cpp
   exr_layer_detector.cpp
-  Generating Code...
-  Compiling...
   system_pressure_monitor.cpp
   Generating Code...
   ump.vcxproj -> D:\z_DevTemp\UnionPlayer\build\Release\ump.exe

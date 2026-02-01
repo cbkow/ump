@@ -34,58 +34,64 @@ VS_OUTPUT VSMain(VS_INPUT input) {
 
 static const char* g_pixel_shader_hlsl = R"(
 //=============================================================================
-// YUV to RGB Conversion Shader with HDR PQ Support
+// YUV to RGB Conversion Shader - Extended for planar YUV and alpha support
+//
+// Supports:
+// - 2-plane NV12/P010 (interleaved UV)
+// - 3-plane planar YUV (YUV420P, YUV422P, YUV444P and 10/12-bit variants)
+// - 3-plane GBRP RGB planar (8/10/12-bit)
+// - 4-plane YUVA with alpha (8/10/12-bit)
+// - 4-plane GBRAP RGB planar with alpha (8/10/12-bit)
+// - D3D11VA texture arrays
+// - BT.709 and BT.2020 color matrices
+// - Video range (16-235) and full range (0-255)
 //=============================================================================
 
 cbuffer YUVParams : register(b0) {
-    float bitDepth;      // 8.0 or 10.0
-    float applyPQ;       // 1.0 for HDR PQ decode
-    float isFullRange;   // 1.0 for full range, 0.0 for video range
-    float colorSpace;    // 0.0 = BT.709, 1.0 = BT.2020
-    float useTextureArray; // 1.0 for Texture2DArray (D3D11VA), 0.0 for Texture2D
-    float3 padding;      // Align to 16 bytes
+    float bitDepth;        // 8.0, 10.0, or 12.0
+    float applyPQ;         // 1.0 for HDR PQ decode (unused, kept for compat)
+    float isFullRange;     // 1.0 = full range, 0.0 = video range (16-235)
+    float colorSpace;      // 0.0 = BT.709, 1.0 = BT.2020
+    float useTextureArray; // 1.0 = D3D11VA texture arrays
+    float planeCount;      // 2.0 = NV12/P010, 3.0 = planar YUV, 4.0 = YUVA/GBRAP
+    float hasAlpha;        // 1.0 = has alpha plane
+    float isRGBPlanar;     // 1.0 = GBRP/GBRAP (plane order: G, B, R, [A])
+    float bitDepthScale;   // Normalization factor: 1.0 for 8-bit, 65535/1023 for 10-bit, 65535/4095 for 12-bit
+    float3 padding;        // Align to 16 bytes (48 bytes total)
 };
 
-// Regular 2D textures (for non-array sources)
-Texture2D<float> texY : register(t0);
-Texture2D<float2> texUV : register(t1);
+// Textures - support up to 4 planes (each needs unique register)
+// t0: Y plane (or G for GBRP)
+// t1: UV interleaved (NV12/P010)
+// t2: U plane (planar only, or B for GBRP)
+// t3: V plane (planar only, or R for GBRP)
+// t4: Y array (D3D11VA)
+// t5: UV array (D3D11VA)
+// t6: A plane (alpha for YUVA/GBRAP)
+Texture2D<float> texPlane0 : register(t0);       // Y or G
+Texture2D<float2> texPlane1_NV12 : register(t1); // UV interleaved (NV12)
+Texture2D<float> texPlane1_U : register(t2);     // U or B (planar)
+Texture2D<float> texPlane2_V : register(t3);     // V or R (planar)
+Texture2D<float> texPlane3_A : register(t6);     // Alpha plane (YUVA/GBRAP)
 
-// Texture arrays (for D3D11VA decode)
-Texture2DArray<float> texYArray : register(t2);
-Texture2DArray<float2> texUVArray : register(t3);
+// Texture arrays for D3D11VA
+Texture2DArray<float> texYArray : register(t4);
+Texture2DArray<float2> texUVArray : register(t5);
 
 SamplerState sampLinear : register(s0);
 
 //=============================================================================
-// PQ EOTF (ST.2084) - Decode PQ to linear light
-// Input: PQ-encoded value [0, 1]
-// Output: Linear light [0, 1] representing [0, 10000] nits
-//=============================================================================
-float3 PQToLinear(float3 pq) {
-    const float m1 = 0.1593017578125;      // 2610/16384
-    const float m2 = 78.84375;             // 2523/32 * 128
-    const float c1 = 0.8359375;            // 3424/4096
-    const float c2 = 18.8515625;           // 2413/128
-    const float c3 = 18.6875;              // 2392/128
-
-    float3 Np = pow(max(pq, 0.0), 1.0 / m2);
-    float3 num = max(Np - c1, 0.0);
-    float3 den = c2 - c3 * Np;
-    return pow(num / den, 1.0 / m1);
-}
-
-//=============================================================================
-// Color Matrices
+// Color Matrices - YUV to RGB
 //=============================================================================
 
-// BT.709 YUV to RGB matrix (video range)
+// BT.709 YUV to RGB matrix
 static const float3x3 BT709_MAT = {
     1.0,     0.0,        1.5748,
     1.0,    -0.18732,   -0.46812,
     1.0,     1.8556,     0.0
 };
 
-// BT.2020 YUV to RGB matrix (video range)
+// BT.2020 YUV to RGB matrix
 static const float3x3 BT2020_MAT = {
     1.0,     0.0,        1.4746,
     1.0,    -0.16455,   -0.57135,
@@ -99,42 +105,85 @@ struct PS_INPUT {
 
 float4 PSMain(PS_INPUT input) : SV_TARGET {
     float2 uv = input.uv;
+    float3 rgb;
+    float A = 1.0;
 
-    // Sample Y and UV planes (from array or regular texture)
-    float Y;
-    float2 UV;
+    if (isRGBPlanar > 0.5) {
+        // GBRP/GBRAP path: planes are G, B, R order
+        // Always apply bitDepthScale for software-decoded RGB planar
+        float G = texPlane0.Sample(sampLinear, uv) * bitDepthScale;
+        float B = texPlane1_U.Sample(sampLinear, uv) * bitDepthScale;
+        float R = texPlane2_V.Sample(sampLinear, uv) * bitDepthScale;
+        rgb = float3(R, G, B);
 
-    if (useTextureArray > 0.5) {
-        Y = texYArray.Sample(sampLinear, float3(uv, 0));
-        UV = texUVArray.Sample(sampLinear, float3(uv, 0));
+        if (hasAlpha > 0.5) {
+            A = texPlane3_A.Sample(sampLinear, uv) * bitDepthScale;
+        }
     } else {
-        Y = texY.Sample(sampLinear, uv);
-        UV = texUV.Sample(sampLinear, uv);
+        // YUV path
+        float Y, U, V;
+        bool needsScaling = false;
+
+        if (useTextureArray > 0.5) {
+            // D3D11VA path (NV12/P010 texture arrays)
+            // P010 values are MSB-aligned, no scaling needed
+            Y = texYArray.Sample(sampLinear, float3(uv, 0));
+            float2 UV = texUVArray.Sample(sampLinear, float3(uv, 0));
+            U = UV.x;
+            V = UV.y;
+            needsScaling = false;
+        } else if (planeCount < 2.5) {
+            // 2-plane NV12/P010 layout (interleaved UV)
+            // P010 values are MSB-aligned, no scaling needed
+            Y = texPlane0.Sample(sampLinear, uv);
+            float2 UV = texPlane1_NV12.Sample(sampLinear, uv);
+            U = UV.x;
+            V = UV.y;
+            needsScaling = false;
+        } else {
+            // 3 or 4-plane planar YUV (YUV420P, YUV422P, YUV444P, YUVA)
+            // Software decode stores values in lower bits, needs scaling for 10/12-bit
+            Y = texPlane0.Sample(sampLinear, uv);
+            U = texPlane1_U.Sample(sampLinear, uv);
+            V = texPlane2_V.Sample(sampLinear, uv);
+            // Bilinear filtering handles chroma upscale automatically
+            needsScaling = (bitDepthScale > 1.5);  // Only for 10/12-bit
+        }
+
+        // Apply bit depth scaling for 10/12-bit software-decoded planar content
+        if (needsScaling) {
+            Y = Y * bitDepthScale;
+            U = U * bitDepthScale;
+            V = V * bitDepthScale;
+        }
+
+        // Range expansion for video range (16-235/16-240)
+        if (isFullRange < 0.5) {
+            const float foot = 16.0 / 255.0;
+            const float yHead = 235.0 / 255.0;
+            const float uvHead = 240.0 / 255.0;
+            Y = saturate((Y - foot) / (yHead - foot));
+            U = saturate((U - foot) / (uvHead - foot));
+            V = saturate((V - foot) / (uvHead - foot));
+        }
+
+        // Convert UV from [0,1] to [-0.5, 0.5]
+        U = U - 0.5;
+        V = V - 0.5;
+
+        // Apply color matrix (BT.709 or BT.2020)
+        float3x3 colorMat = (colorSpace > 0.5) ? BT2020_MAT : BT709_MAT;
+        float3 yuv = float3(Y, U, V);
+        rgb = mul(colorMat, yuv);
+
+        if (hasAlpha > 0.5) {
+            // Alpha plane from software decode needs scaling for 10/12-bit
+            float rawA = texPlane3_A.Sample(sampLinear, uv);
+            A = (bitDepthScale > 1.5) ? rawA * bitDepthScale : rawA;
+        }
     }
 
-    // Range expansion for limited range content
-    // Applied when isFullRange is false (user selected Limited or Auto detected limited)
-    // Respects user override for all pipelines including HDR/float
-    if (isFullRange < 0.5) {
-        const float foot = 16.0 / 255.0;
-        const float yHead = 235.0 / 255.0;
-        const float uvHead = 240.0 / 255.0;
-
-        Y = saturate((Y - foot) / (yHead - foot));
-        UV = saturate((UV - foot) / (uvHead - foot));
-    }
-
-    // Convert UV to signed: [0, 1] -> [-0.5, 0.5]
-    UV = UV - 0.5;
-
-    // Select color matrix based on color space
-    float3x3 colorMat = (colorSpace > 0.5) ? BT2020_MAT : BT709_MAT;
-
-    // Apply YUV to RGB conversion
-    float3 yuv = float3(Y, UV.x, UV.y);
-    float3 rgb = mul(colorMat, yuv);
-
-    return float4(saturate(rgb), 1.0);
+    return float4(saturate(rgb), A);
 }
 )";
 
@@ -164,7 +213,11 @@ struct YUVConstantBuffer {
     float isFullRange;
     float colorSpace;
     float useTextureArray;
-    float padding[3];  // Align to 16-byte boundary
+    float planeCount;
+    float hasAlpha;
+    float isRGBPlanar;
+    float bitDepthScale;
+    float padding[3];  // Align to 16-byte boundary (48 bytes total)
 };
 
 //=============================================================================
@@ -453,6 +506,19 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_y,
         cb->isFullRange = params.is_full_range ? 1.0f : 0.0f;
         cb->colorSpace = (params.color_space == YUVColorSpace::BT_2020) ? 1.0f : 0.0f;
         cb->useTextureArray = params.use_texture_array ? 1.0f : 0.0f;
+        cb->planeCount = static_cast<float>(params.plane_count);
+        cb->hasAlpha = params.has_alpha ? 1.0f : 0.0f;
+        cb->isRGBPlanar = params.is_rgb_planar ? 1.0f : 0.0f;
+        // Bit depth scale: normalize 10/12-bit values stored in R16 to [0,1]
+        // R16_UNORM stores 10-bit as 0-65535 (scaled from 0-1023)
+        // R16_UNORM stores 12-bit as 0-65535 (scaled from 0-4095)
+        if (params.bit_depth == 10) {
+            cb->bitDepthScale = 65535.0f / 1023.0f;  // ~64.06
+        } else if (params.bit_depth == 12) {
+            cb->bitDepthScale = 65535.0f / 4095.0f;  // ~16.00
+        } else {
+            cb->bitDepthScale = 1.0f;  // 8-bit, already normalized
+        }
         cb->padding[0] = cb->padding[1] = cb->padding[2] = 0.0f;
 
         context_->Unmap(constant_buffer_.Get(), 0);
@@ -474,17 +540,31 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_y,
     context_->PSSetShader(pixel_shader_.Get(), nullptr, 0);
     context_->PSSetConstantBuffers(0, 1, constant_buffer_.GetAddressOf());
 
-    // Textures - bind to t0/t1 for regular or t2/t3 for texture arrays
+    // Textures - bind based on mode
+    // t0: Y plane
+    // t1: UV interleaved (NV12)
+    // t2: U plane (planar)
+    // t3: V plane (planar)
+    // t4: Y array (D3D11VA)
+    // t5: UV array (D3D11VA)
+    // t6: A plane (alpha)
     if (params.use_texture_array) {
-        // Texture arrays: bind to t2, t3 (texYArray, texUVArray)
-        ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr };
-        context_->PSSetShaderResources(0, 2, null_srvs);  // Clear t0, t1
+        // Texture arrays: bind to t4, t5 (texYArray, texUVArray)
+        ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr, nullptr, nullptr };
+        context_->PSSetShaderResources(0, 4, null_srvs);  // Clear t0-t3
         ID3D11ShaderResourceView* array_srvs[] = { srv_y, srv_uv };
-        context_->PSSetShaderResources(2, 2, array_srvs);  // Bind to t2, t3
+        context_->PSSetShaderResources(4, 2, array_srvs);  // Bind to t4, t5
+        ID3D11ShaderResourceView* null_alpha = nullptr;
+        context_->PSSetShaderResources(6, 1, &null_alpha);  // Clear t6
     } else {
-        // Regular textures: bind to t0, t1 (texY, texUV)
-        ID3D11ShaderResourceView* srvs[] = { srv_y, srv_uv };
-        context_->PSSetShaderResources(0, 2, srvs);
+        // Regular 2-plane NV12/P010: bind to t0, t1
+        ID3D11ShaderResourceView* srvs[] = { srv_y, srv_uv, nullptr, nullptr };
+        context_->PSSetShaderResources(0, 4, srvs);
+        // Clear texture array slots and alpha
+        ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr };
+        context_->PSSetShaderResources(4, 2, null_srvs);
+        ID3D11ShaderResourceView* null_alpha = nullptr;
+        context_->PSSetShaderResources(6, 1, &null_alpha);
     }
     context_->PSSetSamplers(0, 1, sampler_linear_.GetAddressOf());
 
@@ -507,8 +587,8 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_y,
     context_->Draw(4, 0);
 
     // Unbind resources
-    ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr, nullptr, nullptr };
-    context_->PSSetShaderResources(0, 4, null_srvs);  // Clear t0-t3
+    ID3D11ShaderResourceView* null_srvs_all[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    context_->PSSetShaderResources(0, 7, null_srvs_all);  // Clear t0-t6
     ID3D11RenderTargetView* null_rtv = nullptr;
     context_->OMSetRenderTargets(1, &null_rtv, nullptr);
 
@@ -531,8 +611,264 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_y,
     // Note: The shader also enforces this - HDR paths skip range conversion regardless
     params.is_full_range = is_hdr;
     params.color_space = color_space;
+    params.plane_count = 2;  // This overload is for NV12/P010
 
     return Render(srv_y, srv_uv, dest_rtv, params);
+}
+
+//=============================================================================
+// Render (3-plane planar YUV version)
+//=============================================================================
+
+bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_plane0,
+                              ID3D11ShaderResourceView* srv_plane1,
+                              ID3D11ShaderResourceView* srv_plane2,
+                              ID3D11RenderTargetView* dest_rtv,
+                              const YUVRenderParams& params) {
+    // For 2-plane NV12/P010, srv_plane2 will be nullptr
+    if (!initialized_ || !srv_plane0 || !srv_plane1 || !dest_rtv) {
+        Debug::Log("D3D11YUVRenderer::Render(3-plane): Invalid params - init=" +
+                   std::to_string(initialized_) + " srv0=" + std::to_string(srv_plane0 != nullptr) +
+                   " srv1=" + std::to_string(srv_plane1 != nullptr) +
+                   " rtv=" + std::to_string(dest_rtv != nullptr));
+        return false;
+    }
+
+    // For 3-plane mode, srv_plane2 must be present
+    if (params.plane_count >= 3 && !srv_plane2) {
+        Debug::Log("D3D11YUVRenderer::Render(3-plane): Missing V plane SRV for 3-plane format");
+        return false;
+    }
+
+    // Log first 3-plane render for debugging
+    static bool first_3plane_render = true;
+    if (first_3plane_render && params.plane_count >= 3) {
+        Debug::Log("D3D11YUVRenderer::Render: First 3-plane render " +
+                   std::to_string(params.width) + "x" + std::to_string(params.height) +
+                   " plane_count=" + std::to_string(params.plane_count));
+        first_3plane_render = false;
+    }
+
+    //=========================================================================
+    // Update Constant Buffer
+    //=========================================================================
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        HRESULT hr = context_->Map(constant_buffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11YUVRenderer: Failed to map constant buffer");
+            return false;
+        }
+
+        YUVConstantBuffer* cb = static_cast<YUVConstantBuffer*>(mapped.pData);
+        cb->bitDepth = static_cast<float>(params.bit_depth);
+        cb->applyPQ = params.is_hdr ? 1.0f : 0.0f;
+        cb->isFullRange = params.is_full_range ? 1.0f : 0.0f;
+        cb->colorSpace = (params.color_space == YUVColorSpace::BT_2020) ? 1.0f : 0.0f;
+        cb->useTextureArray = params.use_texture_array ? 1.0f : 0.0f;
+        cb->planeCount = static_cast<float>(params.plane_count);
+        cb->hasAlpha = params.has_alpha ? 1.0f : 0.0f;
+        cb->isRGBPlanar = params.is_rgb_planar ? 1.0f : 0.0f;
+        // Bit depth scale: normalize 10/12-bit values stored in R16 to [0,1]
+        if (params.bit_depth == 10) {
+            cb->bitDepthScale = 65535.0f / 1023.0f;
+        } else if (params.bit_depth == 12) {
+            cb->bitDepthScale = 65535.0f / 4095.0f;
+        } else {
+            cb->bitDepthScale = 1.0f;
+        }
+        cb->padding[0] = cb->padding[1] = cb->padding[2] = 0.0f;
+
+        context_->Unmap(constant_buffer_.Get(), 0);
+    }
+
+    //=========================================================================
+    // Set Pipeline State
+    //=========================================================================
+
+    // Input assembler
+    UINT stride = sizeof(QuadVertex);
+    UINT offset = 0;
+    context_->IASetVertexBuffers(0, 1, quad_vbo_.GetAddressOf(), &stride, &offset);
+    context_->IASetInputLayout(input_layout_.Get());
+    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+    // Shaders
+    context_->VSSetShader(vertex_shader_.Get(), nullptr, 0);
+    context_->PSSetShader(pixel_shader_.Get(), nullptr, 0);
+    context_->PSSetConstantBuffers(0, 1, constant_buffer_.GetAddressOf());
+
+    // Textures - bind based on plane count
+    // t0: Y plane (or G for GBRP)
+    // t1: UV interleaved (NV12) - used for 2-plane
+    // t2: U plane (planar, or B for GBRP) - used for 3-plane
+    // t3: V plane (planar, or R for GBRP) - used for 3-plane
+    // t4, t5: texture arrays (not used here)
+    // t6: alpha (not used in 3-plane)
+    if (params.plane_count >= 3) {
+        // 3-plane planar: Y at t0, U at t2, V at t3
+        ID3D11ShaderResourceView* srvs[] = { srv_plane0, nullptr, srv_plane1, srv_plane2 };
+        context_->PSSetShaderResources(0, 4, srvs);
+    } else {
+        // 2-plane NV12/P010: Y at t0, UV at t1
+        ID3D11ShaderResourceView* srvs[] = { srv_plane0, srv_plane1, nullptr, nullptr };
+        context_->PSSetShaderResources(0, 4, srvs);
+    }
+    // Clear texture array slots and alpha
+    ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr };
+    context_->PSSetShaderResources(4, 2, null_srvs);
+    ID3D11ShaderResourceView* null_alpha = nullptr;
+    context_->PSSetShaderResources(6, 1, &null_alpha);
+    context_->PSSetSamplers(0, 1, sampler_linear_.GetAddressOf());
+
+    // Render target
+    context_->OMSetRenderTargets(1, &dest_rtv, nullptr);
+    context_->OMSetBlendState(blend_state_.Get(), nullptr, 0xFFFFFFFF);
+
+    // Viewport
+    D3D11_VIEWPORT viewport = {};
+    viewport.Width = static_cast<float>(params.width);
+    viewport.Height = static_cast<float>(params.height);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    context_->RSSetViewports(1, &viewport);
+    context_->RSSetState(rasterizer_state_.Get());
+
+    //=========================================================================
+    // Draw
+    //=========================================================================
+    context_->Draw(4, 0);
+
+    // Unbind resources
+    ID3D11ShaderResourceView* null_srvs_all[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    context_->PSSetShaderResources(0, 7, null_srvs_all);  // Clear t0-t6
+    ID3D11RenderTargetView* null_rtv = nullptr;
+    context_->OMSetRenderTargets(1, &null_rtv, nullptr);
+
+    return true;
+}
+
+//=============================================================================
+// Render (4-plane YUVA/GBRAP version)
+//=============================================================================
+
+bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_plane0,
+                              ID3D11ShaderResourceView* srv_plane1,
+                              ID3D11ShaderResourceView* srv_plane2,
+                              ID3D11ShaderResourceView* srv_plane3,
+                              ID3D11RenderTargetView* dest_rtv,
+                              const YUVRenderParams& params) {
+    if (!initialized_ || !srv_plane0 || !srv_plane1 || !srv_plane2 || !srv_plane3 || !dest_rtv) {
+        Debug::Log("D3D11YUVRenderer::Render(4-plane): Invalid params - init=" +
+                   std::to_string(initialized_) + " srv0=" + std::to_string(srv_plane0 != nullptr) +
+                   " srv1=" + std::to_string(srv_plane1 != nullptr) +
+                   " srv2=" + std::to_string(srv_plane2 != nullptr) +
+                   " srv3=" + std::to_string(srv_plane3 != nullptr) +
+                   " rtv=" + std::to_string(dest_rtv != nullptr));
+        return false;
+    }
+
+    // Log first 4-plane render for debugging
+    static bool first_4plane_render = true;
+    if (first_4plane_render) {
+        Debug::Log("D3D11YUVRenderer::Render: First 4-plane render " +
+                   std::to_string(params.width) + "x" + std::to_string(params.height) +
+                   " plane_count=" + std::to_string(params.plane_count) +
+                   " has_alpha=" + std::to_string(params.has_alpha) +
+                   " is_rgb_planar=" + std::to_string(params.is_rgb_planar));
+        first_4plane_render = false;
+    }
+
+    //=========================================================================
+    // Update Constant Buffer
+    //=========================================================================
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        HRESULT hr = context_->Map(constant_buffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11YUVRenderer: Failed to map constant buffer");
+            return false;
+        }
+
+        YUVConstantBuffer* cb = static_cast<YUVConstantBuffer*>(mapped.pData);
+        cb->bitDepth = static_cast<float>(params.bit_depth);
+        cb->applyPQ = params.is_hdr ? 1.0f : 0.0f;
+        cb->isFullRange = params.is_full_range ? 1.0f : 0.0f;
+        cb->colorSpace = (params.color_space == YUVColorSpace::BT_2020) ? 1.0f : 0.0f;
+        cb->useTextureArray = params.use_texture_array ? 1.0f : 0.0f;
+        cb->planeCount = static_cast<float>(params.plane_count);
+        cb->hasAlpha = params.has_alpha ? 1.0f : 0.0f;
+        cb->isRGBPlanar = params.is_rgb_planar ? 1.0f : 0.0f;
+        // Bit depth scale: normalize 10/12-bit values stored in R16 to [0,1]
+        if (params.bit_depth == 10) {
+            cb->bitDepthScale = 65535.0f / 1023.0f;
+        } else if (params.bit_depth == 12) {
+            cb->bitDepthScale = 65535.0f / 4095.0f;
+        } else {
+            cb->bitDepthScale = 1.0f;
+        }
+        cb->padding[0] = cb->padding[1] = cb->padding[2] = 0.0f;
+
+        context_->Unmap(constant_buffer_.Get(), 0);
+    }
+
+    //=========================================================================
+    // Set Pipeline State
+    //=========================================================================
+
+    // Input assembler
+    UINT stride = sizeof(QuadVertex);
+    UINT offset = 0;
+    context_->IASetVertexBuffers(0, 1, quad_vbo_.GetAddressOf(), &stride, &offset);
+    context_->IASetInputLayout(input_layout_.Get());
+    context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP);
+
+    // Shaders
+    context_->VSSetShader(vertex_shader_.Get(), nullptr, 0);
+    context_->PSSetShader(pixel_shader_.Get(), nullptr, 0);
+    context_->PSSetConstantBuffers(0, 1, constant_buffer_.GetAddressOf());
+
+    // Textures - 4-plane: Y/G at t0, U/B at t2, V/R at t3, A at t6
+    // t0: Y plane (or G for GBRAP)
+    // t1: unused (NV12 interleaved)
+    // t2: U plane (or B for GBRAP)
+    // t3: V plane (or R for GBRAP)
+    // t4, t5: texture arrays (not used)
+    // t6: A plane (alpha)
+    ID3D11ShaderResourceView* srvs[] = { srv_plane0, nullptr, srv_plane1, srv_plane2 };
+    context_->PSSetShaderResources(0, 4, srvs);
+    // Clear texture array slots
+    ID3D11ShaderResourceView* null_srvs[] = { nullptr, nullptr };
+    context_->PSSetShaderResources(4, 2, null_srvs);
+    // Bind alpha plane at t6
+    context_->PSSetShaderResources(6, 1, &srv_plane3);
+    context_->PSSetSamplers(0, 1, sampler_linear_.GetAddressOf());
+
+    // Render target
+    context_->OMSetRenderTargets(1, &dest_rtv, nullptr);
+    context_->OMSetBlendState(blend_state_.Get(), nullptr, 0xFFFFFFFF);
+
+    // Viewport
+    D3D11_VIEWPORT viewport = {};
+    viewport.Width = static_cast<float>(params.width);
+    viewport.Height = static_cast<float>(params.height);
+    viewport.MinDepth = 0.0f;
+    viewport.MaxDepth = 1.0f;
+    context_->RSSetViewports(1, &viewport);
+    context_->RSSetState(rasterizer_state_.Get());
+
+    //=========================================================================
+    // Draw
+    //=========================================================================
+    context_->Draw(4, 0);
+
+    // Unbind resources
+    ID3D11ShaderResourceView* null_srvs_all[] = { nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr };
+    context_->PSSetShaderResources(0, 7, null_srvs_all);  // Clear t0-t6
+    ID3D11RenderTargetView* null_rtv = nullptr;
+    context_->OMSetRenderTargets(1, &null_rtv, nullptr);
+
+    return true;
 }
 
 } // namespace ump

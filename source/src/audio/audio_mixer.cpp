@@ -1,7 +1,5 @@
 #include "audio_mixer.h"
-
-// Include miniaudio (implementation already in audio_player.cpp)
-#include "../../external/miniaudio/miniaudio.h"
+#include "wasapi_audio_device.h"
 
 #include "../timeline/timeline_view.h"
 #include "../timeline/timeline_types.h"
@@ -34,25 +32,23 @@ bool AudioMixer::Initialize() {
         return true;
     }
 
-    Debug::Log("AudioMixer: Initializing...");
+    Debug::Log("AudioMixer: Initializing WASAPI...");
 
-    // Allocate device
-    device_ = new ma_device();
+    // Create WASAPI device
+    device_ = std::make_unique<WasapiAudioDevice>();
 
     // Configure device
-    ma_device_config config = ma_device_config_init(ma_device_type_playback);
-    config.playback.format = ma_format_f32;
-    config.playback.channels = 2;
-    config.sampleRate = 48000;
+    WasapiDeviceConfig config;
     config.dataCallback = DataCallback;
-    config.pUserData = this;
+    config.userData = this;
+    config.sampleRate = 48000;
+    config.channels = 2;
+    config.bufferSizeMs = 10;
 
     // Initialize device
-    ma_result result = ma_device_init(nullptr, &config, device_);
-    if (result != MA_SUCCESS) {
-        Debug::Log("AudioMixer: Failed to initialize miniaudio device, error: " + std::to_string(result));
-        delete device_;
-        device_ = nullptr;
+    if (!device_->Initialize(config)) {
+        Debug::Log("AudioMixer: Failed to initialize WASAPI device");
+        device_.reset();
         return false;
     }
 
@@ -77,9 +73,8 @@ void AudioMixer::Shutdown() {
     ClearClips();
 
     if (device_) {
-        ma_device_uninit(device_);
-        delete device_;
-        device_ = nullptr;
+        device_->Shutdown();
+        device_.reset();
     }
 
     flattener_ = nullptr;
@@ -198,11 +193,7 @@ void AudioMixer::Play() {
 
     Debug::Log("AudioMixer: Play");
 
-    ma_result result = ma_device_start(device_);
-    if (result != MA_SUCCESS) {
-        Debug::Log("AudioMixer: Failed to start device, error: " + std::to_string(result));
-        return;
-    }
+    device_->Start();
 
     is_playing_ = true;
 
@@ -215,7 +206,7 @@ void AudioMixer::Pause() {
 
     Debug::Log("AudioMixer: Pause");
 
-    ma_device_stop(device_);
+    device_->Stop();
     is_playing_ = false;
 }
 
@@ -224,7 +215,7 @@ void AudioMixer::Stop() {
 
     Debug::Log("AudioMixer: Stop");
 
-    ma_device_stop(device_);
+    device_->Stop();
     is_playing_ = false;
 
     // Reset position
@@ -613,14 +604,14 @@ std::string AudioMixer::GetCurrentSourcePath() const {
 }
 
 //=============================================================================
-// miniaudio Callbacks
+// WASAPI Callbacks
 //=============================================================================
 
-void AudioMixer::DataCallback(ma_device* device, void* output,
-                              const void* /*input*/, unsigned int frame_count) {
-    AudioMixer* mixer = static_cast<AudioMixer*>(device->pUserData);
+void AudioMixer::DataCallback(void* /*device*/, float* output,
+                              uint32_t frame_count, void* userData) {
+    AudioMixer* mixer = static_cast<AudioMixer*>(userData);
     if (mixer) {
-        mixer->ProcessAudio(static_cast<float*>(output), frame_count);
+        mixer->ProcessAudio(output, frame_count);
     } else {
         std::memset(output, 0, frame_count * 2 * sizeof(float));
     }
@@ -671,19 +662,28 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
         sources_mixed++;
     }
 
-    // Apply volume only - no artificial gain reduction
-    // Professional mixing simply sums tracks; the user controls levels
+    // Apply volume and soft limiting
     float vol = volume_.load();
 
+    // Soft limiter using fast tanh approximation
+    // Starts compressing around 0.8, approaches ±1.0 asymptotically
+    // Much smoother than hard clipping when multiple tracks sum loud
+    auto softLimit = [](float x) -> float {
+        // Fast tanh approximation: x / (1 + |x|) scaled for audio
+        // Threshold at ~0.8 where limiting kicks in
+        constexpr float threshold = 0.8f;
+        if (x > threshold) {
+            float excess = x - threshold;
+            return threshold + (1.0f - threshold) * (excess / (1.0f + excess));
+        } else if (x < -threshold) {
+            float excess = -x - threshold;
+            return -threshold - (1.0f - threshold) * (excess / (1.0f + excess));
+        }
+        return x;
+    };
+
     for (unsigned int i = 0; i < frame_count * 2; ++i) {
-        float sample = output[i] * vol;
-
-        // Hard clamp to prevent any clipping artifacts
-        // No soft clipping - let the sum be what it is, just prevent overflow
-        if (sample > 1.0f) sample = 1.0f;
-        else if (sample < -1.0f) sample = -1.0f;
-
-        output[i] = sample;
+        output[i] = softLimit(output[i] * vol);
     }
 }
 

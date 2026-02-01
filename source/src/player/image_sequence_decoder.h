@@ -228,8 +228,9 @@ private:
     mutable std::mutex buffer_mutex_;
 
     // Fast O(1) buffer tracking
-    std::atomic<int> buffer_ahead_count_{0};  // Frames ahead of playhead
-    std::atomic<int> buffer_size_{0};         // Total frames in buffer
+    std::atomic<int> buffer_ahead_count_{0};   // Frames ahead of playhead
+    std::atomic<int> buffer_behind_count_{0};  // Frames behind playhead
+    std::atomic<int> buffer_size_{0};          // Total frames in buffer
 
     // Current playhead position (set by UpdatePlayhead)
     std::atomic<int> playhead_frame_{0};

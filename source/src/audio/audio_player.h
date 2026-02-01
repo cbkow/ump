@@ -7,9 +7,8 @@
 
 #include "audio_decoder.h"
 
-// Forward declare miniaudio types
-struct ma_device;
-struct ma_device_config;
+// Forward declare WASAPI device
+namespace ump { class WasapiAudioDevice; }
 
 namespace ump {
 
@@ -51,7 +50,7 @@ struct AudioClipConfig {
 };
 
 /**
- * AudioPlayer - miniaudio-based audio output
+ * AudioPlayer - WASAPI-based audio output
  *
  * Plays audio from AudioDecoder, synced to external timeline (PlaybackTimer).
  * Handles trim points, position offsets, and gaps with silence.
@@ -79,7 +78,7 @@ public:
     // Lifecycle
     //=========================================================================
 
-    // Initialize miniaudio engine
+    // Initialize WASAPI audio engine
     bool Initialize();
 
     // Shutdown and release resources
@@ -148,11 +147,11 @@ public:
 
 private:
     //=========================================================================
-    // miniaudio Callbacks
+    // WASAPI Callbacks
     //=========================================================================
 
-    static void DataCallback(ma_device* device, void* output,
-                            const void* input, unsigned int frame_count);
+    static void DataCallback(void* device, float* output,
+                            uint32_t frame_count, void* userData);
 
     void ProcessAudio(float* output, unsigned int frame_count);
 
@@ -170,8 +169,8 @@ private:
     bool initialized_ = false;
     AudioClipConfig clip_config_;
 
-    // miniaudio device (opaque pointer to avoid header include)
-    ma_device* device_ = nullptr;
+    // WASAPI audio device
+    std::unique_ptr<WasapiAudioDevice> device_;
 
     // Audio decoder
     std::unique_ptr<AudioDecoder> decoder_;

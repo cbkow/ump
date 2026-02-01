@@ -140,14 +140,16 @@ void D3D11VideoInterop::ShutdownNVInterop() {
 }
 
 void D3D11VideoInterop::ShutdownEXTMemoryInterop() {
-    if (ext_memory_object_) {
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-    }
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        if (ext_memory_objects_[i]) {
+            glDeleteMemoryObjectsEXT_(1, &ext_memory_objects_[i]);
+            ext_memory_objects_[i] = 0;
+        }
 
-    if (shared_handle_) {
-        CloseHandle(shared_handle_);
-        shared_handle_ = nullptr;
+        if (shared_handles_[i]) {
+            CloseHandle(shared_handles_[i]);
+            shared_handles_[i] = nullptr;
+        }
     }
 }
 
@@ -156,13 +158,17 @@ bool D3D11VideoInterop::CreateSharedTexture(int width, int height, DXGI_FORMAT f
         return false;
     }
 
+    // Check if textures already exist (use array-based check)
+    bool textures_exist = shared_textures_[0] != nullptr;
+
     // Destroy existing texture if dimensions changed
-    if (shared_texture_ && (width != width_ || height != height_ || format != format_)) {
+    if (textures_exist && (width != width_ || height != height_ || format != format_)) {
         DestroySharedTexture();
+        textures_exist = false;
     }
 
     // Return if texture already exists with correct dimensions
-    if (shared_texture_) {
+    if (textures_exist) {
         return true;
     }
 
@@ -198,7 +204,7 @@ bool D3D11VideoInterop::CreateSharedTexture(int width, int height, DXGI_FORMAT f
 }
 
 bool D3D11VideoInterop::CreateNVInteropTexture(int width, int height, DXGI_FORMAT format) {
-    // Create D3D11 texture
+    // Create triple-buffered D3D11 textures
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
     desc.Height = height;
@@ -209,78 +215,116 @@ bool D3D11VideoInterop::CreateNVInteropTexture(int width, int height, DXGI_FORMA
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_texture_);
-    if (FAILED(hr)) {
-        Debug::Log("D3D11VideoInterop: Failed to create D3D11 texture");
-        return false;
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_textures_[i]);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoInterop: Failed to create D3D11 texture " + std::to_string(i));
+            // Clean up already created textures
+            for (int j = 0; j < i; j++) {
+                shared_textures_[j].Reset();
+            }
+            return false;
+        }
+
+        // Create RTV for each texture
+        hr = d3d_device_->CreateRenderTargetView(shared_textures_[i].Get(), nullptr, &rtvs_[i]);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoInterop: Failed to create RTV " + std::to_string(i));
+            for (int j = 0; j <= i; j++) {
+                shared_textures_[j].Reset();
+                if (j < i) rtvs_[j].Reset();
+            }
+            return false;
+        }
+
+        // Create SRV for each texture
+        hr = d3d_device_->CreateShaderResourceView(shared_textures_[i].Get(), nullptr, &srvs_[i]);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoInterop: Failed to create SRV " + std::to_string(i));
+            for (int j = 0; j <= i; j++) {
+                shared_textures_[j].Reset();
+                rtvs_[j].Reset();
+                if (j < i) srvs_[j].Reset();
+            }
+            return false;
+        }
+
+        // Create OpenGL texture for each buffer
+        glGenTextures(1, &gl_textures_[i]);
+        if (!gl_textures_[i]) {
+            Debug::Log("D3D11VideoInterop: Failed to create GL texture " + std::to_string(i));
+            for (int j = 0; j <= i; j++) {
+                shared_textures_[j].Reset();
+                rtvs_[j].Reset();
+                srvs_[j].Reset();
+                if (j < i) glDeleteTextures(1, &gl_textures_[j]);
+            }
+            return false;
+        }
+
+        // Register D3D11 texture with OpenGL
+        nv_interop_objects_[i] = wglDXRegisterObjectNV_(
+            nv_interop_device_,
+            shared_textures_[i].Get(),
+            gl_textures_[i],
+            GL_TEXTURE_2D,
+            WGL_ACCESS_READ_ONLY_NV  // GL only reads, D3D11 writes
+        );
+
+        if (!nv_interop_objects_[i]) {
+            Debug::Log("D3D11VideoInterop: wglDXRegisterObjectNV failed for buffer " + std::to_string(i));
+            for (int j = 0; j <= i; j++) {
+                if (j < i && nv_interop_objects_[j]) {
+                    wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_objects_[j]);
+                    nv_interop_objects_[j] = nullptr;
+                }
+                glDeleteTextures(1, &gl_textures_[j]);
+                gl_textures_[j] = 0;
+                srvs_[j].Reset();
+                rtvs_[j].Reset();
+                shared_textures_[j].Reset();
+            }
+            return false;
+        }
+
+        // Initially lock all buffers for GL (they start in GL-owned state)
+        if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_objects_[i])) {
+            Debug::Log("D3D11VideoInterop: Initial wglDXLockObjectsNV failed for buffer " + std::to_string(i));
+            for (int j = 0; j <= i; j++) {
+                if (j < i) {
+                    wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_objects_[j]);
+                }
+                wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_objects_[j]);
+                nv_interop_objects_[j] = nullptr;
+                glDeleteTextures(1, &gl_textures_[j]);
+                gl_textures_[j] = 0;
+                srvs_[j].Reset();
+                rtvs_[j].Reset();
+                shared_textures_[j].Reset();
+            }
+            return false;
+        }
+        buffer_locked_[i] = false;  // GL-owned = not locked for D3D11
     }
 
-    // Create RTV
-    hr = d3d_device_->CreateRenderTargetView(shared_texture_.Get(), nullptr, &rtv_);
-    if (FAILED(hr)) {
-        Debug::Log("D3D11VideoInterop: Failed to create RTV");
-        shared_texture_.Reset();
-        return false;
-    }
+    // Initialize ring buffer indices
+    write_index_ = 0;
+    read_index_ = kInteropBufferCount - 1;  // Read from oldest buffer
 
-    // Create SRV
-    hr = d3d_device_->CreateShaderResourceView(shared_texture_.Get(), nullptr, &srv_);
-    if (FAILED(hr)) {
-        Debug::Log("D3D11VideoInterop: Failed to create SRV");
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
+    // Set up legacy pointers for API compatibility
+    shared_texture_ = shared_textures_[write_index_];
+    rtv_ = rtvs_[write_index_];
+    srv_ = srvs_[write_index_];
+    gl_texture_ = gl_textures_[read_index_];
 
-    // Create OpenGL texture
-    glGenTextures(1, &gl_texture_);
-    if (!gl_texture_) {
-        Debug::Log("D3D11VideoInterop: Failed to create GL texture");
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
+    locked_for_d3d11_ = false;
 
-    // Register D3D11 texture with OpenGL
-    nv_interop_object_ = wglDXRegisterObjectNV_(
-        nv_interop_device_,
-        shared_texture_.Get(),
-        gl_texture_,
-        GL_TEXTURE_2D,
-        WGL_ACCESS_READ_ONLY_NV  // GL only reads, D3D11 writes
-    );
-
-    if (!nv_interop_object_) {
-        Debug::Log("D3D11VideoInterop: wglDXRegisterObjectNV failed");
-        glDeleteTextures(1, &gl_texture_);
-        gl_texture_ = 0;
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Initially lock for GL (texture starts in GL-owned state)
-    // D3D11 will unlock before rendering, then lock back for GL after
-    if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_)) {
-        Debug::Log("D3D11VideoInterop: Initial wglDXLockObjectsNV failed");
-        wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_object_);
-        nv_interop_object_ = nullptr;
-        glDeleteTextures(1, &gl_texture_);
-        gl_texture_ = 0;
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-    locked_for_d3d11_ = false;  // Texture is now GL-owned
-
+    Debug::Log("D3D11VideoInterop: Created triple-buffered NV interop textures");
     return true;
 }
 
 bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMAT format) {
-    // Create D3D11 texture with shared handle
+    // Create triple-buffered D3D11 textures with shared handles
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
     desc.Height = height;
@@ -292,63 +336,6 @@ bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMA
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
     desc.MiscFlags = D3D11_RESOURCE_MISC_SHARED_NTHANDLE | D3D11_RESOURCE_MISC_SHARED_KEYEDMUTEX;
 
-    HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_texture_);
-    if (FAILED(hr)) {
-        Debug::Log("D3D11VideoInterop: Failed to create shared D3D11 texture");
-        return false;
-    }
-
-    // Create RTV
-    hr = d3d_device_->CreateRenderTargetView(shared_texture_.Get(), nullptr, &rtv_);
-    if (FAILED(hr)) {
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create SRV
-    hr = d3d_device_->CreateShaderResourceView(shared_texture_.Get(), nullptr, &srv_);
-    if (FAILED(hr)) {
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Get shared handle
-    Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
-    hr = shared_texture_.As(&dxgi_resource);
-    if (FAILED(hr)) {
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    hr = dxgi_resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ, nullptr, &shared_handle_);
-    if (FAILED(hr)) {
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create OpenGL memory object
-    glCreateMemoryObjectsEXT_(1, &ext_memory_object_);
-
-    // Calculate memory size (approximate)
-    GLuint64 memory_size = width * height * 8;  // 16-bit RGBA = 8 bytes
-
-    // Import the shared handle
-    glImportMemoryWin32HandleEXT_(
-        ext_memory_object_,
-        memory_size,
-        GL_HANDLE_TYPE_D3D11_IMAGE_EXT,
-        shared_handle_
-    );
-
-    // Create GL texture with imported memory
-    glGenTextures(1, &gl_texture_);
-    glBindTexture(GL_TEXTURE_2D, gl_texture_);
-
     // Map DXGI format to GL format
     GLenum gl_internal_format = GL_RGBA16F;  // Default for HDR
     if (format == DXGI_FORMAT_R8G8B8A8_UNORM) {
@@ -359,14 +346,99 @@ bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMA
         gl_internal_format = GL_RGBA16;  // HIGH_RES mode (16-bit integer)
     }
 
-    glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, gl_internal_format, width, height, ext_memory_object_, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    // Calculate memory size (approximate)
+    GLuint64 memory_size = width * height * 8;  // 16-bit RGBA = 8 bytes
 
-    return gl_texture_ != 0;
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_textures_[i]);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoInterop: Failed to create shared D3D11 texture " + std::to_string(i));
+            goto cleanup;
+        }
+
+        // Create RTV
+        hr = d3d_device_->CreateRenderTargetView(shared_textures_[i].Get(), nullptr, &rtvs_[i]);
+        if (FAILED(hr)) {
+            goto cleanup;
+        }
+
+        // Create SRV
+        hr = d3d_device_->CreateShaderResourceView(shared_textures_[i].Get(), nullptr, &srvs_[i]);
+        if (FAILED(hr)) {
+            goto cleanup;
+        }
+
+        // Get shared handle
+        Microsoft::WRL::ComPtr<IDXGIResource1> dxgi_resource;
+        hr = shared_textures_[i].As(&dxgi_resource);
+        if (FAILED(hr)) {
+            goto cleanup;
+        }
+
+        hr = dxgi_resource->CreateSharedHandle(nullptr, DXGI_SHARED_RESOURCE_READ, nullptr, &shared_handles_[i]);
+        if (FAILED(hr)) {
+            goto cleanup;
+        }
+
+        // Create OpenGL memory object
+        glCreateMemoryObjectsEXT_(1, &ext_memory_objects_[i]);
+
+        // Import the shared handle
+        glImportMemoryWin32HandleEXT_(
+            ext_memory_objects_[i],
+            memory_size,
+            GL_HANDLE_TYPE_D3D11_IMAGE_EXT,
+            shared_handles_[i]
+        );
+
+        // Create GL texture with imported memory
+        glGenTextures(1, &gl_textures_[i]);
+        glBindTexture(GL_TEXTURE_2D, gl_textures_[i]);
+        glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, gl_internal_format, width, height, ext_memory_objects_[i], 0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        if (!gl_textures_[i]) {
+            goto cleanup;
+        }
+    }
+
+    // Initialize ring buffer indices
+    write_index_ = 0;
+    read_index_ = kInteropBufferCount - 1;
+
+    // Set up legacy pointers for API compatibility
+    shared_texture_ = shared_textures_[write_index_];
+    rtv_ = rtvs_[write_index_];
+    srv_ = srvs_[write_index_];
+    gl_texture_ = gl_textures_[read_index_];
+
+    Debug::Log("D3D11VideoInterop: Created triple-buffered EXT memory textures");
+    return true;
+
+cleanup:
+    // Clean up on failure
+    for (int j = 0; j < kInteropBufferCount; j++) {
+        if (gl_textures_[j]) {
+            glDeleteTextures(1, &gl_textures_[j]);
+            gl_textures_[j] = 0;
+        }
+        if (ext_memory_objects_[j]) {
+            glDeleteMemoryObjectsEXT_(1, &ext_memory_objects_[j]);
+            ext_memory_objects_[j] = 0;
+        }
+        if (shared_handles_[j]) {
+            CloseHandle(shared_handles_[j]);
+            shared_handles_[j] = nullptr;
+        }
+        srvs_[j].Reset();
+        rtvs_[j].Reset();
+        shared_textures_[j].Reset();
+    }
+    return false;
 }
 
 bool D3D11VideoInterop::CreateFallbackTexture(int width, int height, DXGI_FORMAT format) {
-    // Create D3D11 render target texture
+    // Create triple-buffered D3D11 render target textures
     D3D11_TEXTURE2D_DESC desc = {};
     desc.Width = width;
     desc.Height = height;
@@ -377,44 +449,7 @@ bool D3D11VideoInterop::CreateFallbackTexture(int width, int height, DXGI_FORMAT
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
 
-    HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_texture_);
-    if (FAILED(hr)) {
-        return false;
-    }
-
-    // Create RTV
-    hr = d3d_device_->CreateRenderTargetView(shared_texture_.Get(), nullptr, &rtv_);
-    if (FAILED(hr)) {
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create SRV
-    hr = d3d_device_->CreateShaderResourceView(shared_texture_.Get(), nullptr, &srv_);
-    if (FAILED(hr)) {
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create staging texture for CPU readback
-    desc.Usage = D3D11_USAGE_STAGING;
-    desc.BindFlags = 0;
-    desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-
-    hr = d3d_device_->CreateTexture2D(&desc, nullptr, &staging_texture_);
-    if (FAILED(hr)) {
-        srv_.Reset();
-        rtv_.Reset();
-        shared_texture_.Reset();
-        return false;
-    }
-
-    // Create OpenGL texture
-    glGenTextures(1, &gl_texture_);
-    glBindTexture(GL_TEXTURE_2D, gl_texture_);
-
-    // Map DXGI format to GL format/type
+    // Map DXGI format to GL format/type (used for all buffers)
     GLenum gl_internal_format = GL_RGBA16F;
     GLenum gl_format = GL_RGBA;
     GLenum gl_type = GL_HALF_FLOAT;
@@ -430,11 +465,86 @@ bool D3D11VideoInterop::CreateFallbackTexture(int width, int height, DXGI_FORMAT
         gl_type = GL_UNSIGNED_SHORT;
     }
 
-    glTexImage2D(GL_TEXTURE_2D, 0, gl_internal_format, width, height, 0, gl_format, gl_type, nullptr);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        HRESULT hr = d3d_device_->CreateTexture2D(&desc, nullptr, &shared_textures_[i]);
+        if (FAILED(hr)) {
+            for (int j = 0; j < i; j++) {
+                shared_textures_[j].Reset();
+                rtvs_[j].Reset();
+                srvs_[j].Reset();
+                glDeleteTextures(1, &gl_textures_[j]);
+                gl_textures_[j] = 0;
+            }
+            return false;
+        }
 
+        // Create RTV
+        hr = d3d_device_->CreateRenderTargetView(shared_textures_[i].Get(), nullptr, &rtvs_[i]);
+        if (FAILED(hr)) {
+            shared_textures_[i].Reset();
+            for (int j = 0; j < i; j++) {
+                shared_textures_[j].Reset();
+                rtvs_[j].Reset();
+                srvs_[j].Reset();
+                glDeleteTextures(1, &gl_textures_[j]);
+                gl_textures_[j] = 0;
+            }
+            return false;
+        }
+
+        // Create SRV
+        hr = d3d_device_->CreateShaderResourceView(shared_textures_[i].Get(), nullptr, &srvs_[i]);
+        if (FAILED(hr)) {
+            rtvs_[i].Reset();
+            shared_textures_[i].Reset();
+            for (int j = 0; j < i; j++) {
+                shared_textures_[j].Reset();
+                rtvs_[j].Reset();
+                srvs_[j].Reset();
+                glDeleteTextures(1, &gl_textures_[j]);
+                gl_textures_[j] = 0;
+            }
+            return false;
+        }
+
+        // Create OpenGL texture for this buffer
+        glGenTextures(1, &gl_textures_[i]);
+        glBindTexture(GL_TEXTURE_2D, gl_textures_[i]);
+        glTexImage2D(GL_TEXTURE_2D, 0, gl_internal_format, width, height, 0, gl_format, gl_type, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    // Create staging texture for CPU readback (only need one for fallback path)
+    D3D11_TEXTURE2D_DESC staging_desc = desc;
+    staging_desc.Usage = D3D11_USAGE_STAGING;
+    staging_desc.BindFlags = 0;
+    staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+
+    HRESULT hr = d3d_device_->CreateTexture2D(&staging_desc, nullptr, &staging_texture_);
+    if (FAILED(hr)) {
+        for (int i = 0; i < kInteropBufferCount; i++) {
+            srvs_[i].Reset();
+            rtvs_[i].Reset();
+            shared_textures_[i].Reset();
+            glDeleteTextures(1, &gl_textures_[i]);
+            gl_textures_[i] = 0;
+        }
+        return false;
+    }
+
+    // Initialize ring buffer indices
+    write_index_ = 0;
+    read_index_ = kInteropBufferCount - 1;
+
+    // Set up legacy pointers for API compatibility
+    shared_texture_ = shared_textures_[write_index_];
+    rtv_ = rtvs_[write_index_];
+    srv_ = srvs_[write_index_];
+    gl_texture_ = gl_textures_[read_index_];
+
+    Debug::Log("D3D11VideoInterop: Created triple-buffered fallback textures");
     return true;
 }
 
@@ -447,10 +557,24 @@ void D3D11VideoInterop::DestroySharedTexture() {
         DestroyFallbackTexture();
     }
 
+    // Clear all array-based resources
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        srvs_[i].Reset();
+        rtvs_[i].Reset();
+        shared_textures_[i].Reset();
+        buffer_locked_[i] = false;
+    }
+
+    // Clear legacy pointers
     srv_.Reset();
     rtv_.Reset();
     shared_texture_.Reset();
     staging_texture_.Reset();
+    gl_texture_ = 0;
+
+    // Reset indices
+    write_index_ = 0;
+    read_index_ = kInteropBufferCount - 1;
 
     width_ = 0;
     height_ = 0;
@@ -458,48 +582,82 @@ void D3D11VideoInterop::DestroySharedTexture() {
 }
 
 void D3D11VideoInterop::DestroyNVInteropTexture() {
-    if (nv_interop_object_ && nv_interop_device_) {
-        // Texture must be unlocked from GL (D3D11-owned) before unregistering
-        if (!locked_for_d3d11_) {
-            // Currently GL-owned, unlock to D3D11
-            wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_);
+    // Clean up all triple-buffered interop objects
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        if (nv_interop_objects_[i] && nv_interop_device_) {
+            // Texture must be unlocked from GL (D3D11-owned) before unregistering
+            if (!buffer_locked_[i]) {
+                // Currently GL-owned, unlock to D3D11
+                wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_objects_[i]);
+            }
+            wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_objects_[i]);
+            nv_interop_objects_[i] = nullptr;
         }
-        wglDXUnregisterObjectNV_(nv_interop_device_, nv_interop_object_);
-        nv_interop_object_ = nullptr;
+
+        if (gl_textures_[i]) {
+            glDeleteTextures(1, &gl_textures_[i]);
+            gl_textures_[i] = 0;
+        }
+
+        shared_textures_[i].Reset();
+        rtvs_[i].Reset();
+        srvs_[i].Reset();
+        buffer_locked_[i] = false;
     }
 
-    if (gl_texture_) {
-        glDeleteTextures(1, &gl_texture_);
-        gl_texture_ = 0;
-    }
+    // Clear legacy pointers
+    gl_texture_ = 0;
+    shared_texture_.Reset();
+    rtv_.Reset();
+    srv_.Reset();
 }
 
 void D3D11VideoInterop::DestroyEXTMemoryTexture() {
-    if (gl_texture_) {
-        glDeleteTextures(1, &gl_texture_);
-        gl_texture_ = 0;
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        if (gl_textures_[i]) {
+            glDeleteTextures(1, &gl_textures_[i]);
+            gl_textures_[i] = 0;
+        }
+
+        if (ext_memory_objects_[i]) {
+            glDeleteMemoryObjectsEXT_(1, &ext_memory_objects_[i]);
+            ext_memory_objects_[i] = 0;
+        }
+
+        if (shared_handles_[i]) {
+            CloseHandle(shared_handles_[i]);
+            shared_handles_[i] = nullptr;
+        }
+
+        shared_textures_[i].Reset();
+        rtvs_[i].Reset();
+        srvs_[i].Reset();
     }
 
-    if (ext_memory_object_) {
-        glDeleteMemoryObjectsEXT_(1, &ext_memory_object_);
-        ext_memory_object_ = 0;
-    }
-
-    if (shared_handle_) {
-        CloseHandle(shared_handle_);
-        shared_handle_ = nullptr;
-    }
+    gl_texture_ = 0;
+    shared_texture_.Reset();
+    rtv_.Reset();
+    srv_.Reset();
 }
 
 void D3D11VideoInterop::DestroyFallbackTexture() {
-    if (gl_texture_) {
-        glDeleteTextures(1, &gl_texture_);
-        gl_texture_ = 0;
+    for (int i = 0; i < kInteropBufferCount; i++) {
+        if (gl_textures_[i]) {
+            glDeleteTextures(1, &gl_textures_[i]);
+            gl_textures_[i] = 0;
+        }
+        shared_textures_[i].Reset();
+        rtvs_[i].Reset();
+        srvs_[i].Reset();
     }
+    gl_texture_ = 0;
+    shared_texture_.Reset();
+    rtv_.Reset();
+    srv_.Reset();
 }
 
 bool D3D11VideoInterop::LockForD3D11() {
-    if (!initialized_ || !shared_texture_) {
+    if (!initialized_ || !shared_textures_[write_index_]) {
         return false;
     }
 
@@ -507,13 +665,22 @@ bool D3D11VideoInterop::LockForD3D11() {
         return true;  // Already locked for D3D11
     }
 
-    if (has_nv_interop_ && nv_interop_object_) {
-        // Unlock from GL to give D3D11 access
+    if (has_nv_interop_ && nv_interop_objects_[write_index_]) {
+        // Unlock write buffer from GL to give D3D11 access
         // NV_DX_interop: "lock" = GL owns, "unlock" = D3D11 owns
-        if (!wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_)) {
-            Debug::Log("D3D11VideoInterop: wglDXUnlockObjectsNV failed");
-            return false;
+        if (!buffer_locked_[write_index_]) {
+            if (!wglDXUnlockObjectsNV_(nv_interop_device_, 1, &nv_interop_objects_[write_index_])) {
+                Debug::Log("D3D11VideoInterop: wglDXUnlockObjectsNV failed for write buffer");
+                return false;
+            }
+            buffer_locked_[write_index_] = true;
         }
+
+        // Update legacy pointers to current write buffer
+        shared_texture_ = shared_textures_[write_index_];
+        rtv_ = rtvs_[write_index_];
+        srv_ = srvs_[write_index_];
+
         locked_for_d3d11_ = true;
         return true;
     }
@@ -521,17 +688,23 @@ bool D3D11VideoInterop::LockForD3D11() {
     if (has_ext_memory_) {
         // EXT_memory uses keyed mutex for synchronization
         // Acquire mutex for D3D11
+        shared_texture_ = shared_textures_[write_index_];
+        rtv_ = rtvs_[write_index_];
+        srv_ = srvs_[write_index_];
         locked_for_d3d11_ = true;
         return true;
     }
 
     // Fallback: no explicit locking needed
+    shared_texture_ = shared_textures_[write_index_];
+    rtv_ = rtvs_[write_index_];
+    srv_ = srvs_[write_index_];
     locked_for_d3d11_ = true;
     return true;
 }
 
 bool D3D11VideoInterop::UnlockForGL() {
-    if (!initialized_ || !shared_texture_) {
+    if (!initialized_ || !shared_textures_[write_index_]) {
         return false;
     }
 
@@ -539,33 +712,47 @@ bool D3D11VideoInterop::UnlockForGL() {
         return true;  // Already unlocked
     }
 
-    if (has_nv_interop_ && nv_interop_object_) {
-        // Lock the object for GL access
-        if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_object_)) {
-            Debug::Log("D3D11VideoInterop: wglDXLockObjectsNV failed");
-            return false;
+    if (has_nv_interop_ && nv_interop_objects_[write_index_]) {
+        // Lock the write buffer back for GL access (D3D11 rendering complete)
+        if (buffer_locked_[write_index_]) {
+            if (!wglDXLockObjectsNV_(nv_interop_device_, 1, &nv_interop_objects_[write_index_])) {
+                Debug::Log("D3D11VideoInterop: wglDXLockObjectsNV failed for write buffer");
+                return false;
+            }
+            buffer_locked_[write_index_] = false;
         }
+
+        // Return the buffer we just rendered to (for correct frame content)
+        gl_texture_ = gl_textures_[write_index_];
+
+        // Advance write index for next frame (so next render uses different buffer)
+        // This allows GL to keep reading current buffer while next frame renders
+        write_index_ = (write_index_ + 1) % kInteropBufferCount;
+
         locked_for_d3d11_ = false;
         return true;
     }
 
     if (has_ext_memory_) {
-        // Release mutex for GL
+        // Return the buffer we just rendered to
+        gl_texture_ = gl_textures_[write_index_];
+        // Advance write index for next frame
+        write_index_ = (write_index_ + 1) % kInteropBufferCount;
         locked_for_d3d11_ = false;
         return true;
     }
 
     // Fallback: copy from D3D11 to GL via CPU
-    if (staging_texture_ && gl_texture_) {
+    if (staging_texture_ && gl_textures_[write_index_]) {
         // Copy render target to staging
-        d3d_context_->CopyResource(staging_texture_.Get(), shared_texture_.Get());
+        d3d_context_->CopyResource(staging_texture_.Get(), shared_textures_[write_index_].Get());
 
         // Map staging texture
         D3D11_MAPPED_SUBRESOURCE mapped;
         HRESULT hr = d3d_context_->Map(staging_texture_.Get(), 0, D3D11_MAP_READ, 0, &mapped);
         if (SUCCEEDED(hr)) {
-            // Upload to GL texture
-            glBindTexture(GL_TEXTURE_2D, gl_texture_);
+            // Upload to GL texture (use write buffer - the one we just rendered to)
+            glBindTexture(GL_TEXTURE_2D, gl_textures_[write_index_]);
 
             GLenum gl_format = GL_RGBA;
             GLenum gl_type = GL_HALF_FLOAT;
@@ -584,19 +771,33 @@ bool D3D11VideoInterop::UnlockForGL() {
             glBindTexture(GL_TEXTURE_2D, 0);
             d3d_context_->Unmap(staging_texture_.Get(), 0);
         }
+
+        // Return the buffer we just rendered to
+        gl_texture_ = gl_textures_[write_index_];
+        // Advance write index for next frame
+        write_index_ = (write_index_ + 1) % kInteropBufferCount;
     }
 
     locked_for_d3d11_ = false;
     return true;
 }
 
+void D3D11VideoInterop::AdvanceBuffers() {
+    // Advance write index (circular buffer)
+    write_index_ = (write_index_ + 1) % kInteropBufferCount;
+
+    // Read index follows write by (kInteropBufferCount - 1) frames
+    // This ensures GL reads from the oldest completed buffer
+    read_index_ = (write_index_ + 1) % kInteropBufferCount;
+}
+
 const char* D3D11VideoInterop::GetInteropMethodName() const {
     if (has_nv_interop_) {
-        return "NV_DX_interop";
+        return "NV_DX_interop (triple-buffered)";
     } else if (has_ext_memory_) {
-        return "EXT_memory_object";
+        return "EXT_memory_object (triple-buffered)";
     } else {
-        return "CPU Fallback";
+        return "CPU Fallback (triple-buffered)";
     }
 }
 

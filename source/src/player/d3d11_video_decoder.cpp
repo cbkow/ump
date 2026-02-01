@@ -15,6 +15,113 @@
 namespace ump {
 
 //=============================================================================
+// YUVFormatDesc Implementation
+//=============================================================================
+
+YUVFormatDesc YUVFormatDesc::FromAVPixelFormat(AVPixelFormat fmt) {
+    YUVFormatDesc desc = {};
+    desc.plane_count = 0;  // Default to unsupported
+
+    switch (fmt) {
+        // 2-plane formats (NV12/P010)
+        case AV_PIX_FMT_NV12:
+            desc = {2, 2, 2, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8G8_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_UNKNOWN}, false, 8, false, false};
+            break;
+        case AV_PIX_FMT_P010:
+            desc = {2, 2, 2, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16G16_UNORM, DXGI_FORMAT_UNKNOWN, DXGI_FORMAT_UNKNOWN}, true, 10, false, false};
+            break;
+
+        // 3-plane 8-bit YUV
+        case AV_PIX_FMT_YUV420P:
+            desc = {3, 2, 2, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_UNKNOWN}, false, 8, false, false};
+            break;
+        case AV_PIX_FMT_YUV422P:
+            desc = {3, 2, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_UNKNOWN}, false, 8, false, false};
+            break;
+        case AV_PIX_FMT_YUV444P:
+            desc = {3, 1, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_UNKNOWN}, false, 8, false, false};
+            break;
+
+        // 3-plane 10-bit YUV
+        case AV_PIX_FMT_YUV420P10LE:
+            desc = {3, 2, 2, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 10, false, false};
+            break;
+        case AV_PIX_FMT_YUV422P10LE:
+            desc = {3, 2, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 10, false, false};
+            break;
+        case AV_PIX_FMT_YUV444P10LE:
+            desc = {3, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 10, false, false};
+            break;
+
+        // 3-plane 12-bit YUV (DNxHR HQX, ARRI, RED)
+        case AV_PIX_FMT_YUV420P12LE:
+            desc = {3, 2, 2, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 12, false, false};
+            break;
+        case AV_PIX_FMT_YUV422P12LE:
+            desc = {3, 2, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 12, false, false};
+            break;
+        case AV_PIX_FMT_YUV444P12LE:
+            desc = {3, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 12, false, false};
+            break;
+
+        // 4-plane YUVA 8-bit (with alpha)
+        case AV_PIX_FMT_YUVA420P:
+            desc = {4, 2, 2, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM}, false, 8, true, false};
+            break;
+        case AV_PIX_FMT_YUVA422P:
+            desc = {4, 2, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM}, false, 8, true, false};
+            break;
+        case AV_PIX_FMT_YUVA444P:
+            desc = {4, 1, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM}, false, 8, true, false};
+            break;
+
+        // 4-plane YUVA 10-bit (ProRes 4444)
+        case AV_PIX_FMT_YUVA420P10LE:
+            desc = {4, 2, 2, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 10, true, false};
+            break;
+        case AV_PIX_FMT_YUVA422P10LE:
+            desc = {4, 2, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 10, true, false};
+            break;
+        case AV_PIX_FMT_YUVA444P10LE:
+            desc = {4, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 10, true, false};
+            break;
+
+        // 4-plane YUVA 12-bit (ProRes 4444 XQ)
+        case AV_PIX_FMT_YUVA444P12LE:
+            desc = {4, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 12, true, false};
+            break;
+
+        // GBRP RGB planar (plane order: G, B, R)
+        case AV_PIX_FMT_GBRP:
+            desc = {3, 1, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_UNKNOWN}, false, 8, false, true};
+            break;
+        case AV_PIX_FMT_GBRP10LE:
+            desc = {3, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 10, false, true};
+            break;
+        case AV_PIX_FMT_GBRP12LE:
+            desc = {3, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_UNKNOWN}, true, 12, false, true};
+            break;
+
+        // GBRAP with alpha
+        case AV_PIX_FMT_GBRAP:
+            desc = {4, 1, 1, {DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM, DXGI_FORMAT_R8_UNORM}, false, 8, true, true};
+            break;
+        case AV_PIX_FMT_GBRAP10LE:
+            desc = {4, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 10, true, true};
+            break;
+        case AV_PIX_FMT_GBRAP12LE:
+            desc = {4, 1, 1, {DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM, DXGI_FORMAT_R16_UNORM}, true, 12, true, true};
+            break;
+
+        default:
+            // Unsupported - will need sws_scale fallback
+            desc.plane_count = 0;
+            break;
+    }
+    return desc;
+}
+
+//=============================================================================
 // Constructor / Destructor
 //=============================================================================
 
@@ -80,6 +187,13 @@ bool D3D11VideoDecoder::Initialize() {
         return false;
     }
 
+    // Enable multithread protection for D3D11 context
+    // Required for async decode thread to safely upload textures
+    Microsoft::WRL::ComPtr<ID3D10Multithread> multithread;
+    if (SUCCEEDED(device_->QueryInterface(IID_PPV_ARGS(&multithread)))) {
+        multithread->SetMultithreadProtected(TRUE);
+    }
+
     // Initialize FFmpeg components
     if (!InitializeFFmpeg()) {
         Debug::Log("D3D11VideoDecoder: Failed to initialize FFmpeg");
@@ -143,9 +257,24 @@ bool D3D11VideoDecoder::Initialize() {
     // Build keyframe index for inter-frame codecs
     BuildKeyframeIndex();
 
+    // Initialize delay queue for B-frame codecs
+    // This ensures we buffer frames before output even on first playback
+    frames_since_seek_ = 0;
+    if (codec_ctx_->has_b_frames > 0) {
+        delay_queue_filling_ = true;
+        Debug::Log("D3D11VideoDecoder: B-frame codec detected (has_b_frames=" +
+                   std::to_string(codec_ctx_->has_b_frames) +
+                   "), delay queue enabled");
+    } else {
+        delay_queue_filling_ = false;
+    }
+
     // Start decode thread
     decode_running_ = true;
     decode_thread_ = std::thread(&D3D11VideoDecoder::DecodeThreadFunc, this);
+
+    // Set higher priority for decode thread to reduce jitter
+    SetThreadPriority(decode_thread_.native_handle(), THREAD_PRIORITY_ABOVE_NORMAL);
 
     initialized_ = true;
 
@@ -154,7 +283,8 @@ bool D3D11VideoDecoder::Initialize() {
                " @ " + std::to_string(fps_) + " fps" +
                " [" + (decode_mode_ == DecodeMode::HARDWARE ? "D3D11VA HW" : "Software") + "]" +
                (is_hdr_ ? " [HDR]" : " [SDR]") +
-               (is_10bit_ ? " [10-bit]" : " [8-bit]"));
+               (is_10bit_ ? " [10-bit]" : " [8-bit]") +
+               (codec_ctx_->has_b_frames > 0 ? " [B-frames]" : ""));
 
     return true;
 }
@@ -256,6 +386,10 @@ bool D3D11VideoDecoder::InitializeFFmpeg() {
               (codec_ctx_->color_trc == AVCOL_TRC_SMPTE2084 ||
                codec_ctx_->color_trc == AVCOL_TRC_ARIB_STD_B67);
 
+    // Detect BT.2020 primaries SEPARATELY from HDR transfer
+    // This allows BT.2020 SDR content to use correct color matrix
+    is_bt2020_ = (codec_ctx_->color_primaries == AVCOL_PRI_BT2020);
+
     // Check for 10-bit
     const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(codec_ctx_->pix_fmt);
     is_10bit_ = desc && desc->comp[0].depth > 8;
@@ -274,7 +408,10 @@ bool D3D11VideoDecoder::InitializeFFmpeg() {
     Debug::Log("D3D11VideoDecoder: FFmpeg initialized - " +
                std::to_string(width_) + "x" + std::to_string(height_) +
                " @ " + std::to_string(fps_) + " fps, " +
-               std::to_string(frame_count_) + " frames");
+               std::to_string(frame_count_) + " frames" +
+               " pix_fmt=" + std::to_string(codec_ctx_->pix_fmt) +
+               " color_range=" + std::to_string(codec_ctx_->color_range) +
+               " full_range=" + std::to_string(is_full_range_));
 
     return true;
 }
@@ -327,9 +464,13 @@ bool D3D11VideoDecoder::ConfigureHardwareContext() {
 //=============================================================================
 
 bool D3D11VideoDecoder::ConfigureSoftwareContext() {
-    // For software decode, we just configure threading
-    codec_ctx_->thread_count = config_.decodeThreads > 0 ? config_.decodeThreads : 4;
+    // Let FFmpeg auto-detect optimal thread count (0 = auto)
+    // FFmpeg will choose based on codec, resolution, and CPU cores
+    codec_ctx_->thread_count = 0;
     codec_ctx_->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+
+    Debug::Log("D3D11VideoDecoder: Using auto thread_count (av_cpu_count=" +
+               std::to_string(av_cpu_count()) + ")");
     return true;
 }
 
@@ -424,6 +565,7 @@ void D3D11VideoDecoder::Shutdown() {
     if (decode_running_) {
         decode_running_ = false;
         decode_cv_.notify_all();
+        frame_ready_cv_.notify_all();
         if (decode_thread_.joinable()) {
             decode_thread_.join();
         }
@@ -581,23 +723,26 @@ void D3D11VideoDecoder::ClearFrameBuffer() {
     }
     buffer_head_ = 0;
     buffer_count_ = 0;
+    frame_map_.clear();
 }
 
 bool D3D11VideoDecoder::BufferContainsFrame(int frame_number) const {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    for (int i = 0; i < buffer_count_; i++) {
-        int idx = (buffer_head_ + i) % kFrameBufferSize;
-        if (frame_buffer_[idx].valid && frame_buffer_[idx].frame_number == frame_number) {
-            return true;
-        }
+    auto it = frame_map_.find(frame_number);
+    if (it != frame_map_.end()) {
+        // Verify the slot is still valid (map might be stale)
+        int idx = it->second;
+        return frame_buffer_[idx].valid && frame_buffer_[idx].frame_number == frame_number;
     }
     return false;
 }
 
 D3D11VideoDecoder::BufferedFrame* D3D11VideoDecoder::GetBufferedFrame(int frame_number) {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    for (int i = 0; i < buffer_count_; i++) {
-        int idx = (buffer_head_ + i) % kFrameBufferSize;
+    auto it = frame_map_.find(frame_number);
+    if (it != frame_map_.end()) {
+        int idx = it->second;
+        // Verify the slot is still valid and contains the expected frame
         if (frame_buffer_[idx].valid && frame_buffer_[idx].frame_number == frame_number) {
             return &frame_buffer_[idx];
         }
@@ -780,6 +925,316 @@ bool D3D11VideoDecoder::UploadSoftwareFrame(AVFrame* frame) {
 }
 
 //=============================================================================
+// UploadSoftwareFrameToSlot - Direct plane upload (NO sws_scale)
+//=============================================================================
+
+bool D3D11VideoDecoder::UploadSoftwareFrameToSlot(AVFrame* frame, BufferedFrame& slot) {
+    if (!frame || !frame->data[0]) return false;
+
+    AVPixelFormat pix_fmt = static_cast<AVPixelFormat>(frame->format);
+    YUVFormatDesc fmt_desc = YUVFormatDesc::FromAVPixelFormat(pix_fmt);
+
+    // Unsupported format - fall back to sws_scale (rare)
+    if (fmt_desc.plane_count == 0) {
+        Debug::Log("D3D11VideoDecoder: Unsupported pixel format " + std::to_string(pix_fmt) + ", using legacy upload");
+        return UploadSoftwareFrameToSlotLegacy(frame, slot);
+    }
+
+    slot.plane_count = fmt_desc.plane_count;
+    slot.chroma_w = fmt_desc.chroma_w;
+    slot.chroma_h = fmt_desc.chroma_h;
+    slot.bit_depth = fmt_desc.bit_depth;
+    slot.is_nv12_layout = (fmt_desc.plane_count == 2);
+    slot.has_alpha = fmt_desc.has_alpha;
+    slot.is_rgb_planar = fmt_desc.is_rgb_planar;
+
+    // Upload each plane using async staging textures (Map/Unmap + CopyResource)
+    for (int p = 0; p < fmt_desc.plane_count; p++) {
+        int plane_w, plane_h;
+
+        if (p == 0) {
+            // Y plane (or G plane for GBRP) - always full resolution
+            plane_w = frame->width;
+            plane_h = frame->height;
+        } else if (fmt_desc.has_alpha && p == fmt_desc.plane_count - 1) {
+            // Alpha plane - always same size as Y/luma plane
+            plane_w = frame->width;
+            plane_h = frame->height;
+        } else if (fmt_desc.plane_count == 2 && p == 1) {
+            // NV12 layout: UV plane is half height but contains both U and V
+            plane_w = frame->width;  // Full width for interleaved UV
+            plane_h = frame->height / 2;
+        } else {
+            // Chroma planes (U, V or B, R for GBRP)
+            plane_w = frame->width / fmt_desc.chroma_w;
+            plane_h = frame->height / fmt_desc.chroma_h;
+        }
+
+        slot.plane_widths[p] = plane_w;
+        slot.plane_heights[p] = plane_h;
+
+        // Create/resize GPU texture if needed (render target)
+        bool need_create_gpu = !slot.plane_textures[p];
+        if (slot.plane_textures[p]) {
+            D3D11_TEXTURE2D_DESC desc;
+            slot.plane_textures[p]->GetDesc(&desc);
+            if (desc.Width != (UINT)plane_w || desc.Height != (UINT)plane_h ||
+                desc.Format != fmt_desc.plane_formats[p]) {
+                need_create_gpu = true;
+            }
+        }
+
+        if (need_create_gpu) {
+            slot.plane_textures[p].Reset();
+            slot.plane_srvs[p].Reset();
+
+            D3D11_TEXTURE2D_DESC desc = {};
+            desc.Width = plane_w;
+            desc.Height = plane_h;
+            desc.MipLevels = 1;
+            desc.ArraySize = 1;
+            desc.Format = fmt_desc.plane_formats[p];
+            desc.SampleDesc.Count = 1;
+            desc.Usage = D3D11_USAGE_DEFAULT;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+            HRESULT hr = device_->CreateTexture2D(&desc, nullptr, &slot.plane_textures[p]);
+            if (FAILED(hr)) {
+                Debug::Log("D3D11VideoDecoder: Failed to create plane " + std::to_string(p) + " texture");
+                return false;
+            }
+
+            hr = device_->CreateShaderResourceView(slot.plane_textures[p].Get(),
+                                                    nullptr, &slot.plane_srvs[p]);
+            if (FAILED(hr)) {
+                Debug::Log("D3D11VideoDecoder: Failed to create plane " + std::to_string(p) + " SRV");
+                return false;
+            }
+        }
+
+        // Create/resize staging texture if needed (CPU-writable)
+        bool need_create_staging = !slot.staging_textures[p];
+        if (slot.staging_textures[p]) {
+            D3D11_TEXTURE2D_DESC desc;
+            slot.staging_textures[p]->GetDesc(&desc);
+            if (desc.Width != (UINT)plane_w || desc.Height != (UINT)plane_h ||
+                desc.Format != fmt_desc.plane_formats[p]) {
+                need_create_staging = true;
+            }
+        }
+
+        if (need_create_staging) {
+            slot.staging_textures[p].Reset();
+
+            D3D11_TEXTURE2D_DESC staging_desc = {};
+            staging_desc.Width = plane_w;
+            staging_desc.Height = plane_h;
+            staging_desc.MipLevels = 1;
+            staging_desc.ArraySize = 1;
+            staging_desc.Format = fmt_desc.plane_formats[p];
+            staging_desc.SampleDesc.Count = 1;
+            staging_desc.Usage = D3D11_USAGE_STAGING;
+            staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+            HRESULT hr = device_->CreateTexture2D(&staging_desc, nullptr, &slot.staging_textures[p]);
+            if (FAILED(hr)) {
+                Debug::Log("D3D11VideoDecoder: Failed to create plane " + std::to_string(p) + " staging texture");
+                return false;
+            }
+        }
+
+        // Async upload: Map staging → memcpy → Unmap → CopyResource (non-blocking)
+        D3D11_MAPPED_SUBRESOURCE mapped;
+        HRESULT hr = context_->Map(slot.staging_textures[p].Get(), 0, D3D11_MAP_WRITE, 0, &mapped);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoDecoder: Failed to map staging texture for plane " + std::to_string(p));
+            return false;
+        }
+
+        // Copy frame data to staging texture
+        int bytes_per_pixel = fmt_desc.is_10bit ? 2 : 1;
+        // For R8G8/R16G16 formats (UV plane in NV12), multiply by 2
+        if (p == 1 && fmt_desc.plane_count == 2) {
+            bytes_per_pixel *= 2;
+        }
+        int src_pitch = frame->linesize[p];
+        int dst_pitch = mapped.RowPitch;
+        int copy_width = plane_w * bytes_per_pixel;
+
+        const uint8_t* src = frame->data[p];
+        uint8_t* dst = static_cast<uint8_t*>(mapped.pData);
+
+        // Row-by-row copy (handles pitch mismatch)
+        for (int y = 0; y < plane_h; y++) {
+            memcpy(dst + y * dst_pitch, src + y * src_pitch, copy_width);
+        }
+
+        context_->Unmap(slot.staging_textures[p].Get(), 0);
+
+        // Queue async copy from staging to GPU texture (non-blocking)
+        context_->CopyResource(slot.plane_textures[p].Get(), slot.staging_textures[p].Get());
+    }
+
+    // Update surface format for renderer (used by legacy code paths)
+    surface_format_ = fmt_desc.is_10bit ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
+
+    // Log first successful async upload
+    static bool first_async_upload = true;
+    if (first_async_upload) {
+        Debug::Log("D3D11VideoDecoder: Async plane upload - " +
+                   std::to_string(frame->width) + "x" + std::to_string(frame->height) +
+                   " pix_fmt=" + std::to_string(pix_fmt) +
+                   " planes=" + std::to_string(fmt_desc.plane_count) +
+                   " chroma=" + std::to_string(4) + ":" +
+                   std::to_string(4 / fmt_desc.chroma_w) + ":" +
+                   std::to_string(4 / fmt_desc.chroma_w / fmt_desc.chroma_h) +
+                   " bit_depth=" + std::to_string(fmt_desc.bit_depth) +
+                   " alpha=" + std::to_string(fmt_desc.has_alpha) +
+                   " rgb_planar=" + std::to_string(fmt_desc.is_rgb_planar));
+        first_async_upload = false;
+    }
+
+    return true;
+}
+
+//=============================================================================
+// UploadSoftwareFrameToSlotLegacy - Fallback with sws_scale conversion
+//=============================================================================
+
+bool D3D11VideoDecoder::UploadSoftwareFrameToSlotLegacy(AVFrame* frame, BufferedFrame& slot) {
+    if (!frame || !frame->data[0]) {
+        return false;
+    }
+
+    AVPixelFormat pix_fmt = static_cast<AVPixelFormat>(frame->format);
+    int frame_width = frame->width;
+    int frame_height = frame->height;
+
+    bool is_10bit_frame = (pix_fmt == AV_PIX_FMT_YUV420P10 ||
+                           pix_fmt == AV_PIX_FMT_YUV422P10 ||
+                           pix_fmt == AV_PIX_FMT_YUV444P10 ||
+                           pix_fmt == AV_PIX_FMT_P010);
+
+    AVPixelFormat target_fmt = is_10bit_frame ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
+    bool needs_conversion = (pix_fmt != AV_PIX_FMT_NV12 && pix_fmt != AV_PIX_FMT_P010);
+
+    AVFrame* upload_frame = frame;
+    AVFrame* converted_frame = nullptr;
+
+    if (needs_conversion) {
+        sws_ctx_ = sws_getCachedContext(
+            sws_ctx_,
+            frame_width, frame_height, pix_fmt,
+            frame_width, frame_height, target_fmt,
+            SWS_BILINEAR, nullptr, nullptr, nullptr
+        );
+
+        if (!sws_ctx_) {
+            return false;
+        }
+
+        converted_frame = av_frame_alloc();
+        converted_frame->format = target_fmt;
+        converted_frame->width = frame_width;
+        converted_frame->height = frame_height;
+        av_frame_get_buffer(converted_frame, 32);
+
+        sws_scale(sws_ctx_, frame->data, frame->linesize, 0, frame_height,
+                  converted_frame->data, converted_frame->linesize);
+
+        upload_frame = converted_frame;
+    }
+
+    // Set up slot for legacy 2-plane NV12/P010 format
+    // NOTE: plane_count = 0 signals to use sw_srv_y/sw_srv_uv in render path
+    // (plane_srvs[] are not populated by legacy upload)
+    slot.plane_count = 0;
+    slot.chroma_w = 2;
+    slot.chroma_h = 2;
+    slot.is_nv12_layout = true;
+
+    // Check if slot's textures need to be created/recreated
+    bool need_create = !slot.sw_texture_y;
+    if (slot.sw_texture_y) {
+        D3D11_TEXTURE2D_DESC desc;
+        slot.sw_texture_y->GetDesc(&desc);
+        if (desc.Width != (UINT)frame_width || desc.Height != (UINT)frame_height) {
+            need_create = true;
+        }
+    }
+
+    if (need_create) {
+        slot.sw_texture_y.Reset();
+        slot.sw_texture_uv.Reset();
+        slot.sw_srv_y.Reset();
+        slot.sw_srv_uv.Reset();
+
+        DXGI_FORMAT y_format = is_10bit_frame ? DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UNORM;
+        DXGI_FORMAT uv_format = is_10bit_frame ? DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R8G8_UNORM;
+
+        D3D11_TEXTURE2D_DESC y_desc = {};
+        y_desc.Width = frame_width;
+        y_desc.Height = frame_height;
+        y_desc.MipLevels = 1;
+        y_desc.ArraySize = 1;
+        y_desc.Format = y_format;
+        y_desc.SampleDesc.Count = 1;
+        y_desc.Usage = D3D11_USAGE_DEFAULT;
+        y_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+        HRESULT hr = device_->CreateTexture2D(&y_desc, nullptr, &slot.sw_texture_y);
+        if (FAILED(hr)) {
+            if (converted_frame) av_frame_free(&converted_frame);
+            return false;
+        }
+
+        D3D11_TEXTURE2D_DESC uv_desc = y_desc;
+        uv_desc.Width = frame_width / 2;
+        uv_desc.Height = frame_height / 2;
+        uv_desc.Format = uv_format;
+
+        hr = device_->CreateTexture2D(&uv_desc, nullptr, &slot.sw_texture_uv);
+        if (FAILED(hr)) {
+            if (converted_frame) av_frame_free(&converted_frame);
+            return false;
+        }
+
+        hr = device_->CreateShaderResourceView(slot.sw_texture_y.Get(), nullptr, &slot.sw_srv_y);
+        if (FAILED(hr)) {
+            if (converted_frame) av_frame_free(&converted_frame);
+            return false;
+        }
+
+        hr = device_->CreateShaderResourceView(slot.sw_texture_uv.Get(), nullptr, &slot.sw_srv_uv);
+        if (FAILED(hr)) {
+            if (converted_frame) av_frame_free(&converted_frame);
+            return false;
+        }
+
+        // Update surface format for renderer
+        surface_format_ = is_10bit_frame ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
+    }
+
+    // Upload Y plane to this slot's texture
+    D3D11_BOX y_box = {0, 0, 0, (UINT)frame_width, (UINT)frame_height, 1};
+    context_->UpdateSubresource(slot.sw_texture_y.Get(), 0, &y_box,
+                                upload_frame->data[0],
+                                upload_frame->linesize[0], 0);
+
+    // Upload UV plane
+    D3D11_BOX uv_box = {0, 0, 0, (UINT)(frame_width / 2), (UINT)(frame_height / 2), 1};
+    context_->UpdateSubresource(slot.sw_texture_uv.Get(), 0, &uv_box,
+                                upload_frame->data[1],
+                                upload_frame->linesize[1], 0);
+
+    if (converted_frame) {
+        av_frame_free(&converted_frame);
+    }
+
+    return true;
+}
+
+//=============================================================================
 // CreatePlaneSRVs (for HW decode textures)
 //=============================================================================
 
@@ -880,49 +1335,89 @@ bool D3D11VideoDecoder::EnsureInteropTexture() {
 bool D3D11VideoDecoder::DecodeNextFrame() {
     av_frame_unref(current_frame_);
 
-    while (true) {
+    int receive_attempts = 0;
+    int read_attempts = 0;
+    const int max_receive_attempts = 100;  // Prevent infinite loop
+
+    while (receive_attempts < max_receive_attempts) {
+        receive_attempts++;
         int ret = avcodec_receive_frame(codec_ctx_, current_frame_);
 
         if (ret == 0) {
-            break;
+            // Got a frame - success
+            // Use best_effort_timestamp for correct display order (handles B-frame reordering)
+            // Fall back to pts if best_effort_timestamp is not available
+            int64_t timestamp = current_frame_->best_effort_timestamp;
+            int64_t raw_pts = current_frame_->pts;
+            if (timestamp == AV_NOPTS_VALUE) {
+                timestamp = raw_pts;
+            }
+            double pts_seconds = (timestamp != AV_NOPTS_VALUE) ?
+                                 timestamp * av_q2d(time_base_) : 0.0;
+            int old_frame = current_frame_number_;
+            current_frame_number_ = static_cast<int>(pts_seconds * fps_ + 0.5);
+
+            // Debug: log frame order to diagnose B-frame issues
+            static int debug_count = 0;
+            if (debug_count++ < 30 || debug_count % 100 == 0) {
+                Debug::Log("D3D11VideoDecoder: Decoded frame " + std::to_string(current_frame_number_) +
+                           " (pts=" + std::to_string(raw_pts) +
+                           ", best=" + std::to_string(timestamp) +
+                           ", prev=" + std::to_string(old_frame) +
+                           ", pict_type=" + std::string(1, av_get_picture_type_char((AVPictureType)current_frame_->pict_type)) + ")");
+            }
+            return true;
         }
 
         if (ret == AVERROR_EOF) {
+            // Normal end of stream
             return false;
         }
 
         if (ret != AVERROR(EAGAIN)) {
+            // Decode error
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("D3D11VideoDecoder: Decode error: " + std::string(errbuf));
             return false;
         }
 
+        // Need more input - read next packet
+        read_attempts++;
         ret = av_read_frame(format_ctx_, packet_);
         if (ret < 0) {
             if (ret == AVERROR_EOF) {
+                // Send NULL packet to flush decoder
                 avcodec_send_packet(codec_ctx_, nullptr);
-                continue;
+                continue;  // Try to receive flushed frames
             }
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("D3D11VideoDecoder: Read error: " + std::string(errbuf));
             return false;
         }
 
+        // Skip non-video packets
         if (packet_->stream_index != video_stream_index_) {
             av_packet_unref(packet_);
             continue;
         }
 
+        // Send packet to decoder
         ret = avcodec_send_packet(codec_ctx_, packet_);
         av_packet_unref(packet_);
 
         if (ret < 0 && ret != AVERROR(EAGAIN)) {
-            continue;
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("D3D11VideoDecoder: Send packet error: " + std::string(errbuf));
+            // Don't fail - try to continue receiving frames that may already be decoded
         }
     }
 
-    // Calculate frame number from PTS
-    double pts_seconds = (current_frame_->pts != AV_NOPTS_VALUE) ?
-                         current_frame_->pts * av_q2d(time_base_) : 0.0;
-    current_frame_number_ = static_cast<int>(pts_seconds * fps_ + 0.5);
-
-    return true;
+    Debug::Log("D3D11VideoDecoder: Exceeded max receive attempts (" +
+               std::to_string(max_receive_attempts) + ")");
+    return false;
 }
 
 //=============================================================================
@@ -939,6 +1434,15 @@ bool D3D11VideoDecoder::SeekToKeyframe(int64_t target_pts) {
     }
 
     avcodec_flush_buffers(codec_ctx_);
+
+    // Reset delay queue state for B-frame reordering
+    // After a seek, we need to buffer several frames before output to allow
+    // libavcodec to properly reorder B-frames
+    frames_since_seek_ = 0;
+    if (codec_ctx_->has_b_frames > 0) {
+        delay_queue_filling_ = true;
+    }
+
     return true;
 }
 
@@ -952,122 +1456,97 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
     }
 
     // Clamp frame number
-    if (frame_number < 0) frame_number = 0;
-    if (frame_count_ > 0 && frame_number >= frame_count_) {
-        frame_number = frame_count_ - 1;
-    }
+    frame_number = std::clamp(frame_number, 0,
+                              frame_count_ > 0 ? frame_count_ - 1 : 0);
 
     // Return cached texture if same frame
     if (frame_number == last_rendered_frame_ && interop_ && interop_->GetGLTexture() != 0) {
         return interop_->GetGLTexture();
     }
 
+    // Update decode target and playhead for background thread
+    current_playhead_ = frame_number;
+    decode_target_ = frame_number;
+    decode_cv_.notify_one();
+
     // Check if frame is in buffer
     BufferedFrame* buffered = GetBufferedFrame(frame_number);
 
     if (!buffered) {
-        // Frame not in buffer - need to decode
-        bool need_seek = false;
-        if (current_frame_number_ < 0) {
-            need_seek = true;
-        } else if (frame_number < current_frame_number_) {
-            need_seek = true;
-        } else if (frame_number > current_frame_number_ + 30) {
-            need_seek = true;
+        // Check if seek is needed
+        int head = decode_head_.load();
+
+        // Very lenient seek threshold - only seek when REALLY far from target
+        // For forward playback, let decoder catch up naturally (sequential decode is faster than seek)
+        // Seek threshold: ~2.5 seconds at 24fps = 60 frames
+        constexpr int kSeekThresholdFrames = 60;
+
+        // Need seek only if:
+        // 1. Backward seek (target is behind decode head)
+        // 2. Target is WAY ahead (more than 2.5 seconds beyond current decode position)
+        // 3. Head is uninitialized (first decode)
+        bool need_backward_seek = (head >= 0) && (frame_number < head - kFrameBufferSize);
+        bool need_forward_seek = (head >= 0) && (frame_number > head + kSeekThresholdFrames);
+        bool need_initial_seek = (head < 0);
+
+        bool need_seek = need_backward_seek || need_forward_seek || need_initial_seek;
+
+        if (need_seek && !decode_seeking_.load() && !seek_pending_.load()) {
+            Debug::Log("D3D11VideoDecoder: Seek triggered - head=" + std::to_string(head) +
+                       ", target=" + std::to_string(frame_number) +
+                       ", reason=" + (need_backward_seek ? "backward" : (need_forward_seek ? "forward_far" : "initial")));
+            last_seek_target_ = frame_number;
+            seek_pending_ = true;
+            eof_reached_ = false;  // Reset EOF when seeking
+            decode_cv_.notify_one();
         }
 
-        if (need_seek) {
-            double target_time = frame_number / fps_;
-            int64_t target_pts = (int64_t)(target_time / av_q2d(time_base_));
+        // Wait for frame with adaptive timeout
+        // B-frame codecs need longer for reordering after seek
+        int timeout_ms = (codec_ctx_ && codec_ctx_->has_b_frames > 0) ? 150 : 32;
 
-            ClearFrameBuffer();
-            current_frame_number_ = -1;
-            avcodec_flush_buffers(codec_ctx_);
-
-            int ret = av_seek_frame(format_ctx_, video_stream_index_, target_pts, AVSEEK_FLAG_BACKWARD);
-            if (ret < 0) {
-                ret = av_seek_frame(format_ctx_, video_stream_index_, 0, AVSEEK_FLAG_BACKWARD);
-                if (ret < 0) {
-                    return 0;
-                }
-            }
-            avcodec_flush_buffers(codec_ctx_);
+        {
+            std::unique_lock<std::mutex> lock(frame_ready_mutex_);
+            frame_ready_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] {
+                // Wait for delay queue to fill (B-frame reordering) AND for requested frame
+                bool queue_ready = !delay_queue_filling_.load();
+                bool frame_ready = GetBufferedFrame(frame_number) != nullptr;
+                return (queue_ready && frame_ready) || !decode_running_;
+            });
         }
 
-        // Decode frames until we reach target
-        int max_decode_attempts = 120;
-        int decode_count = 0;
-
-        while (!BufferContainsFrame(frame_number)) {
-            if (!DecodeNextFrame()) {
-                break;
-            }
-
-            // Add to buffer
-            {
-                std::lock_guard<std::mutex> lock(buffer_mutex_);
-                int insert_idx;
-                if (buffer_count_ < kFrameBufferSize) {
-                    insert_idx = (buffer_head_ + buffer_count_) % kFrameBufferSize;
-                    buffer_count_++;
-                } else {
-                    insert_idx = buffer_head_;
-                    buffer_head_ = (buffer_head_ + 1) % kFrameBufferSize;
-                }
-
-                BufferedFrame& bf = frame_buffer_[insert_idx];
-                bf.frame_number = current_frame_number_;
-
-                if (decode_mode_ == DecodeMode::HARDWARE && current_frame_->format == AV_PIX_FMT_D3D11) {
-                    bf.texture = (ID3D11Texture2D*)current_frame_->data[0];
-                    bf.texture_array_index = (int)(intptr_t)current_frame_->data[1];
-                    bf.is_hw_frame = true;
-                } else {
-                    // Software decode - upload to staging texture
-                    if (UploadSoftwareFrame(current_frame_)) {
-                        bf.texture = staging_y_;  // Store reference (not ideal but works for now)
-                        bf.texture_array_index = 0;
-                        bf.is_hw_frame = false;
-                    }
-                }
-
-                bf.pts = current_frame_->pts != AV_NOPTS_VALUE ?
-                         current_frame_->pts * av_q2d(time_base_) : 0.0;
-                bf.valid = true;
-            }
-
-            decode_count++;
-
-            if (current_frame_number_ > frame_number) {
-                break;
-            }
-
-            if (decode_count >= max_decode_attempts) {
-                break;
-            }
+        // Don't return frames while delay queue is still filling
+        // This prevents showing mis-ordered frames after a seek
+        if (delay_queue_filling_.load()) {
+            // Return last rendered frame or black while waiting for B-frame reordering
+            return (last_rendered_frame_ >= 0) ? interop_->GetGLTexture() : 0;
         }
 
         buffered = GetBufferedFrame(frame_number);
 
-        // If no exact match, find closest
-        if (!buffered && buffer_count_ > 0) {
-            std::lock_guard<std::mutex> lock(buffer_mutex_);
-            int closest_diff = INT_MAX;
-            for (int i = 0; i < buffer_count_; i++) {
-                int idx = (buffer_head_ + i) % kFrameBufferSize;
-                if (frame_buffer_[idx].valid) {
-                    int diff = std::abs(frame_buffer_[idx].frame_number - frame_number);
-                    if (diff < closest_diff) {
-                        closest_diff = diff;
-                        buffered = &frame_buffer_[idx];
-                    }
+        // For B-frame codecs: only fall back to closest if it's AHEAD of target
+        // Showing an earlier frame causes flickering due to B-frame display order
+        if (!buffered) {
+            BufferedFrame* closest = GetClosestBufferedFrame(frame_number);
+            if (closest) {
+                // Only use closest if it's at or ahead of target (forward progress)
+                // For B-frame codecs, showing earlier frames causes visible reordering artifacts
+                bool is_bframe_codec = codec_ctx_ && codec_ctx_->has_b_frames > 0;
+                if (!is_bframe_codec || closest->frame_number >= frame_number) {
+                    buffered = closest;
+                    Debug::Log("D3D11VideoDecoder: Fell back to closest frame " +
+                               std::to_string(closest->frame_number) + " for requested " +
+                               std::to_string(frame_number));
                 }
+                // For B-frame codecs with only earlier frames: return last rendered
+                // This prevents showing out-of-order frames
             }
         }
+    }
 
-        if (!buffered) {
-            return 0;
-        }
+    // If still no frame, return last rendered or 0
+    if (!buffered) {
+        return (last_rendered_frame_ >= 0) ? interop_->GetGLTexture() : 0;
     }
 
     // Ensure interop texture exists
@@ -1080,39 +1559,119 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
         return 0;
     }
 
-    // Set up SRVs based on frame type
-    ID3D11ShaderResourceView* y_srv = nullptr;
-    ID3D11ShaderResourceView* uv_srv = nullptr;
-
-    if (buffered->is_hw_frame) {
-        // HW frame - create SRVs from texture array
-        srv_y_.Reset();
-        srv_uv_.Reset();
-
-        if (!CreatePlaneSRVs(buffered->texture.Get(), buffered->texture_array_index,
-                             srv_y_.GetAddressOf(), srv_uv_.GetAddressOf())) {
-            interop_->UnlockForGL();
-            return 0;
-        }
-        y_srv = srv_y_.Get();
-        uv_srv = srv_uv_.Get();
-    } else {
-        // SW frame - use staging SRVs
-        y_srv = staging_srv_y_.Get();
-        uv_srv = staging_srv_uv_.Get();
-    }
-
     // Render YUV to RGB
     YUVRenderParams params;
     params.width = width_;
     params.height = height_;
-    params.bit_depth = is_10bit_ ? 10 : 8;
+    // Use actual bit depth from frame (important for 12-bit content)
+    params.bit_depth = buffered->bit_depth > 0 ? buffered->bit_depth : (is_10bit_ ? 10 : 8);
     params.is_hdr = is_hdr_;
     params.is_full_range = GetEffectiveFullRange();  // Use override if set
     params.use_texture_array = buffered->is_hw_frame;
-    params.color_space = is_hdr_ ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
+    params.color_space = is_bt2020_ ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
 
-    bool render_ok = yuv_renderer_->Render(y_srv, uv_srv, interop_->GetRTV(), params);
+    bool render_ok = false;
+
+    if (buffered->is_hw_frame) {
+        // HW frame - use pre-created SRVs from our copied texture
+        params.plane_count = 2;  // HW decode is always NV12/P010
+        params.use_texture_array = false;  // We copied to a non-array texture
+
+        if (buffered->hw_copied && buffered->hw_srv_y && buffered->hw_srv_uv) {
+            // Use our copied texture's SRVs
+            render_ok = yuv_renderer_->Render(buffered->hw_srv_y.Get(), buffered->hw_srv_uv.Get(),
+                                              interop_->GetRTV(), params);
+        } else {
+            // Fallback to original texture array (shouldn't happen with new code)
+            srv_y_.Reset();
+            srv_uv_.Reset();
+            if (!CreatePlaneSRVs(buffered->hw_texture.Get(), buffered->texture_array_index,
+                                 srv_y_.GetAddressOf(), srv_uv_.GetAddressOf())) {
+                interop_->UnlockForGL();
+                return 0;
+            }
+            params.use_texture_array = true;
+            render_ok = yuv_renderer_->Render(srv_y_.Get(), srv_uv_.Get(), interop_->GetRTV(), params);
+        }
+    } else if (buffered->plane_count == 4) {
+        // SW frame with 4-plane upload (YUVA or GBRAP)
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1] ||
+            !buffered->plane_srvs[2] || !buffered->plane_srvs[3]) {
+            Debug::Log("D3D11VideoDecoder: Missing plane SRVs for 4-plane frame");
+            interop_->UnlockForGL();
+            return 0;
+        }
+        params.plane_count = 4;
+        params.has_alpha = buffered->has_alpha;
+        params.is_rgb_planar = buffered->is_rgb_planar;
+
+        // Log first 4-plane render from decoder side
+        static bool first_4plane_log = true;
+        if (first_4plane_log) {
+            Debug::Log("D3D11VideoDecoder: 4-plane render - has_alpha=" +
+                       std::to_string(params.has_alpha) +
+                       " is_rgb_planar=" + std::to_string(params.is_rgb_planar) +
+                       " bit_depth=" + std::to_string(params.bit_depth) +
+                       " (frame=" + std::to_string(buffered->bit_depth) + ")" +
+                       " is_full_range=" + std::to_string(params.is_full_range));
+            first_4plane_log = false;
+        }
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            buffered->plane_srvs[2].Get(),
+            buffered->plane_srvs[3].Get(),
+            interop_->GetRTV(), params);
+    } else if (buffered->plane_count == 3) {
+        // SW frame with direct 3-plane upload (YUV420P, YUV422P, YUV444P, GBRP)
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1] || !buffered->plane_srvs[2]) {
+            Debug::Log("D3D11VideoDecoder: Missing plane SRVs for 3-plane frame");
+            interop_->UnlockForGL();
+            return 0;
+        }
+        params.plane_count = 3;
+        params.is_rgb_planar = buffered->is_rgb_planar;
+
+        // Log first 3-plane render from decoder side
+        static bool first_3plane_log = true;
+        if (first_3plane_log) {
+            Debug::Log("D3D11VideoDecoder: 3-plane render - is_rgb_planar=" +
+                       std::to_string(params.is_rgb_planar) +
+                       " bit_depth=" + std::to_string(params.bit_depth) +
+                       " (frame=" + std::to_string(buffered->bit_depth) + ")" +
+                       " is_full_range=" + std::to_string(params.is_full_range));
+            first_3plane_log = false;
+        }
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            buffered->plane_srvs[2].Get(),
+            interop_->GetRTV(), params);
+    } else if (buffered->plane_count == 2) {
+        // SW frame with direct 2-plane upload (NV12/P010)
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1]) {
+            Debug::Log("D3D11VideoDecoder: Missing plane SRVs for 2-plane frame");
+            interop_->UnlockForGL();
+            return 0;
+        }
+        params.plane_count = 2;
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            interop_->GetRTV(), params);
+    } else {
+        // Legacy path - use sw_srv_y/sw_srv_uv (fallback)
+        if (!buffered->sw_srv_y || !buffered->sw_srv_uv) {
+            Debug::Log("D3D11VideoDecoder: Missing legacy SRVs");
+            interop_->UnlockForGL();
+            return 0;
+        }
+        params.plane_count = 2;
+        render_ok = yuv_renderer_->Render(
+            buffered->sw_srv_y.Get(),
+            buffered->sw_srv_uv.Get(),
+            interop_->GetRTV(), params);
+    }
 
     interop_->UnlockForGL();
 
@@ -1120,7 +1679,16 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
         return 0;
     }
 
-    last_rendered_frame_ = frame_number;
+    // Debug: log if we're rendering a different frame than requested
+    if (buffered->frame_number != frame_number) {
+        static int mismatch_count = 0;
+        if (mismatch_count++ < 50) {
+            Debug::Log("D3D11VideoDecoder: MISMATCH - requested=" + std::to_string(frame_number) +
+                       " rendering=" + std::to_string(buffered->frame_number));
+        }
+    }
+
+    last_rendered_frame_ = buffered->frame_number;
     return interop_->GetGLTexture();
 }
 
@@ -1172,14 +1740,15 @@ bool D3D11VideoDecoder::IsIntraFrameCodec() const {
 
 void D3D11VideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality, bool force_seek) {
     current_playhead_ = frame_number;
+    decode_target_ = frame_number;
 
     if (force_seek || !BufferContainsFrame(frame_number)) {
         last_seek_target_ = frame_number;
         seek_pending_ = true;
-
-        // Wake up decode thread
-        decode_cv_.notify_one();
     }
+
+    // Wake up decode thread
+    decode_cv_.notify_one();
 }
 
 void D3D11VideoDecoder::SetNeededFrames(const std::vector<int>& frames_by_priority) {
@@ -1275,6 +1844,8 @@ void D3D11VideoDecoder::HardReset(int target_frame) {
     ClearFrameBuffer();
     current_frame_number_ = -1;
     last_rendered_frame_ = -1;
+    decode_head_ = -1;
+    decode_target_ = target_frame;
 
     if (codec_ctx_) {
         avcodec_flush_buffers(codec_ctx_);
@@ -1298,20 +1869,334 @@ void D3D11VideoDecoder::ClearLoopPoints() {
 //=============================================================================
 
 void D3D11VideoDecoder::DecodeThreadFunc() {
+    Debug::Log("D3D11VideoDecoder: Decode thread started");
+
+    int frames_decoded = 0;
+    int status_counter = 0;
+    auto last_status_time = std::chrono::steady_clock::now();
+
     while (decode_running_) {
-        std::unique_lock<std::mutex> lock(decode_mutex_);
-        decode_cv_.wait_for(lock, std::chrono::milliseconds(10), [this] {
-            return !decode_running_ || seek_pending_ || !needed_frames_.empty();
-        });
+        // Calculate timeout based on frame rate (reduces CPU usage when idle)
+        // Use ~1 frame duration, with bounds: min 15ms, max 30ms (for low/unknown fps)
+        int timeout_ms = (fps_ > 0) ? std::max(15, std::min(30, static_cast<int>(1000.0 / fps_))) : 30;
+
+        // Wait for work
+        {
+            std::unique_lock<std::mutex> lock(decode_mutex_);
+            decode_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
+                // Don't wake up if we've hit EOF and no seek is pending
+                if (eof_reached_ && !seek_pending_) return false;
+                return !decode_running_ || seek_pending_ || NeedsMoreFrames();
+            });
+        }
 
         if (!decode_running_) break;
 
+        // Handle seek first - this resets EOF state
         if (seek_pending_) {
+            Debug::Log("D3D11VideoDecoder: Seeking to frame " + std::to_string(last_seek_target_.load()));
+            eof_reached_ = false;  // Reset EOF on seek
+            consecutive_decode_failures_ = 0;  // Reset failure counter
+            PerformSeekInternal(last_seek_target_.load());
             seek_pending_ = false;
-            // The actual decode happens in GetFrameAsGLTexture for now
-            // Future optimization: pre-decode here
+            frames_decoded = 0;  // Reset counter after seek
+            frame_ready_cv_.notify_all();
+            continue;
+        }
+
+        // Don't try to decode if we've already hit EOF
+        if (eof_reached_) {
+            continue;
+        }
+
+        // Decode one frame if buffer needs it
+        if (NeedsMoreFrames()) {
+            if (DecodeNextFrame()) {
+                AddCurrentFrameToBuffer();
+                frame_ready_cv_.notify_one();
+                consecutive_decode_failures_ = 0;  // Reset on success
+                frames_decoded++;
+
+                // Periodic status logging (every 100 frames or 2 seconds)
+                status_counter++;
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_status_time).count();
+                if (status_counter >= 100 || elapsed >= 2000) {
+                    int target = decode_target_.load();
+                    int head = decode_head_.load();
+                    Debug::Log("D3D11VideoDecoder: Decoded " + std::to_string(frames_decoded) +
+                               " frames, target=" + std::to_string(target) +
+                               ", head=" + std::to_string(head) +
+                               ", current=" + std::to_string(current_frame_number_));
+                    status_counter = 0;
+                    last_status_time = now;
+                }
+            } else {
+                // DecodeNextFrame returned false - could be EOF or temporary error
+                consecutive_decode_failures_++;
+
+                // Log every failure to help debug
+                Debug::Log("D3D11VideoDecoder: Decode failed, consecutive=" +
+                           std::to_string(consecutive_decode_failures_) +
+                           ", current_frame=" + std::to_string(current_frame_number_));
+
+                if (consecutive_decode_failures_ >= 10) {
+                    eof_reached_ = true;
+                    Debug::Log("D3D11VideoDecoder: EOF reached after " +
+                               std::to_string(consecutive_decode_failures_) +
+                               " consecutive failures, decoded " + std::to_string(frames_decoded) + " frames total");
+                }
+            }
         }
     }
+
+    Debug::Log("D3D11VideoDecoder: Decode thread stopped, decoded " + std::to_string(frames_decoded) + " frames total");
+}
+
+//=============================================================================
+// Async Decode Helpers
+//=============================================================================
+
+bool D3D11VideoDecoder::NeedsMoreFrames() const {
+    int target = decode_target_.load();
+
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+    // Count frames at or ahead of target
+    int ahead = 0;
+    int valid_count = 0;
+    for (int i = 0; i < buffer_count_; i++) {
+        int idx = (buffer_head_ + i) % kFrameBufferSize;
+        if (frame_buffer_[idx].valid) {
+            valid_count++;
+            if (frame_buffer_[idx].frame_number >= target) {
+                ahead++;
+            }
+        }
+    }
+
+    bool needs = ahead < kFrameBufferSize / 2;
+
+    // Debug: log occasionally when we think we need frames
+    static int log_counter = 0;
+    if (needs && (++log_counter % 100 == 0)) {
+        Debug::Log("D3D11VideoDecoder: NeedsMoreFrames=true, target=" +
+                   std::to_string(target) + ", ahead=" + std::to_string(ahead) +
+                   ", valid=" + std::to_string(valid_count) +
+                   ", buffer_count=" + std::to_string(buffer_count_));
+    }
+
+    return needs;
+}
+
+void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
+    int insert_idx = -1;
+    BufferedFrame* bf = nullptr;
+    bool was_full = false;
+    int old_frame_number = -1;
+
+    // Reserve a slot under lock
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+        // O(1) duplicate check using frame_map_
+        auto it = frame_map_.find(current_frame_number_);
+        if (it != frame_map_.end()) {
+            int idx = it->second;
+            if (frame_buffer_[idx].valid && frame_buffer_[idx].frame_number == current_frame_number_) {
+                // Already have this frame successfully, skip
+                return;
+            }
+        }
+
+        // Find a slot to use
+        if (buffer_count_ < kFrameBufferSize) {
+            // Buffer not full - use next slot
+            insert_idx = (buffer_head_ + buffer_count_) % kFrameBufferSize;
+            // Don't increment buffer_count_ yet - wait for successful upload
+        } else {
+            // Buffer full - reuse oldest slot
+            insert_idx = buffer_head_;
+            was_full = true;
+        }
+        bf = &frame_buffer_[insert_idx];
+
+        // Mark slot invalid BEFORE upload to prevent render thread from using stale data
+        // while we're modifying the textures
+        if (was_full && bf->valid) {
+            old_frame_number = bf->frame_number;
+            bf->valid = false;
+            // Remove old frame from map
+            frame_map_.erase(old_frame_number);
+        }
+    }
+
+    // Do the upload outside the lock
+    bool upload_ok = false;
+    if (decode_mode_ == DecodeMode::HARDWARE &&
+        current_frame_->format == AV_PIX_FMT_D3D11) {
+        // CRITICAL: Copy HW texture to our own texture to prevent D3D11VA pool reuse
+        // D3D11VA recycles texture slots, so we must copy immediately
+        ID3D11Texture2D* src_texture = (ID3D11Texture2D*)current_frame_->data[0];
+        int src_array_index = (int)(intptr_t)current_frame_->data[1];
+
+        // Create or reuse our local texture
+        D3D11_TEXTURE2D_DESC src_desc;
+        src_texture->GetDesc(&src_desc);
+
+        if (!bf->hw_texture) {
+            // Create a non-array texture for our copy
+            D3D11_TEXTURE2D_DESC desc = src_desc;
+            desc.ArraySize = 1;
+            desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+            desc.MiscFlags = 0;
+            HRESULT hr = device_->CreateTexture2D(&desc, nullptr, bf->hw_texture.GetAddressOf());
+            if (FAILED(hr)) {
+                Debug::Log("D3D11VideoDecoder: Failed to create HW copy texture");
+                bf->hw_texture.Reset();
+            }
+        }
+
+        if (bf->hw_texture) {
+            // Copy from texture array slice to our texture
+            context_->CopySubresourceRegion(
+                bf->hw_texture.Get(), 0,  // dest texture, subresource 0
+                0, 0, 0,                   // dest x, y, z
+                src_texture, src_array_index,  // src texture, array slice
+                nullptr                    // copy entire subresource
+            );
+
+            // Create SRVs for Y and UV planes
+            bf->hw_srv_y.Reset();
+            bf->hw_srv_uv.Reset();
+
+            DXGI_FORMAT srv_format_y = (src_desc.Format == DXGI_FORMAT_P010) ?
+                                       DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UNORM;
+            DXGI_FORMAT srv_format_uv = (src_desc.Format == DXGI_FORMAT_P010) ?
+                                        DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R8G8_UNORM;
+
+            D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+            srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+            srv_desc.Texture2D.MipLevels = 1;
+            srv_desc.Texture2D.MostDetailedMip = 0;
+
+            srv_desc.Format = srv_format_y;
+            device_->CreateShaderResourceView(bf->hw_texture.Get(), &srv_desc, bf->hw_srv_y.GetAddressOf());
+
+            srv_desc.Format = srv_format_uv;
+            device_->CreateShaderResourceView(bf->hw_texture.Get(), &srv_desc, bf->hw_srv_uv.GetAddressOf());
+
+            bf->is_hw_frame = true;
+            bf->hw_copied = true;
+            bf->plane_count = 2;
+            bf->bit_depth = is_10bit_ ? 10 : 8;
+            bf->is_nv12_layout = true;
+            upload_ok = (bf->hw_srv_y && bf->hw_srv_uv);
+        }
+    } else {
+        // Software decode - upload to this slot's own staging textures
+        if (UploadSoftwareFrameToSlot(current_frame_, *bf)) {
+            bf->is_hw_frame = false;
+            upload_ok = true;
+        } else {
+            Debug::Log("D3D11VideoDecoder: Upload failed for frame " + std::to_string(current_frame_number_));
+        }
+    }
+
+    // Finalize under lock
+    {
+        std::lock_guard<std::mutex> lock(buffer_mutex_);
+        if (upload_ok) {
+            bf->frame_number = current_frame_number_;
+            bf->pts = current_frame_->pts != AV_NOPTS_VALUE ?
+                      current_frame_->pts * av_q2d(time_base_) : 0.0;
+            bf->valid = true;
+            decode_head_ = current_frame_number_;
+
+            // Update frame_map_ with new frame
+            frame_map_[current_frame_number_] = insert_idx;
+
+            // Only update counts on success
+            if (!was_full) {
+                buffer_count_++;
+            } else {
+                // Advance head since we consumed the oldest slot
+                buffer_head_ = (buffer_head_ + 1) % kFrameBufferSize;
+            }
+
+            // Track delay queue for B-frame reordering
+            // Use dynamic depth based on actual B-frame count (HEVC can have 4-8)
+            int count = ++frames_since_seek_;
+            int delay_depth = kDelayQueueDepth;
+            if (codec_ctx_ && codec_ctx_->has_b_frames > 0) {
+                // Need at least has_b_frames + 2 to ensure proper reordering
+                delay_depth = std::max(kDelayQueueDepth, codec_ctx_->has_b_frames + 2);
+            }
+            if (delay_queue_filling_.load() && count >= delay_depth) {
+                delay_queue_filling_ = false;
+                Debug::Log("D3D11VideoDecoder: Delay queue filled after " +
+                           std::to_string(count) + " frames (depth=" +
+                           std::to_string(delay_depth) + "), buffer has " +
+                           std::to_string(buffer_count_) + " frames");
+                // Notify render thread that frames are now ready
+                frame_ready_cv_.notify_all();
+            }
+        } else if (was_full && old_frame_number >= 0) {
+            // Upload failed while overwriting - restore the old frame so it's still usable
+            // The texture data is unchanged (upload failed), so we can restore validity
+            bf->frame_number = old_frame_number;
+            bf->valid = true;
+            // Restore old frame in map
+            frame_map_[old_frame_number] = insert_idx;
+        }
+        // If upload failed on a new slot (was_full=false), slot stays empty and can be retried
+    }
+}
+
+void D3D11VideoDecoder::PerformSeekInternal(int target_frame) {
+    decode_seeking_ = true;
+
+    ClearFrameBuffer();
+
+    double target_time = target_frame / fps_;
+    int64_t target_pts = (int64_t)(target_time / av_q2d(time_base_));
+
+    avcodec_flush_buffers(codec_ctx_);
+    av_seek_frame(format_ctx_, video_stream_index_, target_pts, AVSEEK_FLAG_BACKWARD);
+    avcodec_flush_buffers(codec_ctx_);
+
+    // Reset delay queue state for B-frame reordering
+    frames_since_seek_ = 0;
+    if (codec_ctx_->has_b_frames > 0) {
+        delay_queue_filling_ = true;
+    }
+
+    current_frame_number_ = -1;
+    // Set decode_head_ to target to prevent immediate re-seek
+    // (head < 0 check in GetFrameAsGLTexture would trigger another seek)
+    decode_head_ = target_frame;
+    eof_reached_ = false;  // Reset EOF on seek
+    decode_seeking_ = false;
+}
+
+D3D11VideoDecoder::BufferedFrame* D3D11VideoDecoder::GetClosestBufferedFrame(int frame_number) {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+    BufferedFrame* closest = nullptr;
+    int min_diff = INT_MAX;
+
+    for (int i = 0; i < buffer_count_; i++) {
+        int idx = (buffer_head_ + i) % kFrameBufferSize;
+        if (frame_buffer_[idx].valid) {
+            int diff = std::abs(frame_buffer_[idx].frame_number - frame_number);
+            if (diff < min_diff) {
+                min_diff = diff;
+                closest = &frame_buffer_[idx];
+            }
+        }
+    }
+
+    return closest;
 }
 
 } // namespace ump

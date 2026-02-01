@@ -5,6 +5,10 @@
 #include <cstdio>
 #include <filesystem>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace ump {
 
 //=============================================================================
@@ -105,6 +109,11 @@ bool ImageSequenceDecoder::Initialize(int start_frame, int end_frame, double fps
     running_ = true;
     io_thread_ = std::thread(&ImageSequenceDecoder::IOThread, this);
 
+#ifdef _WIN32
+    // Set I/O thread to above normal priority to reduce frame delivery jitter
+    SetThreadPriority(io_thread_.native_handle(), THREAD_PRIORITY_ABOVE_NORMAL);
+#endif
+
     initialized_ = true;
     return true;
 }
@@ -128,6 +137,7 @@ void ImageSequenceDecoder::Shutdown() {
         ring_buffer_.clear();
         buffer_frame_set_.clear();
         buffer_ahead_count_ = 0;
+        buffer_behind_count_ = 0;
         buffer_size_ = 0;
     }
 
@@ -142,6 +152,7 @@ void ImageSequenceDecoder::HardReset(int target_frame) {
         ring_buffer_.clear();
         buffer_frame_set_.clear();
         buffer_ahead_count_ = 0;
+        buffer_behind_count_ = 0;
         buffer_size_ = 0;
     }
 
@@ -175,24 +186,33 @@ std::shared_ptr<PixelData> ImageSequenceDecoder::GetClosestFrame(int frame_numbe
         return nullptr;
     }
 
-    // First try exact match
-    auto exact = FindInBuffer(frame_number);
-    if (exact) {
+    // Binary search for O(log n) closest frame lookup
+    auto it = std::lower_bound(ring_buffer_.begin(), ring_buffer_.end(), frame_number,
+        [](const BufferedFrame& bf, int fn) { return bf.frame_number < fn; });
+
+    // Check exact match at insertion point
+    if (it != ring_buffer_.end() && it->frame_number == frame_number) {
         if (actual_frame) *actual_frame = frame_number;
-        return exact;
+        return it->pixels;
     }
 
-    // Find closest frame in buffer
+    // Check neighbors for closest frame
     int closest_frame = -1;
-    int min_distance = INT_MAX;
     std::shared_ptr<PixelData> closest_pixels;
 
-    for (const auto& bf : ring_buffer_) {
-        int distance = std::abs(bf.frame_number - frame_number);
-        if (distance < min_distance) {
-            min_distance = distance;
-            closest_frame = bf.frame_number;
-            closest_pixels = bf.pixels;
+    // Check element at it (first element >= frame_number)
+    if (it != ring_buffer_.end()) {
+        closest_frame = it->frame_number;
+        closest_pixels = it->pixels;
+    }
+
+    // Check element before it (last element < frame_number)
+    if (it != ring_buffer_.begin()) {
+        auto prev = std::prev(it);
+        if (closest_frame < 0 ||
+            std::abs(prev->frame_number - frame_number) < std::abs(closest_frame - frame_number)) {
+            closest_frame = prev->frame_number;
+            closest_pixels = prev->pixels;
         }
     }
 
@@ -238,17 +258,21 @@ void ImageSequenceDecoder::UpdatePlayhead(int frame_number, SeekQuality quality,
     // This is especially important when pre-warming decoders for upcoming clips
     io_cv_.notify_one();
 
-    // Update buffer ahead count
+    // Recalculate buffer ahead/behind counts (playhead changed so categorization changes)
     int ahead_count = 0;
+    int behind_count = 0;
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
         for (const auto& bf : ring_buffer_) {
             if (bf.frame_number >= frame_number) {
                 ahead_count++;
+            } else {
+                behind_count++;
             }
         }
     }
     buffer_ahead_count_ = ahead_count;
+    buffer_behind_count_ = behind_count;
 }
 
 //=============================================================================
@@ -260,16 +284,7 @@ int ImageSequenceDecoder::GetBufferedAhead() const {
 }
 
 int ImageSequenceDecoder::GetBufferedBehind() const {
-    int playhead = playhead_frame_.load();
-    int behind = 0;
-
-    std::lock_guard<std::mutex> lock(buffer_mutex_);
-    for (const auto& bf : ring_buffer_) {
-        if (bf.frame_number < playhead) {
-            behind++;
-        }
-    }
-    return behind;
+    return buffer_behind_count_.load();
 }
 
 int ImageSequenceDecoder::GetBufferSize() const {
@@ -299,6 +314,7 @@ void ImageSequenceDecoder::ClearBuffer() {
     ring_buffer_.clear();
     buffer_frame_set_.clear();
     buffer_ahead_count_ = 0;
+    buffer_behind_count_ = 0;
     buffer_size_ = 0;
 }
 
@@ -316,10 +332,12 @@ void ImageSequenceDecoder::SetConfig(const StreamingDecoderConfig& config) {
 
 void ImageSequenceDecoder::IOThread() {
     while (running_) {
-        // Wait for work (short timeout to poll completed async tasks)
+        // Wait for work (frame-rate-aware timeout to reduce idle CPU usage)
         {
             std::unique_lock<std::mutex> lock(io_mutex_);
-            io_cv_.wait_for(lock, std::chrono::milliseconds(5), [this] {
+            // Use frame-rate-aware timeout: 15-30ms based on fps, reduces CPU idle usage
+            int timeout_ms = (fps_ > 0) ? std::max(15, std::min(30, static_cast<int>(1000.0 / fps_))) : 30;
+            io_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [this] {
                 return !running_ || seek_requested_ || NeedsMoreFrames() ||
                        !async_requests_.empty();
             });
@@ -494,26 +512,22 @@ void ImageSequenceDecoder::AddToBuffer(int frame_number, std::shared_ptr<PixelDa
     ring_buffer_.insert(it, bf);
     buffer_frame_set_.insert(frame_number);
 
-    // Update counts
-    buffer_size_ = static_cast<int>(ring_buffer_.size());
-
+    // Incremental count update - O(1) instead of O(n)
+    buffer_size_++;
     int playhead = playhead_frame_.load();
-    int ahead = 0;
-    for (const auto& f : ring_buffer_) {
-        if (f.frame_number >= playhead) ahead++;
+    if (frame_number >= playhead) {
+        buffer_ahead_count_++;
+    } else {
+        buffer_behind_count_++;
     }
-    buffer_ahead_count_ = ahead;
 }
 
 std::shared_ptr<PixelData> ImageSequenceDecoder::FindInBuffer(int frame_number) const {
-    // Buffer is sorted, could use binary search, but linear is fine for typical buffer sizes
-    for (const auto& bf : ring_buffer_) {
-        if (bf.frame_number == frame_number) {
-            return bf.pixels;
-        }
-        if (bf.frame_number > frame_number) {
-            break;  // Past target in sorted buffer
-        }
+    // Binary search for O(log n) lookup in sorted buffer
+    auto it = std::lower_bound(ring_buffer_.begin(), ring_buffer_.end(), frame_number,
+        [](const BufferedFrame& bf, int fn) { return bf.frame_number < fn; });
+    if (it != ring_buffer_.end() && it->frame_number == frame_number) {
+        return it->pixels;
     }
     return nullptr;
 }
@@ -588,7 +602,7 @@ void ImageSequenceDecoder::EvictOutsideWindow() {
         return {forward, backward};
     };
 
-    // Remove frames outside window
+    // Remove frames outside window with incremental count updates
     // Keep frame if: forward_distance <= readAheadFrames OR backward_distance <= readBehindFrames
     auto it = ring_buffer_.begin();
     while (it != ring_buffer_.end()) {
@@ -597,22 +611,20 @@ void ImageSequenceDecoder::EvictOutsideWindow() {
         bool in_behind_window = (backward <= config_.readBehindFrames);
 
         if (!in_ahead_window && !in_behind_window) {
+            // Decrement appropriate counter before erasing - O(1)
+            if (it->frame_number >= playhead) {
+                buffer_ahead_count_--;
+            } else {
+                buffer_behind_count_--;
+            }
+            buffer_size_--;
+
             buffer_frame_set_.erase(it->frame_number);
             it = ring_buffer_.erase(it);
         } else {
             ++it;
         }
     }
-
-    // Update counts
-    buffer_size_ = static_cast<int>(ring_buffer_.size());
-
-    int ahead = 0;
-    for (const auto& f : ring_buffer_) {
-        auto [forward, backward] = getDistances(f.frame_number);
-        if (forward <= backward) ahead++;  // Frame is ahead if forward distance is shorter
-    }
-    buffer_ahead_count_ = ahead;
 }
 
 } // namespace ump

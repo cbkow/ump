@@ -40,11 +40,16 @@ enum class YUVColorSpace {
 struct YUVRenderParams {
     int width = 0;
     int height = 0;
-    int bit_depth = 8;           // 8 for NV12, 10 for P010
+    int bit_depth = 8;           // 8 for NV12, 10 for P010, 12 for professional codecs
     bool is_hdr = false;         // Apply PQ EOTF decode (forces full range path)
     bool is_full_range = false;  // Video vs full range (ignored when is_hdr=true)
     bool use_texture_array = false; // True for D3D11VA (texture arrays)
     YUVColorSpace color_space = YUVColorSpace::BT_709;
+
+    // Multi-plane support
+    int plane_count = 2;         // 2 for NV12/P010, 3 for planar YUV, 4 for YUVA/GBRAP
+    bool has_alpha = false;      // YUVA/GBRAP formats
+    bool is_rgb_planar = false;  // GBRP/GBRAP formats (plane order: G, B, R, [A])
 };
 
 //=============================================================================
@@ -81,13 +86,39 @@ public:
     // Rendering
     //=========================================================================
 
-    // Render YUV texture to RGB render target
+    // Render YUV texture to RGB render target (2-plane NV12/P010)
     // srv_y: Y plane (luma)
-    // srv_uv: UV plane (chroma, half resolution)
+    // srv_uv: UV plane (chroma, interleaved)
     // dest_rtv: Destination render target (should be RGBA16F for HDR)
     // params: Conversion parameters
     bool Render(ID3D11ShaderResourceView* srv_y,
                 ID3D11ShaderResourceView* srv_uv,
+                ID3D11RenderTargetView* dest_rtv,
+                const YUVRenderParams& params);
+
+    // Render YUV texture to RGB render target (3-plane planar YUV)
+    // srv_plane0: Y plane (luma) or G plane (GBRP)
+    // srv_plane1: U plane (chroma) or B plane (GBRP) or UV interleaved for NV12
+    // srv_plane2: V plane (chroma) or R plane (GBRP) - nullptr for NV12/P010
+    // dest_rtv: Destination render target
+    // params: Conversion parameters
+    bool Render(ID3D11ShaderResourceView* srv_plane0,
+                ID3D11ShaderResourceView* srv_plane1,
+                ID3D11ShaderResourceView* srv_plane2,
+                ID3D11RenderTargetView* dest_rtv,
+                const YUVRenderParams& params);
+
+    // Render YUV texture to RGB render target (4-plane YUVA or GBRAP)
+    // srv_plane0: Y plane (luma) or G plane (GBRAP)
+    // srv_plane1: U plane (chroma) or B plane (GBRAP)
+    // srv_plane2: V plane (chroma) or R plane (GBRAP)
+    // srv_plane3: A plane (alpha)
+    // dest_rtv: Destination render target
+    // params: Conversion parameters
+    bool Render(ID3D11ShaderResourceView* srv_plane0,
+                ID3D11ShaderResourceView* srv_plane1,
+                ID3D11ShaderResourceView* srv_plane2,
+                ID3D11ShaderResourceView* srv_plane3,
                 ID3D11RenderTargetView* dest_rtv,
                 const YUVRenderParams& params);
 
