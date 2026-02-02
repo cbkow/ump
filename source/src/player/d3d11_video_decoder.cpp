@@ -1455,6 +1455,17 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
         return 0;
     }
 
+    // Try to upgrade from CPU fallback to zero-copy interop now that GL context is ready
+    // This handles the case where decoder was created before GL context was available
+    // (common in DUAL_VIEW/MULTI_TRACK modes where decoder is created during timeline load)
+    if (interop_ && !interop_->HasZeroCopyInterop()) {
+        static bool tried_reinit = false;
+        if (!tried_reinit) {
+            tried_reinit = true;
+            interop_->TryReinitializeZeroCopy();
+        }
+    }
+
     // Clamp frame number
     frame_number = std::clamp(frame_number, 0,
                               frame_count_ > 0 ? frame_count_ - 1 : 0);
@@ -1894,7 +1905,7 @@ void D3D11VideoDecoder::DecodeThreadFunc() {
 
         // Handle seek first - this resets EOF state
         if (seek_pending_) {
-            Debug::Log("D3D11VideoDecoder: Seeking to frame " + std::to_string(last_seek_target_.load()));
+            //Debug::Log("D3D11VideoDecoder: Seeking to frame " + std::to_string(last_seek_target_.load()));
             eof_reached_ = false;  // Reset EOF on seek
             consecutive_decode_failures_ = 0;  // Reset failure counter
             PerformSeekInternal(last_seek_target_.load());
@@ -1980,10 +1991,10 @@ bool D3D11VideoDecoder::NeedsMoreFrames() const {
     // Debug: log occasionally when we think we need frames
     static int log_counter = 0;
     if (needs && (++log_counter % 100 == 0)) {
-        Debug::Log("D3D11VideoDecoder: NeedsMoreFrames=true, target=" +
-                   std::to_string(target) + ", ahead=" + std::to_string(ahead) +
-                   ", valid=" + std::to_string(valid_count) +
-                   ", buffer_count=" + std::to_string(buffer_count_));
+        //Debug::Log("D3D11VideoDecoder: NeedsMoreFrames=true, target=" +
+        //           std::to_string(target) + ", ahead=" + std::to_string(ahead) +
+        //           ", valid=" + std::to_string(valid_count) +
+        //           ", buffer_count=" + std::to_string(buffer_count_));
     }
 
     return needs;

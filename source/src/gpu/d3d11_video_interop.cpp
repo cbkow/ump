@@ -71,6 +71,57 @@ void D3D11VideoInterop::Shutdown() {
     initialized_ = false;
 }
 
+bool D3D11VideoInterop::TryReinitializeZeroCopy() {
+    // Already have zero-copy - nothing to do
+    if (has_nv_interop_ || has_ext_memory_) {
+        return true;
+    }
+
+    // Must be initialized (have D3D11 device) but using fallback
+    if (!initialized_ || !d3d_device_) {
+        return false;
+    }
+
+    // Try NV interop (requires active GL context - caller must ensure this)
+    if (InitializeNVInterop()) {
+        has_nv_interop_ = true;
+        Debug::Log("D3D11VideoInterop: Late-init NV_DX_interop succeeded (GL context now available)");
+
+        // Recreate shared texture with NV interop if we had one
+        if (width_ > 0 && height_ > 0) {
+            DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            if (shared_texture_) {
+                D3D11_TEXTURE2D_DESC desc;
+                shared_texture_->GetDesc(&desc);
+                format = desc.Format;
+            }
+            DestroySharedTexture();
+            CreateSharedTexture(width_, height_, format);
+        }
+        return true;
+    }
+
+    // Try EXT memory interop as fallback
+    if (InitializeEXTMemoryInterop()) {
+        has_ext_memory_ = true;
+        Debug::Log("D3D11VideoInterop: Late-init EXT_memory_object succeeded");
+
+        if (width_ > 0 && height_ > 0) {
+            DXGI_FORMAT format = DXGI_FORMAT_R8G8B8A8_UNORM;
+            if (shared_texture_) {
+                D3D11_TEXTURE2D_DESC desc;
+                shared_texture_->GetDesc(&desc);
+                format = desc.Format;
+            }
+            DestroySharedTexture();
+            CreateSharedTexture(width_, height_, format);
+        }
+        return true;
+    }
+
+    return false;
+}
+
 bool D3D11VideoInterop::InitializeNVInterop() {
     // Load WGL_NV_DX_interop function pointers
     HMODULE opengl32 = GetModuleHandleA("opengl32.dll");

@@ -275,7 +275,7 @@ private:
     PipelineMode pipeline_mode_ = PipelineMode::NORMAL;
 
     // The active decoder - all reads go here
-    // Uses IVideoDecoder interface to support FFmpeg and GStreamer backends
+    // Uses IVideoDecoder interface to support FFmpeg and D3D11 backends
     std::shared_ptr<IVideoDecoder> active_;
     mutable std::mutex active_mutex_;
 

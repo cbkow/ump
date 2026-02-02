@@ -2681,11 +2681,11 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
     double duration = item->duration;
     if (duration <= 0) duration = 1.0;  // Safety
 
-    // Set timeline properties (dummy canvas for GStreamer, will show black for audio-only)
+    // Set timeline properties (dummy canvas for audio-only files)
     timeline_name_ = item->name;
     timeline_duration_ = duration;
     frame_rate_ = fps;
-    canvas_width_ = 1920;   // Dummy canvas for GStreamer
+    canvas_width_ = 1920;   // Dummy canvas for audio-only
     canvas_height_ = 1080;
 
     Debug::Log("  fps=" + std::to_string(fps) + " (display), duration=" + std::to_string(duration) + "s");
@@ -2741,7 +2741,7 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
     // Set initial zoom based on duration
     SetInitialZoomForDuration();
 
-    Debug::Log("Audio file timeline created (GStreamer): " + timeline_name_ +
+    Debug::Log("Audio file timeline created: " + timeline_name_ +
                " (duration=" + std::to_string(duration) + "s)" +
                ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
 
@@ -2881,11 +2881,8 @@ bool TimelineView::LoadMediaToLeftTrack(MediaItem* item) {
         canvas_height_ = height;
     }
 
-    // Update timeline duration
-    RecalculateDuration();
-
-    // Update flattener
-    flattener_.SetTracks(tracks_);
+    // Sync flattener and notify playback controller (also syncs dual flatteners)
+    SyncFlattenerAndInvalidate();
 
     // Request fit zoom to update for new duration
     RequestFitZoomOnNextRender();
@@ -2964,11 +2961,8 @@ bool TimelineView::LoadMediaToRightTrack(MediaItem* item) {
 
     right->clips.push_back(clip);
 
-    // Update timeline duration
-    RecalculateDuration();
-
-    // Update flattener
-    flattener_.SetTracks(tracks_);
+    // Sync flattener and notify playback controller (also syncs dual flatteners)
+    SyncFlattenerAndInvalidate();
 
     // Request fit zoom to update for new duration
     RequestFitZoomOnNextRender();

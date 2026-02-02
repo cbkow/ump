@@ -6,19 +6,24 @@
 #include <mutex>
 #include "image_loader_interface.h"
 
+// Forward declarations for FFmpeg
+struct AVFormatContext;
+struct AVCodecContext;
+struct AVFrame;
+struct AVPacket;
+struct SwsContext;
+
 namespace ump {
 
-class StreamingVideoDecoder;
-
 //=============================================================================
-// ScrubDecoder - Lightweight decoder for responsive scrubbing
+// ScrubDecoder - Single-frame on-demand decoder for responsive scrubbing
 //
-// Key differences from ManagedVideoDecoder:
-// - Small buffer (15 frames vs 168 frames)
-// - No spawn-and-abandon (reuses single decoder, seeks instead)
-// - Keyframe-only seeks (SeekQuality::PREVIEW)
-// - No window awareness (completely detached from CacheWindowEngine)
-// - Purpose: Fast scrub preview, not playback caching
+// Key design principles:
+// - NO background thread (synchronous decode)
+// - NO buffer/queue (single frame at a time)
+// - Latest request wins (no backlog)
+// - Keyframe seeking for speed
+// - Returns closest keyframe if exact frame not available
 //=============================================================================
 
 class ScrubDecoder {
@@ -26,40 +31,62 @@ public:
     explicit ScrubDecoder(const std::string& video_path);
     ~ScrubDecoder();
 
-    // Initialize decoder with lightweight scrub-optimized config
+    // Initialize FFmpeg context
     bool Initialize();
     void Shutdown();
 
-    // Primary scrub access - returns closest available frame (fast)
-    // This is the main method used during scrubbing
+    // Primary scrub access - seeks and decodes single frame
+    // Returns the decoded frame (may be keyframe if exact frame too expensive)
     std::shared_ptr<PixelData> GetClosestFrame(int frame_number, int* actual_frame = nullptr);
 
-    // Try to get exact frame (may return nullptr if not buffered)
+    // Alias for GetClosestFrame (same behavior for scrubbing)
     std::shared_ptr<PixelData> GetFrame(int frame_number);
 
-    // Seek to target frame (keyframe-only for speed)
-    void SeekTo(int frame_number);
-
-    // Check if frame is in buffer
-    bool HasFrame(int frame_number) const;
-
     // Metadata
-    int GetWidth() const;
-    int GetHeight() const;
+    int GetWidth() const { return width_; }
+    int GetHeight() const { return height_; }
+    double GetFPS() const { return fps_; }
+    int GetFrameCount() const { return frame_count_; }
     bool IsInitialized() const { return initialized_; }
     const std::string& GetPath() const { return video_path_; }
 
 private:
-    std::unique_ptr<StreamingVideoDecoder> decoder_;
+    // FFmpeg decode - seeks to keyframe and decodes to target (or just keyframe)
+    std::shared_ptr<PixelData> DecodeFrame(int target_frame, int* actual_frame);
+
+    // Convert AVFrame to PixelData
+    std::shared_ptr<PixelData> ConvertFrame(AVFrame* frame);
+
+    // Seek to nearest keyframe at or before target
+    bool SeekToKeyframe(int target_frame);
+
     std::string video_path_;
     bool initialized_ = false;
+
+    // FFmpeg contexts
+    AVFormatContext* format_ctx_ = nullptr;
+    AVCodecContext* codec_ctx_ = nullptr;
+    AVFrame* frame_ = nullptr;
+    AVFrame* rgb_frame_ = nullptr;
+    AVPacket* packet_ = nullptr;
+    SwsContext* sws_ctx_ = nullptr;
+
+    int video_stream_idx_ = -1;
+    int width_ = 0;
+    int height_ = 0;
+    double fps_ = 24.0;
+    int frame_count_ = 0;
+    int64_t start_time_ = 0;
+
+    // Cache last decoded frame to avoid redundant decodes
+    int last_decoded_frame_ = -1;
+    std::shared_ptr<PixelData> last_decoded_pixels_;
+
+    mutable std::mutex decode_mutex_;
 };
 
 //=============================================================================
 // ScrubDecoderManager - Manages scrub decoders per source file
-//
-// Lazy creation: decoders created on first access per source
-// Cleared when scrub mode ends to free memory
 //=============================================================================
 
 class ScrubDecoderManager {
@@ -68,7 +95,6 @@ public:
     ~ScrubDecoderManager();
 
     // Get or create scrub decoder for a source path
-    // Returns nullptr if creation fails
     ScrubDecoder* GetDecoder(const std::string& source_path);
 
     // Clear all decoders (call when scrub mode ends)

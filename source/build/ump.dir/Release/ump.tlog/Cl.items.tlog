@@ -9,7 +9,6 @@ D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp;D:\z_DevTemp\Uni
 D:\z_DevTemp\UnionPlayer\src\audio\audio_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_decoder.obj
 D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_mixer.obj
 D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_player.obj
-D:\z_DevTemp\UnionPlayer\src\audio\gstreamer_audio_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\gstreamer_audio_manager.obj
 D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\wasapi_audio_device.obj
 D:\z_DevTemp\UnionPlayer\src\color\d3d11_ocio_renderer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_ocio_renderer.obj
 D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ocio_config_manager.obj

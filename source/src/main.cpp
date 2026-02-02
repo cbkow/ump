@@ -789,8 +789,8 @@ int g_exr_thread_count = 16;          // DirectEXRCache parallel I/O threads
 int g_exr_transcode_threads = 8;      // EXRTranscoder parallel transcode threads
 
 // Global timeline cache settings (EDL/OTIO playback)
-int g_timeline_read_ahead_frames = 108;     // ~4.5 seconds @ 24fps
-int g_timeline_read_behind_frames = 12;     // ~0.5 seconds @ 24fps
+int g_timeline_read_ahead_frames = 16;      // Frames to cache ahead
+int g_timeline_read_behind_frames = 4;      // Frames to keep behind playhead
 int g_timeline_max_textures = 120;          // Max GPU textures (safety cap)
 int g_timeline_io_threads = 8;              // Background I/O threads
 int g_video_decode_threads = 4;             // FFmpeg decode threads per video (4 default, 8+ for high-core systems)
@@ -1114,6 +1114,13 @@ public:
             Debug::Log("ImGui shader HDR mode enabled (sRGB->PQ conversion at 120 nits)");
         }
 #endif
+
+        // Initialize NFD (Native File Dialog) - required for file dialogs to work properly
+        if (NFD_Init() != NFD_OKAY) {
+            Debug::Log("WARNING: NFD_Init failed - file dialogs may not work correctly");
+        } else {
+            Debug::Log("NFD initialized successfully");
+        }
 
         // Initialize video player
         video_player = std::make_unique<VideoPlayer>();
@@ -3469,6 +3476,10 @@ public:
         // Shutdown hardware context manager (releases shared CUDA/D3D11VA contexts)
         Debug::Log("Cleanup: Shutting down HW Context Manager...");
         ump::HWContextManager::Instance().Shutdown();
+
+        // Shutdown NFD (Native File Dialog)
+        Debug::Log("Cleanup: Shutting down NFD...");
+        NFD_Quit();
 
         // Shutdown ImGui and related contexts
         Debug::Log("Cleanup: Shutting down ImGui OpenGL3...");
@@ -5853,7 +5864,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.7.9");
+                ImGui::TextDisabled("About u.m.p. v0.8.0");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6633,9 +6644,9 @@ private:
                         ImGui::Separator();
                         ImGui::Spacing();
 
-                        // Video Buffer Frames (GStreamer)
+                        // Video Buffer Frames
                         ImGui::TextColored(GetWindowsAccentColor(), "Video Buffer Frames");
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames to buffer for video files (GStreamer)");
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Frames to buffer for video files");
                         ImGui::Spacing();
 
                         ImGui::Text("Buffer Frames:");
@@ -6932,7 +6943,7 @@ private:
 // Timeline ring buffer tab commented out - D3D11 video uses on-demand decode,
 // ring buffer only used for image sequences (configured in Image Buffering tab)
 // Kept for reference/future use.
-#if 0
+//#if 0
                     // === TAB 5: Timeline ===
                     if (ImGui::BeginTabItem("Timeline")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer and threading settings for timeline playback");
@@ -7042,7 +7053,7 @@ private:
 
                         ImGui::EndTabItem();
                     } // End Timeline tab
-#endif
+//#endif
 
                     ImGui::EndTabBar();
                 } // End tab bar
@@ -7164,8 +7175,8 @@ private:
                 g_clear_cache_on_exit = false;
 
                 // Timeline cache settings
-                g_timeline_read_ahead_frames = 108;      // ~4.5 seconds @ 24fps
-                g_timeline_read_behind_frames = 12;      // ~0.5s @ 24fps
+                g_timeline_read_ahead_frames = 16;       // Frames ahead
+                g_timeline_read_behind_frames = 4;       // Frames behind
                 g_timeline_max_textures = 120;           // Max GPU textures
                 g_timeline_io_threads = 8;               // Background I/O threads
                 g_video_decode_threads = 4;              // FFmpeg decode threads
@@ -16981,7 +16992,7 @@ private:
         // Adaptive Throttle toggle button - slows playback when cache can't keep up
         // Only show for image/EXR sequences (not for direct MPV mode)
         ImGui::SameLine();
-        if (auto* playback_ctrl = timeline_view ? timeline_view->GetPlaybackController() : nullptr) {
+        if (auto* playback_ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr) {
             auto* cache = playback_ctrl->GetCache();
             bool is_video_only = cache && cache->IsVideoOnly();
             bool is_direct_mpv = playback_ctrl->IsDirectMPVMode();
@@ -17028,9 +17039,8 @@ private:
             }
 
             // Buffer Wait toggle button - waits for sequential buffer before playback
-            // Hide in direct MPV mode (MPV handles its own buffering)
-            // Hide for video-only timelines (D3D11 decodes on-demand, no buffer to wait for)
-            if (!is_direct_mpv && !is_video_only) {
+            // Only hide for Solo Video (direct MPV mode) - MPV handles its own buffering
+            if (!is_direct_mpv) {
             ImGui::SameLine();
             bool buffer_wait_enabled = playback_ctrl->IsBufferWaitEnabled();
             ImVec4 buffer_wait_color = buffer_wait_enabled ? MutedLight(GetWindowsAccentColor()) : UI_WHITE_VEC4;
@@ -17107,11 +17117,8 @@ private:
         }
         // DUAL VIEW SPECIFIC: Buffer Wait button (uses scratch_timeline_controller)
         // This block only runs for dual view mode since GetPlaybackController() returns nullptr
-        // Hide for video-only (D3D11 decodes on-demand, no buffer to wait for)
+        // DUAL_VIEW always uses our cache (never direct MPV), so always show
         else if (timeline_view && timeline_view->IsDualViewMode() && scratch_timeline_controller) {
-            bool dv_is_video_only = scratch_timeline_controller->GetCache() &&
-                                    scratch_timeline_controller->GetCache()->IsVideoOnly();
-            if (!dv_is_video_only) {
             ImGui::SameLine();
             bool dv_buffer_wait_enabled = scratch_timeline_controller->IsBufferWaitEnabled();
             ImVec4 dv_buffer_wait_color = dv_buffer_wait_enabled ? MutedLight(GetWindowsAccentColor()) : UI_WHITE_VEC4;
@@ -17184,7 +17191,6 @@ private:
                                       dv_buffer_wait_enabled ? "disable" : "enable");
                 }
             }
-            } // End of dv_is_video_only check
         }
 
         // Spacer
@@ -21365,9 +21371,11 @@ private:
             if (j.contains("exr_cache")) {
                 if (j["exr_cache"].contains("read_ahead_frames")) {
                     g_exr_read_ahead_frames = j["exr_cache"]["read_ahead_frames"].get<int>();
+                    printf("[Settings Load] g_exr_read_ahead_frames = %d (from exr_cache)\n", g_exr_read_ahead_frames);
                 }
                 if (j["exr_cache"].contains("read_behind_frames")) {
                     g_read_behind_frames = j["exr_cache"]["read_behind_frames"].get<int>();
+                    printf("[Settings Load] g_read_behind_frames = %d (from exr_cache)\n", g_read_behind_frames);
                 } else if (j["exr_cache"].contains("read_behind_seconds")) {
                     // Backwards compatibility: convert old seconds to frames @ 24fps
                     g_read_behind_frames = static_cast<int>(j["exr_cache"]["read_behind_seconds"].get<float>() * 24.0f);
@@ -21378,9 +21386,11 @@ private:
             if (j.contains("timeline_cache")) {
                 if (j["timeline_cache"].contains("read_ahead_frames")) {
                     g_timeline_read_ahead_frames = j["timeline_cache"]["read_ahead_frames"].get<int>();
+                    printf("[Settings Load] g_timeline_read_ahead_frames = %d (from timeline_cache)\n", g_timeline_read_ahead_frames);
                 }
                 if (j["timeline_cache"].contains("read_behind_frames")) {
                     g_timeline_read_behind_frames = j["timeline_cache"]["read_behind_frames"].get<int>();
+                    printf("[Settings Load] g_timeline_read_behind_frames = %d (from timeline_cache)\n", g_timeline_read_behind_frames);
                 }
                 if (j["timeline_cache"].contains("max_textures")) {
                     g_timeline_max_textures = j["timeline_cache"]["max_textures"].get<int>();

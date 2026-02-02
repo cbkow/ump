@@ -2193,12 +2193,14 @@ void TimelinePlaybackController::StartRewind() {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
                                                   : TimelineSourceMode::MULTI_TRACK;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK) {
-            // Use aggressive scrub mode for multi-track (multiple clips)
+        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
+            // Use aggressive scrub mode for multi-track and dual view
             cache_->SetAggressiveScrubMode(true);
-        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            if (right_cache_) {
+                right_cache_->SetAggressiveScrubMode(true);
+            }
+        } else {
             // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            // DUAL_VIEW: No special handling - normal playhead updates work best
             cache_->SetShuttleMode(true, -1);  // -1 = backward
         }
     }
@@ -2233,12 +2235,14 @@ void TimelinePlaybackController::StartFastForward() {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
                                                   : TimelineSourceMode::MULTI_TRACK;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK) {
-            // Use aggressive scrub mode for multi-track (multiple clips)
+        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
+            // Use aggressive scrub mode for multi-track and dual view
             cache_->SetAggressiveScrubMode(true);
-        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            if (right_cache_) {
+                right_cache_->SetAggressiveScrubMode(true);
+            }
+        } else {
             // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            // DUAL_VIEW: No special handling - normal playhead updates work best
             cache_->SetShuttleMode(true, 1);  // 1 = forward
         }
     }
@@ -2265,12 +2269,14 @@ void TimelinePlaybackController::StopFastSeek() {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
                                                   : TimelineSourceMode::MULTI_TRACK;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK) {
-            // Disable aggressive scrub mode for multi-track
+        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
+            // Disable aggressive scrub mode for multi-track and dual view
             cache_->SetAggressiveScrubMode(false);
-        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            if (right_cache_) {
+                right_cache_->SetAggressiveScrubMode(false);
+            }
+        } else {
             // Disable normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            // DUAL_VIEW: No special handling needed
             cache_->SetShuttleMode(false, 0);
         }
     }
@@ -2299,12 +2305,14 @@ void TimelinePlaybackController::SetScrubMode(bool enabled) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
                                                   : TimelineSourceMode::MULTI_TRACK;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK) {
-            // Use aggressive scrub mode for multi-track (multiple clips)
+        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
+            // Use aggressive scrub mode for multi-track and dual view
             cache_->SetAggressiveScrubMode(enabled);
-        } else if (mode != TimelineSourceMode::DUAL_VIEW) {
+            if (right_cache_) {
+                right_cache_->SetAggressiveScrubMode(enabled);
+            }
+        } else {
             // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            // DUAL_VIEW: No special handling - normal playhead updates work best
             cache_->SetShuttleMode(enabled, 0);  // 0 = no direction preference during scrub
         }
     }
@@ -2437,7 +2445,7 @@ void TimelinePlaybackController::UpdateThrottleState() {
     if (!cache_ || !timeline_timer_) return;
 
     // Skip adaptive throttle entirely for video-only content
-    // GStreamer's ring buffer is fast enough that throttling isn't needed
+    // ring buffer is fast enough that throttling isn't needed
     if (cache_->IsVideoOnly()) {
         if (throttle_state_ != ThrottleState::FULL) {
             throttle_state_ = ThrottleState::FULL;

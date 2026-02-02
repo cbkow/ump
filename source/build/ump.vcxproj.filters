@@ -34,9 +34,6 @@
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\gstreamer_audio_manager.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -301,9 +298,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\gstreamer_audio_manager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\ring_buffer.h">

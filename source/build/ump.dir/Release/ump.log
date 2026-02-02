@@ -10,7 +10,6 @@
   audio_decoder.cpp
   audio_mixer.cpp
   audio_player.cpp
-  gstreamer_audio_manager.cpp
   wasapi_audio_device.cpp
   d3d11_ocio_renderer.cpp
   ocio_config_manager.cpp
@@ -19,9 +18,9 @@
   d3d11_hwframe_extractor.cpp
   d3d11_texture_pool.cpp
   d3d11_video_interop.cpp
+  d3d11_yuv_renderer.cpp
   Generating Code...
   Compiling...
-  d3d11_yuv_renderer.cpp
   texture_pool.cpp
   video_range_converter.cpp
   d3d11_hdr_swapchain.cpp
@@ -41,9 +40,9 @@
   svg_overlay_renderer.cpp
   conversion_strategy.cpp
   d3d11_video_decoder.cpp
+  d3d11va_video_decoder.cpp
   Generating Code...
   Compiling...
-  d3d11va_video_decoder.cpp
   decoder_cleanup_queue.cpp
   direct_exr_cache.cpp
   exr_transcoder.cpp
@@ -63,9 +62,9 @@
   video_decoder_factory.cpp
   video_display_component.cpp
   project_manager.cpp
+  project_manager_transcode.cpp
   Generating Code...
   Compiling...
-  project_manager_transcode.cpp
   cache_window_engine.cpp
   edl_parser.cpp
   media_linker.cpp
@@ -85,9 +84,9 @@
   transcode_worker_pool.cpp
   video_sequence_transcoder.cpp
   video_transcoder.cpp
+  annotation_panel.cpp
   Generating Code...
   Compiling...
-  annotation_panel.cpp
   node_editor_theme.cpp
   playlist_panel.cpp
   timeline_manager.cpp

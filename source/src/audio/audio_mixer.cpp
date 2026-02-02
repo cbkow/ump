@@ -103,6 +103,30 @@ void AudioMixer::PreloadClips(const std::vector<OTIOClip>& clips) {
     // The background audio thread needs this lock for clip change detection.
     // Holding it during file I/O (which can take 100s of ms) causes audio glitches.
 
+    // Helper to detect image sequences (no audio)
+    auto isImageSequence = [](const std::string& path) -> bool {
+        if (path.empty()) return false;
+        // Check for frame pattern indicators
+        if (path.find("%04d") != std::string::npos ||
+            path.find("%05d") != std::string::npos ||
+            path.find("%d") != std::string::npos) {
+            return true;
+        }
+        // Check extension
+        std::string ext = path;
+        size_t dot = ext.rfind('.');
+        if (dot != std::string::npos) {
+            ext = ext.substr(dot);
+            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+            if (ext == ".exr" || ext == ".tif" || ext == ".tiff" ||
+                ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
+                ext == ".dpx" || ext == ".tga") {
+                return true;
+            }
+        }
+        return false;
+    };
+
     // Step 1: Collect clips that need loading (brief lock)
     struct ClipToLoad {
         std::string clip_id;
@@ -119,6 +143,9 @@ void AudioMixer::PreloadClips(const std::vector<OTIOClip>& clips) {
             std::string media_path = clip.linked_path;
             if (media_path.empty()) media_path = clip.file_path;
             if (media_path.empty()) continue;
+
+            // Skip image sequences - they don't have audio
+            if (isImageSequence(media_path)) continue;
 
             std::string cache_key = clip.id + "|" + media_path;
 

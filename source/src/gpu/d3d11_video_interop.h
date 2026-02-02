@@ -124,6 +124,10 @@ public:
     // Get interop method name for debug display
     const char* GetInteropMethodName() const;
 
+    // Try to reinitialize zero-copy interop if currently using CPU fallback
+    // Call this from render thread when GL context is definitely current
+    bool TryReinitializeZeroCopy();
+
 private:
     //=========================================================================
     // Interop Initialization

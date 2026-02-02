@@ -16,7 +16,7 @@ extern VideoRangeMode g_video_range_override;
 //=============================================================================
 // Video Decoder Factory
 //
-// Creates video decoders using GStreamer backend.
+// Creates video decoders using FFmpeg or D3D11 backends.
 //=============================================================================
 
 class VideoDecoderFactory {
@@ -51,7 +51,6 @@ public:
     VideoDecoderBackend GetPreferredBackend() const { return preferred_backend_; }
 
     // Check backend availability
-    bool IsGStreamerAvailable() const;
     bool IsFFmpegAvailable() const;
     bool IsD3D11Available() const;
     bool IsBackendAvailable(VideoDecoderBackend backend) const;
@@ -71,7 +70,7 @@ private:
     ~VideoDecoderFactory();
 
     // State
-    VideoDecoderBackend preferred_backend_ = VideoDecoderBackend::GSTREAMER;
+    VideoDecoderBackend preferred_backend_ = VideoDecoderBackend::AUTO;
     mutable std::string last_error_;
     int decoders_created_ = 0;
 };

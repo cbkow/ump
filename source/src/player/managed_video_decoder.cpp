@@ -32,10 +32,11 @@ ManagedVideoDecoder::~ManagedVideoDecoder() {
 bool ManagedVideoDecoder::Initialize() {
     if (initialized_.load()) return true;
 
-    // Create decoder using AUTO backend (prefers D3D11 on Windows, FFmpeg elsewhere)
-    // The factory handles fallback to FFmpeg if D3D11 initialization fails
+    // Create decoder using FFMPEG backend for MULTI_TRACK mode coordination
+    // D3D11VideoDecoder has autonomous decode thread - not compatible with flattener control
+    // StreamingVideoDecoder (FFmpeg) works as a coordinated buffer slave
     auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
-        video_path_, VideoDecoderBackend::AUTO);
+        video_path_, VideoDecoderBackend::FFMPEG);
     if (!decoder_ptr) {
         Debug::Log("ManagedVideoDecoder: Factory failed to create decoder for " + video_path_);
         return false;
@@ -96,7 +97,7 @@ void ManagedVideoDecoder::Shutdown() {
         if (ffmpeg_decoder) {
             DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
         }
-        // D3D11 and GStreamer decoders clean up when shared_ptr goes out of scope
+        // D3D11 decoders clean up when shared_ptr goes out of scope
         // (D3D11 cleanup is fast enough to not need background queue)
     }
 }
@@ -319,14 +320,14 @@ void ManagedVideoDecoder::SpawnFreshDecoder(int target_frame) {
         if (ffmpeg_decoder) {
             DecoderCleanupQueue::Instance().Abandon(std::move(ffmpeg_decoder));
         }
-        // D3D11 and GStreamer decoders clean up when shared_ptr goes out of scope
+        // D3D11 decoders clean up when shared_ptr goes out of scope
         // (D3D11 cleanup is fast enough to not need background queue)
         abandon_count_++;
     }
 
-    // Create fresh decoder using AUTO backend (prefers D3D11 on Windows, FFmpeg elsewhere)
+    // Create fresh decoder using FFMPEG backend for MULTI_TRACK mode coordination
     auto decoder_ptr = VideoDecoderFactory::Instance().CreateDecoder(
-        video_path_, VideoDecoderBackend::AUTO);
+        video_path_, VideoDecoderBackend::FFMPEG);
     if (!decoder_ptr) {
         Debug::Log("ManagedVideoDecoder: Factory failed to create decoder");
         return;

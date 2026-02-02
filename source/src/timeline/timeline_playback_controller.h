@@ -124,7 +124,7 @@ public:
     // Access to cache for statistics
     TimelineCache* GetCache() const { return cache_.get(); }
 
-    // Apply pending FPS update from GStreamer (called when paused)
+    // Apply pending FPS update from video decoder (called when paused)
     void ApplyPendingFPSUpdate();
 
     //=========================================================================
@@ -341,7 +341,7 @@ public:
     int GetBufferWaitPercent() const { return buffer_wait_percent_; }
     int GetEffectiveBufferWaitPercent() const;
 
-    // Video buffer frames - how many frames to wait for GStreamer video
+    // Video buffer frames - how many frames to wait for video decoder
     void SetVideoBufferFrames(int frames);
     int GetVideoBufferFrames() const { return video_buffer_frames_; }
 
@@ -362,7 +362,7 @@ private:
     bool throttle_enabled_ = true;              // User toggle (defaults ON)
     bool buffer_wait_enabled_ = true;           // User toggle for buffer-wait (defaults ON)
     int buffer_wait_percent_ = 88;              // Percent of readahead to wait for (default 88%)
-    int video_buffer_frames_ = 2;               // Frames to wait for video (GStreamer) mode (2-48)
+    int video_buffer_frames_ = 2;               // Frames to wait for video (MPV/D3D11) mode (2-48)
     ThrottleState throttle_state_ = ThrottleState::FULL;
     double current_speed_factor_ = 1.0;
     std::chrono::steady_clock::time_point last_healthy_time_;

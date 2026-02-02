@@ -20,8 +20,7 @@ enum class HWAccelType {
     D3D11VA,        // Direct3D 11 Video Acceleration (NVIDIA/Intel/AMD)
     QSV,            // Intel Quick Sync Video
     DXVA2,          // Direct3D 9 Video Acceleration (legacy fallback)
-    VAAPI,          // Video Acceleration API (Linux)
-    GSTREAMER_D3D11 // GStreamer d3d11 decoder
+    VAAPI           // Video Acceleration API (Linux)
 };
 
 // Convert HWAccelType to string for logging
@@ -32,7 +31,6 @@ inline const char* HWAccelTypeToString(HWAccelType type) {
         case HWAccelType::QSV: return "Quick Sync";
         case HWAccelType::DXVA2: return "DXVA2";
         case HWAccelType::VAAPI: return "VAAPI";
-        case HWAccelType::GSTREAMER_D3D11: return "GStreamer D3D11";
         default: return "Software";
     }
 }
@@ -53,14 +51,12 @@ enum class SeekQuality {
 enum class VideoDecoderBackend {
     AUTO,       // Auto-select best available
     FFMPEG,     // Force FFmpeg backend (CPU ring buffer)
-    GSTREAMER,  // Force GStreamer backend
     D3D11       // D3D11 GPU-native backend (Windows only)
 };
 
 inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
     switch (backend) {
         case VideoDecoderBackend::FFMPEG: return "FFmpeg";
-        case VideoDecoderBackend::GSTREAMER: return "GStreamer";
         case VideoDecoderBackend::D3D11: return "D3D11";
         default: return "Auto";
     }
@@ -93,7 +89,7 @@ struct DecodeStatus {
 //=============================================================================
 // Abstract Video Decoder Interface
 //
-// Common interface for video decoding backends (FFmpeg, GStreamer, etc.)
+// Common interface for video decoding backends (FFmpeg, D3D11, etc.)
 // Implementations must provide:
 // - Ring buffer frame caching
 // - Background decode thread
@@ -270,7 +266,7 @@ public:
     // Backend Identification
     //=========================================================================
 
-    // Get the name of the decoder backend (e.g., "FFmpeg", "GStreamer")
+    // Get the name of the decoder backend (e.g., "FFmpeg", "D3D11")
     virtual const char* GetBackendName() const = 0;
 
     // Get the backend type enum

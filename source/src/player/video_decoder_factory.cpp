@@ -60,13 +60,6 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
 #endif
     }
 
-    // GSTREAMER enum no longer supported through factory
-    // (VIDEO_FILE mode uses direct MPV in VideoDisplayComponent)
-    if (backend == VideoDecoderBackend::GSTREAMER) {
-        std::cout << "[VideoDecoderFactory] GSTREAMER backend deprecated - VIDEO_FILE mode "
-                  << "now uses direct MPV rendering. Falling back to FFmpeg." << std::endl;
-        backend = VideoDecoderBackend::FFMPEG;
-    }
 
 #ifdef _WIN32
     //=========================================================================
@@ -113,12 +106,6 @@ std::unique_ptr<IVideoDecoder> VideoDecoderFactory::CreateDecoder(
 // Backend Availability
 //=============================================================================
 
-bool VideoDecoderFactory::IsGStreamerAvailable() const {
-    // GSTREAMER/LibMPV no longer available through factory
-    // VIDEO_FILE mode uses direct MPV in VideoDisplayComponent
-    return false;
-}
-
 bool VideoDecoderFactory::IsFFmpegAvailable() const {
     return true;  // FFmpeg backend available (StreamingVideoDecoder)
 }
@@ -133,8 +120,6 @@ bool VideoDecoderFactory::IsD3D11Available() const {
 
 bool VideoDecoderFactory::IsBackendAvailable(VideoDecoderBackend backend) const {
     switch (backend) {
-        case VideoDecoderBackend::GSTREAMER:
-            return IsGStreamerAvailable();
         case VideoDecoderBackend::FFMPEG:
             return IsFFmpegAvailable();
         case VideoDecoderBackend::D3D11:
@@ -162,12 +147,6 @@ std::vector<VideoDecoderBackend> VideoDecoderFactory::GetAvailableBackends() con
 //=============================================================================
 
 void VideoDecoderFactory::SetPreferredBackend(VideoDecoderBackend backend) {
-    if (backend == VideoDecoderBackend::GSTREAMER) {
-        std::cerr << "[VideoDecoderFactory] GSTREAMER backend deprecated - "
-                  << "VIDEO_FILE mode uses direct MPV in VideoDisplayComponent" << std::endl;
-        return;
-    }
-
 #ifndef _WIN32
     if (backend == VideoDecoderBackend::D3D11) {
         std::cerr << "[VideoDecoderFactory] D3D11 backend only available on Windows" << std::endl;

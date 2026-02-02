@@ -30,10 +30,11 @@
 #include "../player/image_sequence_decoder.h"   // For ImageSequenceDecoder
 #include "../player/scrub_decoder.h"            // For ScrubDecoderManager (scrub-only decoders)
 #ifdef _WIN32
-#include "../player/d3d11_video_decoder.h"      // For D3D11VideoDecoder (GPU-native)
+#include "../player/d3d11_video_decoder.h"      // For D3D11VideoDecoder (GPU-native) - VIDEO_FILE mode only
 #endif
 #include "cache_window_engine.h"                // Central circular cache engine
 #include "timeline_types.h"                     // For TimelineSourceMode
+#include "../utils/debug_utils.h"               // For Debug::Log
 
 namespace ump {
 
@@ -44,26 +45,31 @@ class TimelineFlattener;
 class IImageLoader;
 
 //=============================================================================
-// Timeline Cache Key - Identifies a cached frame by timeline position
-// Simple approach: each timeline frame position has its own cache entry
+// Timeline Cache Key - Identifies a cached frame by source file and frame
+// This ensures correct caching when the same source appears at multiple
+// timeline positions or with different trim points
 //=============================================================================
 
 struct TimelineCacheKey {
-    int timeline_frame;             // Frame number on the timeline (unique per position)
+    std::string source_path;    // Source media file path
+    int source_frame;           // Frame number within the source
 
     bool operator<(const TimelineCacheKey& other) const {
-        return timeline_frame < other.timeline_frame;
+        if (source_path != other.source_path) return source_path < other.source_path;
+        return source_frame < other.source_frame;
     }
 
     bool operator==(const TimelineCacheKey& other) const {
-        return timeline_frame == other.timeline_frame;
+        return source_path == other.source_path && source_frame == other.source_frame;
     }
 };
 
 // Hash function for TimelineCacheKey (for unordered containers)
 struct TimelineCacheKeyHash {
     std::size_t operator()(const TimelineCacheKey& key) const {
-        return std::hash<int>{}(key.timeline_frame);
+        std::size_t h1 = std::hash<std::string>{}(key.source_path);
+        std::size_t h2 = std::hash<int>{}(key.source_frame);
+        return h1 ^ (h2 << 1);
     }
 };
 
@@ -144,7 +150,7 @@ struct CachedFrame {
 //=============================================================================
 
 struct ClipLoaderInfo {
-    // For VIDEO clips in VIDEO_FILE mode: use IVideoDecoder (GStreamer)
+    // For VIDEO clips in VIDEO_FILE mode: use IVideoDecoder (MPV/D3D11)
     std::shared_ptr<IVideoDecoder> video_decoder;
 
     // For VIDEO clips in MULTI_TRACK/DUAL_VIEW mode: use ManagedVideoDecoder (FFmpeg spawn-and-abandon)
@@ -156,8 +162,7 @@ struct ClipLoaderInfo {
     // Legacy: For image sequences without full metadata (falls back to per-file loading)
     std::unique_ptr<IImageLoader> image_loader;
 
-    // Direct D3D11 decoder for MULTI_TRACK video (bypasses ManagedVideoDecoder)
-    // This avoids the spawn-and-abandon logic that conflicts with D3D11's on-demand model
+    // Direct D3D11 decoder for VIDEO_FILE mode only (solo video path)
 #ifdef _WIN32
     std::unique_ptr<D3D11VideoDecoder> d3d11_decoder;
 #endif
@@ -173,11 +178,27 @@ struct ClipLoaderInfo {
     std::chrono::steady_clock::time_point last_used_time;
 
     // VIDEO ONLY: Reusable GPU texture - no caching, just re-upload each frame
-    // GStreamer's ring buffer is the cache, we just display frames directly
+    // Decoder's ring buffer is the cache, we just display frames directly
     GLuint video_texture = 0;
     int video_texture_width = 0;
     int video_texture_height = 0;
     GLenum video_texture_format = 0;  // Track internal format for HDR/High-Res switching
+
+    //=========================================================================
+    // Coordinator Control - Used by CacheManagementThread
+    //=========================================================================
+
+    // Set active state for decoders based on flattener visibility
+    // ManagedVideoDecoder naturally stops when UpdatePlayhead isn't called
+    void SetActive(bool active) {
+        (void)active;  // Control is via UpdatePlayhead, not explicit active flag
+    }
+
+#ifdef _WIN32
+    bool IsActive() const {
+        return true;  // Decoders are always "active" - controlled via UpdatePlayhead
+    }
+#endif
 
     //=========================================================================
     // Helper methods for unified decoder access
@@ -186,7 +207,7 @@ struct ClipLoaderInfo {
     // Get frame from appropriate decoder
     std::shared_ptr<PixelData> GetFrame(int frame) {
 #ifdef _WIN32
-        // D3D11 decoder uses GetGLTexture() path, not PixelData
+        // D3D11VideoDecoder uses GetGLTexture() path, not PixelData
         if (d3d11_decoder) return d3d11_decoder->GetFrame(frame);
 #endif
         if (managed_decoder) return managed_decoder->GetFrame(frame);
@@ -219,7 +240,7 @@ struct ClipLoaderInfo {
     // Set playback mode
     void SetPlaybackMode(bool playing) {
         if (managed_decoder) managed_decoder->SetPlaybackMode(playing);
-        // GStreamer handles playback/scrub mode internally
+        // MPV/D3D11 handles playback/scrub mode internally
         // ImageSequenceDecoder doesn't need this - it handles frames independently
     }
 
@@ -360,7 +381,7 @@ struct ClipLoaderInfo {
         }
 #endif
         if (managed_decoder) return managed_decoder->ExitShuttle();
-        // GStreamer - disable shuttle mode and return current position
+        // MPV/D3D11 - disable shuttle mode and return current position
         if (video_decoder) {
             video_decoder->SetShuttleMode(false);
             // Clear buffer of scrubbed frames so normal buffering can restart fresh
@@ -404,14 +425,16 @@ struct ClipLoaderInfo {
     }
 
     //=========================================================================
-    // D3D11 Direct GL Texture Access (zero-copy path)
+    // D3D11 Direct GL Texture Access (zero-copy path) - VIDEO_FILE mode only
     //=========================================================================
 
 #ifdef _WIN32
-    // Get frame as GL texture directly from D3D11VideoDecoder (bypasses PixelData)
+    // Get frame as GL texture directly from D3D11 decoder (bypasses PixelData)
     // Returns 0 if decoder is not D3D11 type or frame not available
-    GLuint GetGLTexture(int frame) {
-        // Check direct d3d11_decoder first (MULTI_TRACK direct path)
+    GLuint GetGLTexture(int frame, bool is_scrubbing = false) {
+        (void)is_scrubbing;
+
+        // D3D11VideoDecoder (VIDEO_FILE mode only)
         if (d3d11_decoder) {
             return d3d11_decoder->GetFrameAsGLTexture(frame);
         }
@@ -435,7 +458,7 @@ struct ClipLoaderInfo {
 
     // Check if this loader uses D3D11 backend
     bool IsD3D11Decoder() const {
-        // Check direct d3d11_decoder first (MULTI_TRACK direct path)
+        // Check d3d11_decoder (VIDEO_FILE mode)
         if (d3d11_decoder) {
             return true;
         }
@@ -477,7 +500,7 @@ struct TimelineCacheConfig {
     // Read-behind for instant backward scrubbing
     int readBehindFrames = 12;      // ~0.5 seconds behind @ 24fps
 
-    int io_threads = 1;             // GStreamer does decoding internally
+    int io_threads = 1;             // VIDEO_FILE: MPV handles decoding (1 thread sufficient)
     int decodeThreads = 4;          // FFmpeg decode threads per video (for ManagedVideoDecoder)
     double fps = 24.0;              // Timeline frame rate
     bool use_shared_pool = true;    // Use SharedMemoryPool for eviction
@@ -560,7 +583,7 @@ public:
     // flattener: TimelineFlattener for visibility queries
     // fps: Timeline frame rate
     // source_mode: Determines decoder backend selection
-    //              VIDEO_FILE → GStreamer (single video, HW accel)
+    //              VIDEO_FILE → MPV/D3D11 (single video, HW accel)
     //              MULTI_TRACK → FFmpeg (multiple simultaneous decoders)
     void Initialize(const std::vector<OTIOTrack>& tracks,
                     TimelineFlattener* flattener,
@@ -625,8 +648,8 @@ public:
     // Returns segments of actually cached frames (within boundary range)
     std::vector<TimelineCacheSegment> GetCacheSegments() const;
 
-    // Check if all content is video-only (skip cache bar for GStreamer video)
-    // Returns true if all loaded clips use GStreamer video decoder
+    // Check if all content is video-only (skip cache bar for MPV/D3D11 video)
+    // Returns true if all loaded clips use video decoder with internal buffering
     bool IsVideoOnly() const;
 
     // Get video buffer segments for cache bar visualization
@@ -845,7 +868,7 @@ private:
     // Pipeline mode for video (bit depth / HDR)
     PipelineMode video_pipeline_mode_ = PipelineMode::NORMAL;
 
-    // FPS detected from GStreamer - for pending update check (VIDEO_FILE mode)
+    // FPS detected from video decoder - for pending update check (VIDEO_FILE mode)
     double detected_media_fps_ = 0.0;
 
 #ifdef _WIN32
@@ -865,6 +888,12 @@ private:
     // Using shared_ptr so I/O workers can hold a reference that keeps loader alive
     std::map<std::string, std::shared_ptr<ClipLoaderInfo>> loaders_;
     mutable std::mutex loaders_mutex_;
+
+    // Track paths with creation in progress to avoid duplicate initialization
+    // When a thread starts creating a loader, it adds the path here.
+    // Other threads wait on loaders_cv_ instead of creating duplicates.
+    std::set<std::string> loaders_creating_;
+    std::condition_variable loaders_cv_;
 
     // Sequence metadata (for creating ImageSequenceDecoder with proper buffering)
     // Registered via RegisterSequenceMetadata() when linking clips to sequences
