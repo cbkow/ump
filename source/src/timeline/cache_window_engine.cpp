@@ -49,9 +49,9 @@ void CacheWindowEngine::SetWindow(int behind, int ahead) {
 //=============================================================================
 
 void CacheWindowEngine::UpdatePlayhead(int frame) {
-    // Wrap frame into boundaries before storing
-    int wrapped = WrapFrame(frame);
-    playhead_.store(wrapped);
+    // Wrap or clamp frame into boundaries before storing
+    int adjusted = WrapFrame(frame);
+    playhead_.store(adjusted);
 }
 
 //=============================================================================
@@ -83,9 +83,14 @@ std::vector<int> CacheWindowEngine::GetFrameWindow() const {
     // Ensure playhead is within boundaries
     int safe_playhead = playhead;
     if (safe_playhead < boundary_start || safe_playhead > boundary_end) {
-        // Wrap playhead into valid range
-        while (safe_playhead > boundary_end) safe_playhead -= boundary_len;
-        while (safe_playhead < boundary_start) safe_playhead += boundary_len;
+        if (linear_mode_) {
+            // Linear mode: clamp to boundaries
+            safe_playhead = std::max(boundary_start, std::min(boundary_end, safe_playhead));
+        } else {
+            // Circular mode: wrap playhead into valid range
+            while (safe_playhead > boundary_end) safe_playhead -= boundary_len;
+            while (safe_playhead < boundary_start) safe_playhead += boundary_len;
+        }
     }
     window.push_back(safe_playhead);
 
@@ -96,9 +101,14 @@ std::vector<int> CacheWindowEngine::GetFrameWindow() const {
     // 2. Frames AHEAD sorted by distance (closest first)
     for (int i = 1; i <= effective_ahead; i++) {
         int frame = safe_playhead + i;
-        // Wrap into [boundary_start, boundary_end]
-        while (frame > boundary_end) frame -= boundary_len;
-        while (frame < boundary_start) frame += boundary_len;
+        if (linear_mode_) {
+            // Linear mode: stop at boundary, don't wrap
+            if (frame > boundary_end) break;
+        } else {
+            // Circular mode: wrap into [boundary_start, boundary_end]
+            while (frame > boundary_end) frame -= boundary_len;
+            while (frame < boundary_start) frame += boundary_len;
+        }
         if (added.find(frame) == added.end()) {
             window.push_back(frame);
             added.insert(frame);
@@ -108,9 +118,14 @@ std::vector<int> CacheWindowEngine::GetFrameWindow() const {
     // 3. Frames BEHIND sorted by distance (closest first)
     for (int i = 1; i <= effective_behind; i++) {
         int frame = safe_playhead - i;
-        // Wrap into [boundary_start, boundary_end]
-        while (frame < boundary_start) frame += boundary_len;
-        while (frame > boundary_end) frame -= boundary_len;
+        if (linear_mode_) {
+            // Linear mode: stop at boundary, don't wrap
+            if (frame < boundary_start) break;
+        } else {
+            // Circular mode: wrap into [boundary_start, boundary_end]
+            while (frame < boundary_start) frame += boundary_len;
+            while (frame > boundary_end) frame -= boundary_len;
+        }
         if (added.find(frame) == added.end()) {
             window.push_back(frame);
             added.insert(frame);
@@ -144,7 +159,14 @@ int CacheWindowEngine::WrapFrame(int frame) const {
 
     if (boundary_len <= 0) return frame;
 
-    // Wrap into [boundary_start, boundary_end]
+    if (linear_mode_) {
+        // Linear mode: clamp to boundaries (for multitrack/dual view)
+        if (frame < boundary_start) return boundary_start;
+        if (frame > boundary_end) return boundary_end;
+        return frame;
+    }
+
+    // Circular mode: wrap into [boundary_start, boundary_end]
     while (frame > boundary_end) frame -= boundary_len;
     while (frame < boundary_start) frame += boundary_len;
 

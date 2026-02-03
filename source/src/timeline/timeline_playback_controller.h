@@ -22,6 +22,8 @@ namespace ump {
 class D3D11VAVideoDecoder;
 // Forward declaration for D3D11 GPU-native decoder (new)
 class D3D11VideoDecoder;
+// Forward declaration for unified dual view pipeline
+class DualViewPipeline;
 
 // Forward declarations
 class TimelineView;
@@ -29,6 +31,7 @@ class TimelineCache;
 class TimelineFlattener;
 class AudioMixer;
 class PlaybackTimer;
+class TimelineThumbnailCache;
 
 //=============================================================================
 // Timeline Playback Controller Configuration
@@ -103,6 +106,9 @@ public:
     void SetConfig(const TimelinePlaybackConfig& config);
     TimelinePlaybackConfig GetConfig() const { return config_; }
 
+    // Set thumbnail cache reference (for playback state notifications)
+    void SetThumbnailCache(TimelineThumbnailCache* cache) { thumbnail_cache_ = cache; }
+
     // Loop control
     void SetLooping(bool enabled);
     bool IsLooping() const;
@@ -137,15 +143,31 @@ public:
     // Check if in dual view mode
     bool IsDualViewMode() const { return dual_view_mode_; }
 
+    // Check if using unified composite pipeline (single interop)
+    bool IsUnifiedCompositePipeline() const { return use_unified_composite_; }
+
     // Dual view update - returns textures for both LEFT and RIGHT tracks
     // Returns gap texture for sides with no clip at current time
     struct DualViewTextures {
+        // Separate textures (legacy mode - two interops)
         GLuint left_texture = 0;
         int left_width = 0;
         int left_height = 0;
         GLuint right_texture = 0;
         int right_width = 0;
         int right_height = 0;
+
+        // Unified composite texture (new mode - single interop)
+        GLuint composite_texture = 0;
+        int composite_width = 0;
+        int composite_height = 0;
+        bool is_unified = false;  // True if using unified pipeline
+
+        // UV coordinates for sampling left/right from composite
+        float left_uv_min_x = 0.0f, left_uv_max_x = 0.5f;
+        float left_uv_min_y = 0.0f, left_uv_max_y = 1.0f;
+        float right_uv_min_x = 0.5f, right_uv_max_x = 1.0f;
+        float right_uv_min_y = 0.0f, right_uv_max_y = 1.0f;
     };
     DualViewTextures UpdateDualView();
 
@@ -254,6 +276,7 @@ private:
     // External references (not owned)
     TimelineView* timeline_view_ = nullptr;
     ::VideoPlayer* video_player_ = nullptr;
+    TimelineThumbnailCache* thumbnail_cache_ = nullptr;  // For playback state notifications
 
     // Owned components
     std::unique_ptr<TimelineCache> cache_;
@@ -262,9 +285,19 @@ private:
 
     // Dual view mode components
     bool dual_view_mode_ = false;
+    bool use_unified_composite_ = false;  // True to use DualViewPipeline (single interop)
+    bool unified_not_possible_ = false;   // True if one side has image sequences (skip D3D11 pipeline)
     std::unique_ptr<TimelineCache> right_cache_;       // Cache for RIGHT track (dual view only)
     std::unique_ptr<TimelineFlattener> left_flattener_;  // Flattener for LEFT track only
     std::unique_ptr<TimelineFlattener> right_flattener_; // Flattener for RIGHT track only
+
+#ifdef _WIN32
+    // Unified dual view pipeline (single interop, D3D11 compositor)
+    std::unique_ptr<DualViewPipeline> dual_view_pipeline_;
+
+    // Initialize unified composite pipeline for dual view (called from InitializeForDualView)
+    void InitializeUnifiedDualViewPipeline();
+#endif
 
     // Virtual timeline mode flag (always true now - dummy video mode removed)
     bool use_virtual_timeline_ = true;

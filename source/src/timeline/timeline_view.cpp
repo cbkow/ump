@@ -1804,8 +1804,9 @@ bool TimelineView::DeleteTrack(int track_index) {
     std::string track_name = tracks_[track_index].name;
     tracks_.erase(tracks_.begin() + track_index);
 
-    // Update flattener
-    flattener_.SetTracks(tracks_);
+    // Use full sync and invalidation path (same as other edits)
+    // This ensures playback controller, caches, and dual view flatteners are all updated
+    SyncFlattenerAndInvalidate();
 
     Debug::Log("Deleted track: " + track_name);
     return true;
@@ -3672,13 +3673,17 @@ void TimelineView::SyncFlattenerAndInvalidate() {
             controller->GetCache()->UpdateDuration(timeline_duration_);
         }
 
-        // Notify the playback controller about the edit
-        // This clears the stale current texture AND the cache
-        controller->NotifyTracksEdited();
-
-        // For dual view mode, sync the separate LEFT/RIGHT flatteners
+        // For dual view mode, sync the separate LEFT/RIGHT flatteners BEFORE NotifyTracksEdited
+        // CRITICAL: In dual view, cache_ uses left_flattener_ (not flattener_), so we must
+        // update left_flattener_ FIRST, then call NotifyTracksEdited.
+        // Otherwise, NotifyTracksEdited would use stale flattener data and crash.
         if (IsDualViewMode()) {
             controller->SyncDualFlatteners();
+            // SyncDualFlatteners already calls NotifyTracksEdited on both caches
+        } else {
+            // Non-dual-view mode: notify the playback controller about the edit
+            // This clears the stale current texture AND the cache
+            controller->NotifyTracksEdited();
         }
     }
 }

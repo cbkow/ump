@@ -263,9 +263,9 @@ bool AudioDecoder::SetupResampler() {
     }
 #endif
 
-    // Apply normalization to prevent hot output levels
-    // Use -6dB (0.5) to match Premiere/MPV playback levels
-    av_opt_set_double(swr_ctx_, "rematrix_volume", 0.5, 0);
+    // Apply slight headroom to prevent clipping when mixing multiple tracks
+    // 0.9 = ~-1dB (was 0.5 = -6dB which was too aggressive)
+    av_opt_set_double(swr_ctx_, "rematrix_volume", 0.9, 0);
 
     if (swr_init(swr_ctx_) < 0) {
         Debug::Log("AudioDecoder: Failed to initialize resampler");

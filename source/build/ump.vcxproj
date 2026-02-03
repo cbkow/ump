@@ -1627,6 +1627,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_rate_corrector.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_rate_corrector.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\ring_buffer.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.h" />
@@ -1638,6 +1640,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_device_manager.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_device_manager.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_dual_compositor.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_dual_compositor.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_hwframe_extractor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_hwframe_extractor.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_texture_pool.cpp" />
@@ -1646,6 +1650,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_video_interop.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_yuv_renderer.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_yuv_renderer.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\dual_view_layout.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\dual_view_layout.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\video_range_converter.cpp" />
@@ -1689,6 +1695,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\decoder_cleanup_queue.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\dual_view_pipeline.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dual_view_pipeline.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\dual_view_types.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.h" />

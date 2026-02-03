@@ -318,6 +318,31 @@ void ImageSequenceDecoder::ClearBuffer() {
     buffer_size_ = 0;
 }
 
+int ImageSequenceDecoder::ClearBufferGradually(int max_frames_to_clear) {
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+
+    int cleared = 0;
+    while (!ring_buffer_.empty() && cleared < max_frames_to_clear) {
+        // Remove from front (oldest frames)
+        auto& bf = ring_buffer_.front();
+        buffer_frame_set_.erase(bf.frame_number);
+
+        // Update counts
+        int playhead = playhead_frame_.load();
+        if (bf.frame_number >= playhead) {
+            buffer_ahead_count_--;
+        } else {
+            buffer_behind_count_--;
+        }
+        buffer_size_--;
+
+        ring_buffer_.pop_front();
+        cleared++;
+    }
+
+    return static_cast<int>(ring_buffer_.size());
+}
+
 //=============================================================================
 // Configuration
 //=============================================================================
@@ -533,6 +558,12 @@ std::shared_ptr<PixelData> ImageSequenceDecoder::FindInBuffer(int frame_number) 
 }
 
 bool ImageSequenceDecoder::NeedsMoreFrames() const {
+    // When suspended, don't spawn new I/O tasks
+    // Used for MULTI_TRACK/DUAL_VIEW when clip leaves active window
+    if (suspended_.load()) {
+        return false;
+    }
+
     int playhead = playhead_frame_.load();
     int ahead = buffer_ahead_count_.load();
     int total = buffer_size_.load();

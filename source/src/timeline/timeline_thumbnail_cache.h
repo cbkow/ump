@@ -21,6 +21,16 @@ namespace ump {
 class StreamingVideoDecoder;
 
 //=============================================================================
+// Worker State - Controls how many worker threads are active
+//=============================================================================
+
+enum class ThumbnailWorkerState {
+    STOPPED,           // Not running
+    ACTIVE,            // All workers active (idle/scrubbing)
+    PAUSED_PLAYBACK    // Only worker 0 active (during playback)
+};
+
+//=============================================================================
 // Timeline Thumbnail Key - Identifies a frame from a source clip
 //=============================================================================
 
@@ -136,6 +146,13 @@ public:
     bool IsEnabled() const { return config_.enabled; }
 
     /**
+     * Notify cache of playback state changes
+     * When playing: reduces to 1 worker thread to avoid competing for I/O resources
+     * When paused: resumes all 3 worker threads for faster thumbnail generation
+     */
+    void NotifyPlaybackState(bool is_playing);
+
+    /**
      * Get cache statistics
      */
     struct Stats {
@@ -147,11 +164,30 @@ public:
     Stats GetStats() const;
 
 private:
-    // Background worker thread
-    void WorkerThread();
+    // Multi-worker configuration
+    static constexpr int kMaxWorkerThreads = 3;       // Workers during idle/scrubbing
+    static constexpr int kPlaybackWorkerThreads = 1;  // Workers during playback
 
-    // Generate thumbnail pixels (runs on background thread)
-    std::shared_ptr<PixelData> LoadThumbnailPixels(const TimelineThumbnailKey& key);
+    // Loader info for a source path (defined first so ThumbnailWorkerContext can use it)
+    struct LoaderInfo {
+        std::unique_ptr<IImageLoader> image_loader;
+        std::unique_ptr<StreamingVideoDecoder> video_decoder;
+        bool is_video = false;
+        int frame_count = 0;
+        double fps = 24.0;
+    };
+
+    // Background worker thread (with worker_id for multi-worker support)
+    void WorkerThread(int worker_id);
+
+    // Check if a worker should run (worker 0 always runs; others pause during playback)
+    bool ShouldWorkerRun(int worker_id) const;
+
+    // Re-queue current task when worker pauses (push to front for priority)
+    void RequeueCurrentTask(int worker_id);
+
+    // Generate thumbnail pixels (runs on background thread, uses per-worker loaders)
+    std::shared_ptr<PixelData> LoadThumbnailPixels(const TimelineThumbnailKey& key, int worker_id);
 
     // Create GL texture from pixels (runs on main thread only)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
@@ -162,15 +198,8 @@ private:
     // Find nearest cached frame for fallback preview (same source path)
     int FindNearestCachedFrame(const std::string& source_path, int target_frame) const;
 
-    // Get or create loader for a source path
-    struct LoaderInfo {
-        std::unique_ptr<IImageLoader> image_loader;
-        std::unique_ptr<StreamingVideoDecoder> video_decoder;
-        bool is_video = false;
-        int frame_count = 0;
-        double fps = 24.0;
-    };
-    std::shared_ptr<LoaderInfo> GetOrCreateLoader(const std::string& source_path);
+    // Get or create loader for a source path (per-worker to avoid contention)
+    std::shared_ptr<LoaderInfo> GetOrCreateLoader(const std::string& source_path, int worker_id);
 
     // Configuration
     TimelineThumbnailConfig config_;
@@ -182,8 +211,9 @@ private:
     std::list<TimelineThumbnailKey> lru_order_;  // Front = most recently used
     mutable std::mutex cache_mutex_;
 
-    // Source loaders (reused across requests)
-    std::map<std::string, std::shared_ptr<LoaderInfo>> loaders_;
+    // Per-worker loaders (each worker has its own to avoid FFmpeg mutex contention)
+    // Key is worker_id, value is map of source_path -> LoaderInfo
+    std::map<int, std::map<std::string, std::shared_ptr<LoaderInfo>>> worker_loaders_;
     mutable std::mutex loaders_mutex_;
 
     // Request queue
@@ -204,9 +234,21 @@ private:
     std::deque<PendingUpload> pending_uploads_;
     mutable std::mutex upload_mutex_;
 
-    // Worker thread
-    std::thread worker_thread_;
+    // Worker threads (multiple for parallelism)
+    std::vector<std::thread> worker_threads_;
     std::atomic<bool> running_{false};
+
+    // Worker state management
+    std::atomic<ThumbnailWorkerState> worker_state_{ThumbnailWorkerState::STOPPED};
+    std::atomic<int> active_thread_count_{kMaxWorkerThreads};
+    std::condition_variable worker_cv_;  // For pausing/resuming workers
+
+    // Per-worker task tracking (for re-queuing when paused)
+    std::map<int, TimelineThumbnailKey> worker_current_task_;
+    std::mutex worker_task_mutex_;
+
+    // Playback state
+    std::atomic<bool> is_playing_{false};
 
     // Statistics
     std::atomic<int> cache_hits_{0};

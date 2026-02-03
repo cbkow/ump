@@ -47,6 +47,10 @@ struct PipelineConfig {
 // Pipeline configurations map - defined in video_display_component.cpp
 extern const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS;
 
+// LibMPV toggle - defined in main.cpp
+// When false, D3D11 FFmpeg decoder is used for all video modes (not just ULTRA_HIGH_RES)
+extern bool g_use_libmpv;
+
 // Helper function to convert pipeline mode to display string
 const char* PipelineModeToString(PipelineMode mode);
 

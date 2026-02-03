@@ -5,6 +5,8 @@
 #include <d3d11_1.h>
 #include <wrl/client.h>
 #include <glad/gl.h>
+#include <mutex>
+#include <vector>
 
 namespace ump {
 
@@ -128,6 +130,17 @@ public:
     // Call this from render thread when GL context is definitely current
     bool TryReinitializeZeroCopy();
 
+    //=========================================================================
+    // Thread-Safe GL Resource Cleanup
+    //=========================================================================
+
+    // Queue GL texture for deletion from any thread (thread-safe)
+    // Must call ProcessPendingGLDeletions() from main thread to actually delete
+    static void QueueGLTextureDeletion(GLuint texture);
+
+    // Process pending GL texture deletions - MUST be called from main/GL thread
+    static void ProcessPendingGLDeletions();
+
 private:
     //=========================================================================
     // Interop Initialization
@@ -228,6 +241,12 @@ private:
 
     // Track which buffers are locked
     bool buffer_locked_[kInteropBufferCount] = {false, false, false};
+
+    //=========================================================================
+    // Static thread-safe deletion queue
+    //=========================================================================
+    static std::mutex s_deletion_mutex_;
+    static std::vector<GLuint> s_pending_gl_deletions_;
 };
 
 } // namespace ump

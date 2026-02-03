@@ -25,16 +25,23 @@ void TimelineThumbnailCache::Initialize(double fps) {
     fps_ = fps;
     initialized_ = true;
     running_ = true;
+    worker_state_ = ThumbnailWorkerState::ACTIVE;
+    active_thread_count_ = kMaxWorkerThreads;
+    is_playing_ = false;
 
-    // Start background worker thread
-    worker_thread_ = std::thread(&TimelineThumbnailCache::WorkerThread, this);
+    // Start multiple background worker threads
+    worker_threads_.reserve(kMaxWorkerThreads);
+    for (int i = 0; i < kMaxWorkerThreads; ++i) {
+        worker_threads_.emplace_back(&TimelineThumbnailCache::WorkerThread, this, i);
 
 #ifdef _WIN32
-    // Lower priority to avoid competing with playback
-    SetThreadPriority(worker_thread_.native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
+        // Lower priority to avoid competing with playback
+        SetThreadPriority(worker_threads_.back().native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
 #endif
+    }
 
-    Debug::Log("TimelineThumbnailCache: Initialized at " + std::to_string(fps) + " fps");
+    Debug::Log("TimelineThumbnailCache: Initialized at " + std::to_string(fps) +
+               " fps with " + std::to_string(kMaxWorkerThreads) + " worker threads");
 }
 
 void TimelineThumbnailCache::Shutdown() {
@@ -43,11 +50,19 @@ void TimelineThumbnailCache::Shutdown() {
     Debug::Log("TimelineThumbnailCache: Shutting down...");
 
     running_ = false;
-    queue_cv_.notify_all();
+    worker_state_ = ThumbnailWorkerState::STOPPED;
 
-    if (worker_thread_.joinable()) {
-        worker_thread_.join();
+    // Wake all workers so they can exit
+    queue_cv_.notify_all();
+    worker_cv_.notify_all();
+
+    // Join all worker threads
+    for (auto& thread : worker_threads_) {
+        if (thread.joinable()) {
+            thread.join();
+        }
     }
+    worker_threads_.clear();
 
     // Clear cache (delete GL textures)
     {
@@ -61,10 +76,16 @@ void TimelineThumbnailCache::Shutdown() {
         lru_order_.clear();
     }
 
-    // Clear loaders
+    // Clear per-worker loaders
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
-        loaders_.clear();
+        worker_loaders_.clear();
+    }
+
+    // Clear worker task tracking
+    {
+        std::lock_guard<std::mutex> lock(worker_task_mutex_);
+        worker_current_task_.clear();
     }
 
     initialized_ = false;
@@ -284,10 +305,16 @@ void TimelineThumbnailCache::Clear() {
         lru_order_.clear();
     }
 
-    // Clear loaders
+    // Clear per-worker loaders
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
-        loaders_.clear();
+        worker_loaders_.clear();
+    }
+
+    // Clear worker task tracking
+    {
+        std::lock_guard<std::mutex> lock(worker_task_mutex_);
+        worker_current_task_.clear();
     }
 
     cache_hits_ = 0;
@@ -313,8 +340,8 @@ TimelineThumbnailCache::Stats TimelineThumbnailCache::GetStats() const {
     return stats;
 }
 
-void TimelineThumbnailCache::WorkerThread() {
-    Debug::Log("TimelineThumbnailCache: Worker thread started");
+void TimelineThumbnailCache::WorkerThread(int worker_id) {
+    Debug::Log("TimelineThumbnailCache: Worker thread " + std::to_string(worker_id) + " started");
 
     while (running_) {
         ThumbnailRequest request;
@@ -323,23 +350,42 @@ void TimelineThumbnailCache::WorkerThread() {
         // Wait for work
         {
             std::unique_lock<std::mutex> lock(queue_mutex_);
-            queue_cv_.wait(lock, [this]() {
-                return !running_ || !request_queue_.empty();
+
+            queue_cv_.wait(lock, [this, worker_id]() {
+                return !running_ ||
+                       (!request_queue_.empty() && ShouldWorkerRun(worker_id));
             });
 
             if (!running_) break;
+
+            // If this worker should pause (playback started), re-queue current work and wait
+            if (!ShouldWorkerRun(worker_id)) {
+                RequeueCurrentTask(worker_id);
+                // Wait for resume signal (unlock queue_mutex, wait on worker_cv_)
+                worker_cv_.wait(lock, [this, worker_id]() {
+                    return !running_ || ShouldWorkerRun(worker_id);
+                });
+                if (!running_) break;
+                continue;
+            }
 
             if (!request_queue_.empty()) {
                 request = request_queue_.front();
                 request_queue_.pop_front();
                 in_progress_.insert(request.key);
                 have_request = true;
+
+                // Track current task for this worker (for potential re-queuing)
+                {
+                    std::lock_guard<std::mutex> task_lock(worker_task_mutex_);
+                    worker_current_task_[worker_id] = request.key;
+                }
             }
         }
 
         if (have_request) {
-            // Load thumbnail pixels
-            auto pixels = LoadThumbnailPixels(request.key);
+            // Load thumbnail pixels (uses per-worker loaders)
+            auto pixels = LoadThumbnailPixels(request.key, worker_id);
 
             if (pixels) {
                 // Queue for GPU upload
@@ -347,27 +393,79 @@ void TimelineThumbnailCache::WorkerThread() {
                 pending_uploads_.push_back({request.key, pixels});
             }
 
-            // Remove from in-progress
+            // Remove from in-progress and clear current task
             {
                 std::lock_guard<std::mutex> lock(queue_mutex_);
                 in_progress_.erase(request.key);
             }
+            {
+                std::lock_guard<std::mutex> task_lock(worker_task_mutex_);
+                worker_current_task_.erase(worker_id);
+            }
         }
     }
 
-    Debug::Log("TimelineThumbnailCache: Worker thread stopped");
+    Debug::Log("TimelineThumbnailCache: Worker thread " + std::to_string(worker_id) + " stopped");
+}
+
+bool TimelineThumbnailCache::ShouldWorkerRun(int worker_id) const {
+    // Worker 0 always runs; others only when not playing
+    return worker_id == 0 || !is_playing_.load();
+}
+
+void TimelineThumbnailCache::RequeueCurrentTask(int worker_id) {
+    // Note: queue_mutex_ is already held by caller (WorkerThread)
+    // We only need to lock worker_task_mutex_
+    std::lock_guard<std::mutex> lock(worker_task_mutex_);
+
+    auto it = worker_current_task_.find(worker_id);
+    if (it != worker_current_task_.end()) {
+        TimelineThumbnailKey key = it->second;
+        worker_current_task_.erase(it);
+
+        // Re-queue at front (high priority)
+        // queue_mutex_ is already held by caller, so direct access is safe
+        in_progress_.erase(key);
+        request_queue_.push_front({key, /*high_priority=*/true});
+    }
+}
+
+void TimelineThumbnailCache::NotifyPlaybackState(bool is_playing) {
+    bool was_playing = is_playing_.exchange(is_playing);
+
+    if (is_playing && !was_playing) {
+        // Playback started - reduce to 1 worker (worker 0 only)
+        active_thread_count_ = kPlaybackWorkerThreads;
+        worker_state_ = ThumbnailWorkerState::PAUSED_PLAYBACK;
+        queue_cv_.notify_all();  // Wake workers to check state and pause
+
+        Debug::Log("TimelineThumbnailCache: Playback started - reducing to " +
+                   std::to_string(kPlaybackWorkerThreads) + " worker(s)");
+
+    } else if (!is_playing && was_playing) {
+        // Playback stopped - resume all workers
+        active_thread_count_ = kMaxWorkerThreads;
+        worker_state_ = ThumbnailWorkerState::ACTIVE;
+        worker_cv_.notify_all();  // Wake paused workers
+        queue_cv_.notify_all();   // Also notify queue in case work is waiting
+
+        Debug::Log("TimelineThumbnailCache: Playback stopped - resuming all " +
+                   std::to_string(kMaxWorkerThreads) + " workers");
+    }
 }
 
 std::shared_ptr<TimelineThumbnailCache::LoaderInfo>
-TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
+TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path, int worker_id) {
     std::lock_guard<std::mutex> lock(loaders_mutex_);
 
-    auto it = loaders_.find(source_path);
-    if (it != loaders_.end()) {
+    // Check if this worker already has a loader for this source
+    auto& worker_map = worker_loaders_[worker_id];
+    auto it = worker_map.find(source_path);
+    if (it != worker_map.end()) {
         return it->second;
     }
 
-    // Create new loader based on file type
+    // Create new loader based on file type (per-worker to avoid FFmpeg contention)
     auto info = std::make_shared<LoaderInfo>();
 
     // Parse out ?layer= parameter if present (for EXR files)
@@ -389,10 +487,10 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
 
     if (is_video) {
         info->is_video = true;
-        // Create and cache VideoImageLoader - will be reused for all frames from this source
-        // This is safe because we only have a single worker thread
+        // Create per-worker VideoImageLoader - each worker has its own FFmpeg context
         info->image_loader = std::make_unique<VideoImageLoader>(file_path, fps_, 0.0);
-        Debug::Log("TimelineThumbnailCache: Created VideoImageLoader for " + file_path);
+        Debug::Log("TimelineThumbnailCache: Worker " + std::to_string(worker_id) +
+                   " created VideoImageLoader for " + file_path);
     } else {
         info->is_video = false;
         // Create appropriate image loader
@@ -401,7 +499,8 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
             // Set layer if specified
             if (!layer_name.empty()) {
                 exr_loader->SetLayer(layer_name);
-                Debug::Log("TimelineThumbnailCache: Created EXRImageLoader with layer '" + layer_name + "'");
+                Debug::Log("TimelineThumbnailCache: Worker " + std::to_string(worker_id) +
+                           " created EXRImageLoader with layer '" + layer_name + "'");
             }
             info->image_loader = std::move(exr_loader);
         } else if (ext == "tiff" || ext == "tif") {
@@ -413,12 +512,12 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path) {
         }
     }
 
-    loaders_[source_path] = info;
+    worker_map[source_path] = info;
     return info;
 }
 
-std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const TimelineThumbnailKey& key) {
-    auto loader_info = GetOrCreateLoader(key.source_path);
+std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const TimelineThumbnailKey& key, int worker_id) {
+    auto loader_info = GetOrCreateLoader(key.source_path, worker_id);
     if (!loader_info || !loader_info->image_loader) {
         //Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: No loader for " + key.source_path);
         return nullptr;
@@ -436,8 +535,8 @@ std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const Tim
     // For images: image_loader is an EXRImageLoader/TIFFImageLoader/etc.
     int max_thumb_size = std::max(config_.width, config_.height);
 
-    /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: Loading frame " +
-               std::to_string(key.source_frame) + " from " + file_path +
+    /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: Worker " + std::to_string(worker_id) +
+               " loading frame " + std::to_string(key.source_frame) + " from " + file_path +
                " (is_video=" + std::to_string(loader_info->is_video) + ")");*/
 
     if (loader_info->is_video) {

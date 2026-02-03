@@ -54,6 +54,10 @@ bool AudioMixer::Initialize() {
 
     initialized_ = true;
 
+    // Initialize rate corrector for drift compensation (Phase 2)
+    rate_corrector_.Initialize(48000, 2);
+    rate_correction_buffer_.resize(4096 * 2);  // Max frame count * channels
+
     // Start background preparation thread
     StartPreparationThread();
 
@@ -68,6 +72,9 @@ void AudioMixer::Shutdown() {
 
     // Stop background preparation thread first
     StopPreparationThread();
+
+    // Shutdown rate corrector (Phase 2)
+    rate_corrector_.Shutdown();
 
     Stop();
     ClearClips();
@@ -208,7 +215,7 @@ void AudioMixer::ClearClips() {
         active_sources_.clear();
     }
 
-    last_clip_ids_.clear();
+    last_clip_signatures_.clear();
 }
 
 //=============================================================================
@@ -220,12 +227,28 @@ void AudioMixer::Play() {
 
     Debug::Log("AudioMixer: Play");
 
+    // Force clip refresh on play - handles case where clips were edited while paused
+    // Clear the signature cache so background thread will re-evaluate all clips
+    last_clip_signatures_.clear();
+    force_refresh_ = true;
+
+    // Reset position tracking for drift calculation (Phase 3)
+    double current_pos = current_position_.load();
+    playback_start_position_ = current_pos;
+    samples_output_ = 0;
+
+    // Reset rate corrector state
+    rate_corrector_.Reset();
+
     device_->Start();
 
     is_playing_ = true;
 
     last_sync_check_time_ = std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
+
+    // Wake up background thread immediately to process clip changes
+    preparation_cv_.notify_one();
 }
 
 void AudioMixer::Pause() {
@@ -247,7 +270,7 @@ void AudioMixer::Stop() {
 
     // Reset position
     current_position_ = 0.0;
-    last_clip_ids_.clear();
+    last_clip_signatures_.clear();
 
     // Clear all active sources
     {
@@ -287,6 +310,13 @@ void AudioMixer::Seek(double position) {
 
     current_position_ = position;
 
+    // Reset position tracking for drift calculation (Phase 3)
+    playback_start_position_ = position;
+    samples_output_ = 0;
+
+    // Reset rate corrector state after seek
+    rate_corrector_.Reset();
+
     // Clear warming decoders immediately (they're pre-filled for wrong positions)
     // This is quick - just clearing a map, no FFmpeg calls
     {
@@ -296,6 +326,40 @@ void AudioMixer::Seek(double position) {
 
     // Wake up background thread to process the seek faster than the normal 50ms poll
     preparation_cv_.notify_one();
+}
+
+void AudioMixer::ForceRefresh() {
+    // Force the background thread to re-evaluate all clips on next iteration
+    // This is needed after edits like trim/slip where clip IDs don't change
+    // but clip content (source_in/out) does
+    force_refresh_ = true;
+
+    // Clear warming decoders - they may be pre-filled for wrong positions
+    {
+        std::lock_guard<std::mutex> lock(warming_mutex_);
+        warming_decoders_.clear();
+    }
+
+    // Wake up background thread immediately
+    preparation_cv_.notify_one();
+
+    Debug::Log("AudioMixer: Force refresh requested");
+}
+
+std::string AudioMixer::GetClipSignature(const OTIOClip* clip) {
+    if (!clip) return "";
+
+    // Include clip ID, trim points, and timeline position in signature
+    // This ensures we detect changes to any of these values
+    // Using fixed precision to avoid floating point comparison issues
+    char buf[256];
+    snprintf(buf, sizeof(buf), "%s|%.3f|%.3f|%.3f|%.3f",
+             clip->id.c_str(),
+             clip->source_in,
+             clip->source_out,
+             clip->start_time,
+             clip->duration);
+    return std::string(buf);
 }
 
 //=============================================================================
@@ -615,6 +679,42 @@ void AudioMixer::SetMuted(bool muted) {
 }
 
 //=============================================================================
+// Audio Sync Compensation (Phase 0)
+//=============================================================================
+
+void AudioMixer::SetDisplayLatency(double latency_seconds) {
+    display_latency_ = std::max(0.0, std::min(latency_seconds, 0.1));  // Clamp 0-100ms
+    Debug::Log("AudioMixer: Display latency set to " + std::to_string(latency_seconds * 1000.0) + "ms");
+}
+
+void AudioMixer::SetFineTuneOffset(double offset_seconds) {
+    fine_tune_offset_ = std::max(-0.05, std::min(offset_seconds, 0.05));  // Clamp ±50ms
+    Debug::Log("AudioMixer: Fine-tune offset set to " + std::to_string(offset_seconds * 1000.0) + "ms");
+}
+
+double AudioMixer::GetEffectiveOffset() const {
+    // Combined offset: display latency + fine-tune - WASAPI latency
+    // WASAPI latency is subtracted because the audio is already buffered
+    double wasapi_latency = GetWasapiLatency();
+    return display_latency_.load() + fine_tune_offset_.load() - wasapi_latency;
+}
+
+double AudioMixer::GetWasapiLatency() const {
+    if (device_) {
+        return device_->GetBufferLatencySeconds();
+    }
+    return 0.010;  // Fallback to 10ms estimate
+}
+
+double AudioMixer::GetCurrentDriftMs() const {
+    return rate_corrector_.GetCurrentDriftMs();
+}
+
+bool AudioMixer::IsRateCorrectionActive() const {
+    return rate_corrector_.IsActive();
+}
+
+//=============================================================================
 // Current State
 //=============================================================================
 
@@ -659,10 +759,30 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
         return;
     }
 
+    // Phase 0: Apply sync offset to timeline position
     double timeline_pos = current_position_.load();
+    double effective_offset = GetEffectiveOffset();
+    double adjusted_timeline_pos = timeline_pos + effective_offset;
 
-    // Initialize output buffer to zero
-    std::memset(output, 0, frame_count * 2 * sizeof(float));
+    // Phase 3: Calculate actual audio position based on samples output
+    // This is where we are in the audio stream vs where video thinks we are
+    double actual_audio_pos = playback_start_position_.load() +
+                              (samples_output_.load() / 48000.0);
+    double drift_seconds = adjusted_timeline_pos - actual_audio_pos;
+
+    // Phase 2: Update rate corrector with current drift
+    // This will activate rate correction for 10-50ms drift range
+    rate_corrector_.UpdateDrift(drift_seconds);
+
+    // Ensure rate correction buffer is large enough
+    size_t required_size = (frame_count + 128) * 2;  // Extra space for resampling
+    if (rate_correction_buffer_.size() < required_size) {
+        rate_correction_buffer_.resize(required_size);
+    }
+
+    // Initialize mixing buffer to zero
+    std::fill(rate_correction_buffer_.begin(),
+              rate_correction_buffer_.begin() + frame_count * 2, 0.0f);
 
     // Temporary buffer for each source
     std::vector<float> source_buf(frame_count * 2);
@@ -672,9 +792,19 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
     for (auto& source : active_sources_) {
         if (!source.decoder || !source.decoder->HasAudio()) continue;
 
-        // Check if we're within the clip's time range
+        // Check if we're within the clip's time range (use adjusted position)
         double clip_end = source.clip_start_time + source.clip_duration;
-        if (timeline_pos < source.clip_start_time || timeline_pos >= clip_end) {
+        if (adjusted_timeline_pos < source.clip_start_time || adjusted_timeline_pos >= clip_end) {
+            continue;
+        }
+
+        // Phase 3: Verify decoder position is reasonable
+        double expected_source_pos = source.source_in + (adjusted_timeline_pos - source.clip_start_time);
+        double actual_pos = source.decoder->GetReadPosition();
+        double pos_drift_ms = (expected_source_pos - actual_pos) * 1000.0;
+
+        // Skip sources with major desync (>100ms) - let sync thread fix it
+        if (std::abs(pos_drift_ms) > 100.0) {
             continue;
         }
 
@@ -682,12 +812,33 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
         std::memset(source_buf.data(), 0, frame_count * 2 * sizeof(float));
         source.decoder->Read(source_buf.data(), frame_count);
 
-        // Mix into output (additive mixing)
+        // Mix into buffer (additive mixing)
         for (unsigned int i = 0; i < frame_count * 2; ++i) {
-            output[i] += source_buf[i];
+            rate_correction_buffer_[i] += source_buf[i];
         }
         sources_mixed++;
     }
+
+    // Phase 2: Apply rate correction if needed
+    int output_frames = frame_count;
+    if (rate_corrector_.IsActive() && rate_corrector_.IsInitialized()) {
+        output_frames = rate_corrector_.Process(
+            rate_correction_buffer_.data(),
+            output,
+            frame_count,
+            frame_count + 64  // Allow slight expansion for slowdown
+        );
+        // Ensure we don't exceed the output buffer
+        if (output_frames > static_cast<int>(frame_count)) {
+            output_frames = frame_count;
+        }
+    } else {
+        // No rate correction - direct copy
+        std::memcpy(output, rate_correction_buffer_.data(), frame_count * 2 * sizeof(float));
+    }
+
+    // Phase 3: Track samples output for drift calculation
+    samples_output_.fetch_add(output_frames);
 
     // Apply volume and soft limiting
     float vol = volume_.load();
@@ -876,8 +1027,11 @@ void AudioMixer::PreparationThreadFunc() {
         // Check for clip changes every iteration (we're already at 50ms intervals)
         double pos_delta = std::abs(current_pos - last_position_);
 
-        // Always check on big jumps, otherwise periodic
-        bool should_check_clips = (pos_delta > 0.5) ||
+        // Check for force refresh flag (set by ForceRefresh() or Play())
+        bool needs_force_refresh = force_refresh_.exchange(false);
+
+        // Always check on big jumps, force refresh, or periodic
+        bool should_check_clips = needs_force_refresh || (pos_delta > 0.5) ||
                                   ((now - last_clip_check_time_) * 1000.0 >= 50.0);
 
         if (should_check_clips && flattener_) {
@@ -886,16 +1040,21 @@ void AudioMixer::PreparationThreadFunc() {
             // Get ALL audible clips at current position (multi-track mixing)
             auto clips = GetAllAudibleClipsAtTime(current_pos);
 
-            // Build set of current clip IDs
-            std::set<std::string> current_clip_ids;
+            // Build set of current clip SIGNATURES (not just IDs)
+            // Signature includes trim points so we detect slip/trim edits
+            std::set<std::string> current_clip_signatures;
             for (const auto* clip : clips) {
-                if (clip) current_clip_ids.insert(clip->id);
+                if (clip) current_clip_signatures.insert(GetClipSignature(clip));
             }
 
-            // Check if clips changed
-            if (current_clip_ids != last_clip_ids_) {
+            // Check if clips changed (including trim point changes)
+            if (needs_force_refresh || current_clip_signatures != last_clip_signatures_) {
                 UpdateActiveSources(clips, current_pos);
-                last_clip_ids_ = current_clip_ids;
+                last_clip_signatures_ = current_clip_signatures;
+
+                if (needs_force_refresh) {
+                    Debug::Log("AudioMixer: Force refresh - updated active sources");
+                }
             }
             // Big position jump but same clips - seek all decoders immediately
             // This handles scrubbing within a single clip

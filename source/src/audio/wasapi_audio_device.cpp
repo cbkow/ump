@@ -20,6 +20,7 @@ static const GUID WASAPI_IID_IMMDeviceEnumerator = { 0xA95664D2, 0x9614, 0x4F35,
 static const GUID WASAPI_IID_IAudioClient = { 0x1CB9AD4C, 0xDBFA, 0x4c32, { 0xB1, 0x78, 0xC2, 0xF5, 0x68, 0xA7, 0x03, 0xB2 } };
 static const GUID WASAPI_IID_IAudioClient3 = { 0x7ED4EE07, 0x8E67, 0x4CD4, { 0x8C, 0x1A, 0x2B, 0x7A, 0x59, 0x87, 0xAD, 0x42 } };
 static const GUID WASAPI_IID_IAudioRenderClient = { 0xF294ACFC, 0x3146, 0x4483, { 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2 } };
+static const GUID WASAPI_IID_IAudioClock = { 0xCD63314F, 0x3FBA, 0x4a1b, { 0x81, 0x2C, 0xEF, 0x96, 0x35, 0x87, 0x28, 0xE7 } };
 
 namespace ump {
 
@@ -226,7 +227,26 @@ bool WasapiAudioDevice::InitializeDevice() {
         return false;
     }
 
-    // 8. Set event handle
+    // 8. Get IAudioClock for latency measurement (Phase 0: Audio Sync)
+    hr = static_cast<IAudioClient*>(audioClient_)->GetService(
+        WASAPI_IID_IAudioClock, &audioClock_
+    );
+    if (SUCCEEDED(hr) && audioClock_) {
+        hr = static_cast<IAudioClock*>(audioClock_)->GetFrequency(&clock_frequency_);
+        if (SUCCEEDED(hr)) {
+            Debug::Log("WasapiAudioDevice: IAudioClock initialized, frequency=" + std::to_string(clock_frequency_));
+        } else {
+            Debug::Log("WasapiAudioDevice: Failed to get clock frequency, latency estimation will be used");
+            SAFE_RELEASE(audioClock_);
+        }
+    } else {
+        Debug::Log("WasapiAudioDevice: IAudioClock not available, latency estimation will be used");
+    }
+
+    // Reset samples written counter
+    samples_written_ = 0;
+
+    // 9. Set event handle
     hr = static_cast<IAudioClient*>(audioClient_)->SetEventHandle(static_cast<HANDLE>(bufferEvent_));
     if (FAILED(hr)) {
         Debug::Log("WasapiAudioDevice: Failed to set event handle, hr=" + std::to_string(hr));
@@ -238,10 +258,12 @@ bool WasapiAudioDevice::InitializeDevice() {
 }
 
 void WasapiAudioDevice::ReleaseResources() {
+    SAFE_RELEASE(audioClock_);
     SAFE_RELEASE(renderClient_);
     SAFE_RELEASE(audioClient_);
     SAFE_RELEASE(device_);
     SAFE_RELEASE(enumerator_);
+    clock_frequency_ = 0;
 }
 
 void WasapiAudioDevice::Shutdown() {
@@ -452,6 +474,9 @@ void WasapiAudioDevice::RenderAudioBuffer() {
             Debug::Log("WasapiAudioDevice: Device invalidated during ReleaseBuffer");
             deviceLost_ = true;
         }
+    } else {
+        // Track samples written for latency calculation (Phase 0: Audio Sync)
+        samples_written_.fetch_add(available);
     }
 }
 
@@ -499,6 +524,47 @@ bool WasapiAudioDevice::HandleDeviceLoss() {
 
     Debug::Log("WasapiAudioDevice: Device recovery failed");
     return false;
+}
+
+//=============================================================================
+// Latency Measurement (Phase 0: Audio Sync)
+//=============================================================================
+
+double WasapiAudioDevice::GetBufferLatencySeconds() const {
+    // Fallback estimate based on configured buffer size
+    double fallback_latency = config_.bufferSizeMs / 1000.0;
+
+    if (!audioClock_ || clock_frequency_ == 0) {
+        return fallback_latency;
+    }
+
+    // Query IAudioClock for current playback position
+    UINT64 device_position = 0;
+    UINT64 qpc_position = 0;
+    HRESULT hr = static_cast<IAudioClock*>(audioClock_)->GetPosition(&device_position, &qpc_position);
+    if (FAILED(hr)) {
+        return fallback_latency;
+    }
+
+    // Convert device position to samples
+    // device_position is in units of clock_frequency_ per second
+    // So samples played = device_position * sample_rate / clock_frequency_
+    uint64_t samples_played = (device_position * config_.sampleRate) / clock_frequency_;
+
+    // Calculate buffered samples (written but not yet played)
+    uint64_t total_written = samples_written_.load();
+    if (samples_played > total_written) {
+        // Shouldn't happen, but handle gracefully
+        return fallback_latency;
+    }
+
+    int64_t buffered_samples = static_cast<int64_t>(total_written - samples_played);
+
+    // Convert to seconds
+    double latency = static_cast<double>(buffered_samples) / config_.sampleRate;
+
+    // Clamp to reasonable range (0 to 100ms)
+    return std::max(0.0, std::min(latency, 0.1));
 }
 
 } // namespace ump

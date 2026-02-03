@@ -131,11 +131,22 @@ public:
     // Thread-safe
     void ClearBuffer();
 
+    // Gradually clear buffer (for MULTI_TRACK/DUAL_VIEW to avoid memory deallocation stalls)
+    // Returns number of frames remaining in buffer (0 = fully cleared)
+    // Thread-safe
+    int ClearBufferGradually(int max_frames_to_clear);
+
     // Check if a seek/reposition is in progress
     bool IsSeekPending() const { return seek_requested_.load(); }
 
     // Get the last seek target frame
     int GetLastSeekTarget() const { return seek_target_frame_; }
+
+    // Suspend/resume I/O loading (for MULTI_TRACK/DUAL_VIEW when clip is not in active window)
+    // When suspended, NeedsMoreFrames() returns false, preventing new disk I/O spawning.
+    // Decoder stays fully initialized and ready to resume instantly.
+    void SetSuspended(bool suspended) { suspended_ = suspended; }
+    bool IsSuspended() const { return suspended_; }
 
     //=========================================================================
     // Metadata
@@ -250,6 +261,10 @@ private:
     std::condition_variable io_cv_;
     std::atomic<bool> seek_requested_{false};
     int seek_target_frame_ = 0;
+
+    // Suspended state - when true, no new I/O tasks are spawned
+    // Used for MULTI_TRACK/DUAL_VIEW when clip leaves active window
+    std::atomic<bool> suspended_{false};
 
     // Track which frames are currently being loaded (to avoid duplicates)
     std::unordered_set<int> frames_in_flight_;

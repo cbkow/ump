@@ -7,6 +7,7 @@
 
 #ifdef _WIN32
 #include "../gpu/d3d11_device_manager.h"
+#include "../gpu/d3d11_video_interop.h"
 #endif
 
 #include <algorithm>
@@ -219,9 +220,17 @@ void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
     int effective_ahead = std::max(config_.readAheadFrames, g_exr_read_ahead_frames);
     cache_engine_.SetTotalFrames(total_timeline_frames_);
     cache_engine_.SetWindow(effective_behind, effective_ahead);
+
+    // Use linear mode for MULTI_TRACK and DUAL_VIEW - don't wrap cache window at boundaries
+    // These modes have clips at defined positions; wrapping would pre-cache clips we've passed
+    bool use_linear = (source_mode == TimelineSourceMode::MULTI_TRACK ||
+                       source_mode == TimelineSourceMode::DUAL_VIEW);
+    cache_engine_.SetLinearMode(use_linear);
+
     Debug::Log("TimelineCache: Window set - behind=" + std::to_string(effective_behind) +
                " ahead=" + std::to_string(effective_ahead) +
                " total=" + std::to_string(effective_behind + effective_ahead) +
+               " linear=" + (use_linear ? "yes" : "no") +
                " (timeline: " + std::to_string(config_.readBehindFrames) + "/" + std::to_string(config_.readAheadFrames) +
                ", image: " + std::to_string(g_read_behind_frames) + "/" + std::to_string(g_exr_read_ahead_frames) + ")");
 
@@ -500,11 +509,45 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     }
 
     //=========================================================================
-    // VIDEO FAST PATH - Only for VIDEO_FILE mode (MPV single video)
-    // MPV handles buffering internally, so we bypass cache and pull directly
+    // VIDEO FAST PATH - For VIDEO_FILE mode and DUAL_VIEW with D3D11 decoder
+    // Decoder handles buffering internally, so we bypass cache and pull directly
     // For MULTI_TRACK mode (FFmpeg), VIDEO clips use the cache path below
     //=========================================================================
     ClipMediaType media_type = DetectMediaType(coords.source_path);
+
+#ifdef _WIN32
+    // DUAL_VIEW with D3D11VideoDecoder - use decoder's direct GL texture path
+    if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+        std::shared_ptr<ClipLoaderInfo> loader_info;
+        {
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            auto it = loaders_.find(coords.source_path);
+            if (it != loaders_.end()) {
+                loader_info = it->second;
+            }
+        }
+
+        if (loader_info && loader_info->d3d11_decoder) {
+            // Update playhead to trigger decode-ahead
+            loader_info->d3d11_decoder->UpdatePlayhead(coords.source_frame);
+
+            // Get GL texture directly from D3D11 decoder (zero-copy interop)
+            GLuint d3d11_texture = loader_info->d3d11_decoder->GetFrameAsGLTexture(coords.source_frame);
+            if (d3d11_texture != 0) {
+                setOutputDimensions(loader_info->width, loader_info->height);
+                if (got_exact_frame) *got_exact_frame = loader_info->d3d11_decoder->HasFrame(coords.source_frame);
+                cache_hits_++;
+                return maybeComposite(d3d11_texture, loader_info->width, loader_info->height);
+            }
+
+            // Frame not ready yet
+            cache_misses_++;
+            return 0;
+        }
+        // Fall through to ManagedVideoDecoder path if no D3D11 decoder
+    }
+#endif
+
     if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
@@ -1121,18 +1164,40 @@ static std::atomic<int> s_textures_deleted{0};
 void TimelineCache::ProcessPendingUploads() {
     if (!initialized_) return;
 
+#ifdef _WIN32
+    // Process D3D11 interop GL texture deletions queued from background threads
+    // This MUST be called from the main/GL thread
+    D3D11VideoInterop::ProcessPendingGLDeletions();
+#endif
+
     // Delete textures marked for deletion (always do this, even during shuttle)
     {
         std::lock_guard<std::mutex> lock(delete_mutex_);
         if (!textures_to_delete_.empty()) {
-            int delete_count = static_cast<int>(textures_to_delete_.size());
+            int total_queued = static_cast<int>(textures_to_delete_.size());
+
+            // In linear mode (MULTI_TRACK/DUAL_VIEW), throttle deletions to avoid
+            // GPU stalls when many textures are evicted at once (e.g., entire clip)
+            bool is_linear = cache_engine_.IsLinearMode();
+            int delete_count = total_queued;
+            if (is_linear && total_queued > 8) {
+                delete_count = 8;  // Limit per frame in linear mode
+            }
+
             /*Debug::Log("TimelineCache: [GL DELETE] Deleting " + std::to_string(delete_count) +
-                       " textures (IDs: " + std::to_string(textures_to_delete_[0]) +
-                       (delete_count > 1 ? "..." : "") + ")");*/
+                       " of " + std::to_string(total_queued) + " queued textures");*/
+
             glDeleteTextures(static_cast<GLsizei>(delete_count),
                              textures_to_delete_.data());
             s_textures_deleted += delete_count;
-            textures_to_delete_.clear();
+
+            // Remove deleted entries
+            if (delete_count == total_queued) {
+                textures_to_delete_.clear();
+            } else {
+                textures_to_delete_.erase(textures_to_delete_.begin(),
+                                          textures_to_delete_.begin() + delete_count);
+            }
         }
     }
 
@@ -1374,6 +1439,44 @@ void TimelineCache::NotifyTracksEdited() {
         std::lock_guard<std::mutex> lock(request_mutex_);
         needsFillReset_ = true;
         lastCacheUpdateFrame_ = current;
+    }
+
+    // CRITICAL: Remove loaders for sources that are no longer in the timeline
+    // This prevents stale decoders from being accessed and ensures cleanup happens
+    // on the main thread (not the background CacheManagementThread which would crash
+    // when trying to delete GL resources without a GL context)
+    {
+        // Build set of all active source paths from the flattener
+        std::set<std::string> active_sources;
+        for (int frame = 0; frame < total_timeline_frames_; frame += 24) {  // Sample every second
+            SourceCoords sample = TimelineToSource(frame);
+            if (sample.valid && !sample.source_path.empty()) {
+                active_sources.insert(sample.source_path);
+            }
+        }
+        // Also check current frame explicitly
+        if (coords.valid && !coords.source_path.empty()) {
+            active_sources.insert(coords.source_path);
+        }
+
+        // Remove loaders not in active sources
+        std::vector<std::string> loaders_to_remove;
+        {
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            for (const auto& [path, loader] : loaders_) {
+                if (active_sources.find(path) == active_sources.end()) {
+                    loaders_to_remove.push_back(path);
+                }
+            }
+            for (const auto& path : loaders_to_remove) {
+                loaders_.erase(path);
+            }
+        }
+
+        if (!loaders_to_remove.empty()) {
+            Debug::Log("TimelineCache: Removed " + std::to_string(loaders_to_remove.size()) +
+                       " stale loader(s) on edit (sources no longer in timeline)");
+        }
     }
 
     // CRITICAL: Flush ALL decoder buffers, not just the current clip's decoder
@@ -2524,7 +2627,53 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                     }
                 }
             } else {
-                // MULTI_TRACK/DUAL_VIEW path - use ManagedVideoDecoder (FFmpeg ring buffer)
+#ifdef _WIN32
+                // DUAL_VIEW path on Windows - use D3D11VideoDecoder for unified composite pipeline
+                // This enables single D3D11->GL interop instead of two competing ones
+                if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+                    Debug::Log("TimelineCache: DUAL_VIEW mode - attempting D3D11VideoDecoder for " + source_path);
+
+                    auto& device_manager = D3D11DeviceManager::Instance();
+                    bool is_init = device_manager.IsInitialized();
+                    ID3D11Device* device = device_manager.GetDevice();
+
+                    Debug::Log("TimelineCache: D3D11DeviceManager - initialized=" + std::string(is_init ? "yes" : "no") +
+                               " device=" + (device ? "valid" : "nullptr"));
+
+                    if (device) {
+                        auto decoder = std::make_unique<D3D11VideoDecoder>();
+                        decoder->SetVideoPath(source_path);
+                        decoder->SetPipelineMode(video_pipeline_mode_);
+
+                        // Configure buffer sizes from cache config
+                        StreamingDecoderConfig dec_config;
+                        dec_config.readAheadFrames = config_.readAheadFrames;
+                        dec_config.readBehindFrames = config_.readBehindFrames;
+                        decoder->SetConfig(dec_config);
+
+                        Debug::Log("TimelineCache: Calling D3D11VideoDecoder::Initialize()...");
+                        if (decoder->Initialize()) {
+                            info->d3d11_decoder = std::move(decoder);
+                            info->pipeline_mode = video_pipeline_mode_;
+                            info->width = info->d3d11_decoder->GetWidth();
+                            info->height = info->d3d11_decoder->GetHeight();
+                            info->fps = info->d3d11_decoder->GetFPS();
+                            info->frame_count = info->d3d11_decoder->GetFrameCount();
+
+                            Debug::Log("TimelineCache: D3D11VideoDecoder created for DUAL_VIEW " + source_path +
+                                       " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
+                                       " @ " + std::to_string(info->fps) + " fps)");
+                            break;
+                        } else {
+                            Debug::Log("TimelineCache: D3D11VideoDecoder init failed for " + source_path +
+                                       ", falling back to ManagedVideoDecoder");
+                        }
+                    } else {
+                        Debug::Log("TimelineCache: D3D11 device not available, falling back to ManagedVideoDecoder");
+                    }
+                }
+#endif
+                // MULTI_TRACK path (or DUAL_VIEW fallback) - use ManagedVideoDecoder (FFmpeg ring buffer)
                 auto decoder = std::make_unique<ManagedVideoDecoder>(source_path);
 
                 // Set pipeline mode BEFORE Initialize()
@@ -3179,11 +3328,19 @@ void TimelineCache::CacheManagementThread() {
                 }
 
                 std::lock_guard<std::mutex> lock(cache_mutex_);
+                // In linear mode (MULTI_TRACK/DUAL_VIEW), skip RemoveFromPool to avoid
+                // O(n²) LRU list operations when many frames are evicted at once.
+                // Pool tracking is less critical for these modes since clips are
+                // managed by the linear window logic, not global LRU eviction.
+                bool skip_pool = cache_engine_.IsLinearMode();
                 for (const auto& key : keys_to_evict) {
                     auto it = frame_cache_.find(key);
                     if (it != frame_cache_.end()) {
                         // Remove from pool first (clean removal, no callback)
-                        RemoveFromPool(key);
+                        // Skip in linear mode to avoid O(n²) overhead
+                        if (!skip_pool) {
+                            RemoveFromPool(key);
+                        }
 
                         // Queue texture for deletion
                         if (it->second.texture_id != 0) {
@@ -3326,6 +3483,7 @@ void TimelineCache::CacheManagementThread() {
             //
             // NOTE: D3D11 decoders are controlled via SetActive() in Step 1.5 (unified coordinator)
             AggressiveScrubMode scrub_mode_for_cleanup = aggressive_scrub_mode_.load();
+            bool is_linear = cache_engine_.IsLinearMode();
             if (scrub_mode_for_cleanup == AggressiveScrubMode::INACTIVE)
             {
                 // Normal playback: Clear buffers for sources not in active window
@@ -3333,14 +3491,29 @@ void TimelineCache::CacheManagementThread() {
                 for (const auto& [path, info] : loaders_) {
                     if (active_sources.find(path) == active_sources.end()) {
                         // This loader is NOT needed for visible clips - clear its buffer
+                        // Also suspend ImageSequenceDecoder I/O to prevent confused async reads
+                        info->SetSuspended(true);
                         if (info->HasBufferedDecoder()) {
                             int buffer_size = info->GetBufferSize();
                             if (buffer_size > 0) {
-                                info->ClearBuffer();
-                                Debug::Log("TimelineCache: Cleared buffer (" + std::to_string(buffer_size) +
-                                           " frames) for inactive source: " + path);
+                                if (is_linear) {
+                                    // Linear mode (MULTI_TRACK/DUAL_VIEW): Clear gradually to avoid
+                                    // memory deallocation stalls from freeing many large frames at once
+                                    int remaining = info->ClearBufferGradually(8);
+                                    if (remaining == 0) {
+                                        Debug::Log("TimelineCache: Gradually cleared buffer for inactive source: " + path);
+                                    }
+                                } else {
+                                    // Circular mode (solo): Clear immediately
+                                    info->ClearBuffer();
+                                    Debug::Log("TimelineCache: Cleared buffer (" + std::to_string(buffer_size) +
+                                               " frames) for inactive source: " + path);
+                                }
                             }
                         }
+                    } else {
+                        // Source IS active - ensure it's not suspended
+                        info->SetSuspended(false);
                     }
                 }
             }
@@ -3990,7 +4163,89 @@ ID3D11ShaderResourceView* TimelineCache::GetFrameD3D11(int timeline_frame, int& 
 
     return nullptr;
 }
+
+D3D11VideoDecoder* TimelineCache::GetD3D11Decoder() {
+    // First, determine what source path the flattener expects for the current frame
+    // This prevents returning a stale decoder after media swap
+    std::string expected_source;
+    {
+        // Check what source the flattener maps to at current position
+        int current = current_frame_.load();
+        SourceCoords coords = TimelineToSource(current);
+        if (coords.valid) {
+            expected_source = coords.source_path;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(loaders_mutex_);
+
+    // For VIDEO_FILE mode, find a loader with D3D11 decoder matching expected source
+    // If expected_source is empty (no clip at current frame), fall back to first decoder
+    for (auto& pair : loaders_) {
+        if (pair.second && pair.second->d3d11_decoder) {
+            // If we know the expected source, only return decoder for that source
+            if (!expected_source.empty()) {
+                if (pair.first == expected_source) {
+                    return pair.second->d3d11_decoder.get();
+                }
+            } else {
+                // No expected source (maybe gap or empty track) - return first found
+                return pair.second->d3d11_decoder.get();
+            }
+        }
+    }
+
+    return nullptr;
+}
+
+bool TimelineCache::HasD3D11Decoder() const {
+    // Check what source the flattener expects
+    std::string expected_source;
+    {
+        int current = current_frame_.load();
+        // Use const_cast for the non-const call in this const method
+        SourceCoords coords = const_cast<TimelineCache*>(this)->TimelineToSource(current);
+        if (coords.valid) {
+            expected_source = coords.source_path;
+        }
+    }
+
+    std::lock_guard<std::mutex> lock(loaders_mutex_);
+
+    for (const auto& pair : loaders_) {
+        if (pair.second && pair.second->d3d11_decoder) {
+            // If we know expected source, only count decoder for that source
+            if (!expected_source.empty()) {
+                if (pair.first == expected_source) {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
 #endif
+
+bool TimelineCache::HasImageSequenceContent() const {
+    std::lock_guard<std::mutex> lock(loaders_mutex_);
+
+    for (const auto& pair : loaders_) {
+        if (pair.second && pair.second->sequence_decoder) {
+            return true;
+        }
+    }
+
+    // Also check registered sequence metadata (sequences that haven't loaded yet)
+    std::lock_guard<std::mutex> seq_lock(sequence_metadata_mutex_);
+    if (!sequence_metadata_.empty()) {
+        return true;
+    }
+
+    return false;
+}
 
 //=============================================================================
 // SharedMemoryPool Integration

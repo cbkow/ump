@@ -193,6 +193,22 @@ public:
     // Returns 0 on failure
     GLuint GetFrameAsGLTexture(int frame_number);
 
+    //=========================================================================
+    // D3D11-Specific: Direct D3D11 SRV Access (for Unified Compositor)
+    //=========================================================================
+
+    // Get frame as D3D11 SRV - renders YUV to intermediate RGBA texture
+    // Used by DualViewPipeline to composite both sources before interop
+    // Returns nullptr if frame not available
+    ID3D11ShaderResourceView* GetFrameAsD3D11SRV(int frame_number);
+
+    // Get intermediate texture for external compositing
+    ID3D11Texture2D* GetIntermediateTexture() const { return intermediate_texture_.Get(); }
+
+    // Enable external compositor mode (skips interop, uses intermediate texture)
+    void SetExternalCompositorMode(bool enabled);
+    bool IsExternalCompositorMode() const { return use_external_compositor_; }
+
     // Initialize with video path (called before Initialize())
     void SetVideoPath(const std::string& path) { video_path_ = path; }
 
@@ -450,6 +466,15 @@ private:
 
     std::unique_ptr<D3D11YUVRenderer> yuv_renderer_;
     std::unique_ptr<D3D11VideoInterop> interop_;
+
+    // External compositor mode - uses intermediate texture instead of interop
+    bool use_external_compositor_ = false;
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> intermediate_texture_;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> intermediate_rtv_;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> intermediate_srv_;
+    int intermediate_width_ = 0;
+    int intermediate_height_ = 0;
+    int last_srv_rendered_frame_ = -1;  // Track last frame rendered to intermediate
 
     // Temporary SRVs for current frame
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv_y_;

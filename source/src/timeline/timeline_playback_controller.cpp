@@ -1,6 +1,7 @@
 #include "timeline_playback_controller.h"
 #include "timeline_view.h"
 #include "timeline_cache.h"
+#include "timeline_thumbnail_cache.h"
 #include "../player/video_player.h"
 #include "../player/playback_timer.h"
 #include "../player/image_loaders.h"
@@ -10,7 +11,9 @@
 #ifdef _WIN32
 #include "../player/d3d11va_video_decoder.h"
 #include "../player/d3d11_video_decoder.h"
+#include "../player/dual_view_pipeline.h"
 #include "../gpu/d3d11_device_manager.h"
+#include "../gpu/dual_view_layout.h"
 #include "../audio/audio_player.h"
 #endif
 
@@ -778,6 +781,10 @@ void TimelinePlaybackController::NotifyTracksEdited() {
         }
         // PreloadClips skips already-loaded clips, so this is safe to call repeatedly
         audio_mixer_->PreloadClips(all_clips);
+
+        // Force refresh to handle trim/slip edits where clip IDs don't change
+        // but source_in/out values do
+        audio_mixer_->ForceRefresh();
     }
 
     // Force viewport refresh by re-seeking to current position
@@ -959,6 +966,14 @@ bool TimelinePlaybackController::IsSequentialBufferReady() const {
         return true;  // Video is always "ready" - D3D11 decodes on-demand
     }
 
+#ifdef _WIN32
+    // Unified D3D11 composite pipeline: decoders have their own buffering
+    // Skip buffer checks - similar to VIDEO_FILE mode with MPV
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        return true;
+    }
+#endif
+
     // Image sequence / mixed timeline: check sequential buffer fill
     // Get priority-sorted frames from engine: [current, ahead1, ahead2, ..., behind1, ...]
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
@@ -994,6 +1009,15 @@ void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) c
         needed = 1;
         return;
     }
+
+#ifdef _WIN32
+    // Unified D3D11 composite pipeline: decoders have their own buffering
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        filled = 1;
+        needed = 1;
+        return;
+    }
+#endif
 
     // Image sequence / mixed timeline: check buffer fill status
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
@@ -1269,11 +1293,17 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     }
 
-    // ULTRA_HIGH_RES pipeline mode: use new D3D11VideoDecoder (supports HW + SW decode)
-    bool use_d3d11_decoder = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES);
+    // D3D11VideoDecoder mode: use FFmpeg + D3D11 for direct GPU textures
+    // Conditions to use D3D11 decoder:
+    //   1. ULTRA_HIGH_RES pipeline mode always uses D3D11 decoder
+    //   2. When g_use_libmpv is false, ALL modes use D3D11 decoder (bypasses MPV entirely)
+    bool use_d3d11_decoder = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES) || !g_use_libmpv;
 
     if (use_d3d11_decoder && !use_d3d11va_hdr_ && is_video_file_mode && !media_file_path.empty()) {
-        Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode (ULTRA_HIGH_RES) for: " + media_file_path);
+        std::string mode_reason = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES)
+            ? "ULTRA_HIGH_RES"
+            : "LibMPV disabled";
+        Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode (" + mode_reason + ") for: " + media_file_path);
 
         // Ensure D3D11 device manager is initialized
         auto& device_mgr = D3D11DeviceManager::Instance();
@@ -1695,6 +1725,11 @@ void TimelinePlaybackController::ApplyPendingFPSUpdate() {
 }
 
 void TimelinePlaybackController::Play() {
+    // Notify thumbnail cache to reduce workers during playback
+    if (thumbnail_cache_) {
+        thumbnail_cache_->NotifyPlaybackState(true);
+    }
+
     // Direct MPV mode: route to VideoDisplayComponent's MPV
     // MPV handles audio internally - no AudioMixer needed
     if (use_direct_mpv_ && video_player_) {
@@ -1792,6 +1827,11 @@ void TimelinePlaybackController::ForcePlay() {
 }
 
 void TimelinePlaybackController::Pause() {
+    // Notify thumbnail cache to resume all workers
+    if (thumbnail_cache_) {
+        thumbnail_cache_->NotifyPlaybackState(false);
+    }
+
     // Direct MPV mode: route to VideoDisplayComponent's MPV
     // MPV handles audio internally - no AudioMixer needed
     if (use_direct_mpv_ && video_player_) {
@@ -2455,6 +2495,19 @@ void TimelinePlaybackController::UpdateThrottleState() {
         return;
     }
 
+#ifdef _WIN32
+    // Unified D3D11 composite pipeline: decoders handle their own buffering
+    // No throttling needed - similar to VIDEO_FILE mode with MPV
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        if (throttle_state_ != ThrottleState::FULL) {
+            throttle_state_ = ThrottleState::FULL;
+            current_speed_factor_ = 1.0;
+            timeline_timer_->SetPlaybackSpeed(1.0);
+        }
+        return;
+    }
+#endif
+
     // Use engine-aware priority frames for throttle calculation
     // These are circle-aware - no boundary hacks needed
     std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
@@ -2637,6 +2690,20 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
         return false;
     }
 
+#ifdef _WIN32
+    // Initialize D3D11DeviceManager BEFORE creating caches
+    // This is required for the unified composite pipeline (D3D11VideoDecoder)
+    auto& device_mgr = D3D11DeviceManager::Instance();
+    if (!device_mgr.IsInitialized()) {
+        Debug::Log("TimelinePlaybackController: Initializing D3D11DeviceManager for DUAL_VIEW...");
+        if (!device_mgr.Initialize(nullptr)) {
+            Debug::Log("TimelinePlaybackController: D3D11DeviceManager init failed - D3D11 decoders unavailable");
+        } else {
+            Debug::Log("TimelinePlaybackController: D3D11DeviceManager initialized successfully");
+        }
+    }
+#endif
+
     // Shutdown existing state
     if (initialized_) {
         Shutdown();
@@ -2798,15 +2865,100 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
         audio_mixer_.reset();
     }
 
+#ifdef _WIN32
+    // Initialize unified composite pipeline for D3D11 dual view
+    // This uses a single D3D11->GL interop instead of two competing ones,
+    // solving the buffer exhaustion issue (25% frame loss per loop)
+    InitializeUnifiedDualViewPipeline();
+#endif
+
     Debug::Log("TimelinePlaybackController: Dual view initialized successfully");
     return true;
 }
+
+#ifdef _WIN32
+void TimelinePlaybackController::InitializeUnifiedDualViewPipeline() {
+    // Already initialized?
+    if (dual_view_pipeline_ && dual_view_pipeline_->IsInitialized()) {
+        return;
+    }
+
+    // Already determined that unified pipeline isn't possible?
+    if (unified_not_possible_) {
+        return;
+    }
+
+    // Check if either cache has image sequence content
+    // Image sequences use GL-based loading, not D3D11, so we can't use the unified pipeline
+    bool left_has_sequences = cache_ && cache_->HasImageSequenceContent();
+    bool right_has_sequences = right_cache_ && right_cache_->HasImageSequenceContent();
+
+    if (left_has_sequences || right_has_sequences) {
+        unified_not_possible_ = true;
+        Debug::Log("TimelinePlaybackController: Unified pipeline disabled - " +
+                   std::string(left_has_sequences ? "LEFT" : "RIGHT") +
+                   " track has image sequence content (using GL fallback)");
+        return;
+    }
+
+    // Check if both caches have D3D11 decoders (VIDEO_FILE mode)
+    D3D11VideoDecoder* left_decoder = cache_ ? cache_->GetD3D11Decoder() : nullptr;
+    D3D11VideoDecoder* right_decoder = right_cache_ ? right_cache_->GetD3D11Decoder() : nullptr;
+
+    // Only use unified pipeline if BOTH sources have D3D11 decoders
+    // EXR/image sequences bypass D3D11 entirely, so we fall back to legacy mode
+    if (!left_decoder || !right_decoder) {
+        // Decoders not available yet - will retry on next UpdateDualView
+        // (Decoders are created on-demand when first frame is requested)
+        return;
+    }
+
+    // Get dimensions from decoders
+    int left_w = left_decoder->GetWidth();
+    int left_h = left_decoder->GetHeight();
+    int right_w = right_decoder->GetWidth();
+    int right_h = right_decoder->GetHeight();
+
+    if (left_w <= 0 || left_h <= 0 || right_w <= 0 || right_h <= 0) {
+        // Decoders not fully initialized yet - will retry later
+        return;
+    }
+
+    // Get D3D11 device
+    auto& device_manager = D3D11DeviceManager::Instance();
+    ID3D11Device* device = device_manager.GetDevice();
+    if (!device) {
+        Debug::Log("TimelinePlaybackController: No D3D11 device available");
+        return;
+    }
+
+    // Create unified pipeline
+    dual_view_pipeline_ = std::make_unique<DualViewPipeline>();
+    if (!dual_view_pipeline_->Initialize(device, left_w, left_h, right_w, right_h)) {
+        Debug::Log("TimelinePlaybackController: Failed to initialize unified pipeline");
+        dual_view_pipeline_.reset();
+        return;
+    }
+
+    // Set decoder references
+    dual_view_pipeline_->SetDecoders(left_decoder, right_decoder);
+
+    use_unified_composite_ = true;
+    Debug::Log("TimelinePlaybackController: Unified composite pipeline initialized (" +
+               std::to_string(left_w) + "x" + std::to_string(left_h) + " + " +
+               std::to_string(right_w) + "x" + std::to_string(right_h) + ")");
+}
+#endif
 
 void TimelinePlaybackController::SyncDualFlatteners() {
     if (!dual_view_mode_ || !timeline_view_) return;
 
     const auto& tracks = timeline_view_->GetTracks();
     double duration = timeline_view_->GetDuration();
+
+    // Reset unified_not_possible_ flag so we re-evaluate on next UpdateDualView
+    // (In case user replaced image sequence with video or vice versa)
+    unified_not_possible_ = false;
 
     // Update both flatteners with current tracks
     // Visibility overrides persist across SetTracks calls, so we don't need to reset them
@@ -2816,6 +2968,30 @@ void TimelinePlaybackController::SyncDualFlatteners() {
 
     if (right_flattener_) {
         right_flattener_->SetTracks(tracks);
+    }
+
+    // Register sequence metadata for any image sequence clips
+    // This is critical for dual view: InitializeForDualView runs with empty tracks,
+    // so we must re-register when media is loaded via LoadMediaToLeftTrack/LoadMediaToRightTrack
+    for (const auto& track : tracks) {
+        for (const auto& clip : track.clips) {
+            if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
+                SequenceMetadata seq_meta;
+                seq_meta.directory = clip.sequence_directory;
+                seq_meta.pattern = clip.sequence_pattern;
+                seq_meta.start_frame = clip.sequence_start_frame;
+                seq_meta.end_frame = clip.sequence_end_frame;
+                seq_meta.exr_layer = clip.sequence_exr_layer;
+                seq_meta.pipeline_mode = DetectSequencePipelineMode(clip);
+                seq_meta.valid = true;
+                if (cache_) {
+                    cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                }
+                if (right_cache_) {
+                    right_cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+                }
+            }
+        }
     }
 
     // Update duration for timer and both caches
@@ -2830,6 +3006,57 @@ void TimelinePlaybackController::SyncDualFlatteners() {
     if (right_cache_) {
         right_cache_->UpdateDuration(duration);
         right_cache_->NotifyTracksEdited();
+    }
+
+#ifdef _WIN32
+    // Check if content type changed - if we now have image sequences, shutdown the D3D11 pipeline
+    bool left_has_sequences = cache_ && cache_->HasImageSequenceContent();
+    bool right_has_sequences = right_cache_ && right_cache_->HasImageSequenceContent();
+
+    if ((left_has_sequences || right_has_sequences) && use_unified_composite_) {
+        // Content changed from video-only to include image sequences
+        // Shutdown the D3D11 pipeline and fall back to GL mode
+        Debug::Log("TimelinePlaybackController: Content changed to include image sequences - disabling unified pipeline");
+        if (dual_view_pipeline_) {
+            dual_view_pipeline_->Shutdown();
+            dual_view_pipeline_.reset();
+        }
+        use_unified_composite_ = false;
+        unified_not_possible_ = true;
+    }
+    // When content changes, the old decoders are for the OLD media and the new decoders
+    // haven't been created yet. Clear decoder references and let UpdateDualView re-establish
+    // them once new decoders are available via InitializeUnifiedDualViewPipeline.
+    else if (dual_view_pipeline_ && dual_view_pipeline_->IsInitialized()) {
+        // Clear decoder references - they're stale after media change
+        // The pipeline will be re-initialized with correct decoders on next UpdateDualView
+        dual_view_pipeline_->SetDecoders(nullptr, nullptr);
+        dual_view_pipeline_->InvalidateLayout();
+
+        // Shutdown and reset the pipeline so it gets re-initialized with new content
+        // This is safer than keeping stale pointers when resolution may have changed
+        dual_view_pipeline_->Shutdown();
+        dual_view_pipeline_.reset();
+        use_unified_composite_ = false;  // Will be re-initialized in UpdateDualView
+
+        Debug::Log("TimelinePlaybackController: Pipeline reset for media change, will reinitialize");
+    }
+#endif
+
+    // Refresh audio mixer with any new clips (mirrors NotifyTracksEdited behavior)
+    if (audio_mixer_) {
+        std::vector<OTIOClip> all_clips;
+        for (const auto& track : tracks) {
+            for (const auto& clip : track.clips) {
+                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
+                    all_clips.push_back(clip);
+                }
+            }
+        }
+        audio_mixer_->PreloadClips(all_clips);
+
+        // Force refresh to handle trim/slip edits where clip IDs don't change
+        audio_mixer_->ForceRefresh();
     }
 
     Debug::Log("TimelinePlaybackController: Synced dual flatteners - " +
@@ -2850,6 +3077,85 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
     int frame = current_frame_.load();
     bool is_playing = is_playing_.load();
 
+#ifdef _WIN32
+    // Try deferred pipeline initialization if not yet done
+    // (Decoders are created on-demand, so we retry until they're available)
+    // Skip if unified_not_possible_ is set (e.g., one side has image sequences)
+    if (!use_unified_composite_ && !dual_view_pipeline_ && !unified_not_possible_) {
+        InitializeUnifiedDualViewPipeline();
+    }
+
+    // Use unified composite pipeline if available (single D3D11 interop)
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        dual_view_pipeline_->SetPlaybackMode(is_playing);
+
+        // Update caches for decode prefetching
+        if (cache_) {
+            cache_->UpdatePlayhead(frame, is_playing);
+        }
+        if (right_cache_) {
+            right_cache_->UpdatePlayhead(frame, is_playing);
+        }
+
+        // Map timeline frame to source frames for each cache
+        // This applies source_in offset from trim/slip edits
+        // Use -1 to indicate gap (no valid source at this position)
+        int left_source_frame = -1;
+        int right_source_frame = -1;
+        bool left_is_gap = true;
+        bool right_is_gap = true;
+
+        if (cache_) {
+            SourceCoords left_coords = cache_->GetSourceCoords(frame);
+            if (left_coords.valid) {
+                left_source_frame = left_coords.source_frame;
+                left_is_gap = false;
+            }
+        }
+        if (right_cache_) {
+            SourceCoords right_coords = right_cache_->GetSourceCoords(frame);
+            if (right_coords.valid) {
+                right_source_frame = right_coords.source_frame;
+                right_is_gap = false;
+            }
+        }
+
+        // Get composite texture from unified pipeline
+        // Pipeline handles gaps by using transparent texture when source_frame is -1
+        GLuint composite = dual_view_pipeline_->UpdateFrame(
+            left_is_gap ? -1 : left_source_frame,
+            right_is_gap ? -1 : right_source_frame);
+
+        if (composite != 0) {
+            result.is_unified = true;
+            result.composite_texture = composite;
+
+            const auto& layout = dual_view_pipeline_->GetLayout();
+            result.composite_width = layout.composite_width;
+            result.composite_height = layout.composite_height;
+
+            // Copy UV coordinates from layout
+            result.left_uv_min_x = layout.left_uv.u_min;
+            result.left_uv_max_x = layout.left_uv.u_max;
+            result.left_uv_min_y = layout.left_uv.v_min;
+            result.left_uv_max_y = layout.left_uv.v_max;
+
+            result.right_uv_min_x = layout.right_uv.u_min;
+            result.right_uv_max_x = layout.right_uv.u_max;
+            result.right_uv_min_y = layout.right_uv.v_min;
+            result.right_uv_max_y = layout.right_uv.v_max;
+
+            // Also set individual widths/heights for aspect calculations
+            result.left_width = layout.left_source_width;
+            result.left_height = layout.left_source_height;
+            result.right_width = layout.right_source_width;
+            result.right_height = layout.right_source_height;
+        }
+
+        return result;
+    }
+#endif
+
     // NOTE: ProcessPendingUploads now called from ProcessPendingTextureUploads()
     // BEFORE ImGui::NewFrame() to avoid GL state corruption during render
     if (cache_) {
@@ -2859,7 +3165,7 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
         right_cache_->UpdatePlayhead(frame, is_playing);
     }
 
-    // Get frames from both caches
+    // Get frames from both caches (legacy path - two separate interops)
     int left_w = 0, left_h = 0;
     int right_w = 0, right_h = 0;
 

@@ -9,15 +9,18 @@ D:\z_DevTemp\UnionPlayer\src\annotations\viewport_annotator.cpp;D:\z_DevTemp\Uni
 D:\z_DevTemp\UnionPlayer\src\audio\audio_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_decoder.obj
 D:\z_DevTemp\UnionPlayer\src\audio\audio_mixer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_mixer.obj
 D:\z_DevTemp\UnionPlayer\src\audio\audio_player.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_player.obj
+D:\z_DevTemp\UnionPlayer\src\audio\audio_rate_corrector.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\audio_rate_corrector.obj
 D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\wasapi_audio_device.obj
 D:\z_DevTemp\UnionPlayer\src\color\d3d11_ocio_renderer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_ocio_renderer.obj
 D:\z_DevTemp\UnionPlayer\src\color\ocio_config_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ocio_config_manager.obj
 D:\z_DevTemp\UnionPlayer\src\color\ocio_pipeline.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\ocio_pipeline.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_device_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_device_manager.obj
+D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_dual_compositor.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_dual_compositor.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_hwframe_extractor.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_hwframe_extractor.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_texture_pool.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_texture_pool.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_video_interop.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_video_interop.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_yuv_renderer.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_yuv_renderer.obj
+D:\z_DevTemp\UnionPlayer\src\gpu\dual_view_layout.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\dual_view_layout.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\texture_pool.obj
 D:\z_DevTemp\UnionPlayer\src\gpu\video_range_converter.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\video_range_converter.obj
 D:\z_DevTemp\UnionPlayer\src\hdr\d3d11_hdr_swapchain.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11_hdr_swapchain.obj
@@ -40,6 +43,7 @@ D:\z_DevTemp\UnionPlayer\src\player\d3d11_video_decoder.cpp;D:\z_DevTemp\UnionPl
 D:\z_DevTemp\UnionPlayer\src\player\d3d11va_video_decoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\d3d11va_video_decoder.obj
 D:\z_DevTemp\UnionPlayer\src\player\decoder_cleanup_queue.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\decoder_cleanup_queue.obj
 D:\z_DevTemp\UnionPlayer\src\player\direct_exr_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\direct_exr_cache.obj
+D:\z_DevTemp\UnionPlayer\src\player\dual_view_pipeline.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\dual_view_pipeline.obj
 D:\z_DevTemp\UnionPlayer\src\player\exr_transcoder.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\exr_transcoder.obj
 D:\z_DevTemp\UnionPlayer\src\player\frame_cache.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\frame_cache.obj
 D:\z_DevTemp\UnionPlayer\src\player\hw_context_manager.cpp;D:\z_DevTemp\UnionPlayer\build\ump.dir\Release\hw_context_manager.obj

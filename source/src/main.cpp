@@ -230,6 +230,15 @@ static struct {
 
     // VIDEO RANGE OVERRIDE (for D3D11 decoders)
     int video_range_mode = 0;             // 0=AUTO, 1=FULL, 2=LIMITED - override YUV color range
+
+    // AUDIO SYNC SETTINGS (Phase 0: Hybrid Audio Sync Compensation)
+    int display_latency_preset = 0;       // 0=60Hz, 1=75Hz, 2=120Hz, 3=144Hz, 4=240Hz, 5=Custom
+    float audio_fine_tune_ms = 0.0f;      // Fine-tune offset in milliseconds (±50ms range)
+    float custom_display_latency_ms = 33.0f; // Custom display latency for preset index 5
+
+    // LIBMPV SETTINGS
+    bool use_libmpv = true;               // Use LibMPV for video playback (default: ON for compatibility)
+                                          // When OFF, uses D3D11 FFmpeg decoder for all pipeline modes
 } cache_settings;
 
 // ============================================================================
@@ -801,6 +810,9 @@ int g_cache_retention_days = 7;  // Auto-cleanup files older than N days
 int g_transcode_cache_max_gb = 10;  // EXR transcode cache size limit
 bool g_clear_cache_on_exit = false;  // Clear all cache on app exit
 
+// LibMPV toggle - when disabled, uses D3D11 FFmpeg decoder for all video
+bool g_use_libmpv = true;  // Default: ON for compatibility
+
 ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
     ump::DirectEXRCacheConfig config;
 
@@ -1356,6 +1368,11 @@ public:
                         // Connect the external controller to TimelineView so that
                         // SyncFlattenerAndInvalidate() can update the cache when clips are added
                         timeline_view->SetExternalPlaybackController(scratch_timeline_controller.get());
+
+                        // Connect thumbnail cache for playback state notifications
+                        if (timeline_thumbnail_cache) {
+                            scratch_timeline_controller->SetThumbnailCache(timeline_thumbnail_cache.get());
+                        }
                     } else {
                         Debug::Log("Failed to initialize virtual scratch timeline playback");
                         scratch_timeline_controller.reset();
@@ -1625,6 +1642,16 @@ public:
                                 timeline_view->GetPlaybackController()->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                                 timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
 
+                                // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                                if (auto* mixer = timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                    const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                                    float latency_ms = (cache_settings.display_latency_preset == 5)
+                                        ? cache_settings.custom_display_latency_ms
+                                        : preset_latencies_ms[cache_settings.display_latency_preset];
+                                    mixer->SetDisplayLatency(latency_ms / 1000.0);
+                                    mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                                }
+
                                 // Ensure playback controller and cache have the correct duration
                                 // This is the same update that happens in SyncFlattenerAndInvalidate()
                                 // when the timeline is extended during editing - ensures the dummy
@@ -1667,6 +1694,16 @@ public:
                                 timeline_view->GetPlaybackController()->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                                 timeline_view->GetPlaybackController()->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                                 timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
+
+                                // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                                if (auto* mixer = timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                    const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                                    float latency_ms = (cache_settings.display_latency_preset == 5)
+                                        ? cache_settings.custom_display_latency_ms
+                                        : preset_latencies_ms[cache_settings.display_latency_preset];
+                                    mixer->SetDisplayLatency(latency_ms / 1000.0);
+                                    mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                                }
 
                                 double duration = timeline_view->GetDuration();
                                 timeline_view->GetPlaybackController()->UpdateDuration(duration);
@@ -1891,6 +1928,16 @@ public:
                     controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                     controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+
+                    // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                    if (auto* mixer = controller->GetAudioMixer()) {
+                        const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                        float latency_ms = (cache_settings.display_latency_preset == 5)
+                            ? cache_settings.custom_display_latency_ms
+                            : preset_latencies_ms[cache_settings.display_latency_preset];
+                        mixer->SetDisplayLatency(latency_ms / 1000.0);
+                        mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                    }
                 }
                 timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
 
@@ -2015,6 +2062,16 @@ public:
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                     controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                     // Pipeline mode is now set via SetPendingPipelineMode() before InitializePlayback()
+
+                    // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                    if (auto* mixer = controller->GetAudioMixer()) {
+                        const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                        float latency_ms = (cache_settings.display_latency_preset == 5)
+                            ? cache_settings.custom_display_latency_ms
+                            : preset_latencies_ms[cache_settings.display_latency_preset];
+                        mixer->SetDisplayLatency(latency_ms / 1000.0);
+                        mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                    }
                 }
                 timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
 
@@ -2095,6 +2152,16 @@ public:
                     controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                     controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                     controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
+
+                    // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                    if (auto* mixer = controller->GetAudioMixer()) {
+                        const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                        float latency_ms = (cache_settings.display_latency_preset == 5)
+                            ? cache_settings.custom_display_latency_ms
+                            : preset_latencies_ms[cache_settings.display_latency_preset];
+                        mixer->SetDisplayLatency(latency_ms / 1000.0);
+                        mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                    }
                 }
                 timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
 
@@ -2261,6 +2328,11 @@ public:
                                std::to_string(timeline_view->GetFrameRate()) + "fps");
                     video_player->SetTimelineMode(true, scratch_timeline_controller.get());
                     timeline_view->SetExternalPlaybackController(scratch_timeline_controller.get());
+
+                    // Connect thumbnail cache for playback state notifications
+                    if (timeline_thumbnail_cache) {
+                        scratch_timeline_controller->SetThumbnailCache(timeline_thumbnail_cache.get());
+                    }
                 } else {
                     Debug::Log("Failed to initialize dual view playback");
                     scratch_timeline_controller.reset();
@@ -3915,10 +3987,10 @@ private:
         style.PopupBorderSize = 0;
         style.FrameBorderSize = 1;
         style.TabBorderSize = 1;
-        style.WindowRounding = 2;
-        style.ChildRounding = 4;
-        style.FrameRounding = 4;
-        style.PopupRounding = 4;
+        style.WindowRounding = 1;
+        style.ChildRounding = 1;
+        style.FrameRounding = 1;
+        style.PopupRounding = 1;
         style.ScrollbarRounding = 1;
         style.GrabRounding = 1;
         style.LogSliderDeadzone = 4;
@@ -5864,7 +5936,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.8.0");
+                ImGui::TextDisabled("About u.m.p. v0.8.1");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -7055,6 +7127,209 @@ private:
                     } // End Timeline tab
 //#endif
 
+                    // === TAB 6: Audio Sync ===
+                    if (ImGui::BeginTabItem("Audio Sync")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "A/V sync compensation for Float/HDR video mode (AudioMixer)");
+                        ImGui::Spacing();
+
+                        // Display Latency Preset
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Display Latency");
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Select your monitor's refresh rate for automatic latency compensation");
+                        ImGui::Spacing();
+
+                        // Preset dropdown
+                        const char* display_presets[] = {
+                            "60 Hz (~33ms)", "75 Hz (~27ms)", "120 Hz (~17ms)",
+                            "144 Hz (~14ms)", "240 Hz (~8ms)", "Custom"
+                        };
+                        const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+
+                        ImGui::Text("Refresh Rate:");
+                        if (ImGui::Combo("##DisplayPreset", &cache_settings.display_latency_preset,
+                                         display_presets, IM_ARRAYSIZE(display_presets))) {
+                            settings_changed = true;
+
+                            // Apply to AudioMixer if timeline is active
+                            if (timeline_view && timeline_view->GetPlaybackController() && timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                float latency_ms = (cache_settings.display_latency_preset == 5)
+                                    ? cache_settings.custom_display_latency_ms
+                                    : preset_latencies_ms[cache_settings.display_latency_preset];
+                                timeline_view->GetPlaybackController()->GetAudioMixer()->SetDisplayLatency(latency_ms / 1000.0);
+                            }
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "Compensates for video display latency.\n\n"
+                                "Modern displays have ~2 frame latency between\n"
+                                "receiving a frame and showing it on screen.\n\n"
+                                "Select your monitor's refresh rate for automatic\n"
+                                "latency compensation. Use 'Custom' for fine control.");
+                        }
+
+                        // Custom latency slider (only visible when Custom is selected)
+                        if (cache_settings.display_latency_preset == 5) {
+                            ImGui::Text("Custom Latency (ms):");
+                            if (ImGui::SliderFloat("##CustomLatency", &cache_settings.custom_display_latency_ms,
+                                                   0.0f, 100.0f, "%.1f ms")) {
+                                settings_changed = true;
+                                if (timeline_view && timeline_view->GetPlaybackController() && timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                    timeline_view->GetPlaybackController()->GetAudioMixer()->SetDisplayLatency(
+                                        cache_settings.custom_display_latency_ms / 1000.0);
+                                }
+                            }
+                        }
+
+                        // Show current effective latency
+                        float current_latency_ms = (cache_settings.display_latency_preset == 5)
+                            ? cache_settings.custom_display_latency_ms
+                            : preset_latencies_ms[cache_settings.display_latency_preset];
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Display latency: %.1f ms", current_latency_ms);
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Fine-Tune Offset
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Fine-Tune Offset");
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Manual adjustment for systems with unusual latency");
+                        ImGui::Spacing();
+
+                        ImGui::Text("Audio Offset (ms):");
+                        if (ImGui::SliderFloat("##AudioFineTune", &cache_settings.audio_fine_tune_ms,
+                                               -50.0f, 50.0f, "%.1f ms")) {
+                            settings_changed = true;
+                            if (timeline_view && timeline_view->GetPlaybackController() && timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                timeline_view->GetPlaybackController()->GetAudioMixer()->SetFineTuneOffset(
+                                    cache_settings.audio_fine_tune_ms / 1000.0);
+                            }
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "Fine-tune audio timing manually.\n\n"
+                                "Positive values delay audio (audio plays later)\n"
+                                "Negative values advance audio (audio plays earlier)\n\n"
+                                "Tip: Use a sync test video with a clapper/beep+flash\n"
+                                "to dial in the perfect offset for your system.");
+                        }
+
+                        // Reset button
+                        if (ImGui::Button("Reset Fine-Tune", ImVec2(-1, 0))) {
+                            cache_settings.audio_fine_tune_ms = 0.0f;
+                            settings_changed = true;
+                            if (timeline_view && timeline_view->GetPlaybackController() && timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                timeline_view->GetPlaybackController()->GetAudioMixer()->SetFineTuneOffset(0.0);
+                            }
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Live Status (if playing)
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Live Status");
+                        if (timeline_view && timeline_view->GetPlaybackController() && timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                            auto* mixer = timeline_view->GetPlaybackController()->GetAudioMixer();
+                            double effective_offset = mixer->GetEffectiveOffset();
+                            double wasapi_latency = mixer->GetWasapiLatency();
+                            double drift_ms = mixer->GetCurrentDriftMs();
+                            bool rate_active = mixer->IsRateCorrectionActive();
+
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Effective offset: %.1f ms", effective_offset * 1000.0);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "WASAPI buffer: %.1f ms", wasapi_latency * 1000.0);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Current drift: %.1f ms", drift_ms);
+                            ImGui::TextColored(rate_active ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f) : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Rate correction: %s", rate_active ? "Active" : "Inactive");
+                            if (font_regular) ImGui::PopFont();
+                        } else {
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                                "No active AudioMixer (load a timeline to see live stats)");
+                            if (font_regular) ImGui::PopFont();
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Info box
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                            "Note: These settings only affect Float/HDR video mode\n"
+                            "(D3D11/D3D11VA decoders with AudioMixer).\n"
+                            "MPV mode has its own internal A/V sync.");
+
+                        ImGui::EndTabItem();
+                    } // End Audio Sync tab
+
+                    // === TAB 7: LibMPV ===
+                    if (ImGui::BeginTabItem("LibMPV")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "Video decoder backend selection");
+                        ImGui::Spacing();
+
+                        // LibMPV Toggle
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video Decoder Backend");
+                        ImGui::Spacing();
+
+                        bool use_mpv = cache_settings.use_libmpv;
+                        if (ImGui::Checkbox("Use LibMPV for video playback", &use_mpv)) {
+                            cache_settings.use_libmpv = use_mpv;
+                            g_use_libmpv = use_mpv;
+                            settings_changed = true;
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "When enabled (default): Uses LibMPV for video decoding.\n"
+                                "MPV provides robust codec support and handles edge cases well.\n\n"
+                                "When disabled: Uses FFmpeg D3D11 decoder for all video.\n"
+                                "D3D11 decoder provides direct GPU texture output and\n"
+                                "integrates with AudioMixer for A/V sync.\n\n"
+                                "Requires reload of current media to take effect.");
+                        }
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        // Status info
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Current Status");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        if (cache_settings.use_libmpv) {
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Backend: LibMPV (NORMAL/HIGH_RES/HDR_RES modes)");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Audio: MPV internal audio (separate from AudioMixer)");
+                        } else {
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Backend: FFmpeg D3D11 decoder (all modes)");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Audio: AudioMixer with WASAPI (unified A/V sync)");
+                        }
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                            "Note: ULTRA_HIGH_RES and MF_HDR modes always use\n"
+                            "D3D11 decoders regardless of this setting.");
+
+                        ImGui::EndTabItem();
+                    } // End LibMPV tab
+
                     ImGui::EndTabBar();
                 } // End tab bar
                 ImGui::EndChild();
@@ -8138,8 +8413,23 @@ private:
                     int left_width = 0, left_height = 0;
                     int right_width = 0, right_height = 0;
 
+                    // Unified composite texture mode (single D3D11 interop)
+                    bool use_unified_composite = false;
+                    GLuint composite_texture = 0;
+                    int composite_width = 0, composite_height = 0;
+
                     if (scratch_timeline_controller && scratch_timeline_controller->IsDualViewMode()) {
-                        // Use pre-rendered cached textures instead of calling UpdateDualView() here
+                        // Check if using unified composite pipeline
+                        use_unified_composite = cached_dual_view_textures.is_unified;
+
+                        if (use_unified_composite) {
+                            // Unified mode: single composite texture with UV sampling
+                            composite_texture = cached_dual_view_textures.composite_texture;
+                            composite_width = cached_dual_view_textures.composite_width;
+                            composite_height = cached_dual_view_textures.composite_height;
+                        }
+
+                        // Always get individual dimensions for aspect calculations
                         left_texture = cached_dual_view_textures.left_texture;
                         left_width = cached_dual_view_textures.left_width;
                         left_height = cached_dual_view_textures.left_height;
@@ -8185,10 +8475,17 @@ private:
 
                         // LEFT side (up to split line)
                         // NOTE: Color correction is pre-rendered with fence-sync fallback
-                        if (left_texture != 0 && left_width > 0 && left_height > 0) {
+                        if ((use_unified_composite && composite_texture != 0) ||
+                            (left_texture != 0 && left_width > 0 && left_height > 0)) {
+
                             GLuint display_left = left_texture;
                             GLuint cc_left = g_color_corrected_cache.GetLeftTexture();
-                            if (video_player && video_player->HasColorPipeline() && cc_left != 0) {
+
+                            // In unified mode, use composite texture
+                            // TODO: Apply OCIO to composite texture (single pass)
+                            if (use_unified_composite && composite_texture != 0) {
+                                display_left = composite_texture;
+                            } else if (video_player && video_player->HasColorPipeline() && cc_left != 0) {
                                 display_left = cc_left;
                             }
 
@@ -8197,21 +8494,41 @@ private:
                             ImVec2 clip_max = ImVec2(split_x, canvas_pos.y + canvas_size.y);
                             draw_list->PushClipRect(clip_min, clip_max, true);
 
-                            draw_list->AddImage(
-                                (ImTextureID)(intptr_t)display_left,
-                                img_pos,
-                                ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
-                            );
+                            if (use_unified_composite && composite_texture != 0) {
+                                // Use UV coordinates to sample left half from composite
+                                ImVec2 uv0(cached_dual_view_textures.left_uv_min_x,
+                                           cached_dual_view_textures.left_uv_min_y);
+                                ImVec2 uv1(cached_dual_view_textures.left_uv_max_x,
+                                           cached_dual_view_textures.left_uv_max_y);
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_left,
+                                    img_pos,
+                                    ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y),
+                                    uv0, uv1
+                                );
+                            } else {
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_left,
+                                    img_pos,
+                                    ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
+                                );
+                            }
 
                             draw_list->PopClipRect();
                         }
 
                         // RIGHT side (from split line)
                         // NOTE: Color correction is pre-rendered with fence-sync fallback
-                        if (right_texture != 0 && right_width > 0 && right_height > 0) {
+                        if ((use_unified_composite && composite_texture != 0) ||
+                            (right_texture != 0 && right_width > 0 && right_height > 0)) {
+
                             GLuint display_right = right_texture;
                             GLuint cc_right = g_color_corrected_cache.GetRightTexture();
-                            if (video_player && video_player->HasColorPipeline() && cc_right != 0) {
+
+                            // In unified mode, use composite texture
+                            if (use_unified_composite && composite_texture != 0) {
+                                display_right = composite_texture;
+                            } else if (video_player && video_player->HasColorPipeline() && cc_right != 0) {
                                 display_right = cc_right;
                             }
 
@@ -8220,11 +8537,25 @@ private:
                             ImVec2 clip_max = ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y);
                             draw_list->PushClipRect(clip_min, clip_max, true);
 
-                            draw_list->AddImage(
-                                (ImTextureID)(intptr_t)display_right,
-                                img_pos,
-                                ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
-                            );
+                            if (use_unified_composite && composite_texture != 0) {
+                                // Use UV coordinates to sample right half from composite
+                                ImVec2 uv0(cached_dual_view_textures.right_uv_min_x,
+                                           cached_dual_view_textures.right_uv_min_y);
+                                ImVec2 uv1(cached_dual_view_textures.right_uv_max_x,
+                                           cached_dual_view_textures.right_uv_max_y);
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_right,
+                                    img_pos,
+                                    ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y),
+                                    uv0, uv1
+                                );
+                            } else {
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_right,
+                                    img_pos,
+                                    ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
+                                );
+                            }
 
                             draw_list->PopClipRect();
                         }
@@ -8318,7 +8649,9 @@ private:
 
                         // LEFT half rendering with OCIO color correction
                         // NOTE: Color correction is pre-rendered before ImGui::NewFrame()
-                        if (left_texture != 0 && left_width > 0 && left_height > 0) {
+                        if ((use_unified_composite && composite_texture != 0) ||
+                            (left_texture != 0 && left_width > 0 && left_height > 0)) {
+
                             ImVec2 left_size = calculate_fit_size(left_width, left_height, half_width - 4, canvas_size.y);
                             ImVec2 left_pos = ImVec2(
                                 canvas_pos.x + (half_width - left_size.x) * 0.5f,
@@ -8327,20 +8660,40 @@ private:
 
                             GLuint display_left = left_texture;
                             GLuint cc_left = g_color_corrected_cache.GetLeftTexture();
-                            if (video_player && video_player->HasColorPipeline() && cc_left != 0) {
+
+                            // In unified mode, use composite texture with UV sampling
+                            if (use_unified_composite && composite_texture != 0) {
+                                display_left = composite_texture;
+                            } else if (video_player && video_player->HasColorPipeline() && cc_left != 0) {
                                 display_left = cc_left;
                             }
 
-                            draw_list->AddImage(
-                                (ImTextureID)(intptr_t)display_left,
-                                left_pos,
-                                ImVec2(left_pos.x + left_size.x, left_pos.y + left_size.y)
-                            );
+                            if (use_unified_composite && composite_texture != 0) {
+                                // Use UV coordinates to sample left half from composite
+                                ImVec2 uv0(cached_dual_view_textures.left_uv_min_x,
+                                           cached_dual_view_textures.left_uv_min_y);
+                                ImVec2 uv1(cached_dual_view_textures.left_uv_max_x,
+                                           cached_dual_view_textures.left_uv_max_y);
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_left,
+                                    left_pos,
+                                    ImVec2(left_pos.x + left_size.x, left_pos.y + left_size.y),
+                                    uv0, uv1
+                                );
+                            } else {
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_left,
+                                    left_pos,
+                                    ImVec2(left_pos.x + left_size.x, left_pos.y + left_size.y)
+                                );
+                            }
                         }
 
                         // RIGHT half rendering with OCIO color correction
                         // NOTE: Color correction is pre-rendered with fence-sync fallback
-                        if (right_texture != 0 && right_width > 0 && right_height > 0) {
+                        if ((use_unified_composite && composite_texture != 0) ||
+                            (right_texture != 0 && right_width > 0 && right_height > 0)) {
+
                             ImVec2 right_size = calculate_fit_size(right_width, right_height, half_width - 4, canvas_size.y);
                             ImVec2 right_pos = ImVec2(
                                 mid_x + (half_width - right_size.x) * 0.5f,
@@ -8349,15 +8702,33 @@ private:
 
                             GLuint display_right = right_texture;
                             GLuint cc_right = g_color_corrected_cache.GetRightTexture();
-                            if (video_player && video_player->HasColorPipeline() && cc_right != 0) {
+
+                            // In unified mode, use composite texture with UV sampling
+                            if (use_unified_composite && composite_texture != 0) {
+                                display_right = composite_texture;
+                            } else if (video_player && video_player->HasColorPipeline() && cc_right != 0) {
                                 display_right = cc_right;
                             }
 
-                            draw_list->AddImage(
-                                (ImTextureID)(intptr_t)display_right,
-                                right_pos,
-                                ImVec2(right_pos.x + right_size.x, right_pos.y + right_size.y)
-                            );
+                            if (use_unified_composite && composite_texture != 0) {
+                                // Use UV coordinates to sample right half from composite
+                                ImVec2 uv0(cached_dual_view_textures.right_uv_min_x,
+                                           cached_dual_view_textures.right_uv_min_y);
+                                ImVec2 uv1(cached_dual_view_textures.right_uv_max_x,
+                                           cached_dual_view_textures.right_uv_max_y);
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_right,
+                                    right_pos,
+                                    ImVec2(right_pos.x + right_size.x, right_pos.y + right_size.y),
+                                    uv0, uv1
+                                );
+                            } else {
+                                draw_list->AddImage(
+                                    (ImTextureID)(intptr_t)display_right,
+                                    right_pos,
+                                    ImVec2(right_pos.x + right_size.x, right_pos.y + right_size.y)
+                                );
+                            }
                         }
 
                         // Draw vertical separator line in the middle
@@ -12028,8 +12399,14 @@ private:
                                                  item->type == ump::MediaType::EXR_SEQUENCE)
                                                ? item->ffmpeg_pattern : item->path;
 
-                        // Dual view drag-drop disabled - comparison mode removed
-                        Debug::Log("DualView: Drag-drop disabled (comparison mode removed)");
+                        // Load media to the appropriate track (aligned at beginning)
+                        if (timeline_view) {
+                            if (is_left_track) {
+                                timeline_view->LoadMediaToLeftTrack(item);
+                            } else {
+                                timeline_view->LoadMediaToRightTrack(item);
+                            }
+                        }
                     }
                 }
             }
@@ -12050,8 +12427,14 @@ private:
                                                  item->type == ump::MediaType::EXR_SEQUENCE)
                                                ? item->ffmpeg_pattern : item->path;
 
-                        // Dual view drag-drop disabled - comparison mode removed
-                        Debug::Log("DualView: Multi-drop disabled (comparison mode removed)");
+                        // Load media to the appropriate track (aligned at beginning)
+                        if (timeline_view) {
+                            if (is_left_track) {
+                                timeline_view->LoadMediaToLeftTrack(item);
+                            } else {
+                                timeline_view->LoadMediaToRightTrack(item);
+                            }
+                        }
                     }
                 }
             }
@@ -12126,12 +12509,11 @@ private:
                 (int)(accent.x * 220), (int)(accent.y * 220), (int)(accent.z * 220), 255);
         }
 
-        // Draw clip - matching OTIO timeline style
-        const float clip_rounding = 2.0f;  // Match OTIO playlist style
+        // Draw clip - flat style with minimal rounding
+        const float clip_rounding = 1.0f;
         ImVec2 clip_min(render_left, clip_y);
         ImVec2 clip_max(render_right, clip_y + clip_h);
         draw_list->AddRectFilled(clip_min, clip_max, fill_color, clip_rounding);
-        draw_list->AddRect(clip_min, clip_max, border_color, clip_rounding, 0, 1.5f);
 
         // Note: Thumbnails on clips disabled for cleaner look
         // Can be re-enabled later if needed
@@ -13306,7 +13688,7 @@ private:
                 float clip_x_start = overview_lane_left + clip_padding;
                 float clip_x_end = overview_lane_left + overview_lane_width - clip_padding;
                 float clip_width = clip_x_end - clip_x_start;
-                float clip_rounding = 2.0f;
+                float clip_rounding = 1.0f;  // Flat style with minimal rounding
 
                 // Clip color - slightly desaturated accent for distinction
                 ImVec4 accent = GetWindowsAccentColor();
@@ -13314,20 +13696,12 @@ private:
                     (int)(accent.x * 50 + 35),
                     (int)(accent.y * 50 + 35),
                     (int)(accent.z * 50 + 40), 255);
-                ImU32 clip_border_color = IM_COL32(
-                    (int)(accent.x * 80 + 50),
-                    (int)(accent.y * 80 + 50),
-                    (int)(accent.z * 80 + 55), 255);
 
-                // Draw clip rectangle
+                // Draw clip rectangle (no border for flat look)
                 draw_list->AddRectFilled(
                     ImVec2(clip_x_start, clip_y_top),
                     ImVec2(clip_x_end, clip_y_bottom),
                     clip_color, clip_rounding);
-                draw_list->AddRect(
-                    ImVec2(clip_x_start, clip_y_top),
-                    ImVec2(clip_x_end, clip_y_bottom),
-                    clip_border_color, clip_rounding, 0, 1.0f);
 
                 // Timeline name label (centered in clip)
                 // Prefix based on source mode: Video, Audio, Image Sequence, Comparison, or Timeline
@@ -13416,24 +13790,12 @@ private:
                     }
                 }
 
-                // Draw viewport indicator fill (semi-transparent highlight)
+                // Draw viewport indicator fill (flat style, slightly more visible)
                 draw_list->AddRectFilled(
                     ImVec2(viewport_x_start, clip_y_top),
                     ImVec2(viewport_x_end, clip_y_bottom),
-                    UI_WHITE_A(50),
+                    UI_WHITE_A(70),
                     clip_rounding
-                );
-
-                // Draw viewport border with brighter accent
-                ImU32 viewport_border_color = IM_COL32(
-                    (int)(accent.x * 220 + 35),
-                    (int)(accent.y * 220 + 35),
-                    (int)(accent.z * 220 + 35), 255);
-                draw_list->AddRect(
-                    ImVec2(viewport_x_start, clip_y_top),
-                    ImVec2(viewport_x_end, clip_y_bottom),
-                    viewport_border_color,
-                    clip_rounding, 0, 2.0f
                 );
 
                 // === VIEWPORT DRAG/CLICK/RESIZE INTERACTION ===
@@ -13869,7 +14231,7 @@ private:
 
             // Render actual clips on this track (fade if track is hidden)
             {
-                const float clip_rounding = 2.0f;  // Match playlist style
+                const float clip_rounding = 1.0f;  // Flat style with minimal rounding
                 const float fade_alpha = track.visible ? 1.0f : 0.35f;  // Fade hidden tracks
                 int clip_index = 0;
 
@@ -14081,23 +14443,16 @@ private:
                                 }
                             }
 
-                            // Clip border (thicker for selected)
-                            draw_list->AddRect(
-                                ImVec2(render_left, clip_top),
-                                ImVec2(render_right, clip_bottom),
-                                border_color, clip_rounding, 0, is_selected ? 2.0f : 1.5f
-                            );
-
-                            // Selection glow effect - outer border
+                            // Selection highlight - border only when selected (flat look otherwise)
                             if (is_selected && track.visible) {
-                                ImU32 glow_color = IM_COL32(
+                                ImU32 selection_color = IM_COL32(
                                     (int)(accent.x * 255),
                                     (int)(accent.y * 255),
-                                    (int)(accent.z * 255), 120);
+                                    (int)(accent.z * 255), 200);
                                 draw_list->AddRect(
-                                    ImVec2(render_left - 2, clip_top - 2),
-                                    ImVec2(render_right + 2, clip_bottom + 2),
-                                    glow_color, clip_rounding + 1, 0, 2.0f
+                                    ImVec2(render_left, clip_top),
+                                    ImVec2(render_right, clip_bottom),
+                                    selection_color, clip_rounding, 0, 2.0f
                                 );
                             }
 
@@ -16027,7 +16382,9 @@ private:
                             clip.file_path = item->path;
                         }
 
-                        double insert_time = std::max(0.0, mouse_time);
+                        // In dual view mode, always align clips at beginning (start_time = 0)
+                        // In normal mode, use mouse position
+                        double insert_time = (timeline_view->IsDualViewMode()) ? 0.0 : std::max(0.0, mouse_time);
                         clip.start_time = insert_time;
                         clip.duration = item->duration;
                         clip.source_in = 0.0;
@@ -16088,6 +16445,11 @@ private:
                         // Recalculate duration in case clip extends past current timeline end
                         timeline_view->RecalculateDuration();
 
+                        // In dual view mode, auto-fit zoom to show entire timeline after drop
+                        if (timeline_view->IsDualViewMode()) {
+                            timeline_view->RequestFitZoomOnNextRender();
+                        }
+
                         Debug::Log("Inserted clip '" + clip.name + "' at " +
                                    std::to_string(insert_time) + "s on track " +
                                    std::to_string(hover_track_index));
@@ -16122,7 +16484,8 @@ private:
                     }
 
                     if (!drop_blocked_by_lock) {
-                        double current_insert_time = std::max(0.0, mouse_time);
+                        // In dual view mode, always align clips at beginning (start_time = 0)
+                        double current_insert_time = (timeline_view && timeline_view->IsDualViewMode()) ? 0.0 : std::max(0.0, mouse_time);
                         std::istringstream ss(payload_str);
                         std::string media_id;
 
@@ -16229,6 +16592,11 @@ private:
                     }
                     // Recalculate duration in case clips extend past current timeline end
                     timeline_view->RecalculateDuration();
+
+                    // In dual view mode, auto-fit zoom to show entire timeline after drop
+                    if (timeline_view->IsDualViewMode()) {
+                        timeline_view->RequestFitZoomOnNextRender();
+                    }
                     }  // end if (!drop_blocked_by_lock)
                 }
                 timeline_media_drop.active = false;
@@ -17798,6 +18166,16 @@ private:
                             timeline_view->GetPlaybackController()->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                             timeline_view->GetPlaybackController()->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                             timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
+
+                            // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                            if (auto* mixer = timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                                float latency_ms = (cache_settings.display_latency_preset == 5)
+                                    ? cache_settings.custom_display_latency_ms
+                                    : preset_latencies_ms[cache_settings.display_latency_preset];
+                                mixer->SetDisplayLatency(latency_ms / 1000.0);
+                                mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                            }
                         } else {
                             Debug::Log("Failed to initialize timeline playback");
                         }
@@ -17884,6 +18262,16 @@ private:
                             timeline_view->GetPlaybackController()->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
                             timeline_view->GetPlaybackController()->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
                             timeline_view->SetTimelineLooping(cache_settings.loop_enabled);
+
+                            // Apply audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+                            if (auto* mixer = timeline_view->GetPlaybackController()->GetAudioMixer()) {
+                                const float preset_latencies_ms[] = { 33.0f, 27.0f, 17.0f, 14.0f, 8.0f, 0.0f };
+                                float latency_ms = (cache_settings.display_latency_preset == 5)
+                                    ? cache_settings.custom_display_latency_ms
+                                    : preset_latencies_ms[cache_settings.display_latency_preset];
+                                mixer->SetDisplayLatency(latency_ms / 1000.0);
+                                mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
+                            }
                         }
                     } else {
                         video_player->SetTimelineMode(true, timeline_view->GetPlaybackController());
@@ -21470,6 +21858,36 @@ private:
                 }
             }
 
+            // Audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+            if (j.contains("audio_sync")) {
+                if (j["audio_sync"].contains("display_latency_preset")) {
+                    cache_settings.display_latency_preset = j["audio_sync"]["display_latency_preset"].get<int>();
+                    // Clamp to valid range (0-5)
+                    if (cache_settings.display_latency_preset < 0) cache_settings.display_latency_preset = 0;
+                    if (cache_settings.display_latency_preset > 5) cache_settings.display_latency_preset = 5;
+                }
+                if (j["audio_sync"].contains("fine_tune_ms")) {
+                    cache_settings.audio_fine_tune_ms = j["audio_sync"]["fine_tune_ms"].get<float>();
+                    // Clamp to ±50ms
+                    if (cache_settings.audio_fine_tune_ms < -50.0f) cache_settings.audio_fine_tune_ms = -50.0f;
+                    if (cache_settings.audio_fine_tune_ms > 50.0f) cache_settings.audio_fine_tune_ms = 50.0f;
+                }
+                if (j["audio_sync"].contains("custom_display_latency_ms")) {
+                    cache_settings.custom_display_latency_ms = j["audio_sync"]["custom_display_latency_ms"].get<float>();
+                    // Clamp to 0-100ms
+                    if (cache_settings.custom_display_latency_ms < 0.0f) cache_settings.custom_display_latency_ms = 0.0f;
+                    if (cache_settings.custom_display_latency_ms > 100.0f) cache_settings.custom_display_latency_ms = 100.0f;
+                }
+            }
+
+            // LibMPV settings
+            if (j.contains("libmpv")) {
+                if (j["libmpv"].contains("enabled")) {
+                    cache_settings.use_libmpv = j["libmpv"]["enabled"].get<bool>();
+                    g_use_libmpv = cache_settings.use_libmpv;
+                }
+            }
+
             // Color management settings
             if (j.contains("color_management")) {
                 if (j["color_management"].contains("auto_121_enabled")) {
@@ -21688,6 +22106,14 @@ private:
             j["playback"]["buffer_wait_percent"] = cache_settings.buffer_wait_percent;
             j["playback"]["video_buffer_frames"] = cache_settings.video_buffer_frames;
             j["playback"]["loop_enabled"] = cache_settings.loop_enabled;
+
+            // Audio sync settings (Phase 0: Hybrid Audio Sync Compensation)
+            j["audio_sync"]["display_latency_preset"] = cache_settings.display_latency_preset;
+            j["audio_sync"]["fine_tune_ms"] = cache_settings.audio_fine_tune_ms;
+            j["audio_sync"]["custom_display_latency_ms"] = cache_settings.custom_display_latency_ms;
+
+            // LibMPV settings
+            j["libmpv"]["enabled"] = cache_settings.use_libmpv;
 
             // Color management settings
             j["color_management"]["auto_121_enabled"] = cache_settings.auto_121_enabled;

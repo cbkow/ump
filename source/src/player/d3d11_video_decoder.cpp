@@ -1704,6 +1704,245 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
 }
 
 //=============================================================================
+// GetFrameAsD3D11SRV - For Unified Dual View Compositor
+//=============================================================================
+
+void D3D11VideoDecoder::SetExternalCompositorMode(bool enabled) {
+    use_external_compositor_ = enabled;
+
+    // If enabling and intermediate texture doesn't exist, it will be created on demand
+    if (!enabled) {
+        // Clean up intermediate resources when disabled
+        intermediate_srv_.Reset();
+        intermediate_rtv_.Reset();
+        intermediate_texture_.Reset();
+        intermediate_width_ = 0;
+        intermediate_height_ = 0;
+        last_srv_rendered_frame_ = -1;
+    }
+}
+
+ID3D11ShaderResourceView* D3D11VideoDecoder::GetFrameAsD3D11SRV(int frame_number) {
+    if (!initialized_) {
+        return nullptr;
+    }
+
+    // Clamp frame number
+    frame_number = std::clamp(frame_number, 0,
+                              frame_count_ > 0 ? frame_count_ - 1 : 0);
+
+    // Return cached SRV if same frame
+    if (frame_number == last_srv_rendered_frame_ && intermediate_srv_) {
+        return intermediate_srv_.Get();
+    }
+
+    // Update decode target and playhead for background thread
+    current_playhead_ = frame_number;
+    decode_target_ = frame_number;
+    decode_cv_.notify_one();
+
+    // Check if frame is in buffer
+    BufferedFrame* buffered = GetBufferedFrame(frame_number);
+
+    // Debug: log initial state periodically
+    static int srv_log_count = 0;
+    bool should_log = (++srv_log_count % 50 == 1);
+
+    if (should_log) {
+        Debug::Log("GetFrameAsD3D11SRV: frame=" + std::to_string(frame_number) +
+                   " buffered=" + (buffered ? "yes" : "no") +
+                   " delay_filling=" + (delay_queue_filling_.load() ? "yes" : "no") +
+                   " head=" + std::to_string(decode_head_.load()) +
+                   " buffer_count=" + std::to_string(buffer_count_));
+    }
+
+    if (!buffered) {
+        // Check if seek is needed (same logic as GetFrameAsGLTexture)
+        int head = decode_head_.load();
+        constexpr int kSeekThresholdFrames = 60;
+
+        bool need_backward_seek = (head >= 0) && (frame_number < head - kFrameBufferSize);
+        bool need_forward_seek = (head >= 0) && (frame_number > head + kSeekThresholdFrames);
+        bool need_initial_seek = (head < 0);
+
+        bool need_seek = need_backward_seek || need_forward_seek || need_initial_seek;
+
+        if (need_seek && !decode_seeking_.load() && !seek_pending_.load()) {
+            last_seek_target_ = frame_number;
+            seek_pending_ = true;
+            eof_reached_ = false;
+            decode_cv_.notify_one();
+        }
+
+        // Wait for frame
+        int timeout_ms = (codec_ctx_ && codec_ctx_->has_b_frames > 0) ? 150 : 32;
+        {
+            std::unique_lock<std::mutex> lock(frame_ready_mutex_);
+            frame_ready_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] {
+                bool queue_ready = !delay_queue_filling_.load();
+                bool frame_ready = GetBufferedFrame(frame_number) != nullptr;
+                return (queue_ready && frame_ready) || !decode_running_;
+            });
+        }
+
+        if (delay_queue_filling_.load()) {
+            if (should_log) {
+                Debug::Log("GetFrameAsD3D11SRV: returning null - delay queue filling");
+            }
+            return (last_srv_rendered_frame_ >= 0) ? intermediate_srv_.Get() : nullptr;
+        }
+
+        buffered = GetBufferedFrame(frame_number);
+
+        if (!buffered) {
+            BufferedFrame* closest = GetClosestBufferedFrame(frame_number);
+            if (closest) {
+                bool is_bframe_codec = codec_ctx_ && codec_ctx_->has_b_frames > 0;
+                if (!is_bframe_codec || closest->frame_number >= frame_number) {
+                    buffered = closest;
+                }
+            }
+        }
+    }
+
+    if (!buffered) {
+        if (should_log) {
+            Debug::Log("GetFrameAsD3D11SRV: returning null - no buffered frame after wait");
+        }
+        return (last_srv_rendered_frame_ >= 0) ? intermediate_srv_.Get() : nullptr;
+    }
+
+    // Ensure intermediate texture exists and matches video dimensions
+    if (!intermediate_texture_ ||
+        intermediate_width_ != width_ ||
+        intermediate_height_ != height_) {
+
+        intermediate_srv_.Reset();
+        intermediate_rtv_.Reset();
+        intermediate_texture_.Reset();
+
+        D3D11_TEXTURE2D_DESC texDesc = {};
+        texDesc.Width = width_;
+        texDesc.Height = height_;
+        texDesc.MipLevels = 1;
+        texDesc.ArraySize = 1;
+        texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;  // HDR-ready
+        texDesc.SampleDesc.Count = 1;
+        texDesc.Usage = D3D11_USAGE_DEFAULT;
+        texDesc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+
+        HRESULT hr = device_->CreateTexture2D(&texDesc, nullptr, &intermediate_texture_);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoDecoder: Failed to create intermediate texture");
+            return nullptr;
+        }
+
+        hr = device_->CreateRenderTargetView(intermediate_texture_.Get(), nullptr, &intermediate_rtv_);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoDecoder: Failed to create intermediate RTV");
+            intermediate_texture_.Reset();
+            return nullptr;
+        }
+
+        hr = device_->CreateShaderResourceView(intermediate_texture_.Get(), nullptr, &intermediate_srv_);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VideoDecoder: Failed to create intermediate SRV");
+            intermediate_rtv_.Reset();
+            intermediate_texture_.Reset();
+            return nullptr;
+        }
+
+        intermediate_width_ = width_;
+        intermediate_height_ = height_;
+
+        Debug::Log("D3D11VideoDecoder: Created intermediate texture " +
+                   std::to_string(width_) + "x" + std::to_string(height_));
+    }
+
+    // Render YUV to RGB on intermediate texture (same logic as GetFrameAsGLTexture)
+    YUVRenderParams params;
+    params.width = width_;
+    params.height = height_;
+    params.bit_depth = buffered->bit_depth > 0 ? buffered->bit_depth : (is_10bit_ ? 10 : 8);
+    params.is_hdr = is_hdr_;
+    params.is_full_range = GetEffectiveFullRange();
+    params.use_texture_array = buffered->is_hw_frame;
+    params.color_space = is_bt2020_ ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
+
+    bool render_ok = false;
+
+    if (buffered->is_hw_frame) {
+        params.plane_count = 2;
+        params.use_texture_array = false;
+
+        if (buffered->hw_copied && buffered->hw_srv_y && buffered->hw_srv_uv) {
+            render_ok = yuv_renderer_->Render(buffered->hw_srv_y.Get(), buffered->hw_srv_uv.Get(),
+                                              intermediate_rtv_.Get(), params);
+        } else {
+            srv_y_.Reset();
+            srv_uv_.Reset();
+            if (!CreatePlaneSRVs(buffered->hw_texture.Get(), buffered->texture_array_index,
+                                 srv_y_.GetAddressOf(), srv_uv_.GetAddressOf())) {
+                return nullptr;
+            }
+            params.use_texture_array = true;
+            render_ok = yuv_renderer_->Render(srv_y_.Get(), srv_uv_.Get(),
+                                              intermediate_rtv_.Get(), params);
+        }
+    } else if (buffered->plane_count == 4) {
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1] ||
+            !buffered->plane_srvs[2] || !buffered->plane_srvs[3]) {
+            return nullptr;
+        }
+        params.plane_count = 4;
+        params.has_alpha = buffered->has_alpha;
+        params.is_rgb_planar = buffered->is_rgb_planar;
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            buffered->plane_srvs[2].Get(),
+            buffered->plane_srvs[3].Get(),
+            intermediate_rtv_.Get(), params);
+    } else if (buffered->plane_count == 3) {
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1] || !buffered->plane_srvs[2]) {
+            return nullptr;
+        }
+        params.plane_count = 3;
+        params.is_rgb_planar = buffered->is_rgb_planar;
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            buffered->plane_srvs[2].Get(),
+            intermediate_rtv_.Get(), params);
+    } else if (buffered->plane_count == 2) {
+        if (!buffered->plane_srvs[0] || !buffered->plane_srvs[1]) {
+            return nullptr;
+        }
+        params.plane_count = 2;
+        render_ok = yuv_renderer_->Render(
+            buffered->plane_srvs[0].Get(),
+            buffered->plane_srvs[1].Get(),
+            intermediate_rtv_.Get(), params);
+    } else {
+        if (!buffered->sw_srv_y || !buffered->sw_srv_uv) {
+            return nullptr;
+        }
+        params.plane_count = 2;
+        render_ok = yuv_renderer_->Render(
+            buffered->sw_srv_y.Get(),
+            buffered->sw_srv_uv.Get(),
+            intermediate_rtv_.Get(), params);
+    }
+
+    if (!render_ok) {
+        return nullptr;
+    }
+
+    last_srv_rendered_frame_ = buffered->frame_number;
+    return intermediate_srv_.Get();
+}
+
+//=============================================================================
 // IVideoDecoder Interface Implementation
 //=============================================================================
 
@@ -1753,7 +1992,27 @@ void D3D11VideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality, bo
     current_playhead_ = frame_number;
     decode_target_ = frame_number;
 
-    if (force_seek || !BufferContainsFrame(frame_number)) {
+    // Check if we're within a reasonable decode range of current position
+    // Don't seek if decoder is already close to target
+    int head = decode_head_.load();
+    bool in_decode_range = (head >= 0) &&
+                           (frame_number >= head - 4) &&  // Allow small backward tolerance
+                           (frame_number <= head + 60);   // Within forward decode range
+
+    // Skip seek if we're in decode range and not force seeking
+    if (in_decode_range && !force_seek) {
+        decode_cv_.notify_one();  // Just wake up decoder to continue
+        return;
+    }
+
+    bool has_frame = BufferContainsFrame(frame_number);
+
+    // Only trigger seek if:
+    // 1. force_seek is true OR frame is not in buffer AND not in decode range
+    // 2. AND no seek is already pending or in progress
+    bool should_seek = force_seek || (!has_frame && !in_decode_range);
+
+    if (should_seek && !seek_pending_.load() && !decode_seeking_.load()) {
         last_seek_target_ = frame_number;
         seek_pending_ = true;
     }
@@ -1905,7 +2164,8 @@ void D3D11VideoDecoder::DecodeThreadFunc() {
 
         // Handle seek first - this resets EOF state
         if (seek_pending_) {
-            //Debug::Log("D3D11VideoDecoder: Seeking to frame " + std::to_string(last_seek_target_.load()));
+            Debug::Log("D3D11VideoDecoder: DecodeThread handling seek to frame " + std::to_string(last_seek_target_.load()) +
+                       " (" + std::to_string(width_) + "x" + std::to_string(height_) + ")");
             eof_reached_ = false;  // Reset EOF on seek
             consecutive_decode_failures_ = 0;  // Reset failure counter
             PerformSeekInternal(last_seek_target_.load());
@@ -2006,6 +2266,16 @@ void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
     bool was_full = false;
     int old_frame_number = -1;
 
+    // Debug: log what we're trying to add
+    static int add_log_count = 0;
+    bool should_log_add = (++add_log_count % 50 == 1);
+    if (should_log_add) {
+        Debug::Log("AddCurrentFrameToBuffer: frame=" + std::to_string(current_frame_number_) +
+                   " decode_mode=" + std::to_string(static_cast<int>(decode_mode_)) +
+                   " frame_format=" + std::to_string(current_frame_ ? current_frame_->format : -1) +
+                   " AV_PIX_FMT_D3D11=" + std::to_string(AV_PIX_FMT_D3D11));
+    }
+
     // Reserve a slot under lock
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
@@ -2016,6 +2286,7 @@ void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
             int idx = it->second;
             if (frame_buffer_[idx].valid && frame_buffer_[idx].frame_number == current_frame_number_) {
                 // Already have this frame successfully, skip
+                if (should_log_add) Debug::Log("AddCurrentFrameToBuffer: skipping duplicate");
                 return;
             }
         }
@@ -2114,6 +2385,11 @@ void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
         }
     }
 
+    // Debug: log upload result
+    if (should_log_add) {
+        Debug::Log("AddCurrentFrameToBuffer: upload_ok=" + std::string(upload_ok ? "yes" : "no"));
+    }
+
     // Finalize under lock
     {
         std::lock_guard<std::mutex> lock(buffer_mutex_);
@@ -2165,6 +2441,8 @@ void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
 }
 
 void D3D11VideoDecoder::PerformSeekInternal(int target_frame) {
+    Debug::Log("D3D11VideoDecoder: PerformSeekInternal to frame " + std::to_string(target_frame) +
+               " (" + std::to_string(width_) + "x" + std::to_string(height_) + ")");
     decode_seeking_ = true;
 
     ClearFrameBuffer();

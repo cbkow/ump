@@ -49,6 +49,12 @@ public:
     // Set cache window size (frames behind and ahead of playhead)
     void SetWindow(int behind, int ahead);
 
+    // Set linear mode (no wrap-around at boundaries)
+    // When true: frames outside boundaries are clamped/skipped instead of wrapped
+    // Use for MULTI_TRACK/DUAL_VIEW where clips have defined positions
+    void SetLinearMode(bool linear) { linear_mode_ = linear; }
+    bool IsLinearMode() const { return linear_mode_; }
+
     //=========================================================================
     // Playhead Management
     //=========================================================================
@@ -129,6 +135,9 @@ private:
     // Custom boundaries (-1 = use default)
     std::atomic<int> boundary_start_{-1};
     std::atomic<int> boundary_end_{-1};
+
+    // Linear mode - when true, don't wrap at boundaries (for multitrack/dual view)
+    bool linear_mode_ = false;
 
     // Current playhead
     std::atomic<int> playhead_{0};

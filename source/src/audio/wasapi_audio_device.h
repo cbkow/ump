@@ -118,6 +118,19 @@ public:
      */
     int GetSampleRate() const { return config_.sampleRate; }
 
+    /**
+     * Get current buffer latency in seconds.
+     * Returns the time delay between when audio is written and when it plays.
+     * Uses IAudioClock for accurate measurement, falls back to estimate.
+     */
+    double GetBufferLatencySeconds() const;
+
+    /**
+     * Get total samples written to WASAPI since start.
+     * Used for position tracking.
+     */
+    uint64_t GetSamplesWritten() const { return samples_written_.load(); }
+
 private:
     /**
      * Render thread function - runs the event-driven audio loop.
@@ -179,6 +192,11 @@ private:
     std::atomic<bool> deviceLost_{false};
     int recoveryAttempts_ = 0;
     static constexpr int MaxRecoveryAttempts = 5;
+
+    // IAudioClock for latency measurement (Phase 0: Audio Sync)
+    void* audioClock_ = nullptr;          // IAudioClock*
+    uint64_t clock_frequency_ = 0;        // IAudioClock frequency
+    std::atomic<uint64_t> samples_written_{0};  // Total samples written to WASAPI
 };
 
 } // namespace ump

@@ -287,6 +287,21 @@ struct ClipLoaderInfo {
         if (sequence_decoder) sequence_decoder->ClearBuffer();
     }
 
+    // Suspend/resume I/O loading (only affects ImageSequenceDecoder)
+    // Used for MULTI_TRACK/DUAL_VIEW when clip leaves active window
+    // Prevents spawning confused async disk reads after buffer is cleared
+    void SetSuspended(bool suspended) {
+        if (sequence_decoder) sequence_decoder->SetSuspended(suspended);
+    }
+
+    // Gradually clear buffer (only affects ImageSequenceDecoder)
+    // Returns frames remaining (0 = fully cleared), -1 if not applicable
+    // Used for MULTI_TRACK/DUAL_VIEW to avoid memory deallocation stalls
+    int ClearBufferGradually(int max_frames) {
+        if (sequence_decoder) return sequence_decoder->ClearBufferGradually(max_frames);
+        return -1;
+    }
+
     // Hard reset
     void HardReset(int frame) {
 #ifdef _WIN32
@@ -471,6 +486,17 @@ struct ClipLoaderInfo {
             return dynamic_cast<D3D11VideoDecoder*>(video_decoder.get()) != nullptr;
         }
         return false;
+    }
+
+    // Get D3D11 decoder for unified composite pipeline
+    D3D11VideoDecoder* GetD3D11Decoder() const {
+        if (d3d11_decoder) {
+            return d3d11_decoder.get();
+        }
+        if (video_decoder) {
+            return dynamic_cast<D3D11VideoDecoder*>(video_decoder.get());
+        }
+        return nullptr;
     }
 #endif
 };
@@ -778,7 +804,19 @@ public:
     // Returns nullptr if not ready, uses D3D11 textures when in D3D11 mode
     ID3D11ShaderResourceView* GetFrameD3D11(int timeline_frame, int& width, int& height,
                                              bool* got_exact_frame = nullptr);
+
+    // Get D3D11 decoder for unified composite pipeline
+    // Returns the decoder from the primary (first) video source
+    // Returns nullptr if no D3D11 decoder available or mode is not VIDEO_FILE
+    D3D11VideoDecoder* GetD3D11Decoder();
+
+    // Check if this cache is using D3D11 decoder
+    bool HasD3D11Decoder() const;
 #endif
+
+    // Check if this cache has any image sequence content
+    // Used to determine if D3D11 unified pipeline can be used (it can't with sequences)
+    bool HasImageSequenceContent() const;
 
 private:
     //=========================================================================
