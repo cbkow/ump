@@ -186,6 +186,13 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/gpu/d3d11_device_manager.cpp"
     "src/gpu/d3d11_texture_pool.h"
     "src/gpu/d3d11_texture_pool.cpp"
+    # Unified dual view compositor (Windows)
+    "src/gpu/dual_view_layout.h"
+    "src/gpu/dual_view_layout.cpp"
+    "src/gpu/d3d11_dual_compositor.h"
+    "src/gpu/d3d11_dual_compositor.cpp"
+    "src/player/dual_view_pipeline.h"
+    "src/player/dual_view_pipeline.cpp"
     # D3D11 OCIO renderer (Windows)
     "src/color/d3d11_ocio_renderer.h"
     "src/color/d3d11_ocio_renderer.cpp"

@@ -55,7 +55,10 @@ public:
     // Get ALL audible clips at a given time for multi-track audio mixing
     // Returns clips from: video tracks (where !audio_muted) AND audio tracks (where !muted)
     // Each clip has timing info needed for proper audio sync
-    std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
+    // NOTE: Returns COPIES of clips (not pointers) for thread safety - the flattener's
+    // internal tracks can be replaced at any time by the UI thread, so returning pointers
+    // would cause use-after-free crashes.
+    std::vector<OTIOClip> GetAllAudibleClipsAtTime(double timestamp);
 
     // Access to tracks for lookahead queries (returns a copy for thread safety)
     std::vector<OTIOTrack> GetTracks() const;
@@ -197,6 +200,22 @@ public:
     // Lightweight sync for cut operations - updates flattener tracks but
     // does NOT invalidate cache since cutting doesn't change frame mappings
     void SyncFlattenerOnly();
+
+    //=========================================================================
+    // Edit Safety (Thread-Safe Track Modifications)
+    //=========================================================================
+
+    // Call BeginEdit() before any operation that modifies tracks_ (add/move/delete clips)
+    // This pauses playback to prevent race conditions with background threads
+    // Returns true if playback was paused (caller should call EndEdit when done)
+    bool BeginEdit();
+
+    // Call EndEdit() after track modifications are complete
+    // If resume=true and playback was active before BeginEdit(), resumes playback
+    void EndEdit(bool resume = true);
+
+    // Check if currently in edit mode (playback paused for editing)
+    bool IsEditing() const { return edit_mode_active_; }
 
     // Access to flattener for timeline cache
     TimelineFlattener& GetFlattener() { return flattener_; }
@@ -366,6 +385,10 @@ private:
     bool is_scrubbing_ = false;
     bool is_dragging_clip_ = false;
     std::string hovered_clip_id_;
+
+    // Edit mode state (for thread-safe track modifications)
+    bool edit_mode_active_ = false;      // True while editing tracks
+    bool was_playing_before_edit_ = false; // Restore playback after edit
 
     // Viewport minimap interaction
     bool is_dragging_viewport_ = false;

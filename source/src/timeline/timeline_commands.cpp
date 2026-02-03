@@ -41,11 +41,22 @@ static OTIOClip* FindClipById(std::vector<OTIOTrack>& tracks,
 void TimelineCommandManager::Execute(std::unique_ptr<ITimelineCommand> cmd) {
     if (!cmd) return;
 
+    // Pause playback during edit for thread safety
+    // This prevents race conditions with CacheManagementThread and AudioMixer
+    if (timeline_view_) {
+        timeline_view_->BeginEdit();
+    }
+
     cmd->Execute();
     undo_stack_.push_back(std::move(cmd));
 
     // Clear redo stack on new action
     redo_stack_.clear();
+
+    // Resume playback if it was playing before
+    if (timeline_view_) {
+        timeline_view_->EndEdit(true);
+    }
 
     // Limit undo stack size
     while (undo_stack_.size() > MAX_UNDO_STACK_SIZE) {
@@ -56,21 +67,41 @@ void TimelineCommandManager::Execute(std::unique_ptr<ITimelineCommand> cmd) {
 void TimelineCommandManager::Undo() {
     if (!CanUndo()) return;
 
+    // Pause playback during undo for thread safety
+    if (timeline_view_) {
+        timeline_view_->BeginEdit();
+    }
+
     auto cmd = std::move(undo_stack_.back());
     undo_stack_.pop_back();
 
     cmd->Undo();
     redo_stack_.push_back(std::move(cmd));
+
+    // Resume playback if it was playing before
+    if (timeline_view_) {
+        timeline_view_->EndEdit(true);
+    }
 }
 
 void TimelineCommandManager::Redo() {
     if (!CanRedo()) return;
+
+    // Pause playback during redo for thread safety
+    if (timeline_view_) {
+        timeline_view_->BeginEdit();
+    }
 
     auto cmd = std::move(redo_stack_.back());
     redo_stack_.pop_back();
 
     cmd->Execute();
     undo_stack_.push_back(std::move(cmd));
+
+    // Resume playback if it was playing before
+    if (timeline_view_) {
+        timeline_view_->EndEdit(true);
+    }
 }
 
 bool TimelineCommandManager::CanUndo() const {

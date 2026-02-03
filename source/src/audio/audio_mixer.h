@@ -187,13 +187,15 @@ private:
     //=========================================================================
 
     // Get all audible clips at position (from all video and audio tracks)
-    std::vector<const OTIOClip*> GetAllAudibleClipsAtTime(double timestamp);
+    // Returns COPIES of clips for thread safety (flattener may replace tracks at any time)
+    std::vector<OTIOClip> GetAllAudibleClipsAtTime(double timestamp);
 
     // Get clips that will become audible within the lookahead window
-    std::vector<const OTIOClip*> GetUpcomingClips(double current_pos, double lookahead_seconds);
+    // Returns COPIES of clips for thread safety
+    std::vector<OTIOClip> GetUpcomingClips(double current_pos, double lookahead_seconds);
 
     // Update active sources based on current clips
-    void UpdateActiveSources(const std::vector<const OTIOClip*>& clips, double timeline_pos);
+    void UpdateActiveSources(const std::vector<OTIOClip>& clips, double timeline_pos);
 
     // Pre-warm decoders for upcoming clips (seek and start filling buffer)
     // NOTE: Now runs on background thread - do not call from main thread
@@ -205,7 +207,7 @@ private:
 
     // Generate a signature for a clip that includes trim points
     // This allows detecting when a clip is slipped/trimmed (same ID, different content)
-    static std::string GetClipSignature(const OTIOClip* clip);
+    static std::string GetClipSignature(const OTIOClip& clip);
 
     //=========================================================================
     // Background Preparation Thread

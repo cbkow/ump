@@ -366,6 +366,16 @@ ColorCorrectedTextureCache g_color_corrected_cache;
 // Timeline editing system
 std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;  // Undo/redo command manager
 std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;  // Separate LRU cache for trim/slip preview
+
+// Helper to ensure command manager exists and has the timeline view set for thread safety
+inline ump::TimelineCommandManager* GetCommandManager(ump::TimelineView* view) {
+    if (!timeline_command_manager) {
+        timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+    }
+    // Always update the view in case it changed (e.g., new timeline loaded)
+    timeline_command_manager->SetTimelineView(view);
+    return timeline_command_manager.get();
+}
 bool timeline_thumbnail_cache_clear_deferred = false;  // Deferred clear to avoid deleting textures mid-frame
 ump::TimelineClipDragState timeline_clip_drag;      // State for clip dragging
 ump::TimelineTrimState timeline_trim_state;         // State for clip edge trimming
@@ -14600,6 +14610,8 @@ private:
                                     if (near_left_edge) {
                                         // Start left edge trim
                                         Debug::Log("Starting LEFT edge trim for clip: " + clip.id);
+                                        // Pause playback during trim for thread safety
+                                        if (timeline_view) timeline_view->BeginEdit();
                                         timeline_trim_state.active = true;
                                         timeline_trim_state.clip_id = clip.id;
                                         timeline_trim_state.track_index = i;
@@ -14625,6 +14637,8 @@ private:
                                     } else if (near_right_edge) {
                                         // Start right edge trim
                                         Debug::Log("Starting RIGHT edge trim for clip: " + clip.id);
+                                        // Pause playback during trim for thread safety
+                                        if (timeline_view) timeline_view->BeginEdit();
                                         timeline_trim_state.active = true;
                                         timeline_trim_state.clip_id = clip.id;
                                         timeline_trim_state.track_index = i;
@@ -14653,6 +14667,10 @@ private:
                                         Debug::Log("Starting DRAG for clip: " + clip.id);
                                         bool add_to_selection = ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift;
                                         timeline_view->GetSelection().SelectClip(clip.id, i, add_to_selection);
+
+                                        // Pause playback during drag for thread safety
+                                        // This prevents race conditions with CacheManagementThread and AudioMixer
+                                        timeline_view->BeginEdit();
 
                                         // Start drag
                                         timeline_clip_drag.active = true;
@@ -16756,6 +16774,11 @@ private:
                 }
                 timeline_clip_drag.active = false;
 
+                // Resume playback after drag operation completes
+                if (timeline_view) {
+                    timeline_view->EndEdit(true);  // Resume if was playing
+                }
+
                 // Defer thumbnail cache clear until next frame start
                 // This prevents deleting textures that ImGui may still reference in current frame's draw list
                 timeline_thumbnail_cache_clear_deferred = true;
@@ -16804,6 +16827,11 @@ private:
                     }
                 }
                 timeline_trim_state.active = false;
+
+                // Resume playback after trim operation completes
+                if (timeline_view) {
+                    timeline_view->EndEdit(true);  // Resume if was playing
+                }
 
                 // Defer thumbnail cache clear until next frame start
                 // This prevents deleting textures that ImGui may still reference in current frame's draw list
@@ -24776,13 +24804,9 @@ int main(int argc, char* argv[]) {
                 Debug::Log("No files to send - just bringing window to front");
             }
         } else {
-            Debug::Log("ERROR: Could not find existing instance window");
-            MessageBoxW(
-                NULL,
-                L"ump is already running, but could not communicate with the existing instance.",
-                L"Application Already Running",
-                MB_OK | MB_ICONWARNING
-            );
+            // Window not found - likely first instance is still initializing
+            // Just exit silently instead of showing a warning (avoids annoying users who double-click)
+            Debug::Log("Another instance starting - exiting silently");
         }
 
         if (single_instance_mutex) {

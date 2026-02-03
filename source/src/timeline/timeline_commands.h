@@ -26,10 +26,16 @@ public:
     TimelineCommandManager() = default;
     ~TimelineCommandManager() = default;
 
+    // Set the timeline view for edit safety (BeginEdit/EndEdit)
+    // Call this when creating the command manager
+    void SetTimelineView(TimelineView* view) { timeline_view_ = view; }
+
     // Execute a command and add to undo stack
+    // Automatically calls BeginEdit/EndEdit for thread safety
     void Execute(std::unique_ptr<ITimelineCommand> cmd);
 
     // Undo/Redo operations
+    // Automatically calls BeginEdit/EndEdit for thread safety
     void Undo();
     void Redo();
 
@@ -49,6 +55,7 @@ public:
 private:
     std::vector<std::unique_ptr<ITimelineCommand>> undo_stack_;
     std::vector<std::unique_ptr<ITimelineCommand>> redo_stack_;
+    TimelineView* timeline_view_ = nullptr;  // For BeginEdit/EndEdit thread safety
     static constexpr size_t MAX_UNDO_STACK_SIZE = 100;
 };
 

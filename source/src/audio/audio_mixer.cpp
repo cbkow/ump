@@ -346,19 +346,17 @@ void AudioMixer::ForceRefresh() {
     Debug::Log("AudioMixer: Force refresh requested");
 }
 
-std::string AudioMixer::GetClipSignature(const OTIOClip* clip) {
-    if (!clip) return "";
-
+std::string AudioMixer::GetClipSignature(const OTIOClip& clip) {
     // Include clip ID, trim points, and timeline position in signature
     // This ensures we detect changes to any of these values
     // Using fixed precision to avoid floating point comparison issues
     char buf[256];
     snprintf(buf, sizeof(buf), "%s|%.3f|%.3f|%.3f|%.3f",
-             clip->id.c_str(),
-             clip->source_in,
-             clip->source_out,
-             clip->start_time,
-             clip->duration);
+             clip.id.c_str(),
+             clip.source_in,
+             clip.source_out,
+             clip.start_time,
+             clip.duration);
     return std::string(buf);
 }
 
@@ -366,19 +364,19 @@ std::string AudioMixer::GetClipSignature(const OTIOClip* clip) {
 // Multi-track Audio Mixing
 //=============================================================================
 
-std::vector<const OTIOClip*> AudioMixer::GetAllAudibleClipsAtTime(double timestamp) {
+std::vector<OTIOClip> AudioMixer::GetAllAudibleClipsAtTime(double timestamp) {
     if (!flattener_) return {};
     return flattener_->GetAllAudibleClipsAtTime(timestamp);
 }
 
-std::vector<const OTIOClip*> AudioMixer::GetUpcomingClips(double current_pos, double lookahead_seconds) {
+std::vector<OTIOClip> AudioMixer::GetUpcomingClips(double current_pos, double lookahead_seconds) {
     if (!flattener_) return {};
 
-    std::vector<const OTIOClip*> upcoming;
+    std::vector<OTIOClip> upcoming;
     double window_end = current_pos + lookahead_seconds;
 
-    // Iterate through all tracks to find clips starting within the lookahead window
-    const auto& tracks = flattener_->GetTracks();
+    // Get a copy of tracks for thread safety
+    auto tracks = flattener_->GetTracks();
     for (const auto& track : tracks) {
         // Check track audibility (same logic as GetAllAudibleClipsAtTime)
         bool include_track = false;
@@ -398,7 +396,8 @@ std::vector<const OTIOClip*> AudioMixer::GetUpcomingClips(double current_pos, do
             if (clip.start_time > current_pos && clip.start_time <= window_end) {
                 // Must have a valid media path
                 if (!clip.linked_path.empty() || !clip.file_path.empty()) {
-                    upcoming.push_back(&clip);
+                    // Return a COPY for thread safety
+                    upcoming.push_back(clip);
                 }
             }
         }
@@ -410,16 +409,16 @@ std::vector<const OTIOClip*> AudioMixer::GetUpcomingClips(double current_pos, do
 void AudioMixer::PrewarmUpcomingClips(double current_pos) {
     if (!flattener_ || !is_playing_) return;
 
-    // Get clips that will start within the lookahead window
+    // Get clips that will start within the lookahead window (returns copies for thread safety)
     auto upcoming = GetUpcomingClips(current_pos, lookahead_seconds_);
 
     if (upcoming.empty()) return;
 
     std::lock_guard<std::mutex> lock(warming_mutex_);
 
-    for (const auto* clip : upcoming) {
+    for (const auto& clip : upcoming) {
         // Skip if already warming
-        if (warming_decoders_.find(clip->id) != warming_decoders_.end()) {
+        if (warming_decoders_.find(clip.id) != warming_decoders_.end()) {
             continue;
         }
 
@@ -428,7 +427,7 @@ void AudioMixer::PrewarmUpcomingClips(double current_pos) {
             std::lock_guard<std::mutex> source_lock(source_mutex_);
             bool already_active = false;
             for (const auto& source : active_sources_) {
-                if (source.clip_id == clip->id) {
+                if (source.clip_id == clip.id) {
                     already_active = true;
                     break;
                 }
@@ -437,19 +436,19 @@ void AudioMixer::PrewarmUpcomingClips(double current_pos) {
         }
 
         // Get media path
-        std::string media_path = clip->linked_path;
+        std::string media_path = clip.linked_path;
         if (media_path.empty()) {
-            media_path = clip->file_path;
+            media_path = clip.file_path;
         }
         if (media_path.empty()) continue;
 
         // Create or get decoder for this clip
-        auto decoder = GetDecoderForClip(media_path, clip->id);
+        auto decoder = GetDecoderForClip(media_path, clip.id);
         if (!decoder) continue;
 
         // Calculate where to seek in the source media
         // When clip starts, we want to be at source_in
-        double source_pos = clip->source_in;
+        double source_pos = clip.source_in;
 
         // Seek decoder to the start position so it can pre-fill its buffer
         decoder->Seek(source_pos);
@@ -459,11 +458,11 @@ void AudioMixer::PrewarmUpcomingClips(double current_pos) {
         warming.decoder = decoder;
         warming.source_position = source_pos;
         warming.source_path = media_path;
-        warming.clip_start_time = clip->start_time;
-        warming_decoders_[clip->id] = warming;
+        warming.clip_start_time = clip.start_time;
+        warming_decoders_[clip.id] = warming;
 
-        Debug::Log("AudioMixer: Pre-warming decoder for upcoming clip '" + clip->name +
-                   "' (starts at " + std::to_string(clip->start_time) +
+        Debug::Log("AudioMixer: Pre-warming decoder for upcoming clip '" + clip.name +
+                   "' (starts at " + std::to_string(clip.start_time) +
                    "s, source_in=" + std::to_string(source_pos) + "s)");
     }
 
@@ -480,7 +479,7 @@ void AudioMixer::PrewarmUpcomingClips(double current_pos) {
     }
 }
 
-void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, double timeline_pos) {
+void AudioMixer::UpdateActiveSources(const std::vector<OTIOClip>& clips, double timeline_pos) {
     // IMPORTANT: Do all expensive FFmpeg operations OUTSIDE the lock to avoid
     // blocking the real-time audio callback. The audio thread needs source_mutex_
     // to read audio data - if we hold it during seeks, we cause hitches.
@@ -513,18 +512,18 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
     // This is where expensive FFmpeg operations happen (decoder creation, seeks)
     std::vector<ActiveAudioSource> new_sources;
 
-    for (const auto* clip : clips) {
-        if (!clip || clip->is_gap) continue;
+    for (const auto& clip : clips) {
+        if (clip.is_gap) continue;
 
         // Get the media path - prefer linked_path, fall back to file_path
-        std::string media_path = clip->linked_path;
+        std::string media_path = clip.linked_path;
         if (media_path.empty()) {
-            media_path = clip->file_path;
+            media_path = clip.file_path;
         }
 
         // Skip if no valid path
         if (media_path.empty()) {
-            // Debug::Log("AudioMixer: Skipping clip '" + clip->name + "' - no media path");
+            // Debug::Log("AudioMixer: Skipping clip '" + clip.name + "' - no media path");
             continue;
         }
 
@@ -534,7 +533,7 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
         bool decoder_prewarmed = false;
 
         // Priority 1: Reuse existing active decoder
-        auto it = existing_decoders.find(clip->id);
+        auto it = existing_decoders.find(clip.id);
         if (it != existing_decoders.end() && it->second) {
             // Reuse existing decoder - it's already playing at the right position
             decoder = it->second;
@@ -544,20 +543,20 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
         // Priority 2: Use pre-warmed decoder (buffer already filling)
         if (!decoder) {
             std::lock_guard<std::mutex> warm_lock(warming_mutex_);
-            auto warm_it = warming_decoders_.find(clip->id);
+            auto warm_it = warming_decoders_.find(clip.id);
             if (warm_it != warming_decoders_.end() && warm_it->second.decoder) {
                 decoder = warm_it->second.decoder;
                 decoder_prewarmed = true;
                 // Remove from warming list since it's now active
                 warming_decoders_.erase(warm_it);
-                // Debug::Log("AudioMixer: Using pre-warmed decoder for '" + clip->name + "'");
+                // Debug::Log("AudioMixer: Using pre-warmed decoder for '" + clip.name + "'");
             }
         }
 
         // Priority 3: Create new decoder (fallback)
         if (!decoder) {
             // NOTE: This may involve FFmpeg operations but GetDecoderForClip has its own lock
-            decoder = GetDecoderForClip(media_path, clip->id);
+            decoder = GetDecoderForClip(media_path, clip.id);
         }
         if (!decoder) {
             // Debug::Log("AudioMixer: No audio in " + media_path);
@@ -565,10 +564,10 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
         }
 
         ActiveAudioSource source;
-        source.clip_id = clip->id;
+        source.clip_id = clip.id;
         source.source_path = media_path;
-        source.clip_start_time = clip->start_time;
-        source.clip_duration = clip->duration;
+        source.clip_start_time = clip.start_time;
+        source.clip_duration = clip.duration;
         source.decoder = decoder;
 
         // Get actual media duration for validation
@@ -577,18 +576,18 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
         // Validate source_in/source_out against actual media duration
         // AAF/OTIO imports often have timecode-based values (e.g., 3598s for 00:59:58:00)
         // that exceed the actual media length - we need to normalize these
-        double src_in = clip->source_in;
-        double src_out = clip->source_out > 0 ? clip->source_out : media_duration;
+        double src_in = clip.source_in;
+        double src_out = clip.source_out > 0 ? clip.source_out : media_duration;
 
         if (media_duration > 0) {
             // If source_in exceeds media duration, it's likely a timecode offset
             // Reset to use the clip duration as a subclip from start of media
             if (src_in >= media_duration) {
                 // Debug::Log("AudioMixer: Normalizing invalid source_in (" +
-                //            std::to_string(src_in) + "s) for " + clip->name +
+                //            std::to_string(src_in) + "s) for " + clip.name +
                 //            " - media duration is only " + std::to_string(media_duration) + "s");
                 src_in = 0.0;
-                src_out = std::min(clip->duration, media_duration);
+                src_out = std::min(clip.duration, media_duration);
             }
             // Also check if source_out is beyond media
             else if (src_out > media_duration) {
@@ -605,21 +604,21 @@ void AudioMixer::UpdateActiveSources(const std::vector<const OTIOClip*>& clips, 
         //   (the buffer has the right data, seeking would flush it!)
         // - New decoders: need to seek to current position
         if (decoder_reused) {
-            // Debug::Log("AudioMixer: Reusing active source '" + clip->name + "' (no seek)");
+            // Debug::Log("AudioMixer: Reusing active source '" + clip.name + "' (no seek)");
         } else if (decoder_prewarmed) {
             // Pre-warmed decoder was seeked to source_in and has been filling its buffer
             // Don't seek again - the buffer already has the audio we need
             // The read position will naturally advance as we consume audio
-            // Debug::Log("AudioMixer: Using pre-warmed source '" + clip->name +
+            // Debug::Log("AudioMixer: Using pre-warmed source '" + clip.name +
             //            "' (buffer ready, no seek)");
         } else {
             // Brand new decoder - seek to current position
-            double source_pos = source.source_in + (timeline_pos - clip->start_time);
+            double source_pos = source.source_in + (timeline_pos - clip.start_time);
             source_pos = std::max(source.source_in, std::min(source_pos, source.source_out));
             decoder->Seek(source_pos);
-            // Debug::Log("AudioMixer: Added NEW source '" + clip->name + "'"
-            //            " clip_start=" + std::to_string(clip->start_time) +
-            //            " duration=" + std::to_string(clip->duration) +
+            // Debug::Log("AudioMixer: Added NEW source '" + clip.name + "'"
+            //            " clip_start=" + std::to_string(clip.start_time) +
+            //            " duration=" + std::to_string(clip.duration) +
             //            " source_in=" + std::to_string(src_in) +
             //            " source_out=" + std::to_string(src_out) +
             //            " media_dur=" + std::to_string(media_duration) +
@@ -912,21 +911,21 @@ void AudioMixer::PreparationThreadFunc() {
 
         double current_pos = current_position_.load();
 
-        // Get upcoming clips within lookahead window
+        // Get upcoming clips within lookahead window (returns copies for thread safety)
         auto upcoming = GetUpcomingClips(current_pos, lookahead_seconds_);
 
-        for (const auto* clip : upcoming) {
+        for (const auto& clip : upcoming) {
             if (!preparation_thread_running_) break;
 
-            std::string media_path = clip->linked_path.empty() ? clip->file_path : clip->linked_path;
+            std::string media_path = clip.linked_path.empty() ? clip.file_path : clip.linked_path;
             if (media_path.empty()) continue;
 
-            std::string cache_key = clip->id + "|" + media_path;
+            std::string cache_key = clip.id + "|" + media_path;
 
             // Check if already warming (already being prepared)
             {
                 std::lock_guard<std::mutex> wlock(warming_mutex_);
-                if (warming_decoders_.find(clip->id) != warming_decoders_.end()) {
+                if (warming_decoders_.find(clip.id) != warming_decoders_.end()) {
                     continue;  // Already warming
                 }
             }
@@ -961,7 +960,7 @@ void AudioMixer::PreparationThreadFunc() {
 
             // Seek to the source in point (where playback will start when clip becomes active)
             // This is the key operation - happens on background thread, not main thread
-            double source_position = clip->source_in;
+            double source_position = clip.source_in;
             decoder->Seek(source_position);
 
             // Add to warming decoders so UpdateActiveSources knows it's ready
@@ -971,8 +970,8 @@ void AudioMixer::PreparationThreadFunc() {
                 wd.decoder = decoder;
                 wd.source_position = source_position;
                 wd.source_path = media_path;
-                wd.clip_start_time = clip->start_time;
-                warming_decoders_[clip->id] = wd;
+                wd.clip_start_time = clip.start_time;
+                warming_decoders_[clip.id] = wd;
             }
         }
 
@@ -1038,13 +1037,14 @@ void AudioMixer::PreparationThreadFunc() {
             last_clip_check_time_ = now;
 
             // Get ALL audible clips at current position (multi-track mixing)
+            // Returns COPIES for thread safety - flattener may replace tracks at any time
             auto clips = GetAllAudibleClipsAtTime(current_pos);
 
             // Build set of current clip SIGNATURES (not just IDs)
             // Signature includes trim points so we detect slip/trim edits
             std::set<std::string> current_clip_signatures;
-            for (const auto* clip : clips) {
-                if (clip) current_clip_signatures.insert(GetClipSignature(clip));
+            for (const auto& clip : clips) {
+                current_clip_signatures.insert(GetClipSignature(clip));
             }
 
             // Check if clips changed (including trim point changes)

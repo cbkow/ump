@@ -413,10 +413,10 @@ std::vector<std::string> TimelineFlattener::GetAudibleClipPathsAtTime(double tim
     return audio_paths;
 }
 
-std::vector<const OTIOClip*> TimelineFlattener::GetAllAudibleClipsAtTime(double timestamp) {
+std::vector<OTIOClip> TimelineFlattener::GetAllAudibleClipsAtTime(double timestamp) {
     std::lock_guard<std::mutex> lock(tracks_mutex_);
 
-    std::vector<const OTIOClip*> audible_clips;
+    std::vector<OTIOClip> audible_clips;
 
     for (const auto& track : tracks_) {
         // For VIDEO tracks: include if visible and NOT audio_muted
@@ -442,13 +442,15 @@ std::vector<const OTIOClip*> TimelineFlattener::GetAllAudibleClipsAtTime(double 
             // For nested clips, check if it has any usable path
             if (nested_clip && !nested_clip->audio_muted &&
                 (!nested_clip->linked_path.empty() || !nested_clip->file_path.empty())) {
-                audible_clips.push_back(nested_clip);
+                // Return a COPY - pointer becomes invalid after mutex is released
+                audible_clips.push_back(*nested_clip);
             }
         } else {
             // For regular clips, include if it has any usable path (linked or file_path)
             // The audio mixer will handle the actual path resolution
             if (!clip->linked_path.empty() || !clip->file_path.empty()) {
-                audible_clips.push_back(clip);
+                // Return a COPY - pointer becomes invalid after mutex is released
+                audible_clips.push_back(*clip);
             }
         }
     }
@@ -1004,7 +1006,8 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
             if (font_icons) ImGui::PushFont(font_icons);
             if (ImGui::SmallButton(audio_icon)) {
                 track.audio_muted = !track.audio_muted;
-                // AudioMixer will check this flag when selecting clips
+                // Sync to flattener so AudioMixer picks up the change
+                SyncFlattenerOnly();
                 Debug::Log("Track " + track.name + " audio " + (track.audio_muted ? "muted" : "unmuted"));
             }
             if (font_icons) ImGui::PopFont();
@@ -3708,6 +3711,52 @@ void TimelineView::SyncFlattenerOnly() {
     // the timeline-to-source frame mappings (same frames, just split metadata)
     flattener_.SetTracks(tracks_);
     // No cache invalidation, no duration recalc needed for cuts
+}
+
+//=============================================================================
+// Edit Safety (Thread-Safe Track Modifications)
+//=============================================================================
+
+bool TimelineView::BeginEdit() {
+    if (edit_mode_active_) {
+        // Already in edit mode - nested edits are OK
+        return false;
+    }
+
+    // Get the effective playback controller (internal or external)
+    auto* controller = GetEffectivePlaybackController();
+
+    // Check if playback is active
+    was_playing_before_edit_ = controller && controller->IsPlaying();
+
+    // Pause playback to prevent race conditions with background threads
+    // (CacheManagementThread, AudioMixer background thread, etc.)
+    if (was_playing_before_edit_) {
+        controller->Pause();
+        Debug::Log("TimelineView::BeginEdit: Paused playback for safe editing");
+    }
+
+    edit_mode_active_ = true;
+    return was_playing_before_edit_;
+}
+
+void TimelineView::EndEdit(bool resume) {
+    if (!edit_mode_active_) {
+        return;
+    }
+
+    edit_mode_active_ = false;
+
+    // Resume playback if it was playing before the edit
+    if (resume && was_playing_before_edit_) {
+        auto* controller = GetEffectivePlaybackController();
+        if (controller) {
+            controller->Play();
+            Debug::Log("TimelineView::EndEdit: Resumed playback after edit");
+        }
+    }
+
+    was_playing_before_edit_ = false;
 }
 
 void TimelineView::SetTracks(const std::vector<OTIOTrack>& tracks,
