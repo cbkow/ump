@@ -1768,6 +1768,21 @@ void TimelinePlaybackController::Play() {
         }
         return;
     }
+
+    // Unified D3D11 composite pipeline for dual view: D3D11 decoders handle their own buffering
+    // Skip buffer wait entirely - similar to single video D3D11 modes
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        is_playing_ = true;
+        waiting_for_frame_ = false;
+        accumulated_time_ = 0.0;
+        last_timer_update_ = std::chrono::steady_clock::now();
+        timer_initialized_ = true;
+        timeline_timer_->Play();
+        if (audio_mixer_) {
+            audio_mixer_->Play();
+        }
+        return;
+    }
 #endif
 
     if (use_virtual_timeline_ && timeline_timer_) {
@@ -1901,6 +1916,20 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
         }
         return;
     }
+
+#ifdef _WIN32
+    // Unified D3D11 composite pipeline: D3D11 decoders handle their own buffering
+    // Skip buffer wait - just notify caches and continue
+    if (use_unified_composite_ && dual_view_pipeline_) {
+        if (cache_) {
+            cache_->UpdatePlayhead(current_frame_.load(), true);
+        }
+        if (dual_view_mode_ && right_cache_) {
+            right_cache_->UpdatePlayhead(current_frame_.load(), true);
+        }
+        return;
+    }
+#endif
 
     // Pause timer and audio while we wait
     timeline_timer_->Pause();
@@ -2052,7 +2081,14 @@ void TimelinePlaybackController::Seek(double position) {
         // If playing, enter buffer wait to ensure frames are ready at new position
         // This prevents stuttering after seeks, especially for H.264/H.265 which need
         // keyframe catch-up. Uses the configurable video_buffer_frames_ threshold.
-        if (was_playing && buffer_wait_enabled_) {
+        // Skip buffer wait for unified D3D11 composite pipeline - decoders handle their own buffering
+        bool skip_buffer_wait = false;
+#ifdef _WIN32
+        if (use_unified_composite_ && dual_view_pipeline_) {
+            skip_buffer_wait = true;
+        }
+#endif
+        if (was_playing && buffer_wait_enabled_ && !skip_buffer_wait) {
             waiting_for_frame_ = true;
             waiting_start_time_ = std::chrono::steady_clock::now();
 

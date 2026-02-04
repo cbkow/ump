@@ -14,6 +14,7 @@
 #include <cmath>
 #include <set>
 #include <regex>
+#include <random>
 #include "../utils/debug_utils.h"
 #include <nfd.h>
 #include <nlohmann/json.hpp>
@@ -6423,42 +6424,25 @@ namespace ump {
     }
 
     std::string ProjectManager::GenerateUniqueID() {
+        // Use counter + random suffix to guarantee uniqueness even across sessions
+        // This eliminates the fragile N+1 logic that required UpdateIDCounter()
         static int counter = 0;
-        return "item_" + std::to_string(++counter);
+        static const char alphanum[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+        static std::random_device rd;
+        static std::mt19937 gen(rd());
+        static std::uniform_int_distribution<> dis(0, sizeof(alphanum) - 2);
+
+        std::string suffix;
+        for (int i = 0; i < 6; ++i) {
+            suffix += alphanum[dis(gen)];
+        }
+        return "item_" + std::to_string(++counter) + "_" + suffix;
     }
 
     void ProjectManager::UpdateIDCounter() {
-        // Scan all loaded IDs to find the maximum counter value
-        // IDs have the format "item_N" where N is an integer
-        int max_counter = 0;
-
-        // Scan media_pool items
-        for (const auto& item : media_pool) {
-            if (item.id.substr(0, 5) == "item_") {
-                try {
-                    int id_num = std::stoi(item.id.substr(5));
-                    if (id_num > max_counter) {
-                        max_counter = id_num;
-                    }
-                } catch (...) {
-                    // Skip malformed IDs
-                }
-            }
-        }
-
-        // Update the static counter in GenerateUniqueID
-        // We need to access the static variable, so we'll call GenerateUniqueID max_counter times
-        // Actually, we can't easily access the static variable from here.
-        // Better approach: Make the counter accessible or generate IDs until we reach max_counter
-
-        // Generate dummy IDs to advance the counter to max_counter
-        if (max_counter > 0) {
-            for (int i = 0; i < max_counter; i++) {
-                std::string dummy = GenerateUniqueID();
-            }
-            Debug::Log("UpdateIDCounter: Advanced ID counter to " + std::to_string(max_counter) +
-                       " (next ID will be item_" + std::to_string(max_counter + 1) + ")");
-        }
+        // No longer needed - IDs now include random suffix for guaranteed uniqueness
+        // Kept as no-op for API compatibility
+        Debug::Log("UpdateIDCounter: No-op (IDs now use random suffix for uniqueness)");
     }
 
     std::string ProjectManager::GetProjectName(const std::string& path) {

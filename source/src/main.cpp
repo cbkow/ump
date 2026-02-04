@@ -1383,6 +1383,12 @@ public:
                         if (timeline_thumbnail_cache) {
                             scratch_timeline_controller->SetThumbnailCache(timeline_thumbnail_cache.get());
                         }
+
+                        // Apply user settings for buffer wait and adaptive speed
+                        scratch_timeline_controller->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
+                        scratch_timeline_controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
+                        scratch_timeline_controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                        scratch_timeline_controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                     } else {
                         Debug::Log("Failed to initialize virtual scratch timeline playback");
                         scratch_timeline_controller.reset();
@@ -2343,6 +2349,13 @@ public:
                     if (timeline_thumbnail_cache) {
                         scratch_timeline_controller->SetThumbnailCache(timeline_thumbnail_cache.get());
                     }
+
+                    // Apply user settings for buffer wait and adaptive speed
+                    // Note: These only affect image sequences - D3D11 video clips bypass these internally
+                    scratch_timeline_controller->SetThrottleEnabled(cache_settings.adaptive_throttle_enabled);
+                    scratch_timeline_controller->SetBufferWaitEnabled(cache_settings.buffer_wait_enabled);
+                    scratch_timeline_controller->SetBufferWaitPercent(cache_settings.buffer_wait_percent);
+                    scratch_timeline_controller->SetVideoBufferFrames(cache_settings.video_buffer_frames);
                 } else {
                     Debug::Log("Failed to initialize dual view playback");
                     scratch_timeline_controller.reset();
@@ -5946,7 +5959,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.8.1");
+                ImGui::TextDisabled("About u.m.p. v0.8.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
