@@ -192,28 +192,29 @@ found in the respective LICENSE file in this directory.
     License: PSF License (Python Software Foundation License 2.0)
     Website: https://www.python.org/
     File: Python-LICENSE.txt
-    Note: Embedded Python 3.11 runtime for AAF and XML timeline import
+    Note: Python is no longer embedded in current versions, but exists in old builds
 
 34. pyaaf2 (aaf2)
     Copyright (c) 2017 Mark Reid
     License: MIT
     Website: https://github.com/markreidvfx/pyaaf2
     File: pyaaf2-LICENSE.txt
-    Note: Python library for reading and writing AAF (Advanced Authoring Format) files
+    Note: pyaaf2 is no longer embedded in current versions, but exists in old builds
 
 35. otio-aaf-adapter
     Copyright Contributors to the OpenTimelineIO Project
     License: Apache License 2.0
     Website: https://github.com/OpenTimelineIO/otio-aaf-adapter
     File: otio-aaf-adapter-LICENSE.txt
-    Note: OpenTimelineIO adapter for AAF file import/export
+    Note: otio-aaf-adapter is no longer embedded in current versions, but exists in old builds
+
 
 36. otio-fcpx-xml-adapter
     Copyright Contributors to the OpenTimelineIO Project
     License: Apache License 2.0
     Website: https://github.com/OpenTimelineIO/otio-fcpx-xml-adapter
     File: otio-fcpx-xml-adapter-LICENSE.txt
-    Note: OpenTimelineIO adapter for Final Cut Pro X XML file import/export
+    Note: otio-fcpx-xml-adapter adapter for Final Cut Pro X XML file import/export
 
 ================================================================================
 
