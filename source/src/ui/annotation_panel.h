@@ -13,7 +13,8 @@ namespace ump {
 enum class AnnotationAvailability {
     AVAILABLE,           // Normal operation
     NO_PROJECT_SAVED,    // Multi-track timeline but no project saved
-    DUAL_VIEW_DISABLED   // Dual view mode - annotations not supported
+    DUAL_VIEW_DISABLED,  // Dual view mode - annotations not supported
+    PLAYLIST_DISABLED    // Playlist mode - annotations not supported
 };
 
 /**

@@ -5,6 +5,7 @@
 #include <memory>
 #include <map>
 #include <set>
+#include <functional>
 #include "../player/video_player.h"
 #include "timeline_selection.h"
 #include "timeline_types.h"
@@ -21,6 +22,7 @@ namespace ump {
 
 // Forward declarations
 class TimelinePlaybackController;
+class ProjectManager;
 
 // Flattening engine - computes visible clip at any timestamp
 // Thread-safe: can be accessed from main thread and audio background thread
@@ -97,11 +99,6 @@ public:
     // Timeline file import (creates mock data when OTIO not available)
     bool LoadOTIOFile(const std::string& file_path);
     bool LoadEDLFile(const std::string& file_path);
-    bool LoadFCPXMLFile(const std::string& file_path);
-
-    // Python adapter imports (AAF, XML via OTIO Python adapters)
-    bool LoadAAFFile(const std::string& file_path);
-    bool LoadXMLFile(const std::string& file_path);  // FCP 7/X XML, Premiere XML
 
     // Auto-mute video clips with embedded audio on video tracks
     // Called after import since imported timelines likely have their own audio tracks
@@ -127,6 +124,12 @@ public:
     // Audio file as timeline (unified view for solo audio, A1 track only)
     bool LoadAudioFileAsTimeline(MediaItem* item);
 
+    // Playlist as timeline (unified single-track playlist with ripple editing)
+    bool LoadPlaylistAsTimeline(MediaItem* item);
+
+    // Set project manager for resolving media IDs in playlist mode
+    void SetProjectManager(ProjectManager* manager) { project_manager_ = manager; }
+
     // Dual view timeline (LEFT/RIGHT video tracks for comparison)
     void InitializeForDualView(const std::string& name, double fps);
     bool LoadMediaToLeftTrack(MediaItem* item);
@@ -138,8 +141,8 @@ public:
     // Source mode - determines editing restrictions
     TimelineSourceMode GetSourceMode() const { return source_mode_; }
     void SetSourceMode(TimelineSourceMode mode) { source_mode_ = mode; }  // Direct setter for restoration
-    MediaItem* GetSourceMediaItem() const { return source_media_item_; }
-    void ResetSourceMode();  // Reset to MULTI_TRACK mode
+    MediaItem* GetSourceMediaItem();  // Refreshes pointer from project_manager if ID is set (prevents stale pointer)
+    void ResetSourceMode();  // Reset to VIDEO_FILE mode (default)
 
     // Track locking queries (based on source mode)
     bool IsVideoTrackLocked() const;
@@ -283,6 +286,10 @@ public:
     void ExportFlattenedEDL(const std::string& output_path);
     void ExportFlattenedOTIO(const std::string& output_path);
 
+    // Drag-drop callback for PLAYLIST mode - called when media items are dropped on timeline
+    using DropMediaCallback = std::function<void(const std::vector<std::string>& media_ids)>;
+    void SetDropMediaCallback(DropMediaCallback callback) { drop_media_callback_ = callback; }
+
 private:
     // UI rendering helpers
     void RenderToolbar();
@@ -304,7 +311,7 @@ private:
 
     // Flattening
     void UpdateFlattenedPlayback();
-    void LoadFlattenedClipIntoMPV(const OTIOClip& clip);
+    void LoadFlattenedClipForPlayback(const OTIOClip& clip);
 
     // Timeline parsing helpers
     bool ParseOTIOTimeline(const std::string& file_path);
@@ -319,13 +326,6 @@ private:
 
     // Helper to find track by ID
     OTIOTrack* GetTrackById(const std::string& track_id);
-
-    // Parse JSON string from Python adapter into timeline
-    bool ParseTimelineFromJson(const std::string& json_string);
-
-    // Resolve AAF MobIDs to file paths via pyaaf2 mob chain traversal
-    // Called after OTIO import to fill in missing file paths for nested clips
-    void ResolveAAFMobPaths(const std::string& aaf_path);
 
     // Data members
     ::VideoPlayer* video_player_;
@@ -345,8 +345,9 @@ private:
     int canvas_height_ = 1080;    // Output canvas height (default HD)
 
     // Source mode - for unified view handling (image sequences, videos, etc.)
-    TimelineSourceMode source_mode_ = TimelineSourceMode::MULTI_TRACK;
+    TimelineSourceMode source_mode_ = TimelineSourceMode::VIDEO_FILE;
     MediaItem* source_media_item_ = nullptr;  // Non-owning pointer to source MediaItem (for IMAGE_SEQUENCE mode)
+    std::string source_media_item_id_;  // ID for safe re-lookup (prevents stale pointer after media_pool reallocation)
 
     // UI state
     enum class FlattenMode {
@@ -386,6 +387,27 @@ private:
     bool is_dragging_clip_ = false;
     std::string hovered_clip_id_;
 
+    // PLAYLIST mode editing state
+    enum class PlaylistEditOp {
+        NONE,
+        TRIM_START,    // Dragging left edge to adjust source_in
+        TRIM_END,      // Dragging right edge to adjust source_out
+        SLIP,          // Shift+drag to slip source content within fixed duration
+        MOVE           // Drag to reorder (ripple)
+    };
+    PlaylistEditOp playlist_edit_op_ = PlaylistEditOp::NONE;
+    std::string playlist_edit_clip_id_;       // Clip being edited
+    int playlist_edit_clip_index_ = -1;       // Index in tracks_[0].clips
+    float playlist_edit_start_mouse_x_ = 0.0f; // Mouse X when edit started
+    double playlist_edit_original_in_ = 0.0;   // Original source_in (for trim/slip)
+    double playlist_edit_original_out_ = 0.0;  // Original source_out (for trim/slip)
+    double playlist_edit_original_start_ = 0.0; // Original timeline start (for move)
+
+    // Pending edit state - require drag threshold before starting actual edit
+    bool playlist_pending_edit_ = false;         // True when clicked but not yet dragging
+    PlaylistEditOp playlist_pending_op_ = PlaylistEditOp::NONE;  // What operation to start
+    static constexpr float kDragThreshold = 10.0f; // Pixels of movement before edit starts
+
     // Edit mode state (for thread-safe track modifications)
     bool edit_mode_active_ = false;      // True while editing tracks
     bool was_playing_before_edit_ = false; // Restore playback after edit
@@ -400,6 +422,23 @@ private:
     ImVec4 color_audio_clip_ = ImVec4(0.5f, 0.8f, 0.3f, 1.0f);
     ImVec4 color_gap_ = ImVec4(0.2f, 0.2f, 0.2f, 0.3f);
     ImVec4 color_transition_ = ImVec4(0.9f, 0.6f, 0.2f, 0.8f);
+
+    // Drag-drop callback for PLAYLIST mode
+    DropMediaCallback drop_media_callback_;
+
+    // Project manager for resolving media IDs
+    ProjectManager* project_manager_ = nullptr;
+
+    // PLAYLIST mode editing helpers
+    void UpdatePlaylistEdit();       // Called each frame during active edit
+    void CommitPlaylistEdit();       // Finalize edit and sync
+    void CancelPlaylistEdit();       // Cancel and revert
+    void RippleRecalculatePositions(int start_index);  // Adjust downstream clip positions
+    void SyncPlaylistToMediaItem();  // Save edits back to source MediaItem
+
+public:
+    // Delete clip from playlist (removes from both timeline and source MediaItem)
+    bool DeleteClipFromPlaylist(const std::string& clip_id);
 };
 
 } // namespace ump

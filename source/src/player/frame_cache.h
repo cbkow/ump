@@ -21,9 +21,7 @@ struct VideoMetadata;
 #include "pipeline_mode.h"
 #include "shared_memory_pool.h"
 
-// Forward declaration - defined in mpv_extractor.h
-struct MPVConversionStrategy;
-// GPU conversion strategy removed - no longer needed
+// Note: MPVConversionStrategy removed - using D3D11VideoDecoder
 
 // Removed: Disk cache forward declarations (simplified to RAM-only cache)
 

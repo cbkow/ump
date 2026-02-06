@@ -90,7 +90,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -108,16 +108,16 @@
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -125,7 +125,7 @@
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying LibMPV DLL (libmpv-2.dll)	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script</Message>
+      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Debug/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -200,15 +200,6 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/Debug/
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/Debug/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -404,38 +395,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/external/python311 D:/z_DevTemp/UnionPlayer/build/Debug/python311
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/python311/python311.dll D:/z_DevTemp/UnionPlayer/build/Debug/python311.dll
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/scripts/resolve_aaf_mobs.py D:/z_DevTemp/UnionPlayer/build/Debug/python311/Lib/site-packages/resolve_aaf_mobs.py
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3_d.lib;external\Debug\glad_d.lib;external\Debug\imgui_d.lib;external\Debug\implot_d.lib;_deps\nfd-build\src\Debug\nfd_d.lib;_deps\opentimelineio-build\src\opentimelineio\Debug\opentimelineiod.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\mpv.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf_d.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;D:\z_DevTemp\UnionPlayer\external\python311\libs\python311.lib;external\Debug\imgui_d.lib;external\glfw\src\Debug\glfw3_d.lib;_deps\opentimelineio-build\src\opentime\Debug\opentimed.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\Debug\Imath-3_2_d.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Debug\glfw3_d.lib;external\Debug\glad_d.lib;external\Debug\imgui_d.lib;external\Debug\implot_d.lib;_deps\nfd-build\src\Debug\nfd_d.lib;_deps\opentimelineio-build\src\opentimelineio\Debug\opentimelineiod.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Debug\hpdf_d.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;external\Debug\imgui_d.lib;external\glfw\src\Debug\glfw3_d.lib;_deps\opentimelineio-build\src\opentime\Debug\opentimed.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\Debug\Imath-3_2_d.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
@@ -451,10 +415,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
+    <Manifest>
+      <AdditionalManifestFiles>D:\z_DevTemp\UnionPlayer\src\ump.manifest;</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -471,18 +438,18 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -490,7 +457,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying LibMPV DLL (libmpv-2.dll)	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script</Message>
+      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/Release/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -565,15 +532,6 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/Release/
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/Release/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -769,38 +727,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/external/python311 D:/z_DevTemp/UnionPlayer/build/Release/python311
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/python311/python311.dll D:/z_DevTemp/UnionPlayer/build/Release/python311.dll
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/scripts/resolve_aaf_mobs.py D:/z_DevTemp/UnionPlayer/build/Release/python311/Lib/site-packages/resolve_aaf_mobs.py
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\Release\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\mpv.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;D:\z_DevTemp\UnionPlayer\external\python311\libs\python311.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;_deps\opentimelineio-build\src\opentime\Release\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\Release\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\Release\glfw3.lib;external\Release\glad.lib;external\Release\imgui.lib;external\Release\implot.lib;_deps\nfd-build\src\Release\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\Release\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\Release\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;external\Release\imgui.lib;external\glfw\src\Release\glfw3.lib;_deps\opentimelineio-build\src\opentime\Release\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\Release\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
@@ -816,10 +747,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
+    <Manifest>
+      <AdditionalManifestFiles>D:\z_DevTemp\UnionPlayer\src\ump.manifest;</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -836,18 +770,18 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -855,7 +789,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying LibMPV DLL (libmpv-2.dll)	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script</Message>
+      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/MinSizeRel/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -930,15 +864,6 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -1134,38 +1059,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/external/python311 D:/z_DevTemp/UnionPlayer/build/MinSizeRel/python311
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/python311/python311.dll D:/z_DevTemp/UnionPlayer/build/MinSizeRel/python311.dll
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/scripts/resolve_aaf_mobs.py D:/z_DevTemp/UnionPlayer/build/MinSizeRel/python311/Lib/site-packages/resolve_aaf_mobs.py
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\MinSizeRel\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\mpv.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;D:\z_DevTemp\UnionPlayer\external\python311\libs\python311.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;_deps\opentimelineio-build\src\opentime\MinSizeRel\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\MinSizeRel\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\MinSizeRel\glfw3.lib;external\MinSizeRel\glad.lib;external\MinSizeRel\imgui.lib;external\MinSizeRel\implot.lib;_deps\nfd-build\src\MinSizeRel\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\MinSizeRel\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\MinSizeRel\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;external\MinSizeRel\imgui.lib;external\glfw\src\MinSizeRel\glfw3.lib;_deps\opentimelineio-build\src\opentime\MinSizeRel\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\MinSizeRel\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
@@ -1181,10 +1079,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
+    <Manifest>
+      <AdditionalManifestFiles>D:\z_DevTemp\UnionPlayer\src\ump.manifest;</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /utf-8</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -1202,16 +1103,16 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;USE_PYTHON_ADAPTERS;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;USE_OPENTIMELINEIO;NOMINMAX;IMGUI_ENABLE_DOCKING;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\mpv\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\external\python311\include;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\z_DevTemp\UnionPlayer\src;D:\z_DevTemp\UnionPlayer\src\imnodes;D:\z_DevTemp\UnionPlayer\src\ui;D:\z_DevTemp\UnionPlayer\external\glfw\include;D:\z_DevTemp\UnionPlayer\external\glad\include;D:\z_DevTemp\UnionPlayer\external\imgui;D:\z_DevTemp\UnionPlayer\external\imgui\backends;D:\z_DevTemp\UnionPlayer\external\implot;D:\z_DevTemp\UnionPlayer\external\glm;D:\z_DevTemp\UnionPlayer\external\ffmpeg\include;D:\z_DevTemp\UnionPlayer\external\ocio\include;D:\z_DevTemp\UnionPlayer\external\openexr\include;D:\z_DevTemp\UnionPlayer\external\openexr\include\OpenEXR;D:\z_DevTemp\UnionPlayer\external\openexr\include\Imath;D:\z_DevTemp\UnionPlayer\external\tiff\include;D:\z_DevTemp\UnionPlayer\external\png\include;D:\z_DevTemp\UnionPlayer\external\jpeg\include;D:\z_DevTemp\UnionPlayer\external\nlohmann;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-src\include;D:\z_DevTemp\UnionPlayer\build\_deps\libharu-build\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src;D:\z_DevTemp\UnionPlayer\build\_deps\nfd-src\src\include;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-src\src\deps\Imath\src\Imath;D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\src\deps\Imath\config;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -1219,7 +1120,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
       <ProxyFileName>%(Filename)_p.c</ProxyFileName>
     </Midl>
     <PostBuildEvent>
-      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying LibMPV DLL (libmpv-2.dll)	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL	Copying embedded Python distribution for AAF/XML import	Copying python311.dll to executable directory	Copying resolve_aaf_mobs.py script</Message>
+      <Message>Copying assets to output directory	Copying FFmpeg executable	Copying FFmpeg DLL: avcodec-62.dll	Copying FFmpeg DLL: avdevice-62.dll	Copying FFmpeg DLL: avfilter-11.dll	Copying FFmpeg DLL: avformat-62.dll	Copying FFmpeg DLL: avutil-60.dll	Copying FFmpeg DLL: swresample-6.dll	Copying FFmpeg DLL: swscale-9.dll	Copying required DLL: Iex-3_4.dll	Copying required DLL: IlmThread-3_4.dll	Copying required DLL: Imath-3_2.dll	Copying required DLL: OpenColorIO_2_5.dll	Copying required DLL: OpenEXR-3_4.dll	Copying required DLL: OpenEXRCore-3_4.dll	Copying required DLL: OpenEXRUtil-3_4.dll	Copying required DLL: bz2.dll	Copying required DLL: deflate.dll	Copying required DLL: exiv2.dll	Copying required DLL: fmt.dll	Copying required DLL: jpeg62.dll	Copying required DLL: libexpat.dll	Copying required DLL: liblzma.dll	Copying required DLL: libpng16.dll	Copying required DLL: tiff.dll	Copying required DLL: turbojpeg.dll	Copying required DLL: yaml-cpp.dll	Copying required DLL: zlib1.dll	Copying required DLL: zstd.dll	Copying openjph DLL</Message>
       <Command>setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/assets D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/assets
 if %errorlevel% neq 0 goto :cmEnd
@@ -1294,15 +1195,6 @@ exit /b %1
 if %errorlevel% neq 0 goto :VCEnd
 setlocal
 "C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/ffmpeg/bin/swscale-9.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/mpv/bin/libmpv-2.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/
 if %errorlevel% neq 0 goto :cmEnd
 :cmEnd
 endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
@@ -1498,38 +1390,11 @@ endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
 :cmErrorLevel
 exit /b %1
 :cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_directory D:/z_DevTemp/UnionPlayer/external/python311 D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/python311
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/external/python311/python311.dll D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/python311.dll
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
-if %errorlevel% neq 0 goto :VCEnd
-setlocal
-"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/z_DevTemp/UnionPlayer/scripts/resolve_aaf_mobs.py D:/z_DevTemp/UnionPlayer/build/RelWithDebInfo/python311/Lib/site-packages/resolve_aaf_mobs.py
-if %errorlevel% neq 0 goto :cmEnd
-:cmEnd
-endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
-:cmErrorLevel
-exit /b %1
-:cmDone
 if %errorlevel% neq 0 goto :VCEnd</Command>
     </PostBuildEvent>
     <Link>
-      <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\RelWithDebInfo\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;D:\z_DevTemp\UnionPlayer\external\mpv\lib\mpv.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;D:\z_DevTemp\UnionPlayer\external\python311\libs\python311.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;_deps\opentimelineio-build\src\opentime\RelWithDebInfo\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\RelWithDebInfo\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
-      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/mpv/lib;D:/z_DevTemp/UnionPlayer/external/mpv/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>opengl32.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;external\RelWithDebInfo\glad.lib;external\RelWithDebInfo\imgui.lib;external\RelWithDebInfo\implot.lib;_deps\nfd-build\src\RelWithDebInfo\nfd.lib;_deps\opentimelineio-build\src\opentimelineio\RelWithDebInfo\opentimelineio.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\OpenColorIO.lib;avcodec.lib;avformat.lib;avutil.lib;avfilter.lib;swscale.lib;swresample.lib;Imath-3_2.lib;Iex-3_4.lib;IlmThread-3_4.lib;OpenEXRCore-3_4.lib;OpenEXRUtil-3_4.lib;OpenEXR-3_4.lib;tiff.lib;libpng16.lib;jpeg.lib;_deps\libharu-build\src\RelWithDebInfo\hpdf.lib;opengl32.lib;winmm.lib;dwmapi.lib;setupapi.lib;version.lib;winhttp.lib;dxgi.lib;d3d11.lib;d3dcompiler.lib;dxguid.lib;dcomp.lib;avrt.lib;ole32.lib;external\RelWithDebInfo\imgui.lib;external\glfw\src\RelWithDebInfo\glfw3.lib;_deps\opentimelineio-build\src\opentime\RelWithDebInfo\opentime.lib;_deps\opentimelineio-build\src\deps\Imath\src\Imath\RelWithDebInfo\Imath-3_2.lib;d3d11.lib;d3dcompiler.lib;D:\z_DevTemp\UnionPlayer\external\png\lib\libpng16.lib;D:\z_DevTemp\UnionPlayer\external\ocio\lib\zlib.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib;D:/z_DevTemp/UnionPlayer/external/ffmpeg/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/openexr/lib;D:/z_DevTemp/UnionPlayer/external/openexr/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/tiff/lib;D:/z_DevTemp/UnionPlayer/external/tiff/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/png/lib;D:/z_DevTemp/UnionPlayer/external/png/lib/$(Configuration);D:/z_DevTemp/UnionPlayer/external/jpeg/lib;D:/z_DevTemp/UnionPlayer/external/jpeg/lib/$(Configuration);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
       <DataExecutionPrevention></DataExecutionPrevention>
       <EntryPointSymbol>mainCRTStartup</EntryPointSymbol>
@@ -1545,6 +1410,9 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ProjectReference>
       <LinkLibraryDependencies>false</LinkLibraryDependencies>
     </ProjectReference>
+    <Manifest>
+      <AdditionalManifestFiles>D:\z_DevTemp\UnionPlayer\src\ump.manifest;</AdditionalManifestFiles>
+    </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
     <CustomBuild Include="D:\z_DevTemp\UnionPlayer\CMakeLists.txt">
@@ -1629,6 +1497,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_player.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_rate_corrector.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_rate_corrector.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_time_stretch.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\audio_time_stretch.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\ring_buffer.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\audio\wasapi_audio_device.h" />
@@ -1652,10 +1522,15 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\d3d11_yuv_renderer.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\dual_view_layout.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\dual_view_layout.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\frame_readback.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\frame_readback.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\texture_pool.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\timeline_interop_pipeline.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\timeline_interop_pipeline.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\gpu\video_range_converter.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\video_range_converter.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\gpu\yuv_textures.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\hdr\d3d11_hdr_swapchain.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\hdr\d3d11_hdr_swapchain.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\hdr\hdr_output_manager.cpp" />
@@ -1687,6 +1562,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\overlay\svg_overlay_renderer.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\conversion_strategy.cpp" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\cpu_frame_pool.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\cpu_frame_pool.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\d3d11_video_decoder.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\d3d11_video_decoder.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\d3d11va_video_decoder.cpp" />
@@ -1711,24 +1588,20 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_config.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_decoder.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\image_sequence_decoder.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\managed_video_decoder.cpp" />
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\managed_video_decoder.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\media_background_extractor.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\pipeline_mode.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\playback_timer.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\playlist_controller.cpp" />
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\playlist_controller.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\scrub_decoder.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\scrub_decoder.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\shared_memory_pool.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\streaming_video_decoder.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\streaming_video_decoder.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\thumbnail_cache.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_factory.cpp" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\unified_dual_view.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\unified_dual_view.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_factory.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\player\video_decoder_interface.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\player\video_display_component.cpp" />
@@ -1740,14 +1613,17 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\project\project_manager_transcode.cpp" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\cache_window_engine.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\cache_window_engine.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\edl_parser.cpp" />
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\edl_parser.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\media_linker.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\media_linker.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\nested_timeline_manager.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\nested_timeline_manager.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\python_adapter_bridge.cpp" />
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\python_adapter_bridge.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_clip.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_playback_controller.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_playback_controller.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_single_decoder.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_single_decoder.h" />
+    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_timeline.cpp" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\playlist_timeline.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_cache.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_cache.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\timeline\timeline_commands.cpp" />
@@ -1782,12 +1658,11 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\annotation_panel.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\node_editor_theme.h" />
-    <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\playlist_panel.cpp" />
-    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\playlist_panel.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\timeline_manager.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\ui\transcode_queue_window.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\ui\transcode_queue_window.h" />
+    <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\asset_path.h" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\debug_utils.h" />
     <ClCompile Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.cpp" />
     <ClInclude Include="D:\z_DevTemp\UnionPlayer\src\utils\exiftool_helper.h" />

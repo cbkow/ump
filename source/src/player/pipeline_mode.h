@@ -47,9 +47,7 @@ struct PipelineConfig {
 // Pipeline configurations map - defined in video_display_component.cpp
 extern const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS;
 
-// LibMPV toggle - defined in main.cpp
-// When false, D3D11 FFmpeg decoder is used for all video modes (not just ULTRA_HIGH_RES)
-extern bool g_use_libmpv;
+// Note: LibMPV toggle removed - D3D11VideoDecoder is now the sole video backend
 
 // Helper function to convert pipeline mode to display string
 const char* PipelineModeToString(PipelineMode mode);
@@ -62,14 +60,3 @@ inline PipelineMode StringToPipelineMode(const std::string& str) {
     if (str == "MF-HDR" || str == "MF_HDR") return PipelineMode::MF_HDR;
     return PipelineMode::NORMAL;
 }
-
-// Comparison mode enum - deprecated but kept for compatibility
-#ifdef DIFFERENCE
-#undef DIFFERENCE
-#endif
-enum class ComparisonMode {
-    DISABLED,
-    SIDE_BY_SIDE,
-    OVERLAY,
-    DIFFERENCE
-};

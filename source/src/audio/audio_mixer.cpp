@@ -54,9 +54,15 @@ bool AudioMixer::Initialize() {
 
     initialized_ = true;
 
-    // Initialize rate corrector for drift compensation (Phase 2)
-    rate_corrector_.Initialize(48000, 2);
-    rate_correction_buffer_.resize(4096 * 2);  // Max frame count * channels
+    // Initialize mixing buffer
+    mix_buffer_.resize(4096 * 2);  // Max frame count * channels
+
+    // Initialize time stretcher for adaptive speed control
+    // This uses SoundTouch for pitch-preserving tempo changes
+    if (!time_stretch_.Initialize(48000, 2)) {
+        Debug::Log("AudioMixer: Time stretch init failed - tempo control disabled");
+    }
+    time_stretch_buffer_.resize(8192 * 2);  // Extra space for slowdown expansion
 
     // Start background preparation thread
     StartPreparationThread();
@@ -73,8 +79,8 @@ void AudioMixer::Shutdown() {
     // Stop background preparation thread first
     StopPreparationThread();
 
-    // Shutdown rate corrector (Phase 2)
-    rate_corrector_.Shutdown();
+    // Shutdown time stretcher
+    time_stretch_.Shutdown();
 
     Stop();
     ClearClips();
@@ -232,13 +238,15 @@ void AudioMixer::Play() {
     last_clip_signatures_.clear();
     force_refresh_ = true;
 
-    // Reset position tracking for drift calculation (Phase 3)
+    // Reset position tracking for drift calculation
     double current_pos = current_position_.load();
     playback_start_position_ = current_pos;
     samples_output_ = 0;
 
-    // Reset rate corrector state
-    rate_corrector_.Reset();
+    // Reset time stretcher for clean playback start
+    if (time_stretch_.IsInitialized()) {
+        time_stretch_.Reset();
+    }
 
     device_->Start();
 
@@ -310,12 +318,16 @@ void AudioMixer::Seek(double position) {
 
     current_position_ = position;
 
-    // Reset position tracking for drift calculation (Phase 3)
+    // Reset position tracking
     playback_start_position_ = position;
     samples_output_ = 0;
 
-    // Reset rate corrector state after seek
-    rate_corrector_.Reset();
+    // Flush and reset time stretcher (clear SoundTouch's internal buffers)
+    if (time_stretch_.IsInitialized()) {
+        time_stretch_.Flush();
+        time_stretch_.Reset();
+    }
+    playback_tempo_ = 1.0;  // Reset to normal tempo on seek
 
     // Clear warming decoders immediately (they're pre-filled for wrong positions)
     // This is quick - just clearing a map, no FFmpeg calls
@@ -686,16 +698,29 @@ void AudioMixer::SetDisplayLatency(double latency_seconds) {
     Debug::Log("AudioMixer: Display latency set to " + std::to_string(latency_seconds * 1000.0) + "ms");
 }
 
+void AudioMixer::SetPipelineLatency(double latency_seconds) {
+    pipeline_latency_ = std::max(0.0, std::min(latency_seconds, 0.1));  // Clamp 0-100ms
+    Debug::Log("AudioMixer: Pipeline latency set to " + std::to_string(latency_seconds * 1000.0) + "ms");
+}
+
 void AudioMixer::SetFineTuneOffset(double offset_seconds) {
     fine_tune_offset_ = std::max(-0.05, std::min(offset_seconds, 0.05));  // Clamp ±50ms
     Debug::Log("AudioMixer: Fine-tune offset set to " + std::to_string(offset_seconds * 1000.0) + "ms");
 }
 
 double AudioMixer::GetEffectiveOffset() const {
-    // Combined offset: display latency + fine-tune - WASAPI latency
-    // WASAPI latency is subtracted because the audio is already buffered
+    // Combined offset: display latency + pipeline latency + fine-tune - WASAPI latency - time stretch latency
+    // WASAPI and time stretch latencies are subtracted because audio is already buffered
     double wasapi_latency = GetWasapiLatency();
-    return display_latency_.load() + fine_tune_offset_.load() - wasapi_latency;
+
+    // Time stretch latency (SoundTouch adds ~40-50ms latency)
+    double stretch_latency = 0.0;
+    if (time_stretch_.IsInitialized() && time_stretch_.IsActive()) {
+        stretch_latency = static_cast<double>(time_stretch_.GetLatencySamples()) / 48000.0;
+    }
+
+    return display_latency_.load() + pipeline_latency_.load() +
+           fine_tune_offset_.load() - wasapi_latency - stretch_latency;
 }
 
 double AudioMixer::GetWasapiLatency() const {
@@ -705,12 +730,23 @@ double AudioMixer::GetWasapiLatency() const {
     return 0.010;  // Fallback to 10ms estimate
 }
 
-double AudioMixer::GetCurrentDriftMs() const {
-    return rate_corrector_.GetCurrentDriftMs();
+//=============================================================================
+// Playback Tempo Control
+//=============================================================================
+
+void AudioMixer::SetPlaybackTempo(double tempo) {
+    // Clamp to SoundTouch's valid range (0.5x - 2.0x)
+    tempo = std::max(0.5, std::min(tempo, 2.0));
+    playback_tempo_ = tempo;
+
+    // Pass to time stretcher (if available)
+    if (time_stretch_.IsInitialized()) {
+        time_stretch_.SetTempo(tempo);
+    }
 }
 
-bool AudioMixer::IsRateCorrectionActive() const {
-    return rate_corrector_.IsActive();
+bool AudioMixer::IsTimeStretchAvailable() const {
+    return time_stretch_.IsInitialized();
 }
 
 //=============================================================================
@@ -758,33 +794,39 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
         return;
     }
 
-    // Phase 0: Apply sync offset to timeline position
+    // Apply sync offset to timeline position
     double timeline_pos = current_position_.load();
     double effective_offset = GetEffectiveOffset();
     double adjusted_timeline_pos = timeline_pos + effective_offset;
 
-    // Phase 3: Calculate actual audio position based on samples output
-    // This is where we are in the audio stream vs where video thinks we are
-    double actual_audio_pos = playback_start_position_.load() +
-                              (samples_output_.load() / 48000.0);
-    double drift_seconds = adjusted_timeline_pos - actual_audio_pos;
+    // Calculate how many frames to read from decoders based on tempo
+    // At tempo 0.5x: timeline advances at half speed, so we read half the frames
+    // SoundTouch then stretches them back to fill the output buffer
+    double tempo = playback_tempo_.load();
+    bool use_time_stretch = time_stretch_.IsInitialized() && std::abs(tempo - 1.0) > 0.001;
 
-    // Phase 2: Update rate corrector with current drift
-    // This will activate rate correction for 10-50ms drift range
-    rate_corrector_.UpdateDrift(drift_seconds);
+    // Input frames: how many to read from decoder (fewer when slowing)
+    // At 0.5x: read frame_count * 0.5 frames, stretch to frame_count
+    // At 2.0x: read frame_count * 2.0 frames, compress to frame_count
+    int input_frames = static_cast<int>(frame_count);
+    if (use_time_stretch && tempo > 0.1) {
+        // Read tempo-scaled frames from decoder
+        // Add small margin to ensure we produce enough output
+        input_frames = static_cast<int>(std::ceil(frame_count * tempo)) + 4;
+    }
 
-    // Ensure rate correction buffer is large enough
-    size_t required_size = (frame_count + 128) * 2;  // Extra space for resampling
-    if (rate_correction_buffer_.size() < required_size) {
-        rate_correction_buffer_.resize(required_size);
+    // Ensure mix buffer is large enough for input frames
+    size_t required_size = (input_frames + 128) * 2;
+    if (mix_buffer_.size() < required_size) {
+        mix_buffer_.resize(required_size);
     }
 
     // Initialize mixing buffer to zero
-    std::fill(rate_correction_buffer_.begin(),
-              rate_correction_buffer_.begin() + frame_count * 2, 0.0f);
+    std::fill(mix_buffer_.begin(),
+              mix_buffer_.begin() + input_frames * 2, 0.0f);
 
-    // Temporary buffer for each source
-    std::vector<float> source_buf(frame_count * 2);
+    // Temporary buffer for each source (sized for input frames)
+    std::vector<float> source_buf(input_frames * 2);
 
     // Mix all active sources together
     int sources_mixed = 0;
@@ -807,37 +849,55 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
             continue;
         }
 
-        // Read audio from this source
-        std::memset(source_buf.data(), 0, frame_count * 2 * sizeof(float));
-        source.decoder->Read(source_buf.data(), frame_count);
+        // Read audio from this source (tempo-adjusted frame count)
+        std::memset(source_buf.data(), 0, input_frames * 2 * sizeof(float));
+        source.decoder->Read(source_buf.data(), input_frames);
 
         // Mix into buffer (additive mixing)
-        for (unsigned int i = 0; i < frame_count * 2; ++i) {
-            rate_correction_buffer_[i] += source_buf[i];
+        for (int i = 0; i < input_frames * 2; ++i) {
+            mix_buffer_[i] += source_buf[i];
         }
         sources_mixed++;
     }
 
-    // Phase 2: Apply rate correction if needed
-    int output_frames = frame_count;
-    if (rate_corrector_.IsActive() && rate_corrector_.IsInitialized()) {
-        output_frames = rate_corrector_.Process(
-            rate_correction_buffer_.data(),
-            output,
-            frame_count,
-            frame_count + 64  // Allow slight expansion for slowdown
-        );
-        // Ensure we don't exceed the output buffer
-        if (output_frames > static_cast<int>(frame_count)) {
-            output_frames = frame_count;
+    // Time stretch for adaptive speed control (pitch-preserving tempo change)
+    // Pipeline: Mixing -> TimeStretch -> Output
+    float* audio_output = mix_buffer_.data();
+    int output_frames = input_frames;
+
+    if (use_time_stretch) {
+        // Ensure time stretch buffer is large enough
+        size_t stretch_buffer_size = (frame_count + 512) * 2;
+        if (time_stretch_buffer_.size() < stretch_buffer_size) {
+            time_stretch_buffer_.resize(stretch_buffer_size);
         }
-    } else {
-        // No rate correction - direct copy
-        std::memcpy(output, rate_correction_buffer_.data(), frame_count * 2 * sizeof(float));
+
+        // Process through SoundTouch
+        // Input: input_frames (tempo-scaled)
+        // Output: ~frame_count (stretched back to real-time)
+        int stretched_frames = time_stretch_.Process(
+            mix_buffer_.data(),
+            time_stretch_buffer_.data(),
+            input_frames,
+            static_cast<int>(frame_count + 256)  // Allow some headroom
+        );
+
+        audio_output = time_stretch_buffer_.data();
+        output_frames = stretched_frames;
     }
 
-    // Phase 3: Track samples output for drift calculation
-    samples_output_.fetch_add(output_frames);
+    // Copy to output buffer
+    int copy_frames = std::min(output_frames, static_cast<int>(frame_count));
+    std::memcpy(output, audio_output, copy_frames * 2 * sizeof(float));
+
+    // Zero-fill if time stretch produced fewer frames than needed
+    if (copy_frames < static_cast<int>(frame_count)) {
+        std::memset(output + copy_frames * 2, 0,
+                   (frame_count - copy_frames) * 2 * sizeof(float));
+    }
+
+    // Track samples output
+    samples_output_.fetch_add(copy_frames);
 
     // Apply volume and soft limiting
     float vol = volume_.load();

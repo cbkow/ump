@@ -13,10 +13,11 @@ found in the respective LICENSE file in this directory.
    File: FFmpeg-LICENSE.txt
 
 2. libmpv
-   Copyright © 2000-2024 mpv/MPlayer/mplayer2 projects
+   Copyright (C) 2000-2024 mpv/MPlayer/mplayer2 projects
    License: LGPL v2.1+
    Website: https://mpv.io/
    File: libmpv-LICENSE.txt
+   Note: Video playback library (legacy code paths)
 
 3. Dear ImGui
    Copyright (c) 2014-2025 Omar Cornut
@@ -152,19 +153,19 @@ found in the respective LICENSE file in this directory.
     Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
     License: SIL Open Font License 1.1
     Website: https://rsms.me/inter/
-    File: InterRobotoLICENSE.txt
+    File: Inter-JetBrainsMono-LICENSE.txt
 
 28. JetBrains Mono Font
     Copyright 2020 The JetBrains Mono Project Authors
     License: SIL Open Font License 1.1
     Website: https://www.jetbrains.com/lp/mono/
-    File: InterRobotoLICENSE.txt
+    File: Inter-JetBrainsMono-LICENSE.txt
 
 29. Material Symbols (Sharp variant)
     Copyright Google Inc.
     License: Apache License 2.0
     Website: https://fonts.google.com/icons
-    File: MaterialSymbolsLICENSE.txt
+    File: MaterialSymbols-LICENSE.txt
 
 30. github-markdown-css
     Copyright (c) Sindre Sorhus <sindresorhus@gmail.com>
@@ -185,42 +186,21 @@ found in the respective LICENSE file in this directory.
     Website: https://miniaud.io/
     GitHub: https://github.com/mackron/miniaudio
     File: miniaudio-LICENSE.txt
-    Note: miniaudio is no longer used, but still found in older u.m.p. versions
+    Note: Single-header audio playback and capture library for cross-platform audio
 
-33. Python
-    Copyright (c) 2001-2023 Python Software Foundation
-    License: PSF License (Python Software Foundation License 2.0)
-    Website: https://www.python.org/
-    File: Python-LICENSE.txt
-    Note: Python is no longer embedded in current versions, but exists in old builds
-
-34. pyaaf2 (aaf2)
-    Copyright (c) 2017 Mark Reid
-    License: MIT
-    Website: https://github.com/markreidvfx/pyaaf2
-    File: pyaaf2-LICENSE.txt
-    Note: pyaaf2 is no longer embedded in current versions, but exists in old builds
-
-35. otio-aaf-adapter
-    Copyright Contributors to the OpenTimelineIO Project
-    License: Apache License 2.0
-    Website: https://github.com/OpenTimelineIO/otio-aaf-adapter
-    File: otio-aaf-adapter-LICENSE.txt
-    Note: otio-aaf-adapter is no longer embedded in current versions, but exists in old builds
-
-
-36. otio-fcpx-xml-adapter
-    Copyright Contributors to the OpenTimelineIO Project
-    License: Apache License 2.0
-    Website: https://github.com/OpenTimelineIO/otio-fcpx-xml-adapter
-    File: otio-fcpx-xml-adapter-LICENSE.txt
-    Note: otio-fcpx-xml-adapter adapter for Final Cut Pro X XML file import/export
+33. SoundTouch
+    Copyright (c) Olli Parviainen
+    License: LGPL v2.1
+    Website: https://www.surina.net/soundtouch/
+    Source: https://codeberg.org/soundtouch/soundtouch
+    File: SoundTouch-LICENSE.txt
+    Note: Audio processing library for tempo/pitch adjustment without affecting the other
 
 ================================================================================
 
 Media Assets (used in documentation)
 
-37. Big Buck Bunny
+34. Big Buck Bunny
     (c) 2008 Blender Foundation
     License: Creative Commons Attribution 3.0 (CC-BY 3.0)
     Website: https://www.bigbuckbunny.org/

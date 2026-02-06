@@ -13,7 +13,7 @@
 
 #include "image_loader_interface.h"
 #include "pipeline_mode.h"
-#include "streaming_video_decoder.h"  // For StreamingDecoderConfig and SeekQuality
+#include "video_decoder_interface.h"  // For StreamingDecoderConfig and SeekQuality
 
 namespace ump {
 
@@ -131,7 +131,7 @@ public:
     // Thread-safe
     void ClearBuffer();
 
-    // Gradually clear buffer (for MULTI_TRACK/DUAL_VIEW to avoid memory deallocation stalls)
+    // Gradually clear buffer (for DUAL_VIEW to avoid memory deallocation stalls)
     // Returns number of frames remaining in buffer (0 = fully cleared)
     // Thread-safe
     int ClearBufferGradually(int max_frames_to_clear);
@@ -142,7 +142,7 @@ public:
     // Get the last seek target frame
     int GetLastSeekTarget() const { return seek_target_frame_; }
 
-    // Suspend/resume I/O loading (for MULTI_TRACK/DUAL_VIEW when clip is not in active window)
+    // Suspend/resume I/O loading (for DUAL_VIEW when clip is not in active window)
     // When suspended, NeedsMoreFrames() returns false, preventing new disk I/O spawning.
     // Decoder stays fully initialized and ready to resume instantly.
     void SetSuspended(bool suspended) { suspended_ = suspended; }
@@ -263,7 +263,7 @@ private:
     int seek_target_frame_ = 0;
 
     // Suspended state - when true, no new I/O tasks are spawned
-    // Used for MULTI_TRACK/DUAL_VIEW when clip leaves active window
+    // Used for DUAL_VIEW when clip leaves active window
     std::atomic<bool> suspended_{false};
 
     // Track which frames are currently being loaded (to avoid duplicates)

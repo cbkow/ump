@@ -51,7 +51,7 @@ public:
 
     // Set linear mode (no wrap-around at boundaries)
     // When true: frames outside boundaries are clamped/skipped instead of wrapped
-    // Use for MULTI_TRACK/DUAL_VIEW where clips have defined positions
+    // Use for DUAL_VIEW where clips have defined positions
     void SetLinearMode(bool linear) { linear_mode_ = linear; }
     bool IsLinearMode() const { return linear_mode_; }
 

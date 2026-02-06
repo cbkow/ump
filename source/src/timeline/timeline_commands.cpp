@@ -64,6 +64,22 @@ void TimelineCommandManager::Execute(std::unique_ptr<ITimelineCommand> cmd) {
     }
 }
 
+void TimelineCommandManager::PushExecuted(std::unique_ptr<ITimelineCommand> cmd) {
+    if (!cmd) return;
+
+    // The command is already executed (live preview), just add to undo stack
+    // No BeginEdit/EndEdit since caller manages that
+    undo_stack_.push_back(std::move(cmd));
+
+    // Clear redo stack on new action
+    redo_stack_.clear();
+
+    // Limit undo stack size
+    while (undo_stack_.size() > MAX_UNDO_STACK_SIZE) {
+        undo_stack_.erase(undo_stack_.begin());
+    }
+}
+
 void TimelineCommandManager::Undo() {
     if (!CanUndo()) return;
 
@@ -906,6 +922,240 @@ void OverwriteEditCommand::Undo() {
 
 std::string OverwriteEditCommand::GetDescription() const {
     return is_move_ ? "Move Clip (Overwrite)" : "Insert Clip (Overwrite)";
+}
+
+//-----------------------------------------------------------------------------
+// TrimPlaylistClipCommand
+//-----------------------------------------------------------------------------
+
+TrimPlaylistClipCommand::TrimPlaylistClipCommand(TimelineView* view, const std::string& clip_id,
+                                                 double old_source_in, double old_source_out, double old_duration,
+                                                 double new_source_in, double new_source_out, double new_duration)
+    : view_(view), clip_id_(clip_id),
+      old_source_in_(old_source_in), old_source_out_(old_source_out), old_duration_(old_duration),
+      new_source_in_(new_source_in), new_source_out_(new_source_out), new_duration_(new_duration) {
+}
+
+void TrimPlaylistClipCommand::ApplyAndRipple(double source_in, double source_out, double duration) {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (tracks.empty()) return;
+
+    // Find and update the clip
+    for (auto& clip : tracks[0].clips) {
+        if (clip.id == clip_id_ && !clip.is_gap) {
+            clip.source_in = source_in;
+            clip.source_out = source_out;
+            clip.duration = duration;
+            break;
+        }
+    }
+
+    // Ripple: recalculate all clip positions
+    double current_time = 0.0;
+    for (auto& c : tracks[0].clips) {
+        c.start_time = current_time;
+        current_time += c.duration;
+    }
+
+    // Update MediaItem for persistence
+    MediaItem* playlist_item = view_->GetSourceMediaItem();
+    if (playlist_item) {
+        int playlist_index = 0;
+        for (const auto& c : tracks[0].clips) {
+            if (c.is_gap) continue;
+            if (playlist_index < static_cast<int>(playlist_item->playlist_items.size())) {
+                playlist_item->playlist_items[playlist_index].in_point = c.source_in;
+                playlist_item->playlist_items[playlist_index].out_point = c.source_out;
+            }
+            playlist_index++;
+        }
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+void TrimPlaylistClipCommand::Execute() {
+    ApplyAndRipple(new_source_in_, new_source_out_, new_duration_);
+    executed_ = true;
+}
+
+void TrimPlaylistClipCommand::Undo() {
+    if (!executed_) return;
+    ApplyAndRipple(old_source_in_, old_source_out_, old_duration_);
+}
+
+std::string TrimPlaylistClipCommand::GetDescription() const {
+    return "Trim Playlist Clip";
+}
+
+//-----------------------------------------------------------------------------
+// SlipClipCommand
+//-----------------------------------------------------------------------------
+
+SlipClipCommand::SlipClipCommand(TimelineView* view, const std::string& clip_id,
+                                 int track_index, double new_source_in, double new_source_out)
+    : view_(view), clip_id_(clip_id), track_index_(track_index),
+      new_source_in_(new_source_in), new_source_out_(new_source_out) {
+}
+
+void SlipClipCommand::Execute() {
+    if (!view_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it == track.clips.end()) return;
+
+    if (!executed_) {
+        old_source_in_ = it->source_in;
+        old_source_out_ = it->source_out;
+    }
+
+    it->source_in = new_source_in_;
+    it->source_out = new_source_out_;
+
+    // Also update MediaItem for persistence (PLAYLIST mode)
+    MediaItem* playlist_item = view_->GetSourceMediaItem();
+    if (playlist_item) {
+        // Find playlist index by counting non-gap clips
+        int playlist_index = 0;
+        for (const auto& c : track.clips) {
+            if (c.id == clip_id_) break;
+            if (!c.is_gap) playlist_index++;
+        }
+        if (playlist_index < static_cast<int>(playlist_item->playlist_items.size())) {
+            playlist_item->playlist_items[playlist_index].in_point = new_source_in_;
+            playlist_item->playlist_items[playlist_index].out_point = new_source_out_;
+        }
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void SlipClipCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    auto& tracks = view_->GetTracks();
+    if (track_index_ < 0 || track_index_ >= static_cast<int>(tracks.size())) return;
+
+    auto& track = tracks[track_index_];
+    auto it = std::find_if(track.clips.begin(), track.clips.end(),
+                           [this](const OTIOClip& c) { return c.id == clip_id_; });
+    if (it != track.clips.end()) {
+        it->source_in = old_source_in_;
+        it->source_out = old_source_out_;
+
+        // Also update MediaItem for persistence (PLAYLIST mode)
+        MediaItem* playlist_item = view_->GetSourceMediaItem();
+        if (playlist_item) {
+            // Find playlist index by counting non-gap clips
+            int playlist_index = 0;
+            for (const auto& c : track.clips) {
+                if (c.id == clip_id_) break;
+                if (!c.is_gap) playlist_index++;
+            }
+            if (playlist_index < static_cast<int>(playlist_item->playlist_items.size())) {
+                playlist_item->playlist_items[playlist_index].in_point = old_source_in_;
+                playlist_item->playlist_items[playlist_index].out_point = old_source_out_;
+            }
+        }
+    }
+
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string SlipClipCommand::GetDescription() const {
+    return "Slip Clip";
+}
+
+//-----------------------------------------------------------------------------
+// ReorderPlaylistCommand
+//-----------------------------------------------------------------------------
+
+ReorderPlaylistCommand::ReorderPlaylistCommand(TimelineView* view,
+                                               int source_index, int target_index)
+    : view_(view), source_index_(source_index), target_index_(target_index) {
+}
+
+void ReorderPlaylistCommand::Execute() {
+    if (!view_) return;
+
+    // Get the MediaItem (playlist)
+    MediaItem* playlist_item = view_->GetSourceMediaItem();
+    if (!playlist_item) return;
+
+    if (source_index_ < 0 || source_index_ >= static_cast<int>(playlist_item->playlist_items.size())) return;
+    if (source_index_ == target_index_) return;
+
+    // Extract the item
+    auto moving_item = playlist_item->playlist_items[source_index_];
+    playlist_item->playlist_items.erase(playlist_item->playlist_items.begin() + source_index_);
+
+    // Adjust target index if source was before target
+    int adjusted_target = target_index_;
+    if (source_index_ < target_index_) {
+        adjusted_target--;
+    }
+    adjusted_target = std::clamp(adjusted_target, 0, static_cast<int>(playlist_item->playlist_items.size()));
+
+    // Insert at new position
+    playlist_item->playlist_items.insert(
+        playlist_item->playlist_items.begin() + adjusted_target, moving_item);
+
+    Debug::Log("ReorderPlaylistCommand::Execute - moved from " + std::to_string(source_index_) +
+               " to " + std::to_string(adjusted_target));
+
+    // Reload the playlist to rebuild the timeline with new order
+    view_->LoadPlaylistAsTimeline(playlist_item);
+    view_->SyncFlattenerAndInvalidate();
+    executed_ = true;
+}
+
+void ReorderPlaylistCommand::Undo() {
+    if (!view_ || !executed_) return;
+
+    // Get the MediaItem (playlist)
+    MediaItem* playlist_item = view_->GetSourceMediaItem();
+    if (!playlist_item) return;
+
+    // Reverse the operation - move from where it ended up back to original position
+    int adjusted_target = target_index_;
+    if (source_index_ < target_index_) {
+        adjusted_target--;
+    }
+    adjusted_target = std::clamp(adjusted_target, 0, static_cast<int>(playlist_item->playlist_items.size()) - 1);
+
+    if (adjusted_target < 0 || adjusted_target >= static_cast<int>(playlist_item->playlist_items.size())) return;
+
+    // Extract from current position
+    auto moving_item = playlist_item->playlist_items[adjusted_target];
+    playlist_item->playlist_items.erase(playlist_item->playlist_items.begin() + adjusted_target);
+
+    // Reinsert at original position
+    int restore_index = source_index_;
+    if (adjusted_target < source_index_) {
+        restore_index--;
+    }
+    restore_index = std::clamp(restore_index, 0, static_cast<int>(playlist_item->playlist_items.size()));
+
+    playlist_item->playlist_items.insert(
+        playlist_item->playlist_items.begin() + restore_index, moving_item);
+
+    Debug::Log("ReorderPlaylistCommand::Undo - restored to position " + std::to_string(restore_index));
+
+    // Reload the playlist to rebuild the timeline
+    view_->LoadPlaylistAsTimeline(playlist_item);
+    view_->SyncFlattenerAndInvalidate();
+}
+
+std::string ReorderPlaylistCommand::GetDescription() const {
+    return "Reorder Playlist";
 }
 
 } // namespace ump

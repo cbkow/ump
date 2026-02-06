@@ -11,7 +11,9 @@
 #include <condition_variable>
 
 #include "audio_decoder.h"
-#include "audio_rate_corrector.h"
+#include "audio_time_stretch.h"
+// AudioRateCorrector removed - caused crackling artifacts, and mpv-style approach
+// is to keep audio pristine and adjust video timing for sync instead
 
 // Forward declare WASAPI device
 namespace ump { class WasapiAudioDevice; }
@@ -137,6 +139,13 @@ public:
     double GetDisplayLatency() const { return display_latency_.load(); }
 
     /**
+     * Set video pipeline latency (D3D11 decoder buffering, GPU upload, etc.)
+     * @param latency_seconds Pipeline latency in seconds (e.g., 0.028 for D3D11)
+     */
+    void SetPipelineLatency(double latency_seconds);
+    double GetPipelineLatency() const { return pipeline_latency_.load(); }
+
+    /**
      * Set fine-tune offset for manual A/V sync adjustment.
      * @param offset_seconds Offset in seconds (positive = delay audio)
      */
@@ -145,7 +154,7 @@ public:
 
     /**
      * Get the effective total offset being applied.
-     * = display_latency + fine_tune - wasapi_buffer_latency
+     * = display_latency + pipeline_latency + fine_tune - wasapi_buffer_latency
      */
     double GetEffectiveOffset() const;
 
@@ -154,16 +163,34 @@ public:
      */
     double GetWasapiLatency() const;
 
-    /**
-     * Get current audio drift for debugging.
-     * Positive = audio behind video, negative = audio ahead.
-     */
-    double GetCurrentDriftMs() const;
+    //=========================================================================
+    // Playback Tempo Control (Pitch-Preserving Time Stretch)
+    //=========================================================================
 
     /**
-     * Check if rate correction is currently active.
+     * Set playback tempo for adaptive speed control.
+     * Uses SoundTouch for pitch-preserving time stretch.
+     *
+     * @param tempo Speed factor: 0.5 = half speed, 1.0 = normal, 2.0 = double
+     * Values are clamped to 0.5-2.0 range.
+     *
+     * When tempo < 1.0, audio slows without pitch change (not chipmunk/slow-mo).
+     * When tempo = 1.0, time stretch is bypassed for efficiency.
+     *
+     * If SoundTouch is not available, this has no effect and the caller
+     * should fall back to pausing audio during throttle.
      */
-    bool IsRateCorrectionActive() const;
+    void SetPlaybackTempo(double tempo);
+
+    /**
+     * Get current playback tempo
+     */
+    double GetPlaybackTempo() const { return playback_tempo_.load(); }
+
+    /**
+     * Check if time stretching is available (SoundTouch compiled in)
+     */
+    bool IsTimeStretchAvailable() const;
 
     //=========================================================================
     // Current State
@@ -261,16 +288,21 @@ private:
     double last_sync_check_time_ = 0.0;
 
     //=========================================================================
-    // Audio Sync Compensation (Phase 0 + Phase 2 + Phase 3)
+    // Audio Sync Compensation
     //=========================================================================
 
-    // Phase 0: Display latency compensation
-    std::atomic<double> display_latency_{0.033};     // 60Hz default (33ms)
+    // Display/pipeline latency compensation
+    std::atomic<double> display_latency_{0.012};     // 12ms - tuned after removing swr
+    std::atomic<double> pipeline_latency_{0.0};      // Video pipeline latency (D3D11: ~28ms)
     std::atomic<double> fine_tune_offset_{0.0};      // User fine-tune (±50ms range)
 
-    // Phase 2: Rate correction for drift
-    AudioRateCorrector rate_corrector_;
-    std::vector<float> rate_correction_buffer_;      // Temp buffer for resampling
+    // Mixing buffer (holds mixed audio before time stretch)
+    std::vector<float> mix_buffer_;
+
+    // Time stretch for adaptive speed control (pitch-preserving tempo change)
+    AudioTimeStretch time_stretch_;
+    std::vector<float> time_stretch_buffer_;         // Buffer for time-stretched output
+    std::atomic<double> playback_tempo_{1.0};        // Current tempo (0.5-2.0)
 
     // Phase 3: Position tracking
     std::atomic<uint64_t> samples_output_{0};        // Total samples output to WASAPI

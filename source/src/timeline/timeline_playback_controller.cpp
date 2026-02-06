@@ -214,12 +214,6 @@ void TimelinePlaybackController::Shutdown() {
 
     Debug::Log("TimelinePlaybackController: Shutting down...");
 
-    // Shutdown direct MPV mode
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->CleanupMPV();
-        use_direct_mpv_ = false;
-    }
-
 #ifdef _WIN32
     // Shutdown D3D11VA HDR decoder
     if (d3d11va_decoder_) {
@@ -281,32 +275,6 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
         width = 0;
         height = 0;
         return 0;
-    }
-
-    // Direct MPV mode: VideoDisplayComponent's RenderMPVFrame() handles rendering
-    // We just need to sync position and return dimensions
-    if (use_direct_mpv_ && video_player_) {
-        // During scrubbing: use scrub target for instant playhead response
-        // The playhead moves immediately, video catches up async
-        // Outside scrubbing: use actual MPV decoded position
-        double display_pos;
-        if (video_player_->IsMPVScrubbing()) {
-            display_pos = video_player_->GetMPVScrubTarget();
-        } else {
-            display_pos = video_player_->GetMPVPosition();
-        }
-
-        current_frame_ = static_cast<int>(display_pos * fps_ + 0.5);
-
-        // Update audio position (use actual MPV pos for sync, not scrub target)
-        if (audio_mixer_ && !video_player_->IsMPVScrubbing()) {
-            audio_mixer_->SetTimelinePosition(video_player_->GetMPVPosition());
-        }
-
-        // Return dimensions - texture is already in video_texture_ from RenderMPVFrame()
-        width = width_;
-        height = height_;
-        return 0;  // No texture from cache - MPV rendered directly
     }
 
 #ifdef _WIN32
@@ -843,23 +811,13 @@ void TimelinePlaybackController::SetConfig(const TimelinePlaybackConfig& config)
 }
 
 void TimelinePlaybackController::SetLooping(bool enabled) {
-    // Direct MPV mode: route to VideoDisplayComponent's MPV
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVSetLoop(enabled);
-    }
-
-    // Also update timer for consistent state
+    // Update timer for consistent state
     if (timeline_timer_) {
         timeline_timer_->SetLooping(enabled);
     }
 }
 
 bool TimelinePlaybackController::IsLooping() const {
-    // Direct MPV mode: query MPV state
-    if (use_direct_mpv_ && video_player_) {
-        return video_player_->IsMPVLooping();
-    }
-
     // Timer is the source of truth for loop state
     if (timeline_timer_) {
         return timeline_timer_->IsLooping();
@@ -868,7 +826,7 @@ bool TimelinePlaybackController::IsLooping() const {
 }
 
 //=============================================================================
-// Volume/Mute Control - Routes to MPV or AudioMixer
+// Volume/Mute Control - Routes to AudioMixer
 //=============================================================================
 
 void TimelinePlaybackController::SetVolume(double volume) {
@@ -878,10 +836,8 @@ void TimelinePlaybackController::SetVolume(double volume) {
 
     volume_ = volume;
 
-    // Route to appropriate backend
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVSetVolume(volume);
-    } else if (audio_mixer_) {
+    // Route to audio mixer
+    if (audio_mixer_) {
         audio_mixer_->SetVolume(static_cast<float>(volume));
     }
 }
@@ -889,10 +845,8 @@ void TimelinePlaybackController::SetVolume(double volume) {
 void TimelinePlaybackController::SetMuted(bool muted) {
     muted_ = muted;
 
-    // Route to appropriate backend
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVSetMute(muted);
-    } else if (audio_mixer_) {
+    // Route to audio mixer
+    if (audio_mixer_) {
         audio_mixer_->SetMuted(muted);
     }
 }
@@ -906,26 +860,14 @@ bool TimelinePlaybackController::IsMuted() const {
 }
 
 bool TimelinePlaybackController::IsPlaying() const {
-    // Direct MPV mode: check MPV's actual playing state
-    if (use_direct_mpv_ && video_player_) {
-        return video_player_->IsMPVPlaying();
-    }
     return is_playing_.load();
 }
 
 bool TimelinePlaybackController::IsWaitingForBuffer() const {
-    // Direct MPV mode: never waiting for buffer (MPV handles its own buffering)
-    if (use_direct_mpv_) {
-        return false;
-    }
     return waiting_for_frame_;
 }
 
 bool TimelinePlaybackController::IsActuallyPlaying() const {
-    // Direct MPV mode: check MPV's actual playing state (no buffer wait)
-    if (use_direct_mpv_ && video_player_) {
-        return video_player_->IsMPVPlaying();
-    }
     // True only if playing AND not waiting for buffer to fill
     // Used by UI to show correct play/pause state
     return is_playing_.load() && !waiting_for_frame_;
@@ -941,10 +883,40 @@ void TimelinePlaybackController::SetBufferWaitEnabled(bool enabled) {
                std::string(enabled ? "enabled" : "disabled"));
 }
 
-void TimelinePlaybackController::SetBufferWaitPercent(int percent) {
-    buffer_wait_percent_ = std::clamp(percent, 10, 100);
-    Debug::Log("TimelinePlaybackController: Buffer-wait threshold set to " +
-               std::to_string(buffer_wait_percent_) + "%");
+bool TimelinePlaybackController::ShouldApplyBufferWait() const {
+    // Buffer wait only applies to image/EXR content at the current playhead
+    // Video uses D3D11 decoders which handle their own buffering
+    // This is clip-aware: only waits within image clips, not during video clips
+
+    // Setting must be enabled
+    if (!buffer_wait_enabled_) return false;
+
+    // D3D11VA HDR mode - decoder handles buffering
+    if (use_d3d11va_hdr_ && d3d11va_decoder_) return false;
+
+    // D3D11 GPU-native mode - decoder handles buffering
+    if (use_d3d11_decoder_ && d3d11_decoder_) return false;
+
+#ifdef _WIN32
+    // Unified D3D11 composite pipeline - decoders handle buffering
+    if (use_unified_composite_ && dual_view_pipeline_) return false;
+#endif
+
+    // Must have cache
+    if (!cache_) return false;
+
+    // Clip-aware check: only buffer wait if current frame is image/EXR content
+    // This allows playlists with mixed video+image content to only buffer wait
+    // during image clips, not during video clips
+    int current_frame = current_frame_.load();
+    if (!cache_->IsFrameImageContent(current_frame)) return false;
+
+    return true;  // Current frame is image/EXR - buffer wait applies
+}
+
+void TimelinePlaybackController::SetBufferWaitPercent(int /*percent*/) {
+    // No-op: buffer wait percent is now hardcoded to 90%
+    // This method is kept for API compatibility but does nothing
 }
 
 void TimelinePlaybackController::SetVideoBufferFrames(int frames) {
@@ -954,16 +926,17 @@ void TimelinePlaybackController::SetVideoBufferFrames(int frames) {
 }
 
 int TimelinePlaybackController::GetEffectiveBufferWaitPercent() const {
-    return buffer_wait_percent_;
+    return 90;  // Hardcoded to 90% - simplifies interaction with adaptive speed
 }
 
 bool TimelinePlaybackController::IsSequentialBufferReady() const {
     if (!cache_) return true;  // No cache = ready (nothing to wait for)
 
-    // D3D11 video decodes on-demand via GetGLTexture() - no buffer to wait for
-    // Buffer wait only makes sense for image sequences with pre-decoded ring buffers
-    if (cache_->IsVideoOnly()) {
-        return true;  // Video is always "ready" - D3D11 decodes on-demand
+    // Buffer wait only applies to image/EXR content at the current frame
+    // Video uses D3D11 decoders which handle their own buffering
+    int current_frame = current_frame_.load();
+    if (!cache_->IsFrameImageContent(current_frame)) {
+        return true;  // Video clip = always ready (D3D11 handles buffering)
     }
 
 #ifdef _WIN32
@@ -1003,8 +976,10 @@ void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) c
 
     if (!cache_) return;
 
-    // D3D11 video: buffer wait not applicable (on-demand decode)
-    if (cache_->IsVideoOnly()) {
+    // Buffer status only applies to image/EXR content at the current frame
+    // For video clips, report 100% full since D3D11 handles buffering
+    int current_frame = current_frame_.load();
+    if (!cache_->IsFrameImageContent(current_frame)) {
         filled = 1;
         needed = 1;
         return;
@@ -1066,17 +1041,15 @@ PipelineMode TimelinePlaybackController::GetCurrentPipelineMode() const {
     }
 #endif
 
-    // For direct MPV mode, return config pipeline mode (cache is null)
-    if (use_direct_mpv_) {
-        return config_.pipeline_mode;
-    }
+    if (!cache_) return config_.pipeline_mode;
 
-    if (!cache_) return PipelineMode::NORMAL;
-
-    // For VIDEO_FILE mode, return the global video pipeline mode (user-selectable)
-    // For other modes, return the per-clip pipeline mode (determined by content)
-    if (timeline_view_ && timeline_view_->GetSourceMode() == TimelineSourceMode::VIDEO_FILE) {
-        return cache_->GetPipelineMode();  // User-selected video pipeline mode
+    // For VIDEO_FILE and PLAYLIST modes, return the global video pipeline mode (user-selectable)
+    // For other modes (IMAGE_SEQUENCE, etc.), return the per-clip pipeline mode (determined by content)
+    if (timeline_view_) {
+        TimelineSourceMode mode = timeline_view_->GetSourceMode();
+        if (mode == TimelineSourceMode::VIDEO_FILE || mode == TimelineSourceMode::PLAYLIST) {
+            return cache_->GetPipelineMode();  // User-selected video pipeline mode
+        }
     }
 
     return cache_->GetClipPipelineMode(current_frame_.load());
@@ -1233,11 +1206,8 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     }
 
-    // Decoder selection: D3D11VA_HDR mode uses FFmpeg D3D11VA, otherwise use MPV for VIDEO_FILE
-    bool use_direct_mpv = false;
-
 #ifdef _WIN32
-    // D3D11VA_HDR pipeline mode: use FFmpeg + D3D11VA hardware decode (bypasses MPV entirely)
+    // D3D11VA_HDR pipeline mode: use FFmpeg + D3D11VA hardware decode
     // Key: Our D3D11 device is passed TO FFmpeg for texture compatibility
     bool use_d3d11va_hdr = (config_.pipeline_mode == PipelineMode::MF_HDR);
 
@@ -1283,27 +1253,20 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
                                std::to_string(config_.timecode_start_frame) + " frames");
                 }
             } else {
-                Debug::Log("TimelinePlaybackController: WARNING - D3D11VA init failed, falling back to MPV");
+                Debug::Log("TimelinePlaybackController: WARNING - D3D11VA init failed");
                 d3d11va_decoder_.reset();
                 use_d3d11va_hdr_ = false;
             }
         } else {
-            Debug::Log("TimelinePlaybackController: WARNING - No D3D11 device, falling back to MPV");
+            Debug::Log("TimelinePlaybackController: WARNING - No D3D11 device for D3D11VA");
             use_d3d11va_hdr_ = false;
         }
     }
 
     // D3D11VideoDecoder mode: use FFmpeg + D3D11 for direct GPU textures
-    // Conditions to use D3D11 decoder:
-    //   1. ULTRA_HIGH_RES pipeline mode always uses D3D11 decoder
-    //   2. When g_use_libmpv is false, ALL modes use D3D11 decoder (bypasses MPV entirely)
-    bool use_d3d11_decoder = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES) || !g_use_libmpv;
-
-    if (use_d3d11_decoder && !use_d3d11va_hdr_ && is_video_file_mode && !media_file_path.empty()) {
-        std::string mode_reason = (config_.pipeline_mode == PipelineMode::ULTRA_HIGH_RES)
-            ? "ULTRA_HIGH_RES"
-            : "LibMPV disabled";
-        Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode (" + mode_reason + ") for: " + media_file_path);
+    // Always use D3D11 decoder for video files (MPV removed)
+    if (!use_d3d11va_hdr_ && is_video_file_mode && !media_file_path.empty()) {
+        Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode for: " + media_file_path);
 
         // Ensure D3D11 device manager is initialized
         auto& device_mgr = D3D11DeviceManager::Instance();
@@ -1344,50 +1307,35 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
                        (d3d11_decoder_->Is10BitOutput() ? " [10-bit]" : " [8-bit]") +
                        " [" + std::string(d3d11_decoder_->IsHardwareAccelerated() ? "HW" : "SW") + " decode]");
         } else {
-            Debug::Log("TimelinePlaybackController: WARNING - D3D11VideoDecoder init failed, falling back to MPV");
+            Debug::Log("TimelinePlaybackController: WARNING - D3D11VideoDecoder init failed");
             d3d11_decoder_.reset();
             use_d3d11_decoder_ = false;
         }
     }
-
-    // Only use MPV if neither D3D11VA HDR nor D3D11 decoder is active
-    if (!use_d3d11va_hdr_ && !use_d3d11_decoder_ && is_video_file_mode && !media_file_path.empty()) {
-        use_direct_mpv = true;
-    }
-#else
-    // Non-Windows: always use MPV for VIDEO_FILE mode
-    if (is_video_file_mode && !media_file_path.empty()) {
-        use_direct_mpv = true;
-    }
 #endif
 
-    // For VIDEO_FILE mode with MPV: direct rendering in VideoDisplayComponent
-    // This keeps everything on GPU (no CPU roundtrip like LibMPVVideoDecoder)
-    if (use_direct_mpv && !media_file_path.empty()) {
-        Debug::Log("TimelinePlaybackController: Using direct MPV rendering for media file: " + media_file_path);
-
-        // Initialize MPV in VideoDisplayComponent
-        if (!video_player_->InitializeMPV()) {
-            Debug::Log("TimelinePlaybackController: WARNING - Failed to initialize MPV, falling back to cache");
-            use_direct_mpv = false;
-        } else if (!video_player_->LoadVideoFile(media_file_path)) {
-            Debug::Log("TimelinePlaybackController: WARNING - Failed to load media in MPV, falling back to cache");
-            video_player_->CleanupMPV();
-            use_direct_mpv = false;
-        } else {
-            // Successfully initialized direct MPV mode
-            use_direct_mpv_ = true;
-            Debug::Log("TimelinePlaybackController: Direct MPV mode active for: " + media_file_path);
-        }
-    }
-
-    // Initialize cache (skip for direct MPV mode and D3D11 decoder modes - no decoder needed)
+    // Initialize cache (skip for D3D11 decoder modes - no decoder needed)
 #ifdef _WIN32
-    bool skip_cache = use_direct_mpv || use_d3d11va_hdr_ || use_d3d11_decoder_;
+    bool skip_cache = use_d3d11va_hdr_ || use_d3d11_decoder_;
 #else
-    bool skip_cache = use_direct_mpv;
+    bool skip_cache = false;
 #endif
     if (!skip_cache) {
+        // For PLAYLIST and DUAL_VIEW modes, ensure D3D11DeviceManager is initialized
+        // BEFORE creating the TimelineCache. The cache's background thread will try
+        // to create D3D11VideoDecoder for VIDEO clips, which requires the device.
+#ifdef _WIN32
+        TimelineSourceMode source_mode = timeline_view_->GetSourceMode();
+        if (source_mode == TimelineSourceMode::PLAYLIST ||
+            source_mode == TimelineSourceMode::DUAL_VIEW) {
+            auto& device_mgr = D3D11DeviceManager::Instance();
+            if (!device_mgr.IsInitialized()) {
+                Debug::Log("TimelinePlaybackController: Pre-initializing D3D11DeviceManager for " +
+                           std::string(source_mode == TimelineSourceMode::PLAYLIST ? "PLAYLIST" : "DUAL_VIEW") + " mode");
+                device_mgr.Initialize(nullptr);
+            }
+        }
+#endif
         cache_ = std::make_unique<TimelineCache>();
 
         TimelineCacheConfig cache_config;
@@ -1430,33 +1378,27 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         }
     }
 
-    // Initialize audio mixer (skip for direct MPV mode - MPV handles audio)
-    // D3D11 GPU-native mode now supports audio via AudioMixer
-    bool skip_audio_mixer = use_direct_mpv_;
-    if (!skip_audio_mixer) {
-        audio_mixer_ = std::make_unique<AudioMixer>();
-        if (audio_mixer_->Initialize()) {
-            audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
-            audio_mixer_->SetTimer(timeline_timer_.get());  // Direct timer access for sync
+    // Initialize audio mixer (always needed now - MPV removed)
+    audio_mixer_ = std::make_unique<AudioMixer>();
+    if (audio_mixer_->Initialize()) {
+        audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
+        audio_mixer_->SetTimer(timeline_timer_.get());  // Direct timer access for sync
 
-            // Collect all clips with media paths for preloading
-            std::vector<OTIOClip> all_clips;
-            for (const auto& track : tracks) {
-                for (const auto& clip : track.clips) {
-                    if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
-                        all_clips.push_back(clip);
-                    }
+        // Collect all clips with media paths for preloading
+        std::vector<OTIOClip> all_clips;
+        for (const auto& track : tracks) {
+            for (const auto& clip : track.clips) {
+                if (!clip.is_gap && (!clip.linked_path.empty() || !clip.file_path.empty())) {
+                    all_clips.push_back(clip);
                 }
             }
-            audio_mixer_->PreloadClips(all_clips);
-            Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer initialized with " +
-                       std::to_string(all_clips.size()) + " clips");
-        } else {
-            Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer init failed");
-            audio_mixer_.reset();
         }
+        audio_mixer_->PreloadClips(all_clips);
+        Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer initialized with " +
+                   std::to_string(all_clips.size()) + " clips");
     } else {
-        Debug::Log("TimelinePlaybackController: Skipping AudioMixer - MPV handles audio in direct mode");
+        Debug::Log("TimelinePlaybackController: Virtual timeline audio mixer init failed");
+        audio_mixer_.reset();
     }
 
     use_virtual_timeline_ = true;
@@ -1540,9 +1482,11 @@ void TimelinePlaybackController::UpdateTimer() {
     // Wait-for-frame logic: when Play() is called, we don't start the timer
     // until the sequential buffer is ready. This prevents stuttering,
     // especially when crossing edit boundaries where multiple clips need to be buffered.
+    // Buffer wait only applies to image/EXR content - video uses D3D11 decoders with internal buffering.
     if (waiting_for_frame_ && is_playing_.load()) {
-        // If buffer-wait is disabled, skip waiting entirely
-        if (!buffer_wait_enabled_) {
+        // Safety check: if buffer wait no longer applies (setting changed, content type changed),
+        // exit wait state immediately and start playback
+        if (!ShouldApplyBufferWait()) {
             waiting_for_frame_ = false;
             accumulated_time_ = 0.0;
             last_timer_update_ = now;
@@ -1555,6 +1499,8 @@ void TimelinePlaybackController::UpdateTimer() {
 
 #ifdef _WIN32
         // D3D11VA HDR mode: seek (if needed for loop restart) and try to decode
+        // Note: This path is only reached if ShouldApplyBufferWait() returned true,
+        // which shouldn't happen for D3D11VA HDR mode, but keep as safety fallback.
         if (use_d3d11va_hdr_ && d3d11va_decoder_) {
             int target_frame = current_frame_.load();
 
@@ -1602,6 +1548,11 @@ void TimelinePlaybackController::UpdateTimer() {
             // Sequential buffer ready OR timed out with at least current frame
             waiting_for_frame_ = false;
 
+            // Clear DirectEXRCache buffer wait flag (IMAGE_SEQUENCE mode)
+            if (cache_ && cache_->IsDirectEXRCacheMode()) {
+                cache_->ClearBufferWait();
+            }
+
             // DEBUG: Log the exact state when transitioning from wait to play
             int frame_at_start = current_frame_.load();
             double timer_pos_at_start = timeline_timer_->GetPosition();
@@ -1630,6 +1581,7 @@ void TimelinePlaybackController::UpdateTimer() {
             timeline_timer_->Play();
             if (audio_mixer_) {
                 audio_mixer_->Play();
+                audio_paused_for_throttle_ = false;  // Clear throttle pause flag
             }
         }
         // If not ready yet, just keep waiting (don't advance timer)
@@ -1639,7 +1591,70 @@ void TimelinePlaybackController::UpdateTimer() {
     // Adaptive throttle: check buffer health and adjust playback speed
     // Only runs during actual playback (not buffer-wait or paused)
     if (is_playing_.load() && throttle_enabled_) {
-        UpdateThrottleState();
+        // For IMAGE_SEQUENCE with DirectEXRCache: use its speed factor directly
+        // DirectEXRCache has proven rate-based adaptive speed control
+        if (cache_ && cache_->IsDirectEXRCacheMode()) {
+            // Check if DirectEXRCache is triggering buffer wait (< 6 frames ahead)
+            if (cache_->NeedsBufferWait() && !waiting_for_frame_) {
+                // Buffer critically low - pause playback until buffer refills
+                waiting_for_frame_ = true;
+                waiting_start_time_ = std::chrono::steady_clock::now();
+                throttle_state_ = ThrottleState::BUFFER_PAUSE;
+                if (timeline_timer_) {
+                    timeline_timer_->Pause();
+                }
+                if (audio_mixer_ && !audio_paused_for_throttle_) {
+                    audio_mixer_->Pause();
+                    audio_paused_for_throttle_ = true;
+                }
+                Debug::Log("TimelinePlaybackController: DirectEXRCache triggered buffer wait");
+                return;  // Wait for buffer to refill
+            }
+
+            double speed = cache_->GetPlaybackSpeedFactor();
+            if (timeline_timer_) {
+                timeline_timer_->SetPlaybackSpeed(speed);
+            }
+            current_speed_factor_ = speed;
+
+            // Wire to audio: use pitch-preserving time stretch instead of pausing
+            // SoundTouch can handle 0.5x-2.0x range; below 0.5x pause audio
+            if (audio_mixer_) {
+                if (speed >= 0.5) {
+                    // Use time stretch for tempo control (pitch preserved)
+                    audio_mixer_->SetPlaybackTempo(speed);
+                    if (audio_paused_for_throttle_) {
+                        audio_mixer_->Play();
+                        audio_paused_for_throttle_ = false;
+                    }
+                } else {
+                    // Below 0.5x is too extreme for time stretch - pause audio
+                    if (!audio_paused_for_throttle_) {
+                        audio_mixer_->Pause();
+                        audio_paused_for_throttle_ = true;
+                    }
+                }
+            }
+
+            // Map speed to throttle state for UI display
+            if (speed >= 1.0) {
+                throttle_state_ = ThrottleState::FULL;
+            } else if (speed >= 0.75) {
+                throttle_state_ = ThrottleState::SLIGHT;
+            } else if (speed >= 0.5) {
+                throttle_state_ = ThrottleState::MODERATE;
+            } else if (speed >= 0.33) {
+                throttle_state_ = ThrottleState::SIGNIFICANT;
+            } else if (speed >= 0.25) {
+                throttle_state_ = ThrottleState::HEAVY;
+            } else {
+                throttle_state_ = ThrottleState::SEVERE;
+            }
+
+        } else {
+            // Normal path: use UpdateThrottleState for other modes
+            UpdateThrottleState();
+        }
     }
 
     // Simple wall-clock based timing: let PlaybackTimer handle elapsed time directly
@@ -1679,20 +1694,10 @@ void TimelinePlaybackController::UpdateTimer() {
 }
 
 double TimelinePlaybackController::GetPosition() const {
-    // Direct MPV mode: get position from VideoDisplayComponent's MPV
-    if (use_direct_mpv_ && video_player_) {
-        // During scrubbing: return scrub target for instant playhead response
-        // This makes the playhead feel responsive while decode catches up
-        if (video_player_->IsMPVScrubbing()) {
-            return video_player_->GetMPVScrubTarget();
-        }
-        return video_player_->GetMPVPosition();
-    }
-
     if (use_virtual_timeline_ && timeline_timer_) {
         return timeline_timer_->GetPosition();
     }
-    // Fallback for dummy mode: calculate from frame
+    // Fallback: calculate from frame
     return static_cast<double>(current_frame_.load()) / fps_;
 }
 
@@ -1730,87 +1735,40 @@ void TimelinePlaybackController::Play() {
         thumbnail_cache_->NotifyPlaybackState(true);
     }
 
-    // Direct MPV mode: route to VideoDisplayComponent's MPV
-    // MPV handles audio internally - no AudioMixer needed
-    if (use_direct_mpv_ && video_player_) {
-        is_playing_ = true;
-        video_player_->MPVPlay();
-        return;
-    }
-
-#ifdef _WIN32
-    // D3D11VA HDR mode: start playing directly (no buffer wait needed)
-    // Buffer wait is only used for loop transitions
-    if (use_d3d11va_hdr_ && d3d11va_decoder_) {
-        is_playing_ = true;
-        waiting_for_frame_ = false;
-        d3d11va_needs_seek_ = false;  // No pending seek when starting fresh
-        accumulated_time_ = 0.0;
-        last_timer_update_ = std::chrono::steady_clock::now();
-        timer_initialized_ = true;
-        timeline_timer_->Play();
-        if (audio_mixer_) {
-            audio_mixer_->Play();
-        }
-        return;
-    }
-
-    // D3D11 GPU-native mode: start playing with audio
-    if (use_d3d11_decoder_ && d3d11_decoder_) {
-        is_playing_ = true;
-        waiting_for_frame_ = false;
-        accumulated_time_ = 0.0;
-        last_timer_update_ = std::chrono::steady_clock::now();
-        timer_initialized_ = true;
-        timeline_timer_->Play();
-        if (audio_mixer_) {
-            audio_mixer_->Play();
-        }
-        return;
-    }
-
-    // Unified D3D11 composite pipeline for dual view: D3D11 decoders handle their own buffering
-    // Skip buffer wait entirely - similar to single video D3D11 modes
-    if (use_unified_composite_ && dual_view_pipeline_) {
-        is_playing_ = true;
-        waiting_for_frame_ = false;
-        accumulated_time_ = 0.0;
-        last_timer_update_ = std::chrono::steady_clock::now();
-        timer_initialized_ = true;
-        timeline_timer_->Play();
-        if (audio_mixer_) {
-            audio_mixer_->Play();
-        }
-        return;
-    }
-#endif
-
     if (use_virtual_timeline_ && timeline_timer_) {
-        // Set playing state (UI will show as playing)
         is_playing_ = true;
 
-        // Enter wait-for-frame state - don't actually start timer/audio until
-        // the cache has the current frame ready. This prevents stuttering at start.
-        waiting_for_frame_ = true;
-        waiting_start_time_ = std::chrono::steady_clock::now();
+        // Buffer wait only applies to image/EXR content
+        // Video and D3D11 pipelines handle their own buffering
+        if (ShouldApplyBufferWait()) {
+            // Enter wait-for-frame state - don't actually start timer/audio until
+            // the cache has the current frame ready. This prevents stuttering at start.
+            waiting_for_frame_ = true;
+            waiting_start_time_ = std::chrono::steady_clock::now();
 
-        // Notify cache that we're playing so decoder starts buffering
-        if (cache_) {
-            cache_->UpdatePlayhead(current_frame_.load(), true);
+            // Notify cache that we're playing so decoder starts buffering
+            if (cache_) {
+                cache_->UpdatePlayhead(current_frame_.load(), true);
+            }
+            // Timer and audio will be started in UpdateTimer() once frame is ready
+        } else {
+            // No buffer wait - start playback immediately
+            waiting_for_frame_ = false;
+            accumulated_time_ = 0.0;
+            last_timer_update_ = std::chrono::steady_clock::now();
+            timer_initialized_ = true;
+            timeline_timer_->Play();
+            if (audio_mixer_) {
+                audio_mixer_->Play();
+            }
+            if (cache_) {
+                cache_->UpdatePlayhead(current_frame_.load(), true);
+            }
         }
-
-        // Timer and audio will be started in UpdateTimer() once frame is ready
     }
 }
 
 void TimelinePlaybackController::ForcePlay() {
-    // Direct MPV mode: same as Play() - no buffer wait needed
-    if (use_direct_mpv_ && video_player_) {
-        is_playing_ = true;
-        video_player_->MPVPlay();
-        return;
-    }
-
     if (use_virtual_timeline_ && timeline_timer_) {
         // Skip buffer wait and start immediately
         is_playing_ = true;
@@ -1845,14 +1803,6 @@ void TimelinePlaybackController::Pause() {
     // Notify thumbnail cache to resume all workers
     if (thumbnail_cache_) {
         thumbnail_cache_->NotifyPlaybackState(false);
-    }
-
-    // Direct MPV mode: route to VideoDisplayComponent's MPV
-    // MPV handles audio internally - no AudioMixer needed
-    if (use_direct_mpv_ && video_player_) {
-        is_playing_ = false;
-        video_player_->MPVPause();
-        return;
     }
 
 #ifdef _WIN32
@@ -1904,10 +1854,12 @@ void TimelinePlaybackController::TogglePlayPause() {
 void TimelinePlaybackController::TriggerLoopBufferWait() {
     // Called when playback loops back to boundary start
     // Pauses the timer briefly to let cache fill the loop-start frames
+    // Buffer wait only applies to image/EXR content
     if (!is_playing_.load() || !timeline_timer_) return;
 
-    // If buffer-wait is disabled, just notify cache and continue
-    if (!buffer_wait_enabled_) {
+    // Buffer wait only applies to image/EXR content - skip for video
+    if (!ShouldApplyBufferWait()) {
+        // Just notify cache and continue without pausing
         if (cache_) {
             cache_->UpdatePlayhead(current_frame_.load(), true);
         }
@@ -1916,20 +1868,6 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
         }
         return;
     }
-
-#ifdef _WIN32
-    // Unified D3D11 composite pipeline: D3D11 decoders handle their own buffering
-    // Skip buffer wait - just notify caches and continue
-    if (use_unified_composite_ && dual_view_pipeline_) {
-        if (cache_) {
-            cache_->UpdatePlayhead(current_frame_.load(), true);
-        }
-        if (dual_view_mode_ && right_cache_) {
-            right_cache_->UpdatePlayhead(current_frame_.load(), true);
-        }
-        return;
-    }
-#endif
 
     // Pause timer and audio while we wait
     timeline_timer_->Pause();
@@ -1954,27 +1892,6 @@ void TimelinePlaybackController::TriggerLoopBufferWait() {
 }
 
 void TimelinePlaybackController::Seek(double position) {
-    // Direct MPV mode: route to VideoDisplayComponent's MPV
-    // MPV handles audio internally - seek includes A/V sync
-    if (use_direct_mpv_ && video_player_) {
-        // Clamp position
-        if (position < 0) position = 0;
-        if (position > timeline_duration_) position = timeline_duration_;
-
-        // During active scrub: use async scrub (instant playhead, decode catches up)
-        // Otherwise: use regular seek
-        if (video_player_->IsMPVScrubbing()) {
-            video_player_->MPVUpdateScrub(position);
-        } else {
-            video_player_->MPVSeek(position);
-        }
-
-        // Update frame counter for UI immediately (responsive playhead)
-        int target_frame = static_cast<int>(position * fps_ + 0.5);
-        current_frame_ = target_frame;
-        return;
-    }
-
 #ifdef _WIN32
     // D3D11VA HDR mode: seek decoder and timer directly (no buffer wait)
     if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
@@ -2079,16 +1996,8 @@ void TimelinePlaybackController::Seek(double position) {
         }
 
         // If playing, enter buffer wait to ensure frames are ready at new position
-        // This prevents stuttering after seeks, especially for H.264/H.265 which need
-        // keyframe catch-up. Uses the configurable video_buffer_frames_ threshold.
-        // Skip buffer wait for unified D3D11 composite pipeline - decoders handle their own buffering
-        bool skip_buffer_wait = false;
-#ifdef _WIN32
-        if (use_unified_composite_ && dual_view_pipeline_) {
-            skip_buffer_wait = true;
-        }
-#endif
-        if (was_playing && buffer_wait_enabled_ && !skip_buffer_wait) {
+        // Buffer wait only applies to image/EXR content - video uses D3D11 decoders
+        if (was_playing && ShouldApplyBufferWait()) {
             waiting_for_frame_ = true;
             waiting_start_time_ = std::chrono::steady_clock::now();
 
@@ -2105,13 +2014,6 @@ void TimelinePlaybackController::Seek(double position) {
 }
 
 void TimelinePlaybackController::SeekRelative(double delta) {
-    // Direct MPV mode: use current MPV position
-    if (use_direct_mpv_ && video_player_) {
-        double new_pos = video_player_->GetMPVPosition() + delta;
-        Seek(new_pos);
-        return;
-    }
-
 #ifdef _WIN32
     // D3D11VA HDR mode: use timer position and route through protected Seek()
     if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
@@ -2128,14 +2030,6 @@ void TimelinePlaybackController::SeekRelative(double delta) {
 }
 
 void TimelinePlaybackController::StepForward(int frames) {
-    // Direct MPV mode: use MPV frame stepping
-    if (use_direct_mpv_ && video_player_) {
-        for (int i = 0; i < frames; i++) {
-            video_player_->MPVStepFrame(1);
-        }
-        return;
-    }
-
 #ifdef _WIN32
     // D3D11VA HDR mode: step with boundary clamping
     if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
@@ -2191,14 +2085,6 @@ void TimelinePlaybackController::StepForward(int frames) {
 }
 
 void TimelinePlaybackController::StepBackward(int frames) {
-    // Direct MPV mode: use MPV frame stepping
-    if (use_direct_mpv_ && video_player_) {
-        for (int i = 0; i < frames; i++) {
-            video_player_->MPVStepFrame(-1);
-        }
-        return;
-    }
-
 #ifdef _WIN32
     // D3D11VA HDR mode: step with boundary clamping
     if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
@@ -2256,21 +2142,13 @@ void TimelinePlaybackController::StartRewind() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
-    // Direct MPV mode: use decoupled async fast seek for smooth playhead
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVStartFastSeek(false);  // false = rewind
-        Debug::Log("TimelinePlaybackController: Started rewind (MPV async) at " +
-                   std::to_string(fast_seek_speed_) + "x");
-        return;
-    }
-
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::MULTI_TRACK;
+                                                  : TimelineSourceMode::VIDEO_FILE;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
-            // Use aggressive scrub mode for multi-track and dual view
+        if (mode == TimelineSourceMode::DUAL_VIEW) {
+            // Use aggressive scrub mode for dual view
             cache_->SetAggressiveScrubMode(true);
             if (right_cache_) {
                 right_cache_->SetAggressiveScrubMode(true);
@@ -2298,21 +2176,13 @@ void TimelinePlaybackController::StartFastForward() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
-    // Direct MPV mode: use decoupled async fast seek for smooth playhead
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVStartFastSeek(true);  // true = forward
-        Debug::Log("TimelinePlaybackController: Started fast forward (MPV async) at " +
-                   std::to_string(fast_seek_speed_) + "x");
-        return;
-    }
-
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::MULTI_TRACK;
+                                                  : TimelineSourceMode::VIDEO_FILE;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
-            // Use aggressive scrub mode for multi-track and dual view
+        if (mode == TimelineSourceMode::DUAL_VIEW) {
+            // Use aggressive scrub mode for dual view
             cache_->SetAggressiveScrubMode(true);
             if (right_cache_) {
                 right_cache_->SetAggressiveScrubMode(true);
@@ -2332,21 +2202,13 @@ void TimelinePlaybackController::StopFastSeek() {
     is_fast_seeking_ = false;
     fast_seek_speed_ = 1.0;
 
-    // Direct MPV mode: stop async fast seek
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVStopFastSeek();
-        video_player_->MPVSetSpeed(1.0);  // Reset speed just in case
-        Debug::Log("TimelinePlaybackController: Stopped fast seek (MPV async)");
-        return;
-    }
-
     // Disable scrub/shuttle mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::MULTI_TRACK;
+                                                  : TimelineSourceMode::VIDEO_FILE;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
-            // Disable aggressive scrub mode for multi-track and dual view
+        if (mode == TimelineSourceMode::DUAL_VIEW) {
+            // Disable aggressive scrub mode for dual view
             cache_->SetAggressiveScrubMode(false);
             if (right_cache_) {
                 right_cache_->SetAggressiveScrubMode(false);
@@ -2365,24 +2227,13 @@ void TimelinePlaybackController::SetScrubMode(bool enabled) {
 
     is_scrubbing_ = enabled;
 
-    // Direct MPV mode: use async scrub for instant playhead response
-    if (use_direct_mpv_ && video_player_) {
-        if (enabled) {
-            video_player_->MPVStartScrub();
-        } else {
-            video_player_->MPVEndScrub();
-        }
-        Debug::Log("TimelinePlaybackController: MPV scrub mode " + std::string(enabled ? "ENABLED" : "DISABLED"));
-        return;
-    }
-
     // Route to appropriate scrub mode based on timeline source mode
     if (cache_) {
         TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::MULTI_TRACK;
+                                                  : TimelineSourceMode::VIDEO_FILE;
 
-        if (mode == TimelineSourceMode::MULTI_TRACK || mode == TimelineSourceMode::DUAL_VIEW) {
-            // Use aggressive scrub mode for multi-track and dual view
+        if (mode == TimelineSourceMode::DUAL_VIEW || mode == TimelineSourceMode::PLAYLIST) {
+            // Use aggressive scrub mode for dual view and playlist
             cache_->SetAggressiveScrubMode(enabled);
             if (right_cache_) {
                 right_cache_->SetAggressiveScrubMode(enabled);
@@ -2413,21 +2264,6 @@ void TimelinePlaybackController::UpdateFastSeek() {
     fast_seek_speed_ = kFastSeekInitialSpeed * std::pow(kFastSeekAcceleration, elapsed_since_start);
     if (fast_seek_speed_ > kFastSeekMaxSpeed) {
         fast_seek_speed_ = kFastSeekMaxSpeed;
-    }
-
-    // Direct MPV mode: use decoupled async fast seek
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVUpdateFastSeek();
-
-        // Update frame counter from scrub target for instant playhead response
-        double pos = video_player_->IsMPVFastSeeking() ?
-                     video_player_->GetMPVScrubTarget() :
-                     video_player_->GetMPVPosition();
-        current_frame_ = static_cast<int>(pos * fps_ + 0.5);
-
-        // Update our local speed to match MPV's
-        fast_seek_speed_ = video_player_->GetMPVFastSeekSpeed();
-        return;
     }
 
 #ifdef _WIN32
@@ -2501,6 +2337,17 @@ void TimelinePlaybackController::ResetThrottle() {
     if (timeline_timer_) {
         timeline_timer_->SetPlaybackSpeed(1.0);
     }
+    // Reset audio tempo back to normal (1.0x)
+    if (audio_mixer_) {
+        audio_mixer_->SetPlaybackTempo(1.0);
+    }
+    // Clear audio throttle state (audio will be resumed by Play() call if needed)
+    audio_paused_for_throttle_ = false;
+
+    // Reset DirectEXRCache adaptive speed (IMAGE_SEQUENCE mode)
+    if (cache_) {
+        cache_->ResetPlaybackSpeed();
+    }
 }
 
 double TimelinePlaybackController::GetSpeedForState(ThrottleState state) {
@@ -2520,9 +2367,10 @@ double TimelinePlaybackController::GetSpeedForState(ThrottleState state) {
 void TimelinePlaybackController::UpdateThrottleState() {
     if (!cache_ || !timeline_timer_) return;
 
-    // Skip adaptive throttle entirely for video-only content
-    // ring buffer is fast enough that throttling isn't needed
-    if (cache_->IsVideoOnly()) {
+    // Adaptive throttle only applies to image/EXR content at the current frame
+    // Video uses D3D11 decoders which handle their own buffering
+    // Use ShouldApplyBufferWait() which is clip-aware for playlists
+    if (!ShouldApplyBufferWait()) {
         if (throttle_state_ != ThrottleState::FULL) {
             throttle_state_ = ThrottleState::FULL;
             current_speed_factor_ = 1.0;
@@ -2644,6 +2492,10 @@ void TimelinePlaybackController::UpdateThrottleState() {
                 waiting_for_frame_ = true;
                 waiting_start_time_ = now;
                 timeline_timer_->Pause();
+                if (audio_mixer_ && !audio_paused_for_throttle_) {
+                    audio_mixer_->Pause();
+                    audio_paused_for_throttle_ = true;
+                }
                 Debug::Log("TimelinePlaybackController: Buffer critical (" +
                            std::to_string(sequential_ready) + "/" + std::to_string(frames_to_check) +
                            " sequential) - triggering buffer pause");
@@ -2703,11 +2555,36 @@ void TimelinePlaybackController::UpdateThrottleState() {
         was_healthy_ = (new_state == ThrottleState::FULL);
     }
 
-    // Apply speed factor to timer
+    // Apply speed factor to timer and handle audio sync
     double new_speed = GetSpeedForState(throttle_state_);
     if (new_speed != current_speed_factor_) {
         current_speed_factor_ = new_speed;
         timeline_timer_->SetPlaybackSpeed(current_speed_factor_);
+
+        // Handle audio: use pitch-preserving time stretch for tempo control
+        // SoundTouch can handle 0.5x-2.0x range; AudioRateCorrector only ±3%
+        // Use time stretch for speed >= 0.5, pause audio below 0.5 (too extreme)
+        if (audio_mixer_) {
+            if (new_speed >= 0.5) {
+                // Use time stretch for smooth tempo control (pitch preserved)
+                audio_mixer_->SetPlaybackTempo(new_speed);
+                if (audio_paused_for_throttle_) {
+                    // Resume audio if it was paused from extreme throttle
+                    audio_mixer_->Play();
+                    audio_paused_for_throttle_ = false;
+                    Debug::Log("TimelinePlaybackController: Audio resumed with tempo " +
+                               std::to_string(static_cast<int>(new_speed * 100)) + "%");
+                }
+            } else {
+                // Below 0.5x is too extreme for SoundTouch - pause audio
+                if (!audio_paused_for_throttle_) {
+                    audio_mixer_->Pause();
+                    audio_paused_for_throttle_ = true;
+                    Debug::Log("TimelinePlaybackController: Audio paused - throttle too extreme (" +
+                               std::to_string(static_cast<int>(new_speed * 100)) + "% speed)");
+                }
+            }
+        }
     }
 }
 
@@ -3221,25 +3098,20 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
 }
 
 //=============================================================================
-// AB-Loop for In/Out Point Playback (Direct MPV Mode)
+// AB-Loop for In/Out Point Playback
+// Note: AB-loop was only used by MPV. Now handled via in/out points in timeline.
 //=============================================================================
 
-void TimelinePlaybackController::SetABLoop(double in_point, double out_point) {
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVSetABLoop(in_point, out_point);
-    }
+void TimelinePlaybackController::SetABLoop(double /*in_point*/, double /*out_point*/) {
+    // No-op: AB-loop was MPV-specific feature, now handled via timeline in/out points
 }
 
 void TimelinePlaybackController::ClearABLoop() {
-    if (use_direct_mpv_ && video_player_) {
-        video_player_->MPVClearABLoop();
-    }
+    // No-op: AB-loop was MPV-specific feature
 }
 
 bool TimelinePlaybackController::HasABLoop() const {
-    if (use_direct_mpv_ && video_player_) {
-        return video_player_->HasMPVABLoop();
-    }
+    // AB-loop was MPV-specific feature
     return false;
 }
 

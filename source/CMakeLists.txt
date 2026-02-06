@@ -39,22 +39,7 @@ if(WIN32)
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
     set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
 
-    # LibMPV paths (for OTIO video playback)
-    set(LIBMPV_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/include")
-    set(LIBMPV_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/lib")
-    set(LIBMPV_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/mpv/bin")
-    set(LIBMPV_DLL_PATH "${LIBMPV_BIN_DIR}/libmpv-2.dll")
-
-    # Check if MSVC import library exists
-    set(LIBMPV_LIB "${LIBMPV_LIB_DIR}/mpv.lib")
-    if(NOT EXISTS "${LIBMPV_LIB}")
-        message(WARNING "LibMPV MSVC import library not found at: ${LIBMPV_LIB}")
-        message(WARNING "Please run: external/mpv/generate_msvc_lib.bat from a Visual Studio Developer Command Prompt")
-        message(WARNING "Falling back to MinGW .dll.a file (may cause linking issues)")
-        set(LIBMPV_LIB "${LIBMPV_LIB_DIR}/libmpv.dll.a")
-    else()
-        message(STATUS "Found LibMPV MSVC import library: ${LIBMPV_LIB}")
-    endif()
+    # Note: LibMPV removed - using D3D11VideoDecoder instead
 endif()
 
 # Add subdirectory for external dependencies
@@ -78,6 +63,7 @@ list(FILTER SOURCES EXCLUDE REGEX ".*hdr_direct_decoder\\.(cpp|h)$")
 
 # Create executable
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
+    "src/ump.manifest"
     "src/utils/exiftool_helper.h"
     "src/utils/exiftool_helper.cpp"
     "src/project/media_item.h"
@@ -107,10 +93,9 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/player/image_loaders.cpp"
     "src/player/video_decoder_interface.h"
     "src/player/video_decoder_factory.h"
-    "src/player/video_decoder_factory.cpp"
-    # libmpv_video_decoder removed - MPV now handled directly in VideoDisplayComponent
+    # video_decoder_factory.cpp removed - now a header-only stub
+    # streaming_video_decoder.cpp removed - now a header-only stub (D3D11VideoDecoder is the primary video path)
     "src/player/streaming_video_decoder.h"
-    "src/player/streaming_video_decoder.cpp"
     "src/player/image_sequence_decoder.h"
     "src/player/image_sequence_decoder.cpp"
     "src/player/hw_context_manager.h"
@@ -171,10 +156,6 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/transcode/transcode_worker_pool.cpp"
     "src/ui/transcode_queue_window.h"
     "src/ui/transcode_queue_window.cpp"
-    "src/ui/playlist_panel.h"
-    "src/ui/playlist_panel.cpp"
-    "src/player/playlist_controller.h"
-    "src/player/playlist_controller.cpp"
     "src/project/project_manager_transcode.cpp"
     # HDR output via D3D11 (Windows)
     "src/hdr/d3d11_hdr_swapchain.h"
@@ -193,9 +174,20 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/gpu/d3d11_dual_compositor.cpp"
     "src/player/dual_view_pipeline.h"
     "src/player/dual_view_pipeline.cpp"
+    # Frame readback and CPU frame pool (for single-decoder dual view)
+    "src/gpu/frame_readback.h"
+    "src/gpu/frame_readback.cpp"
+    "src/player/cpu_frame_pool.h"
+    "src/player/cpu_frame_pool.cpp"
+    # Unified dual view (single decoder, mpv-style)
+    "src/player/unified_dual_view.h"
+    "src/player/unified_dual_view.cpp"
     # D3D11 OCIO renderer (Windows)
     "src/color/d3d11_ocio_renderer.h"
     "src/color/d3d11_ocio_renderer.cpp"
+    # Playlist single decoder (mpv EDL-style, Windows)
+    "src/timeline/playlist_single_decoder.h"
+    "src/timeline/playlist_single_decoder.cpp"
     # Windows application icon
     "resources/ump.rc"
 )
@@ -212,7 +204,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/implot
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
     ${FFMPEG_INCLUDE_DIR}
-    ${LIBMPV_INCLUDE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/OpenEXR
@@ -231,7 +222,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 if(WIN32)
     target_link_directories(${PROJECT_NAME} PRIVATE
         ${FFMPEG_LIB_DIR}
-        ${LIBMPV_LIB_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/external/tiff/lib
         ${CMAKE_CURRENT_SOURCE_DIR}/external/png/lib
@@ -241,13 +231,6 @@ endif()
 
 # Enable OpenTimelineIO support
 target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
-
-# Enable Python adapters for AAF/XML import (if available)
-if(UMP_PYTHON_ADAPTERS_AVAILABLE)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE USE_PYTHON_ADAPTERS)
-    target_link_libraries(${PROJECT_NAME} python_embed)
-    message(STATUS "Python adapters enabled for AAF/XML import")
-endif()
 
 # Link libraries
 target_link_libraries(${PROJECT_NAME}
@@ -266,8 +249,7 @@ target_link_libraries(${PROJECT_NAME}
     avfilter
     swscale
     swresample
-    # LibMPV library
-    "${LIBMPV_LIB}"
+    # Note: LibMPV removed - using D3D11VideoDecoder
     # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
     Imath-3_2          # Must be first for half-float support
     Iex-3_4
@@ -300,6 +282,26 @@ if(WIN32)
         avrt        # For MMCSS (Multimedia Class Scheduler Service) thread priority
         ole32       # For COM (WASAPI audio)
     )
+
+    # SoundTouch for pitch-preserving time stretch (tempo control without pitch shift)
+    # Used by AudioTimeStretch for adaptive speed control during playback
+    find_package(SoundTouch QUIET)
+    if(SoundTouch_FOUND)
+        target_link_libraries(${PROJECT_NAME} PRIVATE SoundTouch::SoundTouch)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
+        message(STATUS "SoundTouch: Found via CMake package")
+    else()
+        # Manual path fallback - user should place SoundTouch in external/soundtouch
+        set(SOUNDTOUCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/soundtouch")
+        if(EXISTS "${SOUNDTOUCH_DIR}/include/SoundTouch.h")
+            target_include_directories(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/include)
+            target_link_libraries(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/lib/SoundTouch.lib)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
+            message(STATUS "SoundTouch: Found in external/soundtouch")
+        else()
+            message(STATUS "SoundTouch: NOT FOUND - tempo control will be disabled (audio will pause during throttle)")
+        endif()
+    endif()
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     find_library(IOKIT_LIBRARY IOKit)
@@ -363,13 +365,7 @@ if(WIN32)
         )
     endforeach()
 
-    # Copy LibMPV DLL
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${LIBMPV_DLL_PATH}"
-        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
-        COMMENT "Copying LibMPV DLL (libmpv-2.dll)"
-    )
+    # Note: LibMPV DLL copy removed - using D3D11VideoDecoder
 
     # Copy OCIO DLLs - using explicit list for reliability across Debug/Release
     # Hybrid approach: Core API + C++ API for DWAB support
@@ -417,29 +413,5 @@ if(WIN32)
     endif()
 
     # OIIO removed - using direct OpenEXR API only
-
-    # Copy Python distribution for AAF/XML import (if available)
-    if(UMP_PYTHON_ADAPTERS_AVAILABLE)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_CURRENT_SOURCE_DIR}/external/python311"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311"
-            COMMENT "Copying embedded Python distribution for AAF/XML import"
-        )
-        # Also copy python311.dll to main exe directory for runtime linking
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/external/python311/python311.dll"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311.dll"
-            COMMENT "Copying python311.dll to executable directory"
-        )
-        # Copy our custom AAF mob resolver script (overwrites any bundled version)
-        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${CMAKE_CURRENT_SOURCE_DIR}/scripts/resolve_aaf_mobs.py"
-            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/python311/Lib/site-packages/resolve_aaf_mobs.py"
-            COMMENT "Copying resolve_aaf_mobs.py script"
-        )
-    endif()
 
 endif()

@@ -97,40 +97,6 @@ FetchContent_MakeAvailable(opentimelineio)
 message(STATUS "OpenTimelineIO configured")
 
 # ========================================
-# PYTHON EMBEDDING - For OTIO Python adapters (AAF/XML support)
-# ========================================
-option(UMP_ENABLE_PYTHON_ADAPTERS "Enable Python-based OTIO adapters for AAF/XML import" ON)
-
-if(UMP_ENABLE_PYTHON_ADAPTERS AND WIN32)
-    set(PYTHON_EMBED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/python311")
-
-    if(EXISTS "${PYTHON_EMBED_DIR}/include/Python.h" AND EXISTS "${PYTHON_EMBED_DIR}/libs/python311.lib")
-        # Create interface library for Python embedding
-        add_library(python_embed INTERFACE)
-        target_include_directories(python_embed INTERFACE "${PYTHON_EMBED_DIR}/include")
-        target_link_libraries(python_embed INTERFACE "${PYTHON_EMBED_DIR}/libs/python311.lib")
-
-        # Mark that Python adapters are available
-        set(UMP_PYTHON_ADAPTERS_AVAILABLE TRUE CACHE INTERNAL "Python adapters are available")
-        message(STATUS "Python embedding enabled from: ${PYTHON_EMBED_DIR}")
-    else()
-        set(UMP_PYTHON_ADAPTERS_AVAILABLE FALSE CACHE INTERNAL "Python adapters not available")
-        message(STATUS "Python embed directory not found at ${PYTHON_EMBED_DIR}")
-        message(STATUS "  To enable AAF/XML import, run: scripts/prepare_python_embed.ps1")
-        message(STATUS "  Continuing build without Python adapter support...")
-
-        # Create dummy interface target so CMake doesn't fail
-        add_library(python_embed INTERFACE)
-    endif()
-else()
-    set(UMP_PYTHON_ADAPTERS_AVAILABLE FALSE CACHE INTERNAL "Python adapters not available")
-    add_library(python_embed INTERFACE)
-    if(NOT WIN32)
-        message(STATUS "Python embedding currently only supported on Windows")
-    endif()
-endif()
-
-# ========================================
 # OPENCOLORIO - Manual Setup
 # ========================================
 set(OCIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ocio")

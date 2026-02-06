@@ -1,4 +1,5 @@
 #include "ocio_config_manager.h"
+#include "../utils/asset_path.h"
 #include <iostream>
 #include <filesystem>
 
@@ -48,7 +49,7 @@ void OCIOConfigManager::ScanForConfigs() {
     });
 
     // Scan assets/OCIO/ directory for config files
-    std::string assets_ocio_path = "assets/OCIO";
+    std::string assets_ocio_path = GetAssetPath("assets/OCIO");
 
     if (std::filesystem::exists(assets_ocio_path)) {
         std::cout << "Scanning for OCIO configs in: " << assets_ocio_path << std::endl;

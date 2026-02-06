@@ -34,6 +34,11 @@ public:
     // Automatically calls BeginEdit/EndEdit for thread safety
     void Execute(std::unique_ptr<ITimelineCommand> cmd);
 
+    // Push a pre-executed command to the undo stack
+    // Use this when the modification has already been done (e.g., live preview editing)
+    // Does NOT call Execute() on the command or BeginEdit/EndEdit
+    void PushExecuted(std::unique_ptr<ITimelineCommand> cmd);
+
     // Undo/Redo operations
     // Automatically calls BeginEdit/EndEdit for thread safety
     void Undo();
@@ -236,6 +241,71 @@ public:
 private:
     TimelineView* view_;
     std::vector<ClipMoveInfo> moves_;
+    bool executed_ = false;
+};
+
+// Trim a playlist clip (changes source_in or source_out with ripple)
+// Used in PLAYLIST mode - stores before/after state for undo
+class TrimPlaylistClipCommand : public ITimelineCommand {
+public:
+    TrimPlaylistClipCommand(TimelineView* view, const std::string& clip_id,
+                            double old_source_in, double old_source_out, double old_duration,
+                            double new_source_in, double new_source_out, double new_duration);
+
+    void Execute() override;
+    void Undo() override;
+    std::string GetDescription() const override;
+
+private:
+    void ApplyAndRipple(double source_in, double source_out, double duration);
+
+    TimelineView* view_;
+    std::string clip_id_;
+    double old_source_in_;
+    double old_source_out_;
+    double old_duration_;
+    double new_source_in_;
+    double new_source_out_;
+    double new_duration_;
+    bool executed_ = false;
+};
+
+// Slip a clip (change source_in/source_out without changing timeline position)
+// Used in PLAYLIST mode when shift-dragging on a clip
+class SlipClipCommand : public ITimelineCommand {
+public:
+    SlipClipCommand(TimelineView* view, const std::string& clip_id,
+                    int track_index, double new_source_in, double new_source_out);
+
+    void Execute() override;
+    void Undo() override;
+    std::string GetDescription() const override;
+
+private:
+    TimelineView* view_;
+    std::string clip_id_;
+    int track_index_;
+    double old_source_in_;
+    double old_source_out_;
+    double new_source_in_;
+    double new_source_out_;
+    bool executed_ = false;
+};
+
+// Reorder a clip in a playlist (move to different position)
+// Used in PLAYLIST mode when dragging a clip
+class ReorderPlaylistCommand : public ITimelineCommand {
+public:
+    ReorderPlaylistCommand(TimelineView* view, int source_index, int target_index);
+
+    void Execute() override;
+    void Undo() override;
+    std::string GetDescription() const override;
+
+private:
+    TimelineView* view_;
+    int source_index_;  // Original playlist index
+    int target_index_;  // Target playlist index
     bool executed_ = false;
 };
 

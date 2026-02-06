@@ -1,5 +1,6 @@
 #include "annotation_exporter.h"
 #include "../utils/debug_utils.h"
+#include "../utils/asset_path.h"
 #include <fstream>
 #include <sstream>
 #include <chrono>
@@ -719,7 +720,7 @@ std::string AnnotationExporter::EncodeImageToBase64(const std::string& image_pat
 
 std::string AnnotationExporter::GetGitHubMarkdownCSS() const {
     // Read CSS from assets/css/github-markdown.css
-    std::ifstream file("assets/css/github-markdown.css");
+    std::ifstream file(GetAssetPath("assets/css/github-markdown.css"));
     if (!file) {
         Debug::Log("Warning: Could not load GitHub Markdown CSS");
         return "";

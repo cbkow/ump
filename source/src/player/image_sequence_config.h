@@ -22,8 +22,8 @@ struct ImageSequenceConfig {
 
     // Generated patterns
     std::string ffmpeg_pattern;  // "/path/to/sequence_%04d.png" for background extraction
-    std::string mpv_pattern;     // "sequence*png" for MPV playback
-    std::string mf_url;          // "mf://path/sequence*png" for MPV loading
+    std::string glob_pattern;    // "sequence*png" for FFmpeg glob input
+    std::string concat_url;      // "mf://path/sequence*png" for FFmpeg concat demuxer
 
     // Frame information
     int frame_count;             // Total number of frames
@@ -49,11 +49,11 @@ public:
     // Build FFMPEG-compatible pattern from parsed info
     static std::string BuildFFmpegPattern(const ImageSequenceConfig& config);
 
-    // Build MPV-compatible pattern from parsed info
-    static std::string BuildMPVPattern(const ImageSequenceConfig& config);
+    // Build glob pattern from parsed info
+    static std::string BuildGlobPattern(const ImageSequenceConfig& config);
 
-    // Build full mf:// URL for MPV
-    static std::string BuildMFUrl(const ImageSequenceConfig& config);
+    // Build full mf:// URL for FFmpeg concat demuxer
+    static std::string BuildConcatUrl(const ImageSequenceConfig& config);
 
     // Validate sequence for gaps and consistency
     static bool ValidateSequence(const std::vector<std::string>& sequence_files, ImageSequenceConfig& config);

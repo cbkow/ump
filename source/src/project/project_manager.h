@@ -162,10 +162,8 @@ namespace ump {
         void OnVideoLoaded(const std::string& file_path);
 
         // Menu callbacks for File menu
-        void ShowNewTimelineDialog() { show_new_timeline_dialog = true; }
         void ShowNewDualViewDialog() { show_new_dual_view_dialog = true; }
         void ShowNewPlaylistDialog() { show_new_playlist_dialog = true; }
-        void ImportTimelineFromMenu();
         std::string GetProjectPath() const { return current_project_path; }
 
         // Pending dialog flags (set by context menus, checked by main.cpp)
@@ -190,6 +188,7 @@ namespace ump {
         void AddMediaFileToProject(const std::string& file_path);
         void AddCurrentVideoToProject();
         MediaItem* GetMediaItem(const std::string& media_id);
+        MediaItem* FindMediaItemByPath(const std::string& file_path);  // Find by file path (handles mf://, exr:// URLs)
 
         // ========================================================================
         // SELECTION MANAGEMENT
@@ -211,9 +210,7 @@ namespace ump {
         void StartRenamingSelected();
         void ShowInExplorer(const std::string& file_path);
         void ShowItemProperties(const std::string& item_id);
-        void LaunchUFB(const std::string& path);  // Launch Universal File Browser with path
-        void RenderPathButtons(const std::string& path, const char* id_suffix);  // Render Open/Copy/u.f.b. buttons
-        void CreateTimelineFromSelection();  // Create a new timeline with selected items on V1
+        void RenderPathButtons(const std::string& path, const char* id_suffix);  // Render Open/Copy buttons
         void SetVideoChangeCallback(std::function<void(const std::string&)> callback) {
             video_change_callback = callback;
         }
@@ -256,37 +253,19 @@ namespace ump {
         void SetSkipLoadingModal(bool skip) { skip_loading_modal_ = skip; }  // Skip modal for next load (playlist mode)
 
         // ========================================================================
-        // TIMELINE MANAGEMENT (OTIO/EDL multi-track timelines)
+        // MEDIA STATE MANAGEMENT
         // ========================================================================
 
-        bool ImportTimeline(const std::string& file_path);  // Auto-detect format
-        bool ImportOTIOFile(const std::string& file_path);
-        bool ImportEDLFile(const std::string& file_path);  // Shows settings dialog
-        bool ImportAAFFile(const std::string& file_path);  // AAF via Python adapter
-        bool ImportXMLFile(const std::string& file_path);  // FCP/Premiere XML via Python adapter
-        bool CompleteEDLImport();  // Called after user confirms EDL import settings
-        void OpenTimelineInEditor(const std::string& timeline_id);
-        MediaItem* GetTimelineItem(const std::string& timeline_id_or_path);  // Accepts timeline_id or file path
-        MediaItem* GetCurrentTimelineItem();  // Returns current active timeline's MediaItem
         MediaItem* GetCurrentPlayingMediaItem();  // Returns MediaItem for currently playing file (works for single items and sequences)
         MediaItem* GetMediaItemFromCurrentPath();  // Find MediaItem corresponding to current_file_path
-        std::string GetCurrentTimelineId() const { return current_timeline_id; }
-        int GetTimelineCount() const;
 
-        // Create new empty timeline (1 hour duration for editing room)
-        std::string CreateNewTimeline(const std::string& name = "",
-                                      int width = 1920, int height = 1080,
-                                      double fps = 23.976, double duration = 3600.0);
+        // STUB: Timeline item lookup (TIMELINE mode removed, returns nullptr for legacy code paths)
+        MediaItem* GetTimelineItem(const std::string& /*timeline_id_or_path*/) { return nullptr; }
+        MediaItem* GetCurrentTimelineItem() { return nullptr; }
+        std::string GetCurrentTimelineId() const { return ""; }
 
-        // Clip link cache management (for persistent media linking)
-        void UpdateTimelineClipLinks(const std::string& timeline_id,
-                                     const std::vector<MediaItem::CachedClipLink>& links);
-        const std::vector<MediaItem::CachedClipLink>* GetTimelineClipLinks(const std::string& timeline_id) const;
-
-        // Track metadata cache management (for persistent track structure)
-        void UpdateTimelineTrackMetadata(const std::string& timeline_id,
-                                         const std::vector<MediaItem::CachedTrackMetadata>& tracks);
-        const std::vector<MediaItem::CachedTrackMetadata>* GetTimelineTrackMetadata(const std::string& timeline_id) const;
+        // STUB: Timeline import (TIMELINE mode removed)
+        bool ImportTimeline(const std::string& /*file_path*/) { return false; }
 
         // View state management (for persistent zoom/pan/playhead per-media)
         void CacheCurrentViewState(const std::string& media_path, float zoom, float scroll, double playhead);
@@ -310,11 +289,6 @@ namespace ump {
         // This ensures current timeline edits are captured in MediaItem.cached_tracks
         void SetFlushTimelineEditsCallback(std::function<void()> callback) {
             flush_timeline_edits_callback = callback;
-        }
-
-        // Exit comparison/dual-view mode callback (called when loading new project)
-        void SetExitComparisonModeCallback(std::function<void()> callback) {
-            exit_comparison_mode_callback = callback;
         }
 
         // Image sequence timeline callback (loads EXR/image sequences into OTIO timeline view)
@@ -495,16 +469,27 @@ namespace ump {
         // Open playlist in panel (triggers callback to show playlist panel with this playlist)
         void OpenPlaylistInPanel(const std::string& playlist_id);
 
-        // Playlist panel callback
+        // Open playlist in unified timeline editor (new unified playlist system)
+        void OpenPlaylistInTimelineEditor(const std::string& playlist_id);
+
+        // Playlist panel callback (legacy sidebar panel)
         void SetPlaylistPanelCallback(std::function<void(const std::string&)> callback) {
             playlist_panel_callback = callback;
         }
 
+        // Playlist timeline callback (new unified timeline system)
+        void SetPlaylistTimelineCallback(std::function<void(MediaItem*)> callback) {
+            playlist_timeline_callback = callback;
+        }
+        std::function<void(MediaItem*)> GetPlaylistTimelineCallback() const {
+            return playlist_timeline_callback;
+        }
+
     private:
         // Constants
-        static const int TIMELINES_BIN_INDEX = 3;
-        static const int DUAL_VIEWS_BIN_INDEX = 4;
-        static const int PLAYLISTS_BIN_INDEX = 5;
+        // Note: "Timelines" bin removed - TIMELINE items now go to Playlists bin
+        static const int DUAL_VIEWS_BIN_INDEX = 3;
+        static const int PLAYLISTS_BIN_INDEX = 4;
 
         // ========================================================================
         // MEMBER VARIABLES
@@ -549,19 +534,6 @@ namespace ump {
         char rename_buffer[256] = "";
         std::string renaming_item_id;
 
-        // Create timeline from selection state
-        bool show_create_timeline_from_selection_dialog = false;
-        std::vector<MediaItem> pending_timeline_items;
-
-        // New timeline dialog state
-        bool show_new_timeline_dialog = false;
-        char new_timeline_name_buffer[256] = "";
-        int new_timeline_width = 1920;
-        int new_timeline_height = 1080;
-        double new_timeline_fps = 23.976;
-        int new_timeline_resolution_preset = 0;  // 0=1080p, 1=2K, 2=4K UHD, 3=4K DCI, 4=Custom
-        // Duration removed - timelines auto-extend as clips are added
-
         // New dual view dialog state
         bool show_new_dual_view_dialog = false;
         char new_dual_view_name_buffer[256] = "";
@@ -577,13 +549,6 @@ namespace ump {
         // Pending dialog flags (triggered from context menus, handled by main.cpp)
         bool pending_open_media_dialog = false;
         bool pending_open_project_dialog = false;
-
-        // EDL import settings dialog state
-        bool show_edl_import_dialog = false;
-        std::string pending_edl_path;
-        int edl_import_width = 1920;
-        int edl_import_height = 1080;
-        double edl_import_fps = 23.976;
 
         // Image sequence dialog state
         bool show_frame_rate_dialog = false;
@@ -666,14 +631,12 @@ namespace ump {
         void HandleMediaItemDragDrop(const MediaItem& item, bool is_selected);
         void ShowMediaItemContextMenu(const MediaItem& item);
         void LoadSingleMediaItemInternal(const MediaItem& item);  // Internal: actual loading logic
-        void OpenTimelineInEditorInternal(const std::string& timeline_id);  // Internal: actual timeline loading
 
         // ========================================================================
         // ITEM OPERATION HELPERS
         // ========================================================================
 
         void ProcessRenameItem();
-        void ProcessCreateTimelineFromSelection();  // Process the timeline creation dialog
         void SelectItemRange(const std::string& start_id, const std::string& end_id);
 
         // ========================================================================
@@ -740,7 +703,6 @@ namespace ump {
         std::function<void(const std::string&)> timeline_editor_callback;  // Callback to open timeline in editor
         std::function<void()> exit_timeline_mode_callback;  // Callback to exit timeline editor mode
         std::function<void()> flush_timeline_edits_callback;  // Callback to flush current timeline edits before save
-        std::function<void()> exit_comparison_mode_callback;  // Callback to exit comparison/dual-view mode
         std::function<void()> auto_play_request_callback;  // Callback to request auto-play (respects app settings)
         std::function<void(const std::string&, std::function<void()>)> loading_modal_callback;  // Callback to show loading modal
         std::function<void(MediaItem*)> image_sequence_timeline_callback;  // Callback to load image sequences into OTIO timeline view
@@ -748,7 +710,8 @@ namespace ump {
         std::function<void(MediaItem*)> audio_file_timeline_callback;  // Callback to load audio files into OTIO timeline view
         std::function<void()> project_saved_callback;  // Callback when project is successfully saved
         std::function<void(const std::string&)> dual_view_editor_callback;  // Callback to open dual view in editor
-        std::function<void(const std::string&)> playlist_panel_callback;  // Callback to open playlist in panel
+        std::function<void(const std::string&)> playlist_panel_callback;  // Callback to open playlist in panel (legacy)
+        std::function<void(MediaItem*)> playlist_timeline_callback;  // Callback to open playlist in unified timeline editor
 
         // Playlist mode flag - skip loading modal for smoother transitions
         bool skip_loading_modal_ = false;

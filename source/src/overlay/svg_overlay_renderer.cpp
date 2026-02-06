@@ -1,5 +1,6 @@
 #include "svg_overlay_renderer.h"
 #include "../utils/debug_utils.h"
+#include "../utils/asset_path.h"
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -403,7 +404,7 @@ std::vector<std::string> SVGOverlayRenderer::GetAvailableSVGs() const {
     std::vector<std::string> svg_files;
 
     try {
-        std::string safety_folder = "assets/safety/";
+        std::string safety_folder = GetAssetPath("assets/safety/");
 
         if (std::filesystem::exists(safety_folder) && std::filesystem::is_directory(safety_folder)) {
             for (const auto& entry : std::filesystem::directory_iterator(safety_folder)) {

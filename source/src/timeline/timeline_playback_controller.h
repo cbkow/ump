@@ -180,8 +180,8 @@ public:
     // Access to audio mixer for volume control
     AudioMixer* GetAudioMixer() const { return audio_mixer_.get(); }
 
-    // Direct MPV mode: single video file uses MPV for audio (better A/V sync)
-    bool IsDirectMPVMode() const { return use_direct_mpv_; }
+    // Direct MPV mode removed - now always uses D3D11 decoder
+    bool IsDirectMPVMode() const { return false; }
 
 #ifdef _WIN32
     // D3D11VA HDR mode: FFmpeg + D3D11VA hardware decode (Windows only) - OLD
@@ -302,9 +302,7 @@ private:
     // Virtual timeline mode flag (always true now - dummy video mode removed)
     bool use_virtual_timeline_ = true;
 
-    // Direct MPV mode: VIDEO_FILE uses VideoDisplayComponent's MPV directly
-    // This eliminates GPU→CPU→GPU roundtrip of LibMPVVideoDecoder
-    bool use_direct_mpv_ = false;
+    // Direct MPV mode removed - now always uses D3D11 decoder for VIDEO_FILE
 
 #ifdef _WIN32
     // D3D11VA HDR mode: Use FFmpeg + D3D11VA for HDR video decode (Windows only) - OLD
@@ -369,9 +367,13 @@ public:
     void SetBufferWaitEnabled(bool enabled);
     bool IsBufferWaitEnabled() const { return buffer_wait_enabled_; }
 
-    // Set buffer wait threshold (percent of readahead that must be filled)
-    void SetBufferWaitPercent(int percent);
-    int GetBufferWaitPercent() const { return buffer_wait_percent_; }
+    // Check if buffer wait should actually apply (only for image/EXR content)
+    // Returns true only if: buffer_wait_enabled_ AND has image content AND not using D3D11 pipelines
+    bool ShouldApplyBufferWait() const;
+
+    // Buffer wait threshold is hardcoded to 90% of readahead
+    void SetBufferWaitPercent(int percent);  // No-op, kept for API compatibility
+    int GetBufferWaitPercent() const { return 90; }  // Always returns 90%
     int GetEffectiveBufferWaitPercent() const;
 
     // Video buffer frames - how many frames to wait for video decoder
@@ -394,12 +396,13 @@ private:
 
     bool throttle_enabled_ = true;              // User toggle (defaults ON)
     bool buffer_wait_enabled_ = true;           // User toggle for buffer-wait (defaults ON)
-    int buffer_wait_percent_ = 88;              // Percent of readahead to wait for (default 88%)
+    int buffer_wait_percent_ = 90;              // Deprecated: now hardcoded to 90% (kept for binary compat)
     int video_buffer_frames_ = 2;               // Frames to wait for video (MPV/D3D11) mode (2-48)
     ThrottleState throttle_state_ = ThrottleState::FULL;
     double current_speed_factor_ = 1.0;
     std::chrono::steady_clock::time_point last_healthy_time_;
     bool was_healthy_ = true;
+    bool audio_paused_for_throttle_ = false;  // Track if we paused audio due to throttle
     static constexpr int kThrottleDebounceMs = 2000;  // 2s before speed increase
 
     // Timeline properties

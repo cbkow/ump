@@ -21,10 +21,10 @@ public:
     // Core update method - called every frame
     void Update(VideoPlayer* video_player);
 
-    // Force immediate sync from MPV (bypasses throttle) - use after frame stepping
-    void ForceSyncFromMPV(VideoPlayer* video_player);
+    // Force immediate sync from decoder (bypasses throttle) - use after frame stepping
+    void ForceSyncFromDecoder(VideoPlayer* video_player);
 
-    // Schedule a delayed force sync (gives MPV time to process frame-step)
+    // Schedule a delayed force sync (gives decoder time to process frame-step)
     void ScheduleFrameStepSync();
 
     // Scrubbing interface
@@ -58,8 +58,8 @@ private:
     double last_stable_position = -1.0;  // Last stable position for stability tracking
     bool restore_playback_after_seek = false;  // Restore playback when seek completes
     
-    // MPV sync state
-    double mpv_position = 0.0;
+    // Decoder sync state
+    double decoder_position = 0.0;
     double pending_seek_position = -1.0;
 
     // Frame step sync state
@@ -71,13 +71,13 @@ private:
     
     // Throttling intervals
     static constexpr auto SEEK_THROTTLE_MS = std::chrono::milliseconds(16); // ~60fps max seeks
-    static constexpr auto SYNC_THROTTLE_MS = std::chrono::milliseconds(100); // Sync UI to MPV
+    static constexpr auto SYNC_THROTTLE_MS = std::chrono::milliseconds(100); // Sync UI to decoder
     
     // Project manager reference for cache access
     ump::ProjectManager* project_manager = nullptr;
 
     // Internal methods
-    void SyncFromMPV(VideoPlayer* video_player);
+    void SyncFromDecoder(VideoPlayer* video_player);
     void ProcessPendingSeek(VideoPlayer* video_player);
     void HandleFastSeeking(VideoPlayer* video_player);
 };

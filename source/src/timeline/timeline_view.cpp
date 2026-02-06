@@ -1,11 +1,10 @@
 #include "timeline_view.h"
 #include "timeline_playback_controller.h"
 #include "timeline_cache.h"
-#include "edl_parser.h"
 #include "nested_timeline_manager.h"
-#include "python_adapter_bridge.h"
 #include "media_linker.h"
 #include "../project/media_item.h"
+#include "../project/project_manager.h"
 #include "../utils/debug_utils.h"
 #include <imgui.h>
 #include <sstream>
@@ -532,6 +531,14 @@ bool TimelineView::InitializePlayback() {
 }
 
 void TimelineView::ShutdownPlayback() {
+    // Clear external controller reference first (prevents stale pointer issues)
+    // This is critical: when switching modes, the external controller may point to
+    // scratch_timeline_controller which is about to be destroyed
+    if (external_playback_controller_) {
+        Debug::Log("TimelineView::ShutdownPlayback: Clearing external playback controller");
+        external_playback_controller_ = nullptr;
+    }
+
     if (playback_controller_) {
         Debug::Log("TimelineView::ShutdownPlayback: Shutting down playback controller");
         playback_controller_->Shutdown();
@@ -813,7 +820,10 @@ void TimelineView::Render(bool* show_timeline_panel) {
         ImGui::PopStyleColor();
         return;
     }
-    
+
+    // Update any in-progress playlist edits (trim/slip/move)
+    UpdatePlaylistEdit();
+
     RenderToolbar();
     
     ImGui::Separator();
@@ -865,7 +875,10 @@ void TimelineView::RenderToolbar() {
         }
         
         if (ImGui::BeginMenu("View")) {
-            ImGui::MenuItem("Show Thumbnails", nullptr, &show_thumbnails_);
+            // Hide thumbnails option for PLAYLIST mode (not applicable)
+            if (source_mode_ != TimelineSourceMode::PLAYLIST) {
+                ImGui::MenuItem("Show Thumbnails", nullptr, &show_thumbnails_);
+            }
             ImGui::MenuItem("Show Waveforms", nullptr, &show_waveforms_);
             ImGui::Separator();
             if (ImGui::MenuItem("Zoom In")) {
@@ -951,11 +964,43 @@ void TimelineView::RenderTrackList() {
         // Track clips area
         ImGui::BeginChild(("TrackClips_" + track.id).c_str(),
                          ImVec2(0, track_height_), true);
-        
+
         RenderTrackClips(track, track_height_);
-        
+
+        // Drag-drop target for PLAYLIST mode - accept media items dropped onto video track
+        if (source_mode_ == TimelineSourceMode::PLAYLIST && track.is_video) {
+            if (ImGui::BeginDragDropTarget()) {
+                // Accept single media item
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
+                    std::string media_id((const char*)payload->Data);
+                    Debug::Log("Timeline drop: single item " + media_id);
+                    if (drop_media_callback_) {
+                        drop_media_callback_({media_id});
+                    }
+                }
+                // Accept multiple media items
+                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEMS_MULTI")) {
+                    std::string payload_str((const char*)payload->Data);
+                    std::vector<std::string> media_ids;
+                    size_t pos = 0;
+                    while ((pos = payload_str.find(';')) != std::string::npos) {
+                        media_ids.push_back(payload_str.substr(0, pos));
+                        payload_str.erase(0, pos + 1);
+                    }
+                    if (!payload_str.empty()) {
+                        media_ids.push_back(payload_str);
+                    }
+                    Debug::Log("Timeline drop: " + std::to_string(media_ids.size()) + " items");
+                    if (drop_media_callback_) {
+                        drop_media_callback_(media_ids);
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
+
         ImGui::EndChild();
-        
+
         ImGui::PopID();
     }
 }
@@ -1058,7 +1103,9 @@ void TimelineView::RenderTrackClips(const OTIOTrack& track, float track_height) 
     ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
 
     const float clip_rounding = 2.0f;  // Match playlist style
+    const float trim_handle_width = 8.0f;  // Width of trim handles in pixels
 
+    int clip_index = 0;
     for (const auto& clip : track.clips) {
         float x_start = canvas_pos.x + (float)(clip.start_time * zoom_level_);
         float x_end = canvas_pos.x + (float)((clip.start_time + clip.duration) * zoom_level_);
@@ -1159,10 +1206,73 @@ void TimelineView::RenderTrackClips(const OTIOTrack& track, float track_height) 
             hovered_clip_id_ = clip.id;
             RenderClipTooltip(clip);
 
-            if (ImGui::IsMouseClicked(0)) {
+            // PLAYLIST mode: Trim/Slip/Move editing
+            if (source_mode_ == TimelineSourceMode::PLAYLIST && track.is_video && !clip.is_gap) {
+                // Define regions
+                bool in_left_handle = (mouse_pos.x >= x_start && mouse_pos.x <= x_start + trim_handle_width);
+                bool in_right_handle = (mouse_pos.x >= x_end - trim_handle_width && mouse_pos.x <= x_end);
+                bool in_clip_body = (mouse_pos.x > x_start + trim_handle_width &&
+                                     mouse_pos.x < x_end - trim_handle_width);
+
+                // Visual feedback for trim handles when hovering (only if no edit in progress)
+                if (playlist_edit_op_ == PlaylistEditOp::NONE) {
+                    if (in_left_handle || in_right_handle) {
+                        ImU32 handle_color = IM_COL32(255, 200, 100, 180);
+                        if (in_left_handle) {
+                            draw_list->AddRectFilled(ImVec2(x_start, y_top),
+                                                     ImVec2(x_start + trim_handle_width, y_bottom),
+                                                     handle_color, 2.0f);
+                        }
+                        if (in_right_handle) {
+                            draw_list->AddRectFilled(ImVec2(x_end - trim_handle_width, y_top),
+                                                     ImVec2(x_end, y_bottom),
+                                                     handle_color, 2.0f);
+                        }
+                        ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+                    }
+                }
+
+                // Start edit on mouse down (only if no edit is in progress)
+                if (playlist_edit_op_ == PlaylistEditOp::NONE && !playlist_pending_edit_ && ImGui::IsMouseClicked(0)) {
+                    bool shift_held = ImGui::GetIO().KeyShift;
+
+                    // Select the clip on any click (PLAYLIST mode uses single track 0)
+                    selection_.SelectClip(clip.id, 0, ImGui::GetIO().KeyCtrl);
+
+                    if (in_left_handle) {
+                        // Set up pending TRIM_START - will start after drag threshold
+                        playlist_pending_edit_ = true;
+                        playlist_pending_op_ = PlaylistEditOp::TRIM_START;
+                        playlist_edit_clip_id_ = clip.id;
+                        playlist_edit_clip_index_ = clip_index;
+                        playlist_edit_start_mouse_x_ = mouse_pos.x;
+                        playlist_edit_original_in_ = clip.source_in;
+                        playlist_edit_original_out_ = clip.source_out;
+                        playlist_edit_original_start_ = clip.start_time;
+                    } else if (in_right_handle) {
+                        // Set up pending TRIM_END - will start after drag threshold
+                        playlist_pending_edit_ = true;
+                        playlist_pending_op_ = PlaylistEditOp::TRIM_END;
+                        playlist_edit_clip_id_ = clip.id;
+                        playlist_edit_clip_index_ = clip_index;
+                        playlist_edit_start_mouse_x_ = mouse_pos.x;
+                        playlist_edit_original_in_ = clip.source_in;
+                        playlist_edit_original_out_ = clip.source_out;
+                        playlist_edit_original_start_ = clip.start_time;
+                    } else if (in_clip_body) {
+                        // Clicking on clip body just selects - no edit setup
+                        // Shift+drag for SLIP and regular drag for MOVE are disabled
+                        // to prevent accidental edits. Use trim handles for editing.
+                        // Selection was already done above.
+                    }
+                }
+            } else if (ImGui::IsMouseClicked(0)) {
+                // Non-PLAYLIST mode: standard click handling
                 HandleClipClick(clip);
             }
         }
+
+        clip_index++;
     }
 }
 
@@ -1286,17 +1396,14 @@ void TimelineView::RenderCacheBar() {
         return;
     }
 
-    // Get cache segments - either image cache or video buffer
-    std::vector<TimelineCacheSegment> segments;
-    bool is_video_only = cache->IsVideoOnly();
-
-    if (is_video_only) {
-        // Get video decoder buffer segments
-        segments = cache->GetVideoBufferSegments();
-    } else {
-        // Get image cache segments
-        segments = cache->GetCacheSegments();
+    // Skip cache bar for video-only content - D3D11 streaming decoders handle buffering internally
+    // Only show cache bar for image/EXR sequences which use the ring buffer
+    if (!cache->HasImageContent()) {
+        return;
     }
+
+    // Get image cache segments (video-only content returns early above)
+    std::vector<TimelineCacheSegment> segments = cache->GetCacheSegments();
     auto stats = cache->GetStats();
 
     // Debug: Log segment count periodically
@@ -1335,15 +1442,8 @@ void TimelineView::RenderCacheBar() {
 
         if (end_x <= start_x) continue;
 
-        // Color based on type:
-        // - Green for image cache (80% opacity)
-        // - Cyan/teal for video buffer (80% opacity)
-        ImU32 cache_color;
-        if (segment.type == TimelineCacheSegment::VIDEO_BUFFER) {
-            cache_color = IM_COL32(80, 180, 200, 204);  // Cyan/teal for video buffer
-        } else {
-            cache_color = IM_COL32(80, 200, 120, 204);  // Green for image cache
-        }
+        // Green for image cache (80% opacity)
+        ImU32 cache_color = IM_COL32(80, 200, 120, 204);
 
         draw_list->AddRectFilled(
             ImVec2(start_x, cache_bar_y),
@@ -1357,39 +1457,19 @@ void TimelineView::RenderCacheBar() {
     if (mouse_pos.y >= cache_bar_y && mouse_pos.y <= cache_bar_y + cache_bar_height &&
         mouse_pos.x >= ruler_pos.x && mouse_pos.x <= ruler_pos.x + ruler_width) {
         ImGui::BeginTooltip();
-        if (is_video_only) {
-            ImGui::Text("Video Buffer");
-            ImGui::Separator();
-            // Count buffered frames from segments
-            int buffered_frames = 0;
-            for (const auto& seg : segments) {
-                double fps = stats.timeline_duration > 0 ?
-                    stats.total_timeline_frames / stats.timeline_duration : 24.0;
-                buffered_frames += (int)((seg.end_time - seg.start_time) * fps);
-            }
-            if (stats.total_timeline_frames > 0) {
-                float percent = (float)buffered_frames / stats.total_timeline_frames * 100.0f;
-                ImGui::Text("Buffered: %d / %d frames (%.1f%%)",
-                            buffered_frames, stats.total_timeline_frames, percent);
-            } else {
-                ImGui::Text("Buffered frames: %d", buffered_frames);
-            }
-            ImGui::Text("Duration: %.2fs", stats.timeline_duration);
+        ImGui::Text("Image Cache");
+        ImGui::Separator();
+        if (stats.total_timeline_frames > 0) {
+            float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
+            ImGui::Text("Cached: %d / %d frames (%.1f%%)",
+                        stats.cached_frames, stats.total_timeline_frames, percent);
         } else {
-            ImGui::Text("Timeline Cache");
-            ImGui::Separator();
-            if (stats.total_timeline_frames > 0) {
-                float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
-                ImGui::Text("Cached: %d / %d frames (%.1f%%)",
-                            stats.cached_frames, stats.total_timeline_frames, percent);
-            } else {
-                ImGui::Text("Cached frames: %d", stats.cached_frames);
-            }
-            ImGui::Text("Duration: %.2fs", stats.timeline_duration);
-            ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
-            ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
-            ImGui::Text("Pending: %d", stats.pending_requests);
+            ImGui::Text("Cached frames: %d", stats.cached_frames);
         }
+        ImGui::Text("Duration: %.2fs", stats.timeline_duration);
+        ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
+        ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
+        ImGui::Text("Pending: %d", stats.pending_requests);
         ImGui::EndTooltip();
     }
 }
@@ -1671,15 +1751,15 @@ void TimelineView::UpdateFlattenedPlayback() {
         return;
     }
 
-    // Legacy mode: Load individual clips into MPV (no cache)
+    // Legacy mode: Load individual clips for playback (no cache)
     const OTIOClip* visible_clip = flattener_.GetVisibleClipAtTime(current_time_);
 
     if (visible_clip && !visible_clip->is_gap) {
-        LoadFlattenedClipIntoMPV(*visible_clip);
+        LoadFlattenedClipForPlayback(*visible_clip);
     }
 }
 
-void TimelineView::LoadFlattenedClipIntoMPV(const OTIOClip& clip) {
+void TimelineView::LoadFlattenedClipForPlayback(const OTIOClip& clip) {
     if (!video_player_) return;
     
     // Construct EDL URL with trim points
@@ -1706,7 +1786,7 @@ void TimelineView::LoadFlattenedClipIntoMPV(const OTIOClip& clip) {
     }
     
     std::string edl_path = edl.str();
-    Debug::Log("Loading flattened clip into MPV: " + edl_path);
+    Debug::Log("Loading flattened clip for playback: " + edl_path);
     
     video_player_->LoadFile(edl_path);
 }
@@ -1830,82 +1910,17 @@ bool TimelineView::CanDeleteTrack(int track_index) const {
     }
 }
 
-// Placeholder implementations (full OTIO parsing in separate methods)
+// DEPRECATED: OTIO/EDL import removed - use VIDEO_FILE, IMAGE_SEQUENCE, DUAL_VIEW, or PLAYLIST modes
 bool TimelineView::LoadOTIOFile(const std::string& file_path) {
-    Debug::Log("Loading OTIO file: " + file_path);
-
-    // Reset source mode to MULTI_TRACK for normal timeline loading
-    ResetSourceMode();
-
-    // Shutdown existing playback controller before loading new timeline
-    // This ensures a fresh dummy video is generated for the new timeline
-    ShutdownPlayback();
-
-    // Store source file path for auto-relinking
-    source_file_path_ = file_path;
-
-    // TODO: Implement full OTIO parsing
-    return ParseOTIOTimeline(file_path);
+    Debug::Log("LoadOTIOFile: OTIO import has been removed. Use other modes instead.");
+    (void)file_path;  // Unused
+    return false;
 }
 
 bool TimelineView::LoadEDLFile(const std::string& file_path) {
-    Debug::Log("Loading EDL file: " + file_path);
-
-    // Reset source mode to MULTI_TRACK for normal timeline loading
-    ResetSourceMode();
-
-    // Shutdown existing playback controller before loading new timeline
-    // This ensures a fresh dummy video is generated for the new timeline
-    ShutdownPlayback();
-
-    auto result = EDLParser::Parse(file_path);
-    if (!result.success) {
-        Debug::Log("EDL parse failed: " + result.error_message);
-        return false;
-    }
-
-    // Store source file path for auto-relinking
-    source_file_path_ = file_path;
-
-    // Apply parsed data
-    timeline_name_ = result.timeline_name.empty() ? "Imported EDL" : result.timeline_name;
-    frame_rate_ = result.frame_rate;
-    tracks_ = std::move(result.tracks);
-
-    // Calculate timeline duration
-    timeline_duration_ = 0.0;
-    for (const auto& track : tracks_) {
-        for (const auto& clip : track.clips) {
-            double clip_end = clip.start_time + clip.duration;
-            if (clip_end > timeline_duration_) {
-                timeline_duration_ = clip_end;
-            }
-        }
-    }
-
-    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
-    SetInitialZoomForDuration();
-
-    // Update flattener
-    flattener_.SetTracks(tracks_);
-
-    Debug::Log("EDL loaded: " + timeline_name_ +
-               " (" + std::to_string(GetVideoTrackCount()) + " video, " +
-               std::to_string(GetAudioTrackCount()) + " audio tracks)");
-
-    return true;
-}
-
-bool TimelineView::LoadFCPXMLFile(const std::string& file_path) {
-    Debug::Log("Loading FCP XML file: " + file_path);
-
-#ifdef USE_PYTHON_ADAPTERS
-    // Use Python adapter to import FCP XML
-    return LoadXMLFile(file_path);
-#else
-    Debug::Log("Python adapters not enabled - cannot import FCP XML");
+    Debug::Log("LoadEDLFile: EDL import has been removed. Use other modes instead.");
+    (void)file_path;  // Unused
     return false;
-#endif
 }
 
 void TimelineView::AutoMuteVideoClipsWithAudio() {
@@ -1934,401 +1949,13 @@ void TimelineView::AutoMuteVideoClipsWithAudio() {
     }
 }
 
-bool TimelineView::LoadAAFFile(const std::string& file_path) {
-    Debug::Log("Loading AAF file via Python adapter: " + file_path);
-
-#ifdef USE_PYTHON_ADAPTERS
-    // Reset source mode to MULTI_TRACK for normal timeline loading
-    ResetSourceMode();
-
-    // Shutdown existing playback controller before loading new timeline
-    ShutdownPlayback();
-
-    // Store source file path for auto-relinking
-    source_file_path_ = file_path;
-
-    // Initialize Python if not already done
-    auto& bridge = PythonAdapterBridge::Instance();
-    if (!bridge.IsInitialized()) {
-        // Get executable directory for Python home
-        std::filesystem::path exe_path = std::filesystem::current_path();
-        std::string python_home = (exe_path / "python311").string();
-
-        if (!bridge.Initialize(python_home)) {
-            Debug::Log("Failed to initialize Python runtime from: " + python_home);
-            return false;
-        }
-    }
-
-    // Import timeline using Python OTIO adapter
-    std::string error_message;
-    std::string json = bridge.ImportTimeline(file_path, error_message);
-
-    if (json.empty()) {
-        Debug::Log("AAF import failed: " + error_message);
-        return false;
-    }
-
-    // Parse the JSON string into our timeline structure
-    if (!ParseTimelineFromJson(json)) {
-        return false;
-    }
-
-    // Resolve missing media paths via AAF mob chain traversal
-    // This fills in file_path for clips where OTIO only provided MobID
-    // Note: ParseNestedStack already tried linking but failed because clips had PNG paths
-    // ResolveAAFMobPaths sets the MXF paths and marks clips as linked if files exist
-    ResolveAAFMobPaths(file_path);
-
-    // Update flattener with newly linked tracks
-    flattener_.SetTracks(tracks_);
-
-    return true;
-#else
-    Debug::Log("Python adapters not enabled - cannot import AAF");
-    return false;
-#endif
-}
-
-bool TimelineView::LoadXMLFile(const std::string& file_path) {
-    Debug::Log("Loading XML file via Python adapter: " + file_path);
-
-#ifdef USE_PYTHON_ADAPTERS
-    // Reset source mode to MULTI_TRACK for normal timeline loading
-    ResetSourceMode();
-
-    // Shutdown existing playback controller before loading new timeline
-    ShutdownPlayback();
-
-    // Store source file path for auto-relinking
-    source_file_path_ = file_path;
-
-    // Initialize Python if not already done
-    auto& bridge = PythonAdapterBridge::Instance();
-    if (!bridge.IsInitialized()) {
-        // Get executable directory for Python home
-        std::filesystem::path exe_path = std::filesystem::current_path();
-        std::string python_home = (exe_path / "python311").string();
-
-        if (!bridge.Initialize(python_home)) {
-            Debug::Log("Failed to initialize Python runtime from: " + python_home);
-            return false;
-        }
-    }
-
-    // Import timeline using Python OTIO adapter
-    std::string error_message;
-    std::string json = bridge.ImportTimeline(file_path, error_message);
-
-    if (json.empty()) {
-        Debug::Log("XML import failed: " + error_message);
-        return false;
-    }
-
-    // Parse the JSON string into our timeline structure
-    return ParseTimelineFromJson(json);
-#else
-    Debug::Log("Python adapters not enabled - cannot import XML");
-    return false;
-#endif
-}
-
-void TimelineView::ResolveAAFMobPaths(const std::string& aaf_path) {
-#ifdef USE_PYTHON_ADAPTERS
-    Debug::Log("ResolveAAFMobPaths: Starting comprehensive AAF mob resolution for " + aaf_path);
-
-    // Determine search directory for MXF files
-    // Strategy: Look for "Avid MediaFiles" folder relative to AAF location
-    std::filesystem::path aaf_dir = std::filesystem::path(aaf_path).parent_path();
-    std::string search_directory = aaf_dir.string();  // Default: same directory as AAF
-
-    // Look for common Avid media folder patterns
-    std::vector<std::filesystem::path> search_candidates = {
-        aaf_dir / "Avid MediaFiles" / "MXF",
-        aaf_dir / "Avid MediaFiles",
-        aaf_dir.parent_path() / "Avid MediaFiles" / "MXF",
-        aaf_dir.parent_path() / "Avid MediaFiles",
-        aaf_dir  // Fallback: same folder as AAF
-    };
-
-    for (const auto& candidate : search_candidates) {
-        if (std::filesystem::exists(candidate) && std::filesystem::is_directory(candidate)) {
-            search_directory = candidate.string();
-            Debug::Log("ResolveAAFMobPaths: Using MXF search directory: " + search_directory);
-            break;
-        }
-    }
-
-    // Use ResolveAllMobs to get complete mapping of ALL MasterMobs -> MXF paths
-    // This handles edge cases where:
-    // - OTIO adapter only gave us original source paths (external volume)
-    // - Clips have MobID but OTIO didn't follow to FileSourceMob
-    auto& bridge = PythonAdapterBridge::Instance();
-    std::string error;
-    auto all_resolved = bridge.ResolveAllMobs(aaf_path, search_directory, error);
-
-    if (!error.empty()) {
-        Debug::Log("ResolveAAFMobPaths: Error from ResolveAllMobs - " + error);
-    }
-
-    Debug::Log("ResolveAAFMobPaths: Got " + std::to_string(all_resolved.by_mob_id.size()) +
-               " MobID mappings and " + std::to_string(all_resolved.by_name.size()) + " name mappings");
-
-    // Helper to check if a path exists and is accessible
-    auto path_exists = [](const std::string& path) -> bool {
-        if (path.empty()) return false;
-        // Check for external volume paths that won't exist locally
-        // e.g., "Volumes/Lake_Placid/..." or paths starting with non-existent drive letters
-        if (path.find("Volumes/") != std::string::npos ||
-            path.find("/Volumes/") != std::string::npos) {
-            return false;  // External Mac volume path
-        }
-        return std::filesystem::exists(path);
-    };
-
-    // Helper to apply resolved path to a clip
-    auto apply_path_to_clip = [&](OTIOClip* clip, const std::string& path) -> bool {
-        // Normalize path separators
-        std::string normalized_path = path;
-        std::replace(normalized_path.begin(), normalized_path.end(), '/', '\\');
-
-        bool file_exists = std::filesystem::exists(normalized_path);
-        if (!file_exists) return false;
-
-        clip->file_path = normalized_path;
-        clip->linked_path = normalized_path;
-        clip->is_linked = true;
-
-        // Probe video files to get source metadata
-        if (MediaLinker::IsVideoFile(normalized_path)) {
-            VideoProbeResult probe = MediaLinker::ProbeVideoFile(normalized_path);
-            if (probe.valid) {
-                clip->source_fps = probe.fps;
-                clip->source_width = probe.width;
-                clip->source_height = probe.height;
-                clip->source_duration = probe.duration;
-                clip->has_audio = probe.has_audio;
-            }
-        }
-
-        return true;
-    };
-
-    // Process all clips (including nested) - try multiple resolution strategies
-    int resolved_by_mobid = 0;
-    int resolved_by_name = 0;
-    int already_linked = 0;
-    int unresolved = 0;
-
-    std::function<void(std::vector<OTIOTrack>&)> process_clips = [&](std::vector<OTIOTrack>& tracks) {
-        for (auto& track : tracks) {
-            for (auto& clip : track.clips) {
-                if (clip.is_gap) continue;
-
-                // Skip already linked clips
-                if (clip.is_linked && !clip.linked_path.empty() && path_exists(clip.linked_path)) {
-                    already_linked++;
-                    continue;
-                }
-
-                // Check if current file_path exists - if so, clip is already linked
-                if (!clip.file_path.empty() && path_exists(clip.file_path)) {
-                    clip.linked_path = clip.file_path;
-                    clip.is_linked = true;
-                    already_linked++;
-                    continue;
-                }
-
-                bool resolved = false;
-
-                // Strategy 1: Try MobID lookup
-                if (!resolved && !clip.aaf_mob_id.empty()) {
-                    auto it = all_resolved.by_mob_id.find(clip.aaf_mob_id);
-                    if (it != all_resolved.by_mob_id.end() && !it->second.empty()) {
-                        if (apply_path_to_clip(&clip, it->second)) {
-                            resolved = true;
-                            resolved_by_mobid++;
-                            Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name + "' via MobID -> " + clip.linked_path);
-                        }
-                    }
-                }
-
-                // Strategy 2: Try name-based lookup
-                // This handles clips where OTIO gave us external volume paths
-                if (!resolved && !clip.name.empty()) {
-                    std::string lower_name = clip.name;
-                    std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-
-                    auto it = all_resolved.by_name.find(lower_name);
-                    if (it != all_resolved.by_name.end() && !it->second.empty()) {
-                        if (apply_path_to_clip(&clip, it->second)) {
-                            resolved = true;
-                            resolved_by_name++;
-                            Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name + "' via name match -> " + clip.linked_path);
-                        }
-                    }
-                }
-
-                // Strategy 3: Try partial name matching for clips with version suffixes
-                // e.g., "LP_ARC2980_APFT_X03056_SovietInvasionOnTheGround_19800101.new.02"
-                // might match "LP_ARC2980_APFT_X03056_SovietInvasionOnTheGround_19800101"
-                if (!resolved && !clip.name.empty()) {
-                    std::string lower_name = clip.name;
-                    std::transform(lower_name.begin(), lower_name.end(), lower_name.begin(), ::tolower);
-
-                    // Strip common version suffixes: .new.##, _v##, .##
-                    std::string base_name = lower_name;
-                    // Remove .new.## suffix
-                    size_t new_pos = base_name.rfind(".new.");
-                    if (new_pos != std::string::npos) {
-                        base_name = base_name.substr(0, new_pos);
-                    }
-                    // Remove _v## suffix
-                    size_t v_pos = base_name.rfind("_v");
-                    if (v_pos != std::string::npos && v_pos + 2 < base_name.length()) {
-                        bool all_digits = true;
-                        for (size_t i = v_pos + 2; i < base_name.length(); i++) {
-                            if (!std::isdigit(base_name[i])) { all_digits = false; break; }
-                        }
-                        if (all_digits) base_name = base_name.substr(0, v_pos);
-                    }
-
-                    // Search all by_name entries for partial match
-                    for (const auto& [name, path] : all_resolved.by_name) {
-                        // Check if base_name matches start of this entry
-                        if (name.find(base_name) == 0 || base_name.find(name) == 0) {
-                            if (apply_path_to_clip(&clip, path)) {
-                                resolved = true;
-                                resolved_by_name++;
-                                Debug::Log("ResolveAAFMobPaths: Linked '" + clip.name +
-                                           "' via partial name match (" + base_name + ") -> " + clip.linked_path);
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if (!resolved) {
-                    unresolved++;
-                    Debug::Log("ResolveAAFMobPaths: Could not resolve '" + clip.name +
-                               "' (file_path: " + clip.file_path +
-                               ", aaf_mob_id: " + (clip.aaf_mob_id.empty() ? "<none>" : clip.aaf_mob_id.substr(0, 50) + "...") + ")");
-                }
-
-                // Recurse into nested tracks
-                if (clip.is_nested && clip.nested_loaded) {
-                    process_clips(clip.nested_tracks);
-                }
-            }
-        }
-    };
-
-    process_clips(tracks_);
-
-    Debug::Log("ResolveAAFMobPaths: Summary - " +
-               std::to_string(already_linked) + " already linked, " +
-               std::to_string(resolved_by_mobid) + " resolved by MobID, " +
-               std::to_string(resolved_by_name) + " resolved by name, " +
-               std::to_string(unresolved) + " unresolved");
-
-    // Final verification count
-    int verify_linked = 0;
-    int verify_total = 0;
-    std::function<void(const std::vector<OTIOTrack>&)> verify_clips = [&](const std::vector<OTIOTrack>& trks) {
-        for (const auto& track : trks) {
-            for (const auto& clip : track.clips) {
-                if (clip.is_gap) continue;
-                verify_total++;
-                if (clip.is_linked) verify_linked++;
-                if (clip.is_nested && clip.nested_loaded) {
-                    verify_clips(clip.nested_tracks);
-                }
-            }
-        }
-    };
-    verify_clips(tracks_);
-    Debug::Log("ResolveAAFMobPaths: Final status: " + std::to_string(verify_linked) + "/" +
-               std::to_string(verify_total) + " clips linked");
-#else
-    Debug::Log("ResolveAAFMobPaths: Python adapters not enabled");
-#endif
-}
-
-bool TimelineView::ParseTimelineFromJson(const std::string& json_string) {
-#ifdef USE_OPENTIMELINEIO
-    Debug::Log("Parsing timeline from JSON (" + std::to_string(json_string.length()) + " bytes)");
-
-    otio::ErrorStatus error_status;
-
-    // Parse JSON to OTIO SerializableObject
-    auto* obj = otio::SerializableObject::from_json_string(json_string, &error_status);
-    if (!obj || otio::is_error(error_status)) {
-        Debug::Log("Failed to parse OTIO JSON: " + error_status.full_description);
-        return false;
-    }
-
-    // Cast to Timeline
-    auto* timeline = dynamic_cast<otio::Timeline*>(obj);
-    if (!timeline) {
-        Debug::Log("Parsed object is not an OTIO Timeline");
-        return false;
-    }
-
-    // Extract timeline metadata
-    timeline_name_ = timeline->name();
-    if (timeline_name_.empty()) {
-        timeline_name_ = "Imported Timeline";
-    }
-
-    // Get global start time and rate - authoritative source for timeline FPS
-    auto global_start = timeline->global_start_time();
-    if (global_start.has_value() && global_start->rate() > 0) {
-        frame_rate_ = global_start->rate();
-        Debug::Log("OTIO timeline FPS: " + std::to_string(frame_rate_));
-    } else {
-        frame_rate_ = 24.0;
-        Debug::Log("WARNING: OTIO missing global_start_time - using default 24fps. "
-                   "Timeline may have incorrect frame mapping for non-24fps media.");
-    }
-
-    // Extract tracks from timeline (includes nested stack handling)
-    ExtractTracksFromOTIO(timeline);
-
-    // Calculate timeline duration from tracks
-    timeline_duration_ = 0.0;
-    for (const auto& track : tracks_) {
-        for (const auto& clip : track.clips) {
-            double clip_end = clip.start_time + clip.duration;
-            if (clip_end > timeline_duration_) {
-                timeline_duration_ = clip_end;
-            }
-        }
-    }
-
-    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
-    SetInitialZoomForDuration();
-
-    // Update flattener with new tracks
-    flattener_.SetTracks(tracks_);
-
-    Debug::Log("Imported timeline: " + timeline_name_ +
-               " (" + std::to_string(GetVideoTrackCount()) + " video, " +
-               std::to_string(GetAudioTrackCount()) + " audio tracks)");
-
-    return true;
-#else
-    Debug::Log("OTIO library not available - cannot parse timeline JSON");
-    return false;
-#endif
-}
-
 void TimelineView::InitializeForScratch(const std::string& name, double duration, double fps,
                                         int width, int height) {
     Debug::Log("Initializing scratch timeline: " + name + " (" +
                std::to_string(duration) + "s @ " + std::to_string(fps) + "fps, " +
                std::to_string(width) + "x" + std::to_string(height) + ")");
 
-    // Reset source mode to MULTI_TRACK for scratch timelines
+    // Reset source mode to VIDEO_FILE (default) for scratch timelines
     ResetSourceMode();
 
     // Clear existing data
@@ -2385,6 +2012,7 @@ bool TimelineView::LoadImageSequenceAsTimeline(MediaItem* item) {
     // Set source mode
     source_mode_ = TimelineSourceMode::IMAGE_SEQUENCE;
     source_media_item_ = item;
+    source_media_item_id_ = item ? item->id : "";
 
     // Clear existing data
     tracks_.clear();
@@ -2570,6 +2198,7 @@ bool TimelineView::LoadVideoFileAsTimeline(MediaItem* item) {
     // Set source mode
     source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = item;
+    source_media_item_id_ = item ? item->id : "";
 
     // Clear existing data
     tracks_.clear();
@@ -2672,6 +2301,7 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
     // MPV can play audio-only files - it just won't produce video frames (black display)
     source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = item;
+    source_media_item_id_ = item ? item->id : "";
 
     // Clear existing data
     tracks_.clear();
@@ -2753,6 +2383,197 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
 }
 
 // ============================================================================
+// PLAYLIST AS TIMELINE - Unified single-track playlist with ripple editing
+// ============================================================================
+
+bool TimelineView::LoadPlaylistAsTimeline(MediaItem* item) {
+    if (!item) {
+        Debug::Log("LoadPlaylistAsTimeline: null MediaItem");
+        return false;
+    }
+
+    if (item->type != ump::MediaType::PLAYLIST) {
+        Debug::Log("LoadPlaylistAsTimeline: MediaItem is not a playlist");
+        return false;
+    }
+
+    Debug::Log("Loading playlist as timeline: " + item->name +
+               " with " + std::to_string(item->playlist_items.size()) + " items");
+
+    // Set source mode to PLAYLIST for ripple editing behavior
+    source_mode_ = TimelineSourceMode::PLAYLIST;
+    source_media_item_ = item;
+    source_media_item_id_ = item ? item->id : "";
+
+    // Clear existing data
+    tracks_.clear();
+    source_file_path_.clear();  // No OTIO source file
+
+    // Get timeline properties - will be updated as we process items
+    double fps = 23.976;  // Default, will be updated from first media item
+    double total_duration = 0.0;
+    int max_width = 1920;
+    int max_height = 1080;
+    bool fps_set = false;
+
+    // Default gap duration (10 frames at default fps)
+    const int gap_frames = 10;
+    double gap_duration = gap_frames / fps;
+
+    // Create video track
+    OTIOTrack video_track;
+    video_track.id = "V1";
+    video_track.name = "Playlist";
+    video_track.is_video = true;
+    video_track.visible = true;
+    video_track.muted = false;
+    video_track.locked = false;  // Allow editing in PLAYLIST mode
+    video_track.z_index = 1;
+
+    // No initial gap - first clip starts at 0
+    total_duration = 0.0;
+
+    // Process each playlist item and create clips
+    for (size_t i = 0; i < item->playlist_items.size(); i++) {
+        const auto& entry = item->playlist_items[i];
+
+        OTIOClip clip;
+        clip.id = "playlist_clip_" + std::to_string(i);
+
+        // Try to resolve the referenced MediaItem via ProjectManager
+        MediaItem* media_item = nullptr;
+        if (project_manager_) {
+            media_item = project_manager_->GetMediaItem(entry.media_id);
+            Debug::Log("  Looking up media_id='" + entry.media_id + "' -> " +
+                       (media_item ? ("found: " + media_item->name) : "NOT FOUND"));
+        } else {
+            Debug::Log("  project_manager_ is NULL!");
+        }
+
+        if (media_item) {
+            // Successfully resolved - populate clip from media item
+            clip.name = media_item->name;
+            clip.file_path = media_item->path;
+            clip.linked_path = media_item->path;
+            clip.is_linked = true;
+            clip.has_audio = media_item->has_audio;
+
+            // Get duration and fps from media item
+            double media_duration = media_item->duration;
+            double media_fps = media_item->frame_rate;
+
+            // Handle image sequences
+            if (media_item->type == MediaType::IMAGE_SEQUENCE ||
+                media_item->type == MediaType::EXR_SEQUENCE) {
+                clip.is_sequence = true;
+                clip.sequence_directory = media_item->image_seq.directory;
+                clip.sequence_pattern = media_item->image_seq.pattern;
+                clip.sequence_start_frame = media_item->image_seq.start_frame;
+                clip.sequence_end_frame = media_item->image_seq.end_frame;
+                clip.sequence_exr_layer = media_item->image_seq.layer;
+                clip.source_width = media_item->image_seq.width;
+                clip.source_height = media_item->image_seq.height;
+                media_duration = media_item->image_seq.duration;
+                media_fps = media_item->image_seq.frame_rate;
+
+                // Use ffmpeg pattern for playback
+                if (!media_item->image_seq.ffmpeg_pattern.empty()) {
+                    clip.file_path = media_item->image_seq.ffmpeg_pattern;
+                    clip.linked_path = media_item->image_seq.ffmpeg_pattern;
+                }
+            } else {
+                // Video file - use timeline dimensions if available
+                clip.source_width = media_item->timeline_width > 0 ? media_item->timeline_width : 1920;
+                clip.source_height = media_item->timeline_height > 0 ? media_item->timeline_height : 1080;
+            }
+
+            clip.source_fps = media_fps > 0 ? media_fps : 23.976;
+            clip.source_duration = media_duration > 0 ? media_duration : 10.0;
+
+            // Use first valid fps for timeline
+            if (!fps_set && media_fps > 0) {
+                fps = media_fps;
+                gap_duration = gap_frames / fps;
+                fps_set = true;
+            }
+
+            // Track max dimensions
+            if (clip.source_width > max_width) max_width = clip.source_width;
+            if (clip.source_height > max_height) max_height = clip.source_height;
+
+            // Apply in/out points if specified
+            clip.source_in = (entry.in_point >= 0) ? entry.in_point : 0.0;
+            clip.source_out = (entry.out_point >= 0) ? entry.out_point : clip.source_duration;
+            clip.duration = clip.source_out - clip.source_in;
+
+            Debug::Log("  Resolved clip " + std::to_string(i) + ": " + clip.name +
+                       " (" + std::to_string(clip.duration) + "s)");
+        } else {
+            // Could not resolve - create placeholder
+            clip.name = "Unlinked Clip " + std::to_string(i + 1);
+            clip.file_path = "playlist_item://" + entry.media_id;
+            clip.is_linked = false;
+
+            double clip_duration = 5.0;  // Placeholder duration
+            clip.source_in = (entry.in_point >= 0) ? entry.in_point : 0.0;
+            clip.source_out = (entry.out_point >= 0) ? entry.out_point : clip_duration;
+            clip.duration = clip.source_out - clip.source_in;
+            clip.source_duration = clip_duration;
+
+            Debug::Log("  Unresolved clip " + std::to_string(i) + ": media_id=" + entry.media_id);
+        }
+
+        clip.start_time = total_duration;
+        clip.is_gap = false;
+
+        video_track.clips.push_back(clip);
+        total_duration = clip.start_time + clip.duration;
+
+        // Add gap between clips (except after last clip)
+        if (i < item->playlist_items.size() - 1) {
+            OTIOClip gap;
+            gap.id = "gap_" + std::to_string(i);
+            gap.name = "Gap";
+            gap.start_time = total_duration;
+            gap.duration = gap_duration;
+            gap.is_gap = true;
+            video_track.clips.push_back(gap);
+            total_duration += gap_duration;
+        }
+    }
+
+    tracks_.push_back(video_track);
+
+    // Set timeline properties
+    timeline_name_ = item->name;
+    timeline_duration_ = total_duration;
+    frame_rate_ = fps;
+    canvas_width_ = max_width;
+    canvas_height_ = max_height;
+
+    // Update flattener with tracks
+    flattener_.SetTracks(tracks_);
+
+    Debug::Log("LoadPlaylistAsTimeline: Created " + std::to_string(video_track.clips.size()) +
+               " clips, duration=" + std::to_string(total_duration) + "s");
+
+    // Reset view state
+    current_time_ = 0.0;
+    scroll_offset_x_ = 0.0f;
+    timeline_in_point_ = -1.0;
+    timeline_out_point_ = -1.0;
+
+    // Set initial zoom based on duration
+    SetInitialZoomForDuration();
+
+    Debug::Log("Playlist timeline created: " + timeline_name_ +
+               " (duration=" + std::to_string(total_duration) + "s)" +
+               ", initial_zoom=" + std::to_string(zoom_level_) + " px/s");
+
+    return true;
+}
+
+// ============================================================================
 // DUAL VIEW MODE - Side-by-side comparison timeline
 // ============================================================================
 
@@ -2762,6 +2583,7 @@ void TimelineView::InitializeForDualView(const std::string& name, double fps) {
     // Set source mode
     source_mode_ = TimelineSourceMode::DUAL_VIEW;
     source_media_item_ = nullptr;
+    source_media_item_id_.clear();
 
     // Clear existing data
     tracks_.clear();
@@ -2994,13 +2816,30 @@ OTIOTrack* TimelineView::GetRightTrack() {
 }
 
 void TimelineView::ResetSourceMode() {
-    source_mode_ = TimelineSourceMode::MULTI_TRACK;
+    source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = nullptr;
+    source_media_item_id_.clear();
 
     // Unlock all tracks
     for (auto& track : tracks_) {
         track.locked = false;
     }
+}
+
+MediaItem* TimelineView::GetSourceMediaItem() {
+    // If we have an ID and a project manager, refresh the pointer to prevent stale references
+    // This is necessary because media_pool is a vector and may reallocate when items are added
+    if (!source_media_item_id_.empty() && project_manager_) {
+        MediaItem* old_ptr = source_media_item_;
+        source_media_item_ = project_manager_->GetMediaItem(source_media_item_id_);
+        if (old_ptr != source_media_item_) {
+            Debug::Log("[GetSourceMediaItem] Pointer refreshed: old=" +
+                       std::to_string(reinterpret_cast<uintptr_t>(old_ptr)) + " new=" +
+                       std::to_string(reinterpret_cast<uintptr_t>(source_media_item_)) +
+                       " id=" + source_media_item_id_);
+        }
+    }
+    return source_media_item_;
 }
 
 bool TimelineView::IsVideoTrackLocked() const {
@@ -3019,7 +2858,7 @@ bool TimelineView::CanRemoveVideoClips() const {
 }
 
 bool TimelineView::CanAddAudioClips() const {
-    // Audio clips can be added in MULTI_TRACK and IMAGE_SEQUENCE modes
+    // Audio clips can be added in PLAYLIST and IMAGE_SEQUENCE modes
     // In VIDEO_FILE mode, audio track is locked (video has its own embedded audio)
     return source_mode_ != TimelineSourceMode::VIDEO_FILE;
 }
@@ -3042,75 +2881,10 @@ bool TimelineView::CanEditClip(const OTIOClip& clip, const OTIOTrack& track) con
 }
 
 bool TimelineView::ParseOTIOTimeline(const std::string& file_path) {
-    // If empty file path, create mock data for testing
-    if (file_path.empty()) {
-        CreateMockTimeline();
-        return true;
-    }
-
-#ifdef USE_OPENTIMELINEIO
-    Debug::Log("Loading OTIO file: " + file_path);
-
-    otio::ErrorStatus error_status;
-
-    // Load the timeline from file
-    auto timeline = dynamic_cast<otio::Timeline*>(
-        otio::Timeline::from_json_file(file_path, &error_status)
-    );
-
-    if (!timeline || otio::is_error(error_status)) {
-        Debug::Log("Failed to load OTIO file: " + error_status.full_description);
-        return false;
-    }
-
-    // Extract timeline metadata
-    timeline_name_ = timeline->name();
-    if (timeline_name_.empty()) {
-        timeline_name_ = "Untitled Timeline";
-    }
-
-    // Get global start time and rate - authoritative source for timeline FPS
-    auto global_start = timeline->global_start_time();
-    if (global_start.has_value() && global_start->rate() > 0) {
-        frame_rate_ = global_start->rate();
-        Debug::Log("OTIO timeline FPS: " + std::to_string(frame_rate_));
-    } else {
-        frame_rate_ = 24.0;
-        Debug::Log("WARNING: OTIO missing global_start_time - using default 24fps. "
-                   "Timeline may have incorrect frame mapping for non-24fps media.");
-    }
-
-    // Extract tracks from timeline
-    ExtractTracksFromOTIO(timeline);
-
-    // Calculate timeline duration from tracks
-    timeline_duration_ = 0.0;
-    for (const auto& track : tracks_) {
-        for (const auto& clip : track.clips) {
-            double clip_end = clip.start_time + clip.duration;
-            if (clip_end > timeline_duration_) {
-                timeline_duration_ = clip_end;
-            }
-        }
-    }
-
-    // Set initial zoom based on duration (will be refined by FitZoomToWidth later)
-    SetInitialZoomForDuration();
-
-    // Update flattener with new tracks
-    flattener_.SetTracks(tracks_);
-
-    Debug::Log("Loaded timeline: " + timeline_name_ +
-               " (" + std::to_string(GetVideoTrackCount()) + " video, " +
-               std::to_string(GetAudioTrackCount()) + " audio tracks)");
-
-    return true;
-#else
-    // Fallback when OTIO is not available
-    Debug::Log("OTIO not available, creating mock timeline");
-    CreateMockTimeline();
-    return true;
-#endif
+    // DEPRECATED: OTIO import removed
+    Debug::Log("ParseOTIOTimeline: OTIO import has been removed. Use other modes instead.");
+    (void)file_path;  // Unused
+    return false;
 }
 
 #ifdef USE_OPENTIMELINEIO
@@ -3767,7 +3541,7 @@ void TimelineView::SetTracks(const std::vector<OTIOTrack>& tracks,
     // This should behave similarly to LoadEDLFile - shutdown existing playback
     // so it can be properly reinitialized with the restored tracks
 
-    // Reset source mode to MULTI_TRACK for restored timelines
+    // Reset source mode to VIDEO_FILE (default) for restored timelines
     ResetSourceMode();
 
     // Shutdown existing playback controller first (like LoadEDLFile does)
@@ -4058,6 +3832,391 @@ void TimelineView::CreateMockTimeline() {
     frame_rate_ = 24.0;
 
     flattener_.SetTracks(tracks_);
+}
+
+// ============================================================================
+// PLAYLIST MODE EDITING - Trim, Slip, and Reorder with Ripple
+// ============================================================================
+
+void TimelineView::UpdatePlaylistEdit() {
+    if (source_mode_ != TimelineSourceMode::PLAYLIST) return;
+    if (tracks_.empty() || tracks_[0].clips.empty()) return;
+
+    // Handle pending edit state - check if drag threshold exceeded
+    if (playlist_pending_edit_) {
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        float delta = std::abs(mouse_pos.x - playlist_edit_start_mouse_x_);
+
+        // Cancel pending on Escape
+        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            playlist_pending_edit_ = false;
+            playlist_pending_op_ = PlaylistEditOp::NONE;
+            return;
+        }
+
+        if (!ImGui::IsMouseDown(0)) {
+            // Mouse released before threshold - just a click, no edit
+            playlist_pending_edit_ = false;
+            playlist_pending_op_ = PlaylistEditOp::NONE;
+            return;
+        }
+
+        if (delta >= kDragThreshold) {
+            // Threshold exceeded - start the actual edit
+            playlist_edit_op_ = playlist_pending_op_;
+            playlist_pending_edit_ = false;
+            playlist_pending_op_ = PlaylistEditOp::NONE;
+            BeginEdit();  // Pause playback for safe editing
+            Debug::Log("[Playlist Edit] Started " +
+                       std::string(playlist_edit_op_ == PlaylistEditOp::TRIM_START ? "TRIM_START" :
+                                  playlist_edit_op_ == PlaylistEditOp::TRIM_END ? "TRIM_END" :
+                                  playlist_edit_op_ == PlaylistEditOp::SLIP ? "SLIP" : "MOVE") +
+                       " after drag threshold (delta=" + std::to_string(delta) + "px)");
+        }
+        return;  // Still pending or just started - don't process edit yet
+    }
+
+    // Called each frame during active edit
+    if (playlist_edit_op_ == PlaylistEditOp::NONE) return;
+
+    // Check for valid clip index
+    if (playlist_edit_clip_index_ < 0 ||
+        playlist_edit_clip_index_ >= static_cast<int>(tracks_[0].clips.size())) {
+        CancelPlaylistEdit();
+        return;
+    }
+
+    OTIOClip& clip = tracks_[0].clips[playlist_edit_clip_index_];
+    ImVec2 mouse_pos = ImGui::GetMousePos();
+    float delta_x = mouse_pos.x - playlist_edit_start_mouse_x_;
+    double delta_time = delta_x / zoom_level_;  // Convert pixels to seconds
+
+    // Handle escape to cancel
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        CancelPlaylistEdit();
+        return;
+    }
+
+    // Handle mouse release to commit
+    if (!ImGui::IsMouseDown(0)) {
+        CommitPlaylistEdit();
+        return;
+    }
+
+    switch (playlist_edit_op_) {
+        case PlaylistEditOp::TRIM_START: {
+            // Adjust source_in, keeping source_out fixed
+            // This changes the clip duration and timeline position of downstream clips
+            double new_source_in = playlist_edit_original_in_ + delta_time;
+
+            // Clamp to valid range (can't go past source_out or below 0)
+            new_source_in = std::max(0.0, std::min(new_source_in, clip.source_out - 0.04)); // Min 1 frame at 24fps
+
+            clip.source_in = new_source_in;
+            clip.duration = clip.source_out - clip.source_in;
+
+            // Ripple: recalculate all positions
+            RippleRecalculatePositions(0);
+            break;
+        }
+
+        case PlaylistEditOp::TRIM_END: {
+            // Adjust source_out, keeping source_in fixed
+            double new_source_out = playlist_edit_original_out_ + delta_time;
+
+            // Clamp to valid range (can't go below source_in or past source_duration)
+            new_source_out = std::max(clip.source_in + 0.04, std::min(new_source_out, clip.source_duration));
+
+            clip.source_out = new_source_out;
+            clip.duration = clip.source_out - clip.source_in;
+
+            // Ripple: recalculate all positions
+            RippleRecalculatePositions(0);
+            break;
+        }
+
+        case PlaylistEditOp::SLIP: {
+            // Shift source window without changing timeline duration
+            // Both source_in and source_out move together
+            double new_source_in = playlist_edit_original_in_ + delta_time;
+            double new_source_out = playlist_edit_original_out_ + delta_time;
+
+            // Clamp to source boundaries
+            if (new_source_in < 0.0) {
+                double shift = -new_source_in;
+                new_source_in = 0.0;
+                new_source_out = playlist_edit_original_out_ - playlist_edit_original_in_;  // Keep same duration
+            }
+            if (new_source_out > clip.source_duration) {
+                double duration = playlist_edit_original_out_ - playlist_edit_original_in_;
+                new_source_out = clip.source_duration;
+                new_source_in = clip.source_duration - duration;
+            }
+
+            clip.source_in = new_source_in;
+            clip.source_out = new_source_out;
+            // Duration stays the same - no ripple needed for slip
+            break;
+        }
+
+        case PlaylistEditOp::MOVE: {
+            // Reorder clip to new position based on mouse X
+            // Find which position the mouse is over
+            double mouse_time = (mouse_pos.x - ruler_screen_pos_.x + scroll_offset_x_) / zoom_level_;
+
+            // Find target index based on mouse position
+            int target_index = -1;
+            for (size_t i = 0; i < tracks_[0].clips.size(); i++) {
+                const auto& c = tracks_[0].clips[i];
+                if (c.is_gap) continue;
+
+                double clip_center = c.start_time + c.duration / 2.0;
+                if (mouse_time < clip_center) {
+                    target_index = static_cast<int>(i);
+                    break;
+                }
+            }
+
+            // If past all clips, insert at end
+            if (target_index < 0) {
+                target_index = static_cast<int>(tracks_[0].clips.size()) - 1;
+            }
+
+            // Only move if target is different from current
+            if (target_index != playlist_edit_clip_index_ && target_index >= 0) {
+                // Extract the clip
+                OTIOClip moving_clip = clip;
+
+                // Remove from current position (and adjacent gap)
+                tracks_[0].clips.erase(tracks_[0].clips.begin() + playlist_edit_clip_index_);
+
+                // Check for and remove adjacent gap
+                if (playlist_edit_clip_index_ < static_cast<int>(tracks_[0].clips.size()) &&
+                    tracks_[0].clips[playlist_edit_clip_index_].is_gap) {
+                    tracks_[0].clips.erase(tracks_[0].clips.begin() + playlist_edit_clip_index_);
+                } else if (playlist_edit_clip_index_ > 0 &&
+                           tracks_[0].clips[playlist_edit_clip_index_ - 1].is_gap) {
+                    tracks_[0].clips.erase(tracks_[0].clips.begin() + playlist_edit_clip_index_ - 1);
+                    target_index--;  // Adjust target since we removed before it
+                }
+
+                // Adjust target index after removal
+                if (target_index > playlist_edit_clip_index_) {
+                    target_index -= 2;  // Account for clip and gap removal
+                    if (target_index < 0) target_index = 0;
+                }
+
+                // Insert at new position with gap
+                const int gap_frames = 10;
+                double gap_duration = gap_frames / frame_rate_;
+
+                // Insert gap before if not at start
+                if (target_index > 0 && !tracks_[0].clips.empty()) {
+                    OTIOClip gap;
+                    gap.id = "gap_" + std::to_string(target_index);
+                    gap.name = "Gap";
+                    gap.is_gap = true;
+                    gap.duration = gap_duration;
+                    tracks_[0].clips.insert(tracks_[0].clips.begin() + target_index, gap);
+                    target_index++;
+                }
+
+                // Insert the clip
+                tracks_[0].clips.insert(tracks_[0].clips.begin() + target_index, moving_clip);
+
+                // Update our tracking index
+                playlist_edit_clip_index_ = target_index;
+
+                // Ripple recalculate
+                RippleRecalculatePositions(0);
+            }
+            break;
+        }
+
+        default:
+            break;
+    }
+}
+
+void TimelineView::CommitPlaylistEdit() {
+    if (playlist_edit_op_ == PlaylistEditOp::NONE) return;
+
+    Debug::Log("[Playlist Edit] Commit " +
+               std::string(playlist_edit_op_ == PlaylistEditOp::TRIM_START ? "TRIM_START" :
+                          playlist_edit_op_ == PlaylistEditOp::TRIM_END ? "TRIM_END" :
+                          playlist_edit_op_ == PlaylistEditOp::SLIP ? "SLIP" : "MOVE"));
+
+    // Final ripple calculation
+    RippleRecalculatePositions(0);
+
+    // Sync to flattener and cache
+    SyncFlattenerAndInvalidate();
+
+    // Save edits back to source MediaItem
+    SyncPlaylistToMediaItem();
+
+    // Clear edit state
+    playlist_edit_op_ = PlaylistEditOp::NONE;
+    playlist_edit_clip_id_.clear();
+    playlist_edit_clip_index_ = -1;
+
+    // End edit mode (resumes playback if it was playing)
+    EndEdit(true);
+}
+
+void TimelineView::CancelPlaylistEdit() {
+    if (playlist_edit_op_ == PlaylistEditOp::NONE) return;
+
+    Debug::Log("[Playlist Edit] Cancel - reverting changes");
+
+    // Revert the edited clip to original values
+    if (playlist_edit_clip_index_ >= 0 &&
+        playlist_edit_clip_index_ < static_cast<int>(tracks_[0].clips.size())) {
+        OTIOClip& clip = tracks_[0].clips[playlist_edit_clip_index_];
+        clip.source_in = playlist_edit_original_in_;
+        clip.source_out = playlist_edit_original_out_;
+        clip.duration = clip.source_out - clip.source_in;
+
+        // Ripple recalculate to restore positions
+        RippleRecalculatePositions(0);
+    }
+
+    // Clear edit state
+    playlist_edit_op_ = PlaylistEditOp::NONE;
+    playlist_edit_clip_id_.clear();
+    playlist_edit_clip_index_ = -1;
+
+    // Also clear pending state
+    playlist_pending_edit_ = false;
+    playlist_pending_op_ = PlaylistEditOp::NONE;
+
+    // End edit mode without resuming (user explicitly cancelled)
+    EndEdit(false);
+}
+
+void TimelineView::RippleRecalculatePositions(int start_index) {
+    // Recalculate timeline start positions for all clips
+    // This enforces ripple behavior: clips are sequential with gaps
+    if (tracks_.empty() || tracks_[0].clips.empty()) return;
+
+    const int gap_frames = 10;
+    double gap_duration = gap_frames / frame_rate_;
+
+    double current_time = 0.0;
+
+    for (size_t i = 0; i < tracks_[0].clips.size(); i++) {
+        auto& clip = tracks_[0].clips[i];
+
+        // Set position
+        clip.start_time = current_time;
+
+        // Advance by clip duration
+        current_time += clip.duration;
+
+        // If this is NOT a gap and next clip is NOT a gap, we need gap time
+        // (Gaps are explicit clip objects, so we don't double-add)
+    }
+
+    // Update timeline duration
+    RecalculateDuration();
+}
+
+void TimelineView::SyncPlaylistToMediaItem() {
+    // Save the current timeline state back to the source MediaItem
+    if (!source_media_item_ || source_mode_ != TimelineSourceMode::PLAYLIST) return;
+    if (tracks_.empty()) return;
+
+    Debug::Log("[Playlist Edit] Syncing to MediaItem: " + source_media_item_->name);
+
+    // Update existing playlist items in-place (preserve media_ids, update in/out points)
+    // This is safer than rebuilding - we don't lose the media_id associations
+    int playlist_index = 0;
+    for (const auto& clip : tracks_[0].clips) {
+        if (clip.is_gap) continue;  // Skip gaps
+
+        if (playlist_index < static_cast<int>(source_media_item_->playlist_items.size())) {
+            // Update existing entry's in/out points
+            source_media_item_->playlist_items[playlist_index].in_point = clip.source_in;
+            source_media_item_->playlist_items[playlist_index].out_point = clip.source_out;
+        }
+        playlist_index++;
+    }
+
+    Debug::Log("[Playlist Edit] Synced " + std::to_string(playlist_index) + " items");
+}
+
+bool TimelineView::DeleteClipFromPlaylist(const std::string& clip_id) {
+    if (source_mode_ != TimelineSourceMode::PLAYLIST || !source_media_item_) {
+        Debug::Log("DeleteClipFromPlaylist: Not in playlist mode or no source item");
+        return false;
+    }
+
+    if (tracks_.empty()) {
+        Debug::Log("DeleteClipFromPlaylist: No tracks");
+        return false;
+    }
+
+    // Find and remove the clip from the timeline tracks
+    auto& video_track = tracks_[0];
+    int clip_index = -1;
+    for (size_t i = 0; i < video_track.clips.size(); i++) {
+        if (video_track.clips[i].id == clip_id && !video_track.clips[i].is_gap) {
+            clip_index = static_cast<int>(i);
+            break;
+        }
+    }
+
+    if (clip_index < 0) {
+        Debug::Log("DeleteClipFromPlaylist: Clip not found: " + clip_id);
+        return false;
+    }
+
+    // Remove from timeline tracks
+    std::string clip_name = video_track.clips[clip_index].name;
+    video_track.clips.erase(video_track.clips.begin() + clip_index);
+
+    // Also remove the adjacent gap (if any)
+    // After erasing the clip, the gap that was after it is now at clip_index
+    // Check if there's still elements and if the current element at clip_index is a gap
+    if (clip_index < static_cast<int>(video_track.clips.size()) &&
+        video_track.clips[clip_index].is_gap) {
+        video_track.clips.erase(video_track.clips.begin() + clip_index);
+        Debug::Log("DeleteClipFromPlaylist: Also removed adjacent gap");
+    }
+    // If we deleted the last clip, check if there's now a trailing gap to remove
+    else if (clip_index > 0 && clip_index == static_cast<int>(video_track.clips.size()) &&
+             video_track.clips[clip_index - 1].is_gap) {
+        video_track.clips.erase(video_track.clips.begin() + clip_index - 1);
+        Debug::Log("DeleteClipFromPlaylist: Removed trailing gap");
+    }
+
+    // Remove from source MediaItem's playlist_items
+    // Match by index (clips and playlist_items should be in same order)
+    // But we need to account for gaps - count non-gap clips up to clip_index
+    int playlist_index = 0;
+    for (int i = 0; i < clip_index; i++) {
+        if (!tracks_[0].clips[i].is_gap) {
+            playlist_index++;
+        }
+    }
+
+    if (playlist_index < static_cast<int>(source_media_item_->playlist_items.size())) {
+        source_media_item_->playlist_items.erase(
+            source_media_item_->playlist_items.begin() + playlist_index);
+        Debug::Log("DeleteClipFromPlaylist: Removed '" + clip_name + "' from playlist (index " +
+                   std::to_string(playlist_index) + ")");
+    }
+
+    // Recalculate positions (ripple downstream clips)
+    RippleRecalculatePositions(clip_index);
+
+    // Recalculate duration
+    RecalculateDuration();
+
+    // Sync flattener and invalidate cache
+    SyncFlattenerAndInvalidate();
+
+    return true;
 }
 
 } // namespace ump

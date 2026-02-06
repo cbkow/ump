@@ -27,7 +27,7 @@ TimelineManager::TimelineManager()
     , ui_duration(0.0)
     , is_scrubbing(false)
     , was_playing_before_scrub(false)
-    , mpv_position(0.0)
+    , decoder_position(0.0)
     , pending_seek_position(-1.0)
     , last_seek_time(std::chrono::steady_clock::now())
     , last_sync_time(std::chrono::steady_clock::now())
@@ -57,12 +57,12 @@ void TimelineManager::Update(VideoPlayer* video_player) {
     if (pending_frame_step_sync > 0) {
         pending_frame_step_sync--;
         if (pending_frame_step_sync == 0) {
-            // MPV has had time to process frame-step, force sync now
-            ForceSyncFromMPV(video_player);
+            // Decoder has had time to process frame-step, force sync now
+            ForceSyncFromDecoder(video_player);
         }
     }
 
-    // EXR MODE: Skip all MPV-related operations (no dummy video seeks/syncs)
+    // EXR MODE: Skip decoder sync operations (EXR uses native image loading)
     if (video_player->IsInEXRMode()) {
         // Update duration
         ui_duration = video_player->GetDuration();
@@ -76,7 +76,7 @@ void TimelineManager::Update(VideoPlayer* video_player) {
         return;
     }
 
-    // TIMELINE MODE: Skip MPV-related operations (virtual timeline drives playback)
+    // TIMELINE MODE: Skip decoder sync operations (virtual timeline drives playback)
     // This is critical for playback through gaps/empty space - the virtual timeline
     // continues advancing even when there's no clip at the current position
     if (video_player->IsInTimelineMode()) {
@@ -91,7 +91,7 @@ void TimelineManager::Update(VideoPlayer* video_player) {
         return;
     }
 
-    // VIDEO MODE: Normal MPV operations
+    // VIDEO MODE: Normal decoder operations
     // Process pending seek operations (throttled)
     if (pending_seek_position >= 0.0) {
         ProcessPendingSeek(video_player);
@@ -128,7 +128,7 @@ void TimelineManager::Update(VideoPlayer* video_player) {
                 stable_frame_count = 0;
 
                 // DON'T restore playback immediately - let flicker protection handle it
-                // The SyncFromMPV logic will restore playback when video properly syncs
+                // The SyncFromDecoder logic will restore playback when video properly syncs
                 restore_playback_after_seek = true;
                 // Debug::Log("FAST_SEEK_END: Playing mode - paused, seeked, will restore playback when synced to " + std::to_string(ui_position) + "s");
             } else {
@@ -143,10 +143,10 @@ void TimelineManager::Update(VideoPlayer* video_player) {
             }
         }
     }
-    // Sync UI to MPV periodically when not scrubbing or fast seeking (throttled)
+    // Sync UI to decoder periodically when not scrubbing or fast seeking (throttled)
     else if (!is_scrubbing) {
         if (now - last_sync_time >= SYNC_THROTTLE_MS) {
-            SyncFromMPV(video_player);
+            SyncFromDecoder(video_player);
             last_sync_time = now;
         } else {
             // Between sync updates, smoothly interpolate position for playback
@@ -154,7 +154,7 @@ void TimelineManager::Update(VideoPlayer* video_player) {
             if (video_player->IsPlaying() && ui_duration > 0 && pending_frame_step_sync == 0) {
                 auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_sync_time);
                 double interpolated_offset = elapsed.count() / 1000.0;
-                ui_position = mpv_position + interpolated_offset;
+                ui_position = decoder_position + interpolated_offset;
 
                 // Clamp to valid range
                 if (ui_position > ui_duration) ui_position = ui_duration;
@@ -257,7 +257,7 @@ void TimelineManager::StopScrubbing(VideoPlayer* video_player) {
         // CRITICAL: Update VideoPlayer's internal position (used by InjectEXRFrame)
         video_player->SetEXRPosition(ui_position);
 
-        // ALSO seek dummy MPV video to keep it in sync
+        // Also seek video to keep it in sync
         video_player->Seek(ui_position);
 
         // Update cache position to trigger frame load
@@ -321,11 +321,11 @@ void TimelineManager::StopScrubbing(VideoPlayer* video_player) {
     //Debug::Log("Timeline: Stopped scrubbing, restoring playback=" + std::string(was_playing_before_scrub ? "true" : "false"));
 }
 
-void TimelineManager::ForceSyncFromMPV(VideoPlayer* video_player) {
+void TimelineManager::ForceSyncFromDecoder(VideoPlayer* video_player) {
     if (!video_player) return;
 
     // Force immediate sync, bypassing throttle
-    SyncFromMPV(video_player);
+    SyncFromDecoder(video_player);
 
     // Reset sync timer to maintain proper interval for future syncs
     last_sync_time = std::chrono::steady_clock::now();
@@ -335,16 +335,16 @@ void TimelineManager::ScheduleFrameStepSync() {
     // Immediately reset sync timer to stop interpolation from running
     last_sync_time = std::chrono::steady_clock::now();
 
-    // Schedule sync to happen in 1 frame (minimal delay while giving MPV time to process)
+    // Schedule sync to happen in 1 frame (minimal delay while giving decoder time to process)
     pending_frame_step_sync = 1;
 }
 
-void TimelineManager::SyncFromMPV(VideoPlayer* video_player) {
+void TimelineManager::SyncFromDecoder(VideoPlayer* video_player) {
     if (!video_player) return;
 
     auto now = std::chrono::steady_clock::now();
 
-    // Update UI state from MPV
+    // Update UI state from decoder
     double new_position = video_player->GetPosition();
     double new_duration = video_player->GetDuration();
     bool current_playing_state = video_player->IsPlaying();
@@ -355,7 +355,7 @@ void TimelineManager::SyncFromMPV(VideoPlayer* video_player) {
     }
     
     if (new_position >= 0) {
-        mpv_position = new_position;
+        decoder_position = new_position;
         
         // Don't update UI position while holding cached frame - keep showing the cached position
         if (!hold_cached_frame) {

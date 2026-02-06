@@ -160,7 +160,7 @@ D3D11VideoDecoder::DecodeMode D3D11VideoDecoder::DetermineDecodeMode(AVCodecID c
 //=============================================================================
 
 bool D3D11VideoDecoder::Initialize() {
-    // Guard against double initialization (factory calls Initialize, then ManagedVideoDecoder does too)
+    // Guard against double initialization
     if (initialized_) {
         return true;
     }
@@ -189,6 +189,7 @@ bool D3D11VideoDecoder::Initialize() {
 
     // Enable multithread protection for D3D11 context
     // Required for async decode thread to safely upload textures
+    // This provides built-in thread safety for the immediate context
     Microsoft::WRL::ComPtr<ID3D10Multithread> multithread;
     if (SUCCEEDED(device_->QueryInterface(IID_PPV_ARGS(&multithread)))) {
         multithread->SetMultithreadProtected(TRUE);
@@ -905,14 +906,14 @@ bool D3D11VideoDecoder::UploadSoftwareFrame(AVFrame* frame) {
         surface_format_ = is_10bit_frame ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
     }
 
-    // Upload Y plane
+    // Upload Y plane (D3D11 multithread protection enabled via SetMultithreadProtected)
     D3D11_BOX y_box = {0, 0, 0, (UINT)frame_width, (UINT)frame_height, 1};
+    D3D11_BOX uv_box = {0, 0, 0, (UINT)(frame_width / 2), (UINT)(frame_height / 2), 1};
     context_->UpdateSubresource(staging_y_.Get(), 0, &y_box,
                                 upload_frame->data[0],
                                 upload_frame->linesize[0], 0);
 
     // Upload UV plane (NV12/P010 has interleaved UV in plane 1)
-    D3D11_BOX uv_box = {0, 0, 0, (UINT)(frame_width / 2), (UINT)(frame_height / 2), 1};
     context_->UpdateSubresource(staging_uv_.Get(), 0, &uv_box,
                                 upload_frame->data[1],
                                 upload_frame->linesize[1], 0);
@@ -1044,6 +1045,7 @@ bool D3D11VideoDecoder::UploadSoftwareFrameToSlot(AVFrame* frame, BufferedFrame&
         }
 
         // Async upload: Map staging → memcpy → Unmap → CopyResource (non-blocking)
+        // Lock context for thread safety (shared immediate context)
         D3D11_MAPPED_SUBRESOURCE mapped;
         HRESULT hr = context_->Map(slot.staging_textures[p].Get(), 0, D3D11_MAP_WRITE, 0, &mapped);
         if (FAILED(hr)) {
@@ -1051,7 +1053,7 @@ bool D3D11VideoDecoder::UploadSoftwareFrameToSlot(AVFrame* frame, BufferedFrame&
             return false;
         }
 
-        // Copy frame data to staging texture
+        // Copy frame data to staging texture (no lock needed - CPU memory access)
         int bytes_per_pixel = fmt_desc.is_10bit ? 2 : 1;
         // For R8G8/R16G16 formats (UV plane in NV12), multiply by 2
         if (p == 1 && fmt_desc.plane_count == 2) {
@@ -1215,14 +1217,14 @@ bool D3D11VideoDecoder::UploadSoftwareFrameToSlotLegacy(AVFrame* frame, Buffered
         surface_format_ = is_10bit_frame ? DXGI_FORMAT_P010 : DXGI_FORMAT_NV12;
     }
 
-    // Upload Y plane to this slot's texture
+    // Upload Y plane to this slot's texture (D3D11 multithread protection enabled)
     D3D11_BOX y_box = {0, 0, 0, (UINT)frame_width, (UINT)frame_height, 1};
+    D3D11_BOX uv_box = {0, 0, 0, (UINT)(frame_width / 2), (UINT)(frame_height / 2), 1};
     context_->UpdateSubresource(slot.sw_texture_y.Get(), 0, &y_box,
                                 upload_frame->data[0],
                                 upload_frame->linesize[0], 0);
 
     // Upload UV plane
-    D3D11_BOX uv_box = {0, 0, 0, (UINT)(frame_width / 2), (UINT)(frame_height / 2), 1};
     context_->UpdateSubresource(slot.sw_texture_uv.Get(), 0, &uv_box,
                                 upload_frame->data[1],
                                 upload_frame->linesize[1], 0);
@@ -1457,7 +1459,7 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
 
     // Try to upgrade from CPU fallback to zero-copy interop now that GL context is ready
     // This handles the case where decoder was created before GL context was available
-    // (common in DUAL_VIEW/MULTI_TRACK modes where decoder is created during timeline load)
+    // (common in DUAL_VIEW mode where decoder is created during timeline load)
     if (interop_ && !interop_->HasZeroCopyInterop()) {
         static bool tried_reinit = false;
         if (!tried_reinit) {
@@ -2340,7 +2342,7 @@ void D3D11VideoDecoder::AddCurrentFrameToBuffer() {
         }
 
         if (bf->hw_texture) {
-            // Copy from texture array slice to our texture
+            // Copy from texture array slice to our texture (D3D11 multithread protection enabled)
             context_->CopySubresourceRegion(
                 bf->hw_texture.Get(), 0,  // dest texture, subresource 0
                 0, 0, 0,                   // dest x, y, z

@@ -532,6 +532,9 @@ PYTHON:BOOL=OFF
 //Name of the computer/site where compile is being run
 SITE:STRING=Rhombus-w880
 
+//The directory containing a CMake configuration file for SoundTouch.
+SoundTouch_DIR:PATH=SoundTouch_DIR-NOTFOUND
+
 //Enable Python-based OTIO adapters for AAF/XML import
 UMP_ENABLE_PYTHON_ADAPTERS:BOOL=ON
 

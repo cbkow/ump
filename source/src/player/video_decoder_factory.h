@@ -1,78 +1,45 @@
 #pragma once
 
+// STUB FILE: VideoDecoderFactory (FFmpeg backend factory) has been removed.
+// This file provides minimal declarations needed by other code.
+// All video decoding now uses D3D11VideoDecoder directly.
+
 #include <memory>
 #include <string>
-#include <vector>
-
 #include "video_decoder_interface.h"
 #include "pipeline_mode.h"  // For VideoRangeMode
 
 namespace ump {
 
-// Global video range override - set from main.cpp, read by factory when creating decoders
-// NOTE: VideoRangeMode is defined in pipeline_mode.h (global namespace)
-extern VideoRangeMode g_video_range_override;
+// Global video range override (used by HDR pipeline)
+inline VideoRangeMode g_video_range_override = VideoRangeMode::AUTO;
 
 //=============================================================================
-// Video Decoder Factory
+// Video Decoder Factory - STUB
 //
-// Creates video decoders using FFmpeg or D3D11 backends.
+// The factory has been removed. Use D3D11VideoDecoder directly instead.
 //=============================================================================
 
 class VideoDecoderFactory {
 public:
-    // Singleton access
-    static VideoDecoderFactory& Instance();
+    static VideoDecoderFactory& Instance() {
+        static VideoDecoderFactory instance;
+        return instance;
+    }
 
-    // Delete copy/move
-    VideoDecoderFactory(const VideoDecoderFactory&) = delete;
-    VideoDecoderFactory& operator=(const VideoDecoderFactory&) = delete;
+    // CreateDecoder is no longer supported - use D3D11VideoDecoder directly
+    std::unique_ptr<IVideoDecoder> CreateDecoder(const std::string& /*path*/,
+                                                  VideoDecoderBackend /*backend*/ = VideoDecoderBackend::AUTO) {
+        return nullptr;  // Factory no longer creates decoders
+    }
 
-    //=========================================================================
-    // Decoder Creation
-    //=========================================================================
-
-    // Create decoder for video path
-    // Returns nullptr on failure (check GetLastError() for details)
-    std::unique_ptr<IVideoDecoder> CreateDecoder(const std::string& video_path);
-
-    // Create decoder with explicit backend selection (for API compatibility)
-    std::unique_ptr<IVideoDecoder> CreateDecoder(
-        const std::string& video_path,
-        VideoDecoderBackend backend,
-        bool force = false
-    );
-
-    //=========================================================================
-    // Backend Configuration
-    //=========================================================================
-
-    void SetPreferredBackend(VideoDecoderBackend backend);
-    VideoDecoderBackend GetPreferredBackend() const { return preferred_backend_; }
-
-    // Check backend availability
-    bool IsFFmpegAvailable() const;
-    bool IsD3D11Available() const;
-    bool IsBackendAvailable(VideoDecoderBackend backend) const;
-
-    // Get list of available backends
-    std::vector<VideoDecoderBackend> GetAvailableBackends() const;
-
-    //=========================================================================
-    // Diagnostics
-    //=========================================================================
-
-    const std::string& GetLastError() const { return last_error_; }
-    int GetDecodersCreated() const { return decoders_created_; }
+    const std::string& GetLastError() const {
+        static std::string error = "VideoDecoderFactory has been removed. Use D3D11VideoDecoder directly.";
+        return error;
+    }
 
 private:
-    VideoDecoderFactory();
-    ~VideoDecoderFactory();
-
-    // State
-    VideoDecoderBackend preferred_backend_ = VideoDecoderBackend::AUTO;
-    mutable std::string last_error_;
-    int decoders_created_ = 0;
+    VideoDecoderFactory() = default;
 };
 
 } // namespace ump

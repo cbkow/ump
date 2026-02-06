@@ -203,14 +203,46 @@ bool D3D11HDRSwapchain::CreateD3D11Device() {
     Microsoft::WRL::ComPtr<ID3D11Device> device;
     Microsoft::WRL::ComPtr<ID3D11DeviceContext> context;
 
-    HRESULT hr = D3D11CreateDevice(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, create_flags,
+    // Explicitly enumerate adapters to bypass NVIDIA driver profile interference
+    // When passing nullptr to D3D11CreateDevice, driver profiles can affect adapter selection
+    Microsoft::WRL::ComPtr<IDXGIFactory1> factory;
+    HRESULT hr = CreateDXGIFactory1(IID_PPV_ARGS(&factory));
+
+    Microsoft::WRL::ComPtr<IDXGIAdapter> selected_adapter;
+    if (SUCCEEDED(hr)) {
+        Microsoft::WRL::ComPtr<IDXGIAdapter> adapter;
+        for (UINT i = 0; factory->EnumAdapters(i, &adapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+            DXGI_ADAPTER_DESC desc;
+            if (SUCCEEDED(adapter->GetDesc(&desc))) {
+                std::wstring name(desc.Description);
+                // Prefer NVIDIA adapter for video decoding
+                if (name.find(L"NVIDIA") != std::wstring::npos) {
+                    selected_adapter = adapter;
+                    Debug::Log("D3D11HDRSwapchain: Selected NVIDIA adapter: " +
+                               std::string(name.begin(), name.end()));
+                    break;
+                }
+                // Keep first hardware adapter as fallback
+                if (!selected_adapter && desc.VendorId != 0x1414) { // Skip Microsoft Basic Render
+                    selected_adapter = adapter;
+                }
+            }
+            adapter.Reset();
+        }
+    }
+
+    // Create device with explicit adapter (or nullptr to let system choose)
+    hr = D3D11CreateDevice(
+        selected_adapter.Get(),
+        selected_adapter ? D3D_DRIVER_TYPE_UNKNOWN : D3D_DRIVER_TYPE_HARDWARE,
+        nullptr, create_flags,
         feature_levels, _countof(feature_levels), D3D11_SDK_VERSION,
         &device, &achieved_level, &context
     );
 
     if (FAILED(hr)) {
-        Debug::Log("D3D11HDRSwapchain: D3D11CreateDevice failed");
+        Debug::Log("D3D11HDRSwapchain: D3D11CreateDevice failed (hr=0x" +
+                   std::to_string(static_cast<unsigned long>(hr)) + ")");
         return false;
     }
 

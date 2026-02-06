@@ -44,11 +44,11 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
 
     // Header row with icon, title, and close button
     {
-        #define ICON_NOTES u8"\uE873"  // Material icon for notes/description
+        #define ICON_DRAW u8"\uE22B"  // Material icon for draw/brush
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImGui::Text(ICON_NOTES);
+            ImGui::Text(ICON_DRAW);
             ImGui::PopFont();
             ImGui::SameLine();
         }
@@ -74,7 +74,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         if (clicked && p_open) {
             *p_open = false;
         }
-        #undef ICON_NOTES
+        #undef ICON_DRAW
     }
 
     ImGui::Separator();
@@ -99,6 +99,15 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         ImGui::Spacing();
         ImGui::TextDisabled("Annotations are not available");
         ImGui::TextDisabled("in Dual View comparison mode.");
+        ImGui::End();
+        ImGui::PopStyleColor(2);  // Transparent border + window background
+        return;
+    }
+
+    if (availability_ == AnnotationAvailability::PLAYLIST_DISABLED) {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Annotations are not available");
+        ImGui::TextDisabled("in Playlist mode.");
         ImGui::End();
         ImGui::PopStyleColor(2);  // Transparent border + window background
         return;

@@ -71,6 +71,7 @@ struct StreamingDecoderConfig {
     int readBehindFrames = 12;     // ~0.5 seconds for backward scrub
     bool useHardwareAccel = true;  // Enable hardware acceleration
     int decodeThreads = 4;         // Decode threads (for software fallback)
+    bool preferD3D11VA = false;    // Prefer D3D11VA for zero-copy interop
 
     // Tuning parameters
     int minBufferBeforePlay = 24;  // Min frames buffered before considering "ready"

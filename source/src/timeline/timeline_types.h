@@ -7,11 +7,11 @@ namespace ump {
 
 // Timeline source mode - determines editing restrictions and UI behavior
 enum class TimelineSourceMode {
-    MULTI_TRACK,       // Normal OTIO/EDL/AAF/XML timeline (full editing)
     IMAGE_SEQUENCE,    // Single image sequence (locked video track, editable audio)
     VIDEO_FILE,        // Single video file (locked video track, audio track if present)
     AUDIO_FILE,        // Single audio file (locked audio track only, no video)
     DUAL_VIEW,         // Side-by-side comparison (LEFT/RIGHT video tracks)
+    PLAYLIST,          // Unified playlist - single track, ripple editing, native decoders
 };
 
 // Represents a single clip segment on a timeline track

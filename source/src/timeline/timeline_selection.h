@@ -97,6 +97,28 @@ struct TimelineTrimState {
     double original_source_in = 0.0;
 };
 
+// Slip state for PLAYLIST mode (Shift+drag on clip body)
+struct TimelineSlipState {
+    bool active = false;
+    std::string clip_id;
+    int clip_index = -1;            // Index in tracks[0].clips
+    double original_source_in = 0.0;
+    double original_source_out = 0.0;
+    double source_duration = 0.0;   // Total available source duration
+    float start_mouse_x = 0.0f;     // Mouse X when slip started
+};
+
+// Reorder state for PLAYLIST mode (drag clip to new position)
+struct TimelineReorderState {
+    bool active = false;
+    std::string clip_id;
+    int source_clip_index = -1;     // Original index in tracks[0].clips
+    int target_insert_index = -1;   // Where to insert (-1 = invalid, updated during drag)
+    double clip_duration = 0.0;     // Duration of the clip being moved
+    float start_mouse_x = 0.0f;     // Mouse X when drag started
+    float ghost_x = 0.0f;           // Current ghost position (for rendering)
+};
+
 // Drop state for media items from project panel
 struct TimelineMediaDropState {
     bool active = false;

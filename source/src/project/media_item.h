@@ -13,7 +13,6 @@ namespace ump {
         IMAGE_SEQUENCE,
         EXR_SEQUENCE,
         SEQUENCE,
-        TIMELINE,       // OTIO/EDL multi-track timeline
         DUAL_VIEW,      // Side-by-side comparison (LEFT/RIGHT tracks)
         PLAYLIST        // Ordered sequence of playable items
     };
@@ -121,7 +120,7 @@ namespace ump {
             float scroll_offset = 0.0f;    // Standard timeline pan offset
             double playhead_position = 0.0; // Playhead time in seconds
 
-            // OTIO timeline specific (only used for MediaType::TIMELINE)
+            // OTIO timeline specific (used for DUAL_VIEW, PLAYLIST, IMAGE_SEQUENCE modes)
             float timeline_zoom = 50.0f;   // Pixels per second (default: 50)
             float timeline_scroll = 0.0f;  // Horizontal scroll offset
             double timeline_playhead = 0.0; // OTIO timeline playhead position
@@ -132,54 +131,15 @@ namespace ump {
         };
         ViewState view_state;
 
-        // Timeline-specific fields (for MediaType::TIMELINE)
+        // Timeline-specific fields (used by DUAL_VIEW, PLAYLIST)
         std::string timeline_id;      // Reference to timeline data
-        std::string timeline_format;  // "otio", "edl", "aaf", "xml"
+        std::string timeline_format;  // "dual_view", "playlist"
         int video_track_count = 0;    // Number of video tracks
         int audio_track_count = 0;    // Number of audio tracks
-        int timeline_width = 1920;    // Timeline resolution width (for dummy video recreation)
-        int timeline_height = 1080;   // Timeline resolution height (for dummy video recreation)
+        int timeline_width = 1920;    // Timeline resolution width
+        int timeline_height = 1080;   // Timeline resolution height
 
-        // Cached clip links (for persistent media linking in timelines)
-        struct CachedClipLink {
-            std::string clip_id;
-            std::string track_id;        // Track ID (e.g., "V1", "A1")
-            std::string clip_name;       // Display name for the clip
-            std::string linked_path;
-            double source_fps = 0.0;
-            int source_width = 0;
-            int source_height = 0;
-            double source_duration = 0.0;
-            double start_time = 0.0;     // Start time in timeline
-            double duration = 0.0;       // Duration of clip
-            double source_in = 0.0;      // Source in point
-            double source_out = 0.0;     // Source out point
-            bool has_audio = false;
-            bool audio_muted = false;    // Per-clip audio mute state
-            bool is_linked = false;      // Whether this clip is linked to source
-            // Image sequence fields
-            bool is_sequence = false;
-            std::string sequence_directory;
-            std::string sequence_pattern;
-            int sequence_start_frame = 0;
-            int sequence_end_frame = 0;
-            std::string sequence_exr_layer;
-        };
-        std::vector<CachedClipLink> clip_links;  // Saved media links for clips
-
-        // Cached track metadata (for persistent track structure in timelines)
-        struct CachedTrackMetadata {
-            std::string id;
-            std::string name;
-            bool is_video = true;
-            bool visible = true;
-            bool muted = false;
-            bool audio_muted = false;  // Audio mute for video tracks (video displays, audio silent)
-            int z_index = 0;
-        };
-        std::vector<CachedTrackMetadata> track_metadata;  // Saved track structure
-
-        // Cached edited timeline tracks (for persistent edits across timeline switching)
+        // Cached edited timeline tracks (for persistent edits across mode switching)
         // When user makes edits (move, trim, cut, delete), the full track structure is saved here
         // This allows switching between timelines without losing edits
         std::vector<OTIOTrack> cached_tracks;

@@ -64,15 +64,15 @@ ImageSequenceConfig ImageSequencePatternConverter::ParseSequence(const std::vect
 
     // Generate patterns
     config.ffmpeg_pattern = BuildFFmpegPattern(config);
-    config.mpv_pattern = BuildMPVPattern(config);
-    config.mf_url = BuildMFUrl(config);
+    config.glob_pattern = BuildGlobPattern(config);
+    config.concat_url = BuildConcatUrl(config);
 
     config.is_valid = true;
     Debug::Log("ImageSequencePatternConverter: Successfully parsed sequence");
     Debug::Log("  Base: " + config.base_name + ", Separator: '" + config.separator + "'");
     Debug::Log("  Padding: " + std::to_string(config.padding) + ", Range: " + std::to_string(config.start_number) + "-" + std::to_string(config.end_number));
     Debug::Log("  FFMPEG Pattern: " + config.ffmpeg_pattern);
-    Debug::Log("  MPV Pattern: " + config.mf_url);
+    Debug::Log("  Concat URL: " + config.concat_url);
 
     return config;
 }
@@ -102,11 +102,11 @@ std::string ImageSequencePatternConverter::BuildFFmpegPattern(const ImageSequenc
     return pattern.str();
 }
 
-std::string ImageSequencePatternConverter::BuildMPVPattern(const ImageSequenceConfig& config) {
-    // MPV uses glob-style patterns: basename*extension
+std::string ImageSequencePatternConverter::BuildGlobPattern(const ImageSequenceConfig& config) {
+    // Glob-style patterns: basename*extension
     std::string file_basename = config.base_name;
 
-    // Remove trailing separator if it exists (MPV glob doesn't need it)
+    // Remove trailing separator if it exists (glob doesn't need it)
     if (!config.separator.empty()) {
         if (!file_basename.empty() && file_basename.back() == config.separator[0]) {
             file_basename.pop_back();
@@ -116,12 +116,12 @@ std::string ImageSequencePatternConverter::BuildMPVPattern(const ImageSequenceCo
     return file_basename + "*" + config.extension;
 }
 
-std::string ImageSequencePatternConverter::BuildMFUrl(const ImageSequenceConfig& config) {
+std::string ImageSequencePatternConverter::BuildConcatUrl(const ImageSequenceConfig& config) {
     std::string normalized_dir = NormalizePath(config.directory);
-    // Replace backslashes with forward slashes for MPV compatibility
+    // Replace backslashes with forward slashes for FFmpeg compatibility
     std::replace(normalized_dir.begin(), normalized_dir.end(), '\\', '/');
 
-    return "mf://" + normalized_dir + "/" + BuildMPVPattern(config);
+    return "mf://" + normalized_dir + "/" + BuildGlobPattern(config);
 }
 
 bool ImageSequencePatternConverter::ValidateSequence(const std::vector<std::string>& sequence_files, ImageSequenceConfig& config) {

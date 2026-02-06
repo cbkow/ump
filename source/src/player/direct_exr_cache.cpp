@@ -442,13 +442,20 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
     // Get texture (may return fallback if not cached)
     texture = GetTexture(frame, width, height);
 
-    // Calculate frames ahead (for adaptive speed decisions)
+    // Calculate SEQUENTIAL frames ahead (for adaptive speed decisions)
+    // Count contiguous cached frames starting from frame+1
+    // If frame+1 is missing, frames_ahead = 0 (even if frame+2 onwards are cached)
     int frames_ahead = 0;
     {
         auto keys = pixelCache_.GetKeys();
-        for (int cached_frame : keys) {
-            if (cached_frame > frame && cached_frame <= frame + config_.readAheadFrames) {
+        std::sort(keys.begin(), keys.end());
+
+        // Find first frame > current and count contiguous run
+        for (int check_frame = frame + 1; check_frame <= frame + config_.readAheadFrames; ++check_frame) {
+            if (std::binary_search(keys.begin(), keys.end(), check_frame)) {
                 frames_ahead++;
+            } else {
+                break;  // Gap found - stop counting
             }
         }
         frames_ahead_count_.store(frames_ahead);
@@ -459,57 +466,100 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
         consecutive_misses_.store(0);
         last_was_sync_load_.store(false);  // Cache hit - not a sync load
 
-        // Hybrid adaptive speed control:
-        // - Buffer healthy → full speed (don't check rate)
-        // - Buffer low → use rate to determine sustainable speed
-        // - Already slowed → use rate to decide when to speed up
+        // Adaptive speed control based on buffer health
+        // Uses frames_ahead count with tunable thresholds
         if (isPlaying_ && fps_ > 0) {
             double current_speed = playback_speed_factor_.load();
             auto now = std::chrono::steady_clock::now();
             auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - last_speed_change_time_).count();
 
-            constexpr int BUFFER_HEALTHY_THRESHOLD = 70; // Frames ahead = safe, can restore speed
-            constexpr int BUFFER_LOW_THRESHOLD = 38;     // Frames ahead = getting risky, check rate
+            //=================================================================
+            // TUNABLE THRESHOLDS (percentage of user's readAheadFrames)
+            //=================================================================
+            // All thresholds scale with user's read-ahead setting
+            // Range: 50% (healthy) down to 6% (dire) before buffer pause
 
-            if (frames_ahead >= BUFFER_HEALTHY_THRESHOLD) {
-                // BUFFER HEALTHY: Stay at full speed, ignore rate
-                if (current_speed < 1.0 && elapsed_ms >= SPEED_RESTORE_DEBOUNCE_MS) {
-                    playback_speed_factor_.store(1.0);
+            const int ra = config_.readAheadFrames;
+            const int HEALTHY_THRESHOLD  = (ra * 50) / 100;  // 50% = healthy (36 frames @ 72)
+            const int SLIGHT_THRESHOLD   = (ra * 40) / 100;  // 40% = slight slowdown (29 frames @ 72)
+            const int MODERATE_THRESHOLD = (ra * 30) / 100;  // 30% = moderate slowdown (22 frames @ 72)
+            const int LOW_THRESHOLD      = (ra * 20) / 100;  // 20% = low (14 frames @ 72)
+            const int CRITICAL_THRESHOLD = (ra * 15) / 100;  // 15% = critical (11 frames @ 72)
+            const int SEVERE_THRESHOLD   = (ra * 10) / 100;  // 10% = severe (7 frames @ 72)
+            const int DIRE_THRESHOLD     = (ra *  6) / 100;  // 6% = dire (4 frames @ 72)
+            const int END_FREEZE_MARGIN  = HEALTHY_THRESHOLD + 4;  // freeze speed near end
+
+            //=================================================================
+            // NEAR-END FREEZE: Skip speed adjustment when close to loop/end
+            // The cache wraps around but frames_ahead count doesn't, so near
+            // the end we'd falsely think buffer is low. Just hold current speed.
+            //=================================================================
+            int end_frame = has_loop_range_ ? loop_out_frame_ : static_cast<int>(sequenceFiles_.size()) - 1;
+            int frames_to_end = end_frame - frame;
+            if (frames_to_end >= 0 && frames_to_end < END_FREEZE_MARGIN) {
+                // Near end of timeline/loop - don't adjust speed, just hold current
+                // If we're at full speed, we stay there. If throttled, we stay throttled.
+                return true;  // Cache hit, keep current speed
+            }
+
+            //=================================================================
+            // SPEED TIERS (widened with 6% step before buffer pause)
+            //=================================================================
+            double new_speed = current_speed;
+
+            if (frames_ahead >= HEALTHY_THRESHOLD) {
+                // Buffer healthy: full speed
+                new_speed = 1.0;
+            } else if (frames_ahead >= SLIGHT_THRESHOLD) {
+                // Buffer adequate: 75% speed
+                new_speed = 0.75;
+            } else if (frames_ahead >= MODERATE_THRESHOLD) {
+                // Buffer getting low: 50% speed
+                new_speed = 0.5;
+            } else if (frames_ahead >= LOW_THRESHOLD) {
+                // Buffer low: 33% speed
+                new_speed = 0.33;
+            } else if (frames_ahead >= CRITICAL_THRESHOLD) {
+                // Buffer critical: 25% speed
+                new_speed = 0.25;
+            } else if (frames_ahead >= SEVERE_THRESHOLD) {
+                // Buffer severe: 12.5% speed
+                new_speed = 0.125;
+            } else if (frames_ahead >= DIRE_THRESHOLD) {
+                // Buffer dire: 6% speed
+                new_speed = 0.06;
+            } else if (frames_ahead <= 1) {
+                // Only 1 frame or less: trigger buffer wait
+                new_speed = 0.0;
+                needs_buffer_wait_.store(true);
+                Debug::Log("DirectEXRCache: Buffer empty (" + std::to_string(frames_ahead) +
+                           " ahead) - triggering buffer wait");
+            }
+
+            // Apply speed changes with debouncing in BOTH directions to prevent oscillation
+            // The asymmetry of immediate slowdown + delayed speedup causes crackling at boundaries
+            if (new_speed > current_speed) {
+                // Speed UP: require longer debounce (2s) to ensure buffer is truly stable
+                if (elapsed_ms >= SPEED_RESTORE_DEBOUNCE_MS) {
+                    playback_speed_factor_.store(new_speed);
                     last_speed_change_time_ = now;
-                    overrun_mode_.store(false);
+                    overrun_mode_.store(new_speed < 1.0);
+                    needs_buffer_wait_.store(false);  // Clear buffer wait on recovery
                     Debug::Log("DirectEXRCache: Buffer healthy (" + std::to_string(frames_ahead) +
-                               " ahead) - restored to full speed");
+                               " ahead) - speed up to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
                 }
-            } else if (frames_ahead < BUFFER_LOW_THRESHOLD) {
-                // BUFFER LOW: Use rate to determine sustainable speed
-                double fill_rate = measured_fill_rate_.load();
-                if (fill_rate > 0.1) {
-                    double sustainable_speed = (fill_rate * RATE_SAFETY_MARGIN) / fps_;
-
-                    // Quantize to nice steps
-                    double new_speed;
-                    if (sustainable_speed >= 0.75) {
-                        new_speed = 1.0;
-                    } else if (sustainable_speed >= 0.375) {
-                        new_speed = 0.5;
-                    } else if (sustainable_speed >= 0.1875) {
-                        new_speed = 0.25;
-                    } else {
-                        new_speed = 0.125;
-                    }
-
-                    if (new_speed < current_speed) {
-                        playback_speed_factor_.store(new_speed);
-                        last_speed_change_time_ = now;
-                        overrun_mode_.store(new_speed < 1.0);
-                        Debug::Log("DirectEXRCache: Buffer low (" + std::to_string(frames_ahead) +
-                                   " ahead) - rate-based slowdown to " + std::to_string(new_speed) +
-                                   " (fill=" + std::to_string(fill_rate) + "fps)");
-                    }
+            } else if (new_speed < current_speed) {
+                // Speed DOWN: short debounce (150ms) to prevent rapid oscillation
+                // Still responsive to buffer issues, but won't flip-flop every frame
+                if (elapsed_ms >= SPEED_SLOWDOWN_DEBOUNCE_MS) {
+                    playback_speed_factor_.store(new_speed);
+                    last_speed_change_time_ = now;
+                    overrun_mode_.store(true);
+                    Debug::Log("DirectEXRCache: Buffer low (" + std::to_string(frames_ahead) +
+                               " ahead) - slow to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
                 }
             }
-            // else: BUFFER MEDIUM (3-7 frames) - maintain current speed, wait and see
         }
         return true;
     }
@@ -519,34 +569,24 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
 
     if (isPlaying_ && fps_ > 0) {
         consecutive_misses_.fetch_add(1);
+        int misses = consecutive_misses_.load();
         double current_speed = playback_speed_factor_.load();
-        double fill_rate = measured_fill_rate_.load();
 
-        // Cache miss = we're consuming faster than filling
-        // Drop to sustainable speed immediately
-        double sustainable_speed = (fill_rate > 0.1)
-            ? (fill_rate * RATE_SAFETY_MARGIN) / fps_
-            : 0.125;  // Fallback if no rate data yet
-
-        // Quantize to nice steps
+        //=================================================================
+        // CACHE MISS SPEED TIERS (based on consecutive misses)
+        //=================================================================
         double new_speed;
-        if (sustainable_speed >= 0.75) {
-            new_speed = 1.0;
-        } else if (sustainable_speed >= 0.375) {
-            new_speed = 0.5;
-        } else if (sustainable_speed >= 0.1875) {
-            new_speed = 0.25;
-        } else {
-            new_speed = 0.125;
-        }
+        if (misses <= 1)       new_speed = 0.5;    // First miss: drop to 50%
+        else if (misses <= 2)  new_speed = 0.33;   // 2 misses: 33%
+        else if (misses <= 4)  new_speed = 0.25;   // 3-4 misses: 25%
+        else                   new_speed = 0.125;  // 5+ misses: 12.5%
 
         if (new_speed < current_speed) {
             playback_speed_factor_.store(new_speed);
             last_speed_change_time_ = std::chrono::steady_clock::now();
             overrun_mode_.store(true);
-            Debug::Log("DirectEXRCache: Cache miss - drop to " + std::to_string(new_speed) +
-                       " (fill=" + std::to_string(fill_rate) + "fps, target=" +
-                       std::to_string(fps_) + "fps)");
+            Debug::Log("DirectEXRCache: Cache miss #" + std::to_string(misses) +
+                       " - slow to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
         }
     }
 
@@ -651,6 +691,7 @@ void DirectEXRCache::ResetPlaybackSpeed() {
     double old_speed = playback_speed_factor_.exchange(1.0);
     consecutive_misses_.store(0);
     last_was_sync_load_.store(false);
+    needs_buffer_wait_.store(false);  // Clear buffer wait flag
 
     if (old_speed < 1.0) {
         Debug::Log("DirectEXRCache: Playback speed reset to 1.0");
@@ -904,17 +945,18 @@ std::vector<CacheSegment> DirectEXRCache::GetCacheSegments() const {
     std::sort(keys.begin(), keys.end());
 
     // Group into contiguous segments and convert to time
+    // Note: end_time uses (frame + 1) / fps to include the full duration of the last frame
     CacheSegment current;
     current.start_frame = keys[0];
     current.end_frame = keys[0];
     current.start_time = keys[0] / fps_;
-    current.end_time = keys[0] / fps_;
+    current.end_time = (keys[0] + 1) / fps_;  // End of frame, not start
 
     for (size_t i = 1; i < keys.size(); ++i) {
         if (keys[i] == current.end_frame + 1) {
             // Contiguous - extend current segment
             current.end_frame = keys[i];
-            current.end_time = keys[i] / fps_;
+            current.end_time = (keys[i] + 1) / fps_;  // End of frame, not start
         } else {
             // Gap - save current segment and start new one
             current.density = 1.0; // Full density
@@ -923,7 +965,7 @@ std::vector<CacheSegment> DirectEXRCache::GetCacheSegments() const {
             current.start_frame = keys[i];
             current.end_frame = keys[i];
             current.start_time = keys[i] / fps_;
-            current.end_time = keys[i] / fps_;
+            current.end_time = (keys[i] + 1) / fps_;  // End of frame, not start
         }
     }
 
@@ -1200,13 +1242,27 @@ void DirectEXRCache::CacheThread() {
 
                 size_t available = max_bytes - total_committed;
 
-                // Conservative batching - limit how many NEW requests per iteration
-                int batch_limit;
-                if (iteration == 1) {
-                    batch_limit = config_.threadCount * 4;  // Deep initial saturation
-                } else {
-                    batch_limit = std::min(72, config_.readAheadFrames);  // Rate limit per iteration
+                //=============================================================
+                // THREAD-AWARE BATCHING: Queue in half-thread increments
+                // Tighter batching keeps frames closer to playhead
+                //=============================================================
+                int thread_count = static_cast<int>(config_.threadCount);
+                int batch_size = std::max(4, thread_count / 2);  // Half threads, min 4
+
+                // Only add more requests when queue is running low
+                // This prevents queuing frames far ahead while immediate frames wait
+                int queue_size = static_cast<int>(videoRequests_.size());
+                int in_progress = static_cast<int>(requestsInProgress_.size());
+                int total_pending = queue_size + in_progress;
+
+                // Keep queue filled to ~batch_size, refill when below half
+                if (total_pending >= batch_size) {
+                    // Plenty of work queued - let threads catch up
+                    continue;
                 }
+
+                // Only queue enough to fill to batch_size
+                int batch_limit = batch_size - total_pending;
 
                 // Use 80% of available space as safety margin
                 size_t safe_available = static_cast<size_t>(available * 0.80);

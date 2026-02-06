@@ -391,6 +391,10 @@ public:
     void ResetPlaybackSpeed();  // Reset to 1.0 (call on seek, pause)
     bool NeedsSpeedAdjustment() const { return playback_speed_factor_.load() < 1.0; }
 
+    // Buffer wait control (triggered when buffer falls below critical threshold)
+    bool NeedsBufferWait() const { return needs_buffer_wait_.load(); }
+    void ClearBufferWait() { needs_buffer_wait_.store(false); }
+
     // Configuration
     void SetConfig(const EXRCacheConfig& config);
     EXRCacheConfig GetConfig() const { return config_; }
@@ -542,8 +546,10 @@ private:
     // Adaptive speed control (rate-based)
     std::atomic<double> playback_speed_factor_{1.0};  // Current playback speed multiplier
     std::atomic<int> frames_ahead_count_{0};          // How many frames are cached ahead of playhead
+    std::atomic<bool> needs_buffer_wait_{false};      // True when buffer critically low (<6 frames)
     std::chrono::steady_clock::time_point last_speed_change_time_{};  // Debounce speed changes
     static constexpr int SPEED_RESTORE_DEBOUNCE_MS = 2000;  // Wait 2 seconds before stepping up
+    static constexpr int SPEED_SLOWDOWN_DEBOUNCE_MS = 150;  // Short debounce for slowdown to prevent oscillation
 
     // Rate measurement for adaptive speed
     mutable std::mutex rate_mutex_;

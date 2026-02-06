@@ -559,7 +559,7 @@ std::shared_ptr<PixelData> ImageSequenceDecoder::FindInBuffer(int frame_number) 
 
 bool ImageSequenceDecoder::NeedsMoreFrames() const {
     // When suspended, don't spawn new I/O tasks
-    // Used for MULTI_TRACK/DUAL_VIEW when clip leaves active window
+    // Used for DUAL_VIEW when clip leaves active window
     if (suspended_.load()) {
         return false;
     }
