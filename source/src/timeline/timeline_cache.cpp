@@ -295,6 +295,7 @@ void TimelineCache::Initialize(const std::vector<OTIOTrack>& tracks,
 
         if (seq_clip && seq_clip->sequence_end_frame >= seq_clip->sequence_start_frame) {
             use_direct_exr_cache_ = true;
+            direct_exr_cache_source_path_ = seq_clip->linked_path;  // Track source for solo mode
             fps_ = fps;  // Store fps for position conversion
 
             // Build file list from sequence metadata
@@ -499,6 +500,7 @@ void TimelineCache::Shutdown() {
         direct_exr_cache_.reset();
     }
     use_direct_exr_cache_ = false;
+    direct_exr_cache_source_path_.clear();
 
     // Clear loaders
     {
@@ -534,13 +536,25 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     }
 
     //=========================================================================
-    // IMAGE_SEQUENCE mode: Delegate entirely to DirectEXRCache
+    // IMAGE_SEQUENCE / DUAL_VIEW with DirectEXRCache: Delegate to DirectEXRCache
     //=========================================================================
     if (use_direct_exr_cache_ && direct_exr_cache_) {
+        // For DUAL_VIEW, we need to map timeline_frame to source_frame
+        // For IMAGE_SEQUENCE, timeline_frame == source_frame (1:1 mapping)
+        int source_frame = timeline_frame;
+        if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            SourceCoords coords = TimelineToSource(timeline_frame);
+            if (coords.valid) {
+                source_frame = coords.source_frame;
+            }
+            // If coords invalid (frame beyond clip), source_frame stays as timeline_frame
+            // DirectEXRCache will clamp to valid range
+        }
+
         // Use GetFrameOrLoad which returns true only if the exact frame is cached
         // GetTexture alone can return fallback texture on cache miss, masking the miss
         GLuint texture = 0;
-        bool loaded = direct_exr_cache_->GetFrameOrLoad(timeline_frame, texture, width, height);
+        bool loaded = direct_exr_cache_->GetFrameOrLoad(source_frame, texture, width, height);
 
         if (loaded && texture != 0) {
             // Exact frame was in cache
@@ -632,6 +646,21 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     // Accepts ~100-200ms pause at clip boundaries for stability
     //=========================================================================
     if (use_single_decoder_mode_ && single_decoder_) {
+        // Provide sequence metadata before switching to image sequence sources
+        {
+            std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+            auto it = sequence_metadata_.find(coords.source_path);
+            if (it != sequence_metadata_.end() && it->second.valid) {
+                const auto& meta = it->second;
+                single_decoder_->SetSequenceMetadata(
+                    meta.directory, meta.pattern,
+                    meta.start_frame, meta.end_frame,
+                    config_.fps, meta.exr_layer,
+                    coords.clip_start_time  // Timeline offset for cache bar positioning
+                );
+            }
+        }
+
         // Switch source if needed (handles flush + reinit)
         if (!single_decoder_->SwitchSource(coords.source_path)) {
             // Transition in progress - show last good frame
@@ -1311,10 +1340,19 @@ void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
     }
 
     //=========================================================================
-    // IMAGE_SEQUENCE mode: Delegate to DirectEXRCache
+    // IMAGE_SEQUENCE / DUAL_VIEW with DirectEXRCache: Delegate to DirectEXRCache
     //=========================================================================
     if (use_direct_exr_cache_ && direct_exr_cache_) {
-        double timestamp = static_cast<double>(timeline_frame) / fps_;
+        // For DUAL_VIEW, map timeline_frame to source_frame
+        int source_frame = timeline_frame;
+        if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            SourceCoords coords = TimelineToSource(timeline_frame);
+            if (coords.valid) {
+                source_frame = coords.source_frame;
+            }
+        }
+
+        double timestamp = static_cast<double>(source_frame) / fps_;
         direct_exr_cache_->UpdateCurrentPosition(timestamp);
         direct_exr_cache_->UpdatePlaybackState(is_playing);
         previousFrame_ = timeline_frame;
@@ -1917,7 +1955,166 @@ void TimelineCache::NotifyTracksEdited() {
     // Wake up I/O workers and cache management thread to start filling immediately
     request_cv_.notify_all();
 
+    // For DUAL_VIEW: Check if content type changed and manage DirectEXRCache accordingly
+    if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+        // Check if we need to DISABLE or RECREATE DirectEXRCache
+        if (use_direct_exr_cache_) {
+            SourceCoords coords_check = TimelineToSource(0);
+            bool still_sequence = false;
+            bool source_changed = false;
+            if (coords_check.valid) {
+                std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+                still_sequence = (sequence_metadata_.find(coords_check.source_path) != sequence_metadata_.end());
+                // Check if the source path changed (different sequence loaded)
+                if (still_sequence && coords_check.source_path != direct_exr_cache_source_path_) {
+                    source_changed = true;
+                }
+            }
+            if (!still_sequence) {
+                // Content changed from image sequence to video - shutdown DirectEXRCache
+                Debug::Log("TimelineCache: DUAL_VIEW - content changed to video, disabling DirectEXRCache");
+                if (direct_exr_cache_) {
+                    direct_exr_cache_->Shutdown();
+                    direct_exr_cache_.reset();
+                }
+                use_direct_exr_cache_ = false;
+                direct_exr_cache_source_path_.clear();
+            } else if (source_changed) {
+                // Content changed from one sequence to another - recreate DirectEXRCache
+                Debug::Log("TimelineCache: DUAL_VIEW - sequence changed from " + direct_exr_cache_source_path_ +
+                           " to " + coords_check.source_path + ", recreating DirectEXRCache");
+                if (direct_exr_cache_) {
+                    direct_exr_cache_->Shutdown();
+                    direct_exr_cache_.reset();
+                }
+                use_direct_exr_cache_ = false;
+                direct_exr_cache_source_path_.clear();
+            }
+        }
+
+        // Then try to ENABLE DirectEXRCache if we have image sequence content
+        EnableDirectEXRCacheForDualView();
+    }
+
     Debug::Log("TimelineCache::NotifyTracksEdited: END");
+}
+
+void TimelineCache::EnableDirectEXRCacheForDualView() {
+    // Only for DUAL_VIEW mode, and only if not already using DirectEXRCache
+    if (source_mode_ != TimelineSourceMode::DUAL_VIEW) return;
+    if (use_direct_exr_cache_) return;
+
+    // First, check what content THIS cache is responsible for via TimelineToSource
+    // This uses our flattener which only sees our track (left or right)
+    SourceCoords coords = TimelineToSource(0);
+    if (!coords.valid) {
+        Debug::Log("TimelineCache: DUAL_VIEW - TimelineToSource(0) invalid, not enabling DirectEXRCache");
+        return;
+    }
+
+    Debug::Log("TimelineCache: DUAL_VIEW - TimelineToSource(0) = " + coords.source_path);
+
+    // Now find sequence metadata that matches OUR content
+    // Both caches register ALL metadata, but we only want the one for OUR track
+    std::string source_path;
+    SequenceMetadata seq_meta;
+    {
+        std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+        if (sequence_metadata_.empty()) {
+            Debug::Log("TimelineCache: DUAL_VIEW - sequence_metadata_ is empty, not enabling");
+            return;
+        }
+
+        Debug::Log("TimelineCache: DUAL_VIEW - sequence_metadata_ has " +
+                   std::to_string(sequence_metadata_.size()) + " entries");
+
+        // Look for metadata matching our track's content
+        auto it = sequence_metadata_.find(coords.source_path);
+        if (it == sequence_metadata_.end()) {
+            // Our content is not an image sequence (might be video)
+            Debug::Log("TimelineCache: DUAL_VIEW - content " + coords.source_path +
+                       " is not a registered sequence, not enabling DirectEXRCache");
+            // List registered sequences for debugging
+            for (const auto& [path, meta] : sequence_metadata_) {
+                Debug::Log("  Registered: " + path);
+            }
+            return;
+        }
+        source_path = it->first;
+        seq_meta = it->second;
+    }
+
+    Debug::Log("TimelineCache: Enabling DirectEXRCache for DUAL_VIEW (sequence: " + source_path + ")");
+
+    // Build file list from sequence metadata
+    std::vector<std::string> sequence_files;
+    fs::path dir(seq_meta.directory);
+    for (int frame = seq_meta.start_frame; frame <= seq_meta.end_frame; ++frame) {
+        char frame_name[1024];
+        snprintf(frame_name, sizeof(frame_name), seq_meta.pattern.c_str(), frame);
+        sequence_files.push_back((dir / frame_name).string());
+    }
+
+    if (sequence_files.empty()) {
+        Debug::Log("TimelineCache: No sequence files found, not enabling DirectEXRCache");
+        return;
+    }
+
+    // Store FPS for position conversion
+    fps_ = config_.fps;
+
+    // Create and initialize DirectEXRCache
+    direct_exr_cache_ = std::make_unique<DirectEXRCache>();
+
+    EXRCacheConfig exr_config;
+    exr_config.readAheadFrames = g_exr_read_ahead_frames;
+    exr_config.readBehindFrames = g_read_behind_frames;
+    exr_config.threadCount = static_cast<size_t>(g_exr_thread_count);
+    direct_exr_cache_->SetConfig(exr_config);
+
+    // Detect format from first file extension and create appropriate loader
+    std::string ext = fs::path(sequence_files[0]).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    std::unique_ptr<IImageLoader> loader;
+    PipelineMode pipeline_mode = seq_meta.pipeline_mode;
+    std::string format_name = "Unknown";
+
+    if (ext == ".exr") {
+        auto exr_loader = std::make_unique<EXRImageLoader>();
+        exr_loader->SetLayer(seq_meta.exr_layer);
+        loader = std::move(exr_loader);
+        format_name = "EXR";
+    } else if (ext == ".tiff" || ext == ".tif") {
+        loader = std::make_unique<TIFFImageLoader>();
+        format_name = "TIFF";
+    } else if (ext == ".png") {
+        loader = std::make_unique<PNGImageLoader>();
+        format_name = "PNG";
+    } else if (ext == ".jpg" || ext == ".jpeg") {
+        loader = std::make_unique<JPEGImageLoader>();
+        format_name = "JPEG";
+    } else {
+        loader = std::make_unique<PNGImageLoader>();
+        format_name = "Unknown (using PNG)";
+    }
+
+    direct_exr_cache_->Initialize(
+        std::move(loader),
+        sequence_files,
+        seq_meta.exr_layer,
+        config_.fps,
+        pipeline_mode,
+        seq_meta.start_frame,
+        0.0  // initial position
+    );
+
+    use_direct_exr_cache_ = true;
+    direct_exr_cache_source_path_ = source_path;  // Track which source this cache is for
+
+    Debug::Log("TimelineCache: DirectEXRCache enabled for DUAL_VIEW - " + format_name +
+               " sequence with " + std::to_string(sequence_files.size()) + " frames" +
+               " (source: " + source_path + ")");
 }
 
 void TimelineCache::UpdateDuration(double new_duration) {
@@ -2038,8 +2235,50 @@ void TimelineCache::SetPipelineMode(PipelineMode mode) {
 }
 
 double TimelineCache::GetPlaybackSpeedFactor() const {
+#ifdef _WIN32
+    // PLAYLIST mode with single decoder: get speed from PlaylistSingleDecoder
+    if (use_single_decoder_mode_ && single_decoder_ && single_decoder_->IsImageSequence()) {
+        // Check if we're in a gap or near clip end - same logic as DUAL_VIEW
+        int current = current_frame_.load();
+        SourceCoords coords = const_cast<TimelineCache*>(this)->TimelineToSource(current);
+        if (!coords.valid) {
+            // We're in a gap - no sequence content here, don't throttle
+            return 1.0;
+        }
+        // Check if we're near the end of this clip's content
+        double clip_end_time = coords.clip_start_time + coords.clip_duration;
+        double current_time = static_cast<double>(current) / config_.fps;
+        double time_to_clip_end = clip_end_time - current_time;
+        // If less than 2 seconds to clip end, don't throttle
+        if (time_to_clip_end < 2.0) {
+            return 1.0;
+        }
+        return single_decoder_->GetPlaybackSpeedFactor();
+    }
+#endif
+
     // IMAGE_SEQUENCE mode: return adaptive speed from DirectEXRCache
     if (use_direct_exr_cache_ && direct_exr_cache_) {
+        // For DUAL_VIEW: Check if we're in a gap or near clip end
+        // If so, don't throttle - there's nothing more to cache
+        if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            int current = current_frame_.load();
+            SourceCoords coords = const_cast<TimelineCache*>(this)->TimelineToSource(current);
+            if (!coords.valid) {
+                // We're in a gap - no sequence content here, don't throttle
+                return 1.0;
+            }
+            // Check if we're near the end of this clip's content
+            // Use clip_start_time + clip_duration to find clip end in timeline terms
+            double clip_end_time = coords.clip_start_time + coords.clip_duration;
+            double current_time = static_cast<double>(current) / config_.fps;
+            double time_to_clip_end = clip_end_time - current_time;
+            // If less than 2 seconds to clip end, don't throttle
+            // (DirectEXRCache's near-end logic won't catch trimmed clips)
+            if (time_to_clip_end < 2.0) {
+                return 1.0;
+            }
+        }
         return direct_exr_cache_->GetPlaybackSpeedFactor();
     }
     // Other modes: no speed adjustment (handled by UpdateThrottleState)
@@ -2054,8 +2293,47 @@ void TimelineCache::ResetPlaybackSpeed() {
 }
 
 bool TimelineCache::NeedsBufferWait() const {
+#ifdef _WIN32
+    // PLAYLIST mode with single decoder: check PlaylistSingleDecoder buffer wait
+    if (use_single_decoder_mode_ && single_decoder_ && single_decoder_->IsImageSequence()) {
+        // Check if we're in a gap or near clip end - same logic as DUAL_VIEW
+        int current = current_frame_.load();
+        SourceCoords coords = const_cast<TimelineCache*>(this)->TimelineToSource(current);
+        if (!coords.valid) {
+            // We're in a gap - no sequence content, don't wait
+            return false;
+        }
+        // Check if we're near the end of this clip's content
+        double clip_end_time = coords.clip_start_time + coords.clip_duration;
+        double current_time = static_cast<double>(current) / config_.fps;
+        double time_to_clip_end = clip_end_time - current_time;
+        // If less than 2 seconds to clip end, don't wait
+        if (time_to_clip_end < 2.0) {
+            return false;
+        }
+        return single_decoder_->NeedsBufferWait();
+    }
+#endif
+
     // IMAGE_SEQUENCE mode: check DirectEXRCache buffer wait flag
     if (use_direct_exr_cache_ && direct_exr_cache_) {
+        // For DUAL_VIEW: Don't trigger buffer wait if we're in a gap or near clip end
+        if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            int current = current_frame_.load();
+            SourceCoords coords = const_cast<TimelineCache*>(this)->TimelineToSource(current);
+            if (!coords.valid) {
+                // We're in a gap - no sequence content, don't wait
+                return false;
+            }
+            // Check if we're near the end of this clip's content
+            double clip_end_time = coords.clip_start_time + coords.clip_duration;
+            double current_time = static_cast<double>(current) / config_.fps;
+            double time_to_clip_end = clip_end_time - current_time;
+            // If less than 2 seconds to clip end, don't wait
+            if (time_to_clip_end < 2.0) {
+                return false;
+            }
+        }
         return direct_exr_cache_->NeedsBufferWait();
     }
     // Other modes: no buffer wait (handled differently)
@@ -2124,6 +2402,22 @@ void TimelineCache::SetLoopBoundaries(int start_frame, int end_frame) {
     // Safety check: ensure cache is initialized before accessing flattener
     if (!initialized_ || !flattener_) {
         return;
+    }
+
+    // Forward loop range to DirectEXRCache if enabled
+    if (use_direct_exr_cache_ && direct_exr_cache_) {
+        // Convert timeline frames to source frames for DUAL_VIEW
+        int src_start = start_frame;
+        int src_end = end_frame;
+        if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+            SourceCoords start_coords = TimelineToSource(start_frame);
+            SourceCoords end_coords = TimelineToSource(end_frame);
+            if (start_coords.valid) src_start = start_coords.source_frame;
+            if (end_coords.valid) src_end = end_coords.source_frame;
+        }
+        direct_exr_cache_->SetLoopRange(src_start, src_end);
+        Debug::Log("DirectEXRCache: Loop range set to [" + std::to_string(src_start) + ", " + std::to_string(src_end) + "]");
+        return;  // DirectEXRCache handles its own loop prefetching
     }
 
     // Skip loop prefetching in single-decoder mode
@@ -2195,6 +2489,11 @@ void TimelineCache::ClearLoopBoundaries() {
 
     // Clear boundaries in the cache window engine
     cache_engine_.ClearBoundaries();
+
+    // Clear loop range on DirectEXRCache if enabled
+    if (use_direct_exr_cache_ && direct_exr_cache_) {
+        direct_exr_cache_->ClearLoopRange();
+    }
 
     // Clear loop boundaries on all decoders
     {
@@ -2323,6 +2622,25 @@ std::vector<int> TimelineCache::GetPriorityFrameWindow() const {
 TimelineCacheStats TimelineCache::GetStats() const {
     TimelineCacheStats stats;
 
+#ifdef _WIN32
+    //=========================================================================
+    // PLAYLIST mode with single decoder: Get stats from PlaylistSingleDecoder
+    //=========================================================================
+    if (use_single_decoder_mode_ && single_decoder_ && single_decoder_->IsImageSequence()) {
+        stats.timeline_duration = timeline_duration_;
+        stats.total_timeline_frames = total_timeline_frames_;
+        stats.cached_frames = single_decoder_->GetCachedFrameCount();
+        stats.pending_requests = 0;  // PlaylistSingleDecoder doesn't expose pending requests
+        stats.cache_bytes = 0;  // Not tracked
+        stats.total_clips = 1;
+        stats.linked_clips = 1;
+        stats.active_loaders = 1;
+        stats.cache_hits = cache_hits_.load();
+        stats.cache_misses = cache_misses_.load();
+        return stats;
+    }
+#endif
+
     //=========================================================================
     // IMAGE_SEQUENCE mode: Get stats from DirectEXRCache
     //=========================================================================
@@ -2418,6 +2736,18 @@ bool TimelineCache::HasImageContent() const {
         return true;
     }
 
+    // DUAL_VIEW with DirectEXRCache enabled means this cache has image content
+    if (use_direct_exr_cache_ && direct_exr_cache_) {
+        return true;
+    }
+
+#ifdef _WIN32
+    // PLAYLIST mode with single decoder on image sequence
+    if (use_single_decoder_mode_ && single_decoder_ && single_decoder_->IsImageSequence()) {
+        return true;
+    }
+#endif
+
     // Check loaders for mixed content (e.g., playlist with images)
     std::lock_guard<std::mutex> lock(loaders_mutex_);
     for (const auto& [path, info] : loaders_) {
@@ -2455,6 +2785,26 @@ bool TimelineCache::IsFrameImageContent(int timeline_frame) const {
 }
 
 std::vector<TimelineCacheSegment> TimelineCache::GetCacheSegments() const {
+#ifdef _WIN32
+    //=========================================================================
+    // PLAYLIST mode with single decoder: Get segments from PlaylistSingleDecoder
+    //=========================================================================
+    if (use_single_decoder_mode_ && single_decoder_ && single_decoder_->IsImageSequence()) {
+        auto exr_segments = single_decoder_->GetCacheSegments();
+        std::vector<TimelineCacheSegment> segments;
+        segments.reserve(exr_segments.size());
+        for (const auto& seg : exr_segments) {
+            TimelineCacheSegment ts;
+            ts.start_time = seg.start_time;
+            ts.end_time = seg.end_time;
+            ts.density = static_cast<float>(seg.density);
+            ts.type = TimelineCacheSegment::TIMELINE_CACHE;
+            segments.push_back(ts);
+        }
+        return segments;
+    }
+#endif
+
     //=========================================================================
     // IMAGE_SEQUENCE mode: Get segments from DirectEXRCache
     //=========================================================================
@@ -2842,6 +3192,27 @@ bool TimelineCache::HasFrameReady(int timeline_frame) const {
         return true;
     }
 
+#ifdef _WIN32
+    //=========================================================================
+    // PLAYLIST mode with single decoder: Check PlaylistSingleDecoder
+    //=========================================================================
+    if (use_single_decoder_mode_ && single_decoder_) {
+        // During warmup grace period, return true to avoid triggering buffer pause
+        // This gives the cache time to start loading before throttle kicks in
+        if (single_decoder_->IsImageSequence() && single_decoder_->IsInWarmupPeriod()) {
+            return true;
+        }
+        // For image sequences, delegate to single_decoder which handles frame offset
+        if (single_decoder_->IsImageSequence()) {
+            return single_decoder_->HasFrame(coords.source_frame);
+        }
+        // For video, check the decoder's buffer
+        if (single_decoder_->GetDecoder()) {
+            return single_decoder_->HasFrame(coords.source_frame);
+        }
+    }
+#endif
+
     TimelineCacheKey key{coords.source_path, coords.source_frame};
 
     // Check 1: Is it in the GPU cache? (instant)
@@ -2931,7 +3302,9 @@ SourceCoords TimelineCache::TimelineToSource(int timeline_frame) const {
         // Calculate 0-based frame index within the sequence
         // clip_offset is time into the clip, convert to frame index
         // DON'T use source_in here - sequences use 0-based indexing
-        source_frame = static_cast<int>(clip_offset * fps_for_frame_calc + 0.5);
+        // NOTE: Don't add +0.5 here - timestamp already has +0.5 for center-of-frame
+        // Adding another +0.5 would cause off-by-one (frame 0 → source 1)
+        source_frame = static_cast<int>(clip_offset * fps_for_frame_calc);
         original_source_frame = source_frame;
 
         // Clamp to valid sequence range (0 to frame_count-1)
@@ -3048,6 +3421,14 @@ void TimelineCache::RegisterSequenceMetadata(const std::string& source_path,
     Debug::Log("TimelineCache: Registered sequence metadata for " + source_path +
                " (pattern: " + metadata.pattern + ", frames: " +
                std::to_string(metadata.start_frame) + "-" + std::to_string(metadata.end_frame) + ")");
+}
+
+void TimelineCache::ClearSequenceMetadata() {
+    std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+    if (!sequence_metadata_.empty()) {
+        Debug::Log("TimelineCache: Cleared " + std::to_string(sequence_metadata_.size()) + " sequence metadata entries");
+        sequence_metadata_.clear();
+    }
 }
 
 std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::string& source_path) {
@@ -3182,6 +3563,11 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         }
 
         case ClipMediaType::EXR_SEQUENCE: {
+            // In DUAL_VIEW mode, skip ImageSequenceDecoder - DirectEXRCache handles sequences
+            if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+                return nullptr;  // DirectEXRCache handles this
+            }
+
             // Check if we have sequence metadata for buffered playback
             if (seq_meta.valid) {
                 auto decoder = std::make_unique<ImageSequenceDecoder>(
@@ -3222,6 +3608,11 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
         }
 
         case ClipMediaType::IMAGE_SEQUENCE: {
+            // In DUAL_VIEW mode, skip ImageSequenceDecoder - DirectEXRCache handles sequences
+            if (source_mode_ == TimelineSourceMode::DUAL_VIEW) {
+                return nullptr;  // DirectEXRCache handles this
+            }
+
             // Check if we have sequence metadata for buffered playback
             if (seq_meta.valid) {
                 auto decoder = std::make_unique<ImageSequenceDecoder>(
@@ -4597,6 +4988,21 @@ ID3D11ShaderResourceView* TimelineCache::GetFrameD3D11(int timeline_frame, int& 
     // SINGLE-DECODER PATH - For PLAYLIST mode with use_single_decoder enabled
     //=========================================================================
     if (use_single_decoder_mode_ && single_decoder_) {
+        // Provide sequence metadata before switching to image sequence sources
+        {
+            std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+            auto it = sequence_metadata_.find(coords.source_path);
+            if (it != sequence_metadata_.end() && it->second.valid) {
+                const auto& meta = it->second;
+                single_decoder_->SetSequenceMetadata(
+                    meta.directory, meta.pattern,
+                    meta.start_frame, meta.end_frame,
+                    config_.fps, meta.exr_layer,
+                    coords.clip_start_time  // Timeline offset for cache bar positioning
+                );
+            }
+        }
+
         // Switch source if needed (handles flush + reinit)
         if (!single_decoder_->SwitchSource(coords.source_path)) {
             // Transition in progress - return nullptr and let caller use fallback
@@ -4608,7 +5014,7 @@ ID3D11ShaderResourceView* TimelineCache::GetFrameD3D11(int timeline_frame, int& 
         // Update playhead in single decoder
         single_decoder_->UpdatePlayhead(coords.source_frame);
 
-        // Get frame from single decoder as D3D11 SRV
+        // Get frame from single decoder as D3D11 SRV (video only - image sequences use GL texture path)
         ID3D11ShaderResourceView* srv = single_decoder_->GetFrameAsD3D11SRV(coords.source_frame);
 
         if (srv != nullptr) {

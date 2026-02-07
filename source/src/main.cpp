@@ -2354,12 +2354,10 @@ public:
                         ump::MediaItem* media_item = project_manager->GetMediaItem(media_id);
                         if (!media_item) continue;
 
-                        // Skip non-playable types (image sequences not supported in single-decoder playlist mode)
+                        // Skip non-playable types
                         if (media_item->type == ump::MediaType::PLAYLIST ||
                             media_item->type == ump::MediaType::IMAGE ||
-                            media_item->type == ump::MediaType::DUAL_VIEW ||
-                            media_item->type == ump::MediaType::IMAGE_SEQUENCE ||
-                            media_item->type == ump::MediaType::EXR_SEQUENCE) {
+                            media_item->type == ump::MediaType::DUAL_VIEW) {
                             continue;
                         }
 
@@ -4886,13 +4884,118 @@ private:
             ImGui::PopStyleVar(11);
 
             // Render video content in fullscreen
-            if (video_player) {
-                ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
-                ImVec2 canvas_size = ImGui::GetContentRegionAvail();
-                DrawVideoBackground(canvas_pos, canvas_size, 40.0f);
-                video_player->RenderVideoFrame();
+            ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
+            ImVec2 canvas_size = ImGui::GetContentRegionAvail();
+            DrawVideoBackground(canvas_pos, canvas_size, 40.0f);
 
-                // NOTE: Global memory limit enforcement removed - now using seconds-based cache windows
+            // Check if in dual view mode
+            bool is_dual_view_fullscreen = otio_dual_view_mode && timeline_view && timeline_view->IsDualViewMode() &&
+                                           scratch_timeline_controller && scratch_timeline_controller->IsDualViewMode();
+
+            if (is_dual_view_fullscreen) {
+                // Render dual view in fullscreen
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+                // Use cached dual view textures
+                bool use_unified = cached_dual_view_textures.is_unified;
+
+                auto calculate_fit_size = [](int src_w, int src_h, float max_w, float max_h) -> ImVec2 {
+                    if (src_w == 0 || src_h == 0) return ImVec2(max_w, max_h);
+                    float aspect = (float)src_w / (float)src_h;
+                    if (max_w / max_h > aspect) {
+                        return ImVec2(max_h * aspect, max_h);
+                    } else {
+                        return ImVec2(max_w, max_w / aspect);
+                    }
+                };
+
+                if (otio_dual_view_split_mode) {
+                    // SPLIT MODE in fullscreen: vertical wipe
+                    float split_x = canvas_pos.x + canvas_size.x * otio_dual_view_split_pos;
+
+                    int left_w = cached_dual_view_textures.left_width;
+                    int left_h = cached_dual_view_textures.left_height;
+                    ImVec2 fit_size = calculate_fit_size(left_w, left_h, canvas_size.x, canvas_size.y);
+                    ImVec2 display_pos = ImVec2(
+                        canvas_pos.x + (canvas_size.x - fit_size.x) * 0.5f,
+                        canvas_pos.y + (canvas_size.y - fit_size.y) * 0.5f
+                    );
+
+                    // Left side (clipped to left of split)
+                    if (cached_dual_view_textures.left_texture != 0) {
+                        draw_list->PushClipRect(canvas_pos, ImVec2(split_x, canvas_pos.y + canvas_size.y), true);
+                        draw_list->AddImage(
+                            (void*)(intptr_t)cached_dual_view_textures.left_texture,
+                            display_pos,
+                            ImVec2(display_pos.x + fit_size.x, display_pos.y + fit_size.y)
+                        );
+                        draw_list->PopClipRect();
+                    }
+
+                    // Right side (clipped to right of split)
+                    if (cached_dual_view_textures.right_texture != 0) {
+                        draw_list->PushClipRect(ImVec2(split_x, canvas_pos.y), ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y), true);
+                        draw_list->AddImage(
+                            (void*)(intptr_t)cached_dual_view_textures.right_texture,
+                            display_pos,
+                            ImVec2(display_pos.x + fit_size.x, display_pos.y + fit_size.y)
+                        );
+                        draw_list->PopClipRect();
+                    }
+
+                    // Draw split divider line
+                    draw_list->AddLine(
+                        ImVec2(split_x, canvas_pos.y),
+                        ImVec2(split_x, canvas_pos.y + canvas_size.y),
+                        IM_COL32(255, 255, 255, 180), 2.0f
+                    );
+                } else {
+                    // SIDE-BY-SIDE MODE in fullscreen
+                    float half_width = canvas_size.x * 0.5f;
+
+                    // Left side
+                    if (cached_dual_view_textures.left_texture != 0) {
+                        int left_w = cached_dual_view_textures.left_width;
+                        int left_h = cached_dual_view_textures.left_height;
+                        ImVec2 left_fit = calculate_fit_size(left_w, left_h, half_width - 2, canvas_size.y);
+                        ImVec2 left_pos = ImVec2(
+                            canvas_pos.x + (half_width - left_fit.x) * 0.5f,
+                            canvas_pos.y + (canvas_size.y - left_fit.y) * 0.5f
+                        );
+                        draw_list->AddImage(
+                            (void*)(intptr_t)cached_dual_view_textures.left_texture,
+                            left_pos,
+                            ImVec2(left_pos.x + left_fit.x, left_pos.y + left_fit.y)
+                        );
+                    }
+
+                    // Right side
+                    if (cached_dual_view_textures.right_texture != 0) {
+                        int right_w = cached_dual_view_textures.right_width;
+                        int right_h = cached_dual_view_textures.right_height;
+                        ImVec2 right_fit = calculate_fit_size(right_w, right_h, half_width - 2, canvas_size.y);
+                        ImVec2 right_pos = ImVec2(
+                            canvas_pos.x + half_width + (half_width - right_fit.x) * 0.5f,
+                            canvas_pos.y + (canvas_size.y - right_fit.y) * 0.5f
+                        );
+                        draw_list->AddImage(
+                            (void*)(intptr_t)cached_dual_view_textures.right_texture,
+                            right_pos,
+                            ImVec2(right_pos.x + right_fit.x, right_pos.y + right_fit.y)
+                        );
+                    }
+
+                    // Draw center divider
+                    float mid_x = canvas_pos.x + half_width;
+                    draw_list->AddLine(
+                        ImVec2(mid_x, canvas_pos.y),
+                        ImVec2(mid_x, canvas_pos.y + canvas_size.y),
+                        IM_COL32(80, 80, 80, 255), 2.0f
+                    );
+                }
+            } else if (video_player) {
+                // Normal single video fullscreen
+                video_player->RenderVideoFrame();
             }
 
             ImGui::End();
@@ -6099,7 +6202,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.1");
+                ImGui::TextDisabled("About u.m.p. v0.9.2");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -9084,6 +9187,73 @@ private:
                     }
                 }
 
+                // Render adaptive speed indicator for DUAL VIEW mode (bottom-left of video)
+                if (otio_dual_view_mode && scratch_timeline_controller) {
+                    // Get the minimum speed factor from both caches (show the limiting factor)
+                    double left_speed = 1.0, right_speed = 1.0;
+                    bool left_throttled = false, right_throttled = false;
+                    bool throttle_enabled = scratch_timeline_controller->IsThrottleEnabled();
+
+                    if (auto* left_cache = scratch_timeline_controller->GetCache()) {
+                        if (left_cache->HasImageContent()) {
+                            left_speed = left_cache->GetPlaybackSpeedFactor();
+                            left_throttled = left_speed < 1.0;
+                        }
+                    }
+                    if (auto* right_cache = scratch_timeline_controller->GetRightCache()) {
+                        if (right_cache->HasImageContent()) {
+                            right_speed = right_cache->GetPlaybackSpeedFactor();
+                            right_throttled = right_speed < 1.0;
+                        }
+                    }
+
+                    // Show indicator if either side is throttled
+                    if ((left_throttled || right_throttled) && throttle_enabled) {
+                        double min_speed = std::min(left_speed, right_speed);
+                        int speed_percent = static_cast<int>(min_speed * 100);
+
+                        char speed_text[64];
+                        snprintf(speed_text, sizeof(speed_text), "Playback: %d%%", speed_percent);
+
+                        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                        const float padding = 12.0f;
+                        const float box_padding = 6.0f;
+                        ImVec2 text_size = ImGui::CalcTextSize(speed_text);
+
+                        // Position in bottom-left of video canvas
+                        float box_x = canvas_pos.x + padding;
+                        float box_y = canvas_pos.y + canvas_size.y - text_size.y - box_padding * 2 - padding;
+
+                        ImVec2 box_min = ImVec2(box_x, box_y);
+                        ImVec2 box_max = ImVec2(box_x + text_size.x + box_padding * 2, box_y + text_size.y + box_padding * 2);
+
+                        // Semi-transparent background with accent color tint
+                        ImVec4 accent = GetWindowsAccentColor();
+                        ImU32 bg_color = IM_COL32(
+                            static_cast<int>(accent.x * 60),
+                            static_cast<int>(accent.y * 60),
+                            static_cast<int>(accent.z * 60), 200);
+                        ImU32 border_color = IM_COL32(
+                            static_cast<int>(accent.x * 220),
+                            static_cast<int>(accent.y * 220),
+                            static_cast<int>(accent.z * 220), 255);
+                        ImU32 text_color = IM_COL32(
+                            static_cast<int>(std::min(accent.x * 1.5f, 1.0f) * 255),
+                            static_cast<int>(std::min(accent.y * 1.5f, 1.0f) * 255),
+                            static_cast<int>(std::min(accent.z * 1.5f, 1.0f) * 255), 255);
+
+                        draw_list->AddRectFilled(box_min, box_max, bg_color, 4.0f);
+                        draw_list->AddRect(box_min, box_max, border_color, 4.0f, 0, 1.0f);
+
+                        // Text
+                        draw_list->AddText(
+                            ImVec2(box_x + box_padding, box_y + box_padding),
+                            text_color,
+                            speed_text
+                        );
+                    }
+                }
+
             // ImGui requires a Dummy() item after using GetCursorScreenPos() to properly size the window
             ImGui::SetCursorScreenPos(ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y));
             ImGui::Dummy(ImVec2(0, 0));
@@ -9119,12 +9289,10 @@ private:
                 auto add_to_playlist = [&](const std::string& media_id) {
                     ump::MediaItem* item = project_manager->GetMediaItem(media_id);
                     if (!item) return;
-                    // Skip certain types (image sequences not supported in single-decoder playlist mode)
+                    // Skip non-playable types
                     if (item->type == ump::MediaType::PLAYLIST ||
                         item->type == ump::MediaType::DUAL_VIEW ||
-                        item->type == ump::MediaType::IMAGE ||
-                        item->type == ump::MediaType::IMAGE_SEQUENCE ||
-                        item->type == ump::MediaType::EXR_SEQUENCE) return;
+                        item->type == ump::MediaType::IMAGE) return;
 
                     ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
                     if (playlist && playlist->type == ump::MediaType::PLAYLIST) {
@@ -12933,10 +13101,17 @@ private:
         if (timeline_view && timeline_view->HasPlaybackController()) {
             auto* controller = timeline_view->GetEffectivePlaybackController();
             if (controller && controller->IsInitialized()) {
+                // Check LEFT cache for image content
                 ump::TimelineCache* cache = controller->GetCache();
-                // Show cache bar only if there's image content (not video-only)
                 if (cache && cache->HasImageContent()) {
                     show_cache_bar = true;
+                }
+                // Also check RIGHT cache in dual view mode
+                if (!show_cache_bar) {
+                    ump::TimelineCache* right_cache = controller->GetRightCache();
+                    if (right_cache && right_cache->HasImageContent()) {
+                        show_cache_bar = true;
+                    }
                 }
             }
         }
@@ -14341,12 +14516,10 @@ private:
                     // Trigger it by calling the timeline view's internal callback mechanism
                     if (project_manager) {
                         ump::MediaItem* item = project_manager->GetMediaItem(media_id);
-                        // Skip image sequences - not supported in single-decoder playlist mode
+                        // Skip non-playable types
                         if (item && item->type != ump::MediaType::PLAYLIST &&
                             item->type != ump::MediaType::DUAL_VIEW &&
-                            item->type != ump::MediaType::IMAGE &&
-                            item->type != ump::MediaType::IMAGE_SEQUENCE &&
-                            item->type != ump::MediaType::EXR_SEQUENCE) {
+                            item->type != ump::MediaType::IMAGE) {
 
                             // Get the source playlist
                             ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
@@ -14550,12 +14723,10 @@ private:
                             if (media_id.empty()) continue;
 
                             ump::MediaItem* item = project_manager->GetMediaItem(media_id);
-                            // Skip image sequences - not supported in single-decoder playlist mode
+                            // Skip non-playable types
                             if (item && item->type != ump::MediaType::PLAYLIST &&
                                 item->type != ump::MediaType::DUAL_VIEW &&
-                                item->type != ump::MediaType::IMAGE &&
-                                item->type != ump::MediaType::IMAGE_SEQUENCE &&
-                                item->type != ump::MediaType::EXR_SEQUENCE) {
+                                item->type != ump::MediaType::IMAGE) {
 
                                 ump::PlaylistItemEntry entry;
                                 entry.media_id = media_id;

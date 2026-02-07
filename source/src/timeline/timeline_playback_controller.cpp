@@ -2746,6 +2746,16 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
     initialized_ = true;
     use_virtual_timeline_ = true;
 
+    // CRITICAL: Call NotifyTracksEdited() to trigger EnableDirectEXRCacheForDualView()
+    // This must happen AFTER sequence metadata is registered so the cache can detect
+    // that it has image sequence content and enable DirectEXRCache accordingly
+    if (cache_) {
+        cache_->NotifyTracksEdited();
+    }
+    if (right_cache_) {
+        right_cache_->NotifyTracksEdited();
+    }
+
     // Trigger initial prefetch for frame 0 on both caches
     if (cache_) {
         cache_->UpdatePlayhead(0, false);  // Not playing, just warm up frame 0
@@ -2883,9 +2893,17 @@ void TimelinePlaybackController::SyncDualFlatteners() {
         right_flattener_->SetTracks(tracks);
     }
 
-    // Register sequence metadata for any image sequence clips
-    // This is critical for dual view: InitializeForDualView runs with empty tracks,
-    // so we must re-register when media is loaded via LoadMediaToLeftTrack/LoadMediaToRightTrack
+    // Clear and re-register sequence metadata for any image sequence clips
+    // CRITICAL: Must clear first so that when content changes from image sequence to video,
+    // the old metadata is removed and DirectEXRCache can be properly disabled
+    if (cache_) {
+        cache_->ClearSequenceMetadata();
+    }
+    if (right_cache_) {
+        right_cache_->ClearSequenceMetadata();
+    }
+
+    // Re-register metadata for current clips
     for (const auto& track : tracks) {
         for (const auto& clip : track.clips) {
             if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {

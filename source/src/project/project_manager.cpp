@@ -484,6 +484,17 @@ namespace ump {
                                 clip_obj["fade_in_duration"] = clip.fade_in_duration;
                                 clip_obj["fade_out_duration"] = clip.fade_out_duration;
                                 clip_obj["audio_muted"] = clip.audio_muted;
+                                // Image sequence fields
+                                if (clip.is_sequence) {
+                                    clip_obj["is_sequence"] = clip.is_sequence;
+                                    clip_obj["sequence_directory"] = clip.sequence_directory;
+                                    clip_obj["sequence_pattern"] = clip.sequence_pattern;
+                                    clip_obj["sequence_start_frame"] = clip.sequence_start_frame;
+                                    clip_obj["sequence_end_frame"] = clip.sequence_end_frame;
+                                    if (!clip.sequence_exr_layer.empty()) {
+                                        clip_obj["sequence_exr_layer"] = clip.sequence_exr_layer;
+                                    }
+                                }
                                 // AAF-specific fields
                                 if (!clip.aaf_mob_id.empty()) {
                                     clip_obj["aaf_mob_id"] = clip.aaf_mob_id;
@@ -988,6 +999,13 @@ namespace ump {
                                         clip.fade_in_duration = clip_json.value("fade_in_duration", 0.0);
                                         clip.fade_out_duration = clip_json.value("fade_out_duration", 0.0);
                                         clip.audio_muted = clip_json.value("audio_muted", false);
+                                        // Image sequence fields
+                                        clip.is_sequence = clip_json.value("is_sequence", false);
+                                        clip.sequence_directory = clip_json.value("sequence_directory", "");
+                                        clip.sequence_pattern = clip_json.value("sequence_pattern", "");
+                                        clip.sequence_start_frame = clip_json.value("sequence_start_frame", 1);
+                                        clip.sequence_end_frame = clip_json.value("sequence_end_frame", 1);
+                                        clip.sequence_exr_layer = clip_json.value("sequence_exr_layer", "");
                                         // AAF-specific fields
                                         clip.aaf_mob_id = clip_json.value("aaf_mob_id", "");
                                         // Nested timeline support

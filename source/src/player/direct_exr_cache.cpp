@@ -1110,9 +1110,6 @@ void DirectEXRCache::CacheThread() {
 
                 if (immediate_evicted > 0) {
                     segmentsDirty_ = true;
-                    size_t freed_bytes = immediate_evicted * (hasActualFrameSize_ ? actualFrameSize_ : (3840 * 2160 * 4 * sizeof(half)));
-                   /* Debug::Log("DirectEXRCache: [SEEK-EVICTION] Immediately evicted " + std::to_string(immediate_evicted) +
-                               " stale frames (~" + std::to_string(freed_bytes / (1024*1024)) + "MB freed)");*/
                 }
             }
             lastSeekFrame_ = current_frame;
@@ -1184,9 +1181,14 @@ void DirectEXRCache::CacheThread() {
 
             if (evicted_count > 0) {
                 segmentsDirty_ = true;  // Mark segments dirty after eviction
-                /*Debug::Log("DirectEXRCache: Cache thread @ frame " + std::to_string(current_frame) +
-                           " - Evicted " + std::to_string(evicted_count) + " pixel data frames outside window [" +
-                           std::to_string(eviction_threshold_behind) + ", " + std::to_string(eviction_threshold_ahead) + "]");*/
+                // Log periodically to avoid spam
+                static int evict_log_count = 0;
+                if (evict_log_count++ % 100 == 0) {
+                    Debug::Log("DirectEXRCache: Evicted " + std::to_string(evicted_count) + " frames @ pos " +
+                               std::to_string(current_frame) + " window=[" +
+                               std::to_string(current_frame - readBehindFrames) + "," +
+                               std::to_string(current_frame + readAheadFrames) + "]");
+                }
             }
 
             // Step 2: Fill cache with readahead frames
@@ -1278,17 +1280,30 @@ void DirectEXRCache::CacheThread() {
                 // When loop range is active, cache ONLY frames within the loop zone
                 if (is_looping_ && has_loop_range_) {
                     // LOOP ZONE MODE: Cache frames within [loop_in_frame_, loop_out_frame_]
-                    // Iterate from current position forward, wrapping at Out→In
+                    // Use wrap-around distance matching eviction to avoid fill/evict fighting
                     int loop_size = loop_out_frame_ - loop_in_frame_ + 1;
+                    int readAheadFrames = config_.readAheadFrames;
 
-                    // Start from current frame (or loop_in if current is outside zone)
-                    int base = current_frame;
-                    if (base < loop_in_frame_) base = loop_in_frame_;
-                    if (base > loop_out_frame_) base = loop_in_frame_;
+                    // Calculate current position within loop zone
+                    int current_in_loop = current_frame - loop_in_frame_;
+                    if (current_in_loop < 0) current_in_loop = 0;
+                    if (current_in_loop >= loop_size) current_in_loop = loop_size - 1;
 
+                    // Fill frames using SAME wrap-around distance logic as eviction
+                    // This prevents requesting frames that would be immediately evicted
                     for (int i = 0; i < loop_size && requested_count < max_to_request; i++) {
                         // Calculate frame with wrap-around within loop zone
-                        int frame = loop_in_frame_ + ((base - loop_in_frame_ + i) % loop_size);
+                        int frame = loop_in_frame_ + ((current_in_loop + i) % loop_size);
+                        int frame_in_loop = frame - loop_in_frame_;
+
+                        // Calculate wrap-around distances (MUST match eviction logic exactly)
+                        int forward_distance = (frame_in_loop - current_in_loop + loop_size) % loop_size;
+                        int backward_distance = (current_in_loop - frame_in_loop + loop_size) % loop_size;
+
+                        // Skip if outside read-ahead/read-behind window (would be evicted)
+                        if (backward_distance > readBehindFrames && forward_distance > readAheadFrames) {
+                            continue;
+                        }
 
                         // Skip if already cached
                         if (pixelCache_.Contains(frame)) continue;

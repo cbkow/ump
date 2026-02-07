@@ -11,8 +11,27 @@ extern "C" {
 
 #include <cstring>
 #include <algorithm>
+#include <filesystem>
+
+namespace fs = std::filesystem;
 
 namespace ump {
+
+// Helper to detect image sequences (which have no audio)
+static bool IsImageSequencePath(const std::string& path) {
+    // Check for printf-style format specifier (e.g., %04d)
+    if (path.find('%') != std::string::npos) {
+        return true;
+    }
+
+    // Check file extension
+    std::string ext = fs::path(path).extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    return (ext == ".exr" || ext == ".tiff" || ext == ".tif" ||
+            ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
+            ext == ".dpx" || ext == ".cin");
+}
 
 //=============================================================================
 // Constructor / Destructor
@@ -36,6 +55,12 @@ AudioDecoder::~AudioDecoder() {
 bool AudioDecoder::Open(const std::string& file_path) {
     if (is_open_) {
         Close();
+    }
+
+    // Skip image sequences - they never have audio
+    if (IsImageSequencePath(file_path)) {
+        has_audio_ = false;
+        return false;
     }
 
     file_path_ = file_path;

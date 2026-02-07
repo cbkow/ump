@@ -701,6 +701,9 @@ public:
     void RegisterSequenceMetadata(const std::string& source_path,
                                    const SequenceMetadata& metadata);
 
+    // Clear all sequence metadata (call before re-registering on content change)
+    void ClearSequenceMetadata();
+
     // Set gap texture dimensions (creates black texture at this size)
     // Must be called from GL thread after Initialize()
     // This prevents OpenGL corruption when transitioning between clips and gaps
@@ -840,6 +843,11 @@ private:
     // Get or create loader for a source path (returns shared_ptr for thread safety)
     std::shared_ptr<ClipLoaderInfo> GetOrCreateLoader(const std::string& source_path);
 
+    // Enable DirectEXRCache for DUAL_VIEW mode when content is image sequences
+    // Called from NotifyTracksEdited when sequence metadata is present
+    // This gives DUAL_VIEW the same performance benefits as IMAGE_SEQUENCE mode
+    void EnableDirectEXRCacheForDualView();
+
     //=========================================================================
     // Background I/O Management (EXR-style)
     //=========================================================================
@@ -912,6 +920,7 @@ private:
     // Uses settings from Image Playback/Threading tab (g_exr_read_ahead_frames, g_exr_thread_count)
     bool use_direct_exr_cache_ = false;
     std::unique_ptr<DirectEXRCache> direct_exr_cache_;
+    std::string direct_exr_cache_source_path_;  // Track which source the cache was initialized for
     double fps_ = 24.0;  // Cache fps for DirectEXRCache position conversion
 
     // Pipeline mode for video (bit depth / HDR)

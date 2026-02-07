@@ -1374,103 +1374,103 @@ void TimelineView::RenderPlayhead() {
 }
 
 void TimelineView::RenderCacheBar() {
-    // Debug: Log early returns
-    static int call_count = 0;
-    call_count++;
-
-    // Skip if no playback controller or cache
-    // Use effective controller (external for scratch timelines, internal for file-based)
+    // Skip if no playback controller
     TimelinePlaybackController* controller = GetEffectivePlaybackController();
     if (!controller) {
-        if (call_count <= 5) Debug::Log("RenderCacheBar: No playback controller");
         return;
     }
 
-    TimelineCache* cache = controller->GetCache();
-    if (!cache) {
-        if (call_count <= 5) Debug::Log("RenderCacheBar: No cache");
-        return;
-    }
-    if (!cache->IsInitialized()) {
-        if (call_count <= 5) Debug::Log("RenderCacheBar: Cache not initialized");
-        return;
-    }
+    // Get both caches (LEFT is always available, RIGHT only in DUAL_VIEW)
+    TimelineCache* left_cache = controller->GetCache();
+    TimelineCache* right_cache = controller->GetRightCache();  // nullptr if not DUAL_VIEW
 
-    // Skip cache bar for video-only content - D3D11 streaming decoders handle buffering internally
-    // Only show cache bar for image/EXR sequences which use the ring buffer
-    if (!cache->HasImageContent()) {
+    // Check which caches have image content to display
+    bool left_has_content = left_cache && left_cache->IsInitialized() && left_cache->HasImageContent();
+    bool right_has_content = right_cache && right_cache->IsInitialized() && right_cache->HasImageContent();
+
+    if (!left_has_content && !right_has_content) {
         return;
-    }
-
-    // Get image cache segments (video-only content returns early above)
-    std::vector<TimelineCacheSegment> segments = cache->GetCacheSegments();
-    auto stats = cache->GetStats();
-
-    // Debug: Log segment count periodically
-    if (call_count <= 5 || call_count % 300 == 0) {
-        Debug::Log("RenderCacheBar: " + std::to_string(segments.size()) + " segments, " +
-                   std::to_string(stats.cached_frames) + " cached frames, ruler_pos=(" +
-                   std::to_string(ruler_screen_pos_.x) + "," + std::to_string(ruler_screen_pos_.y) + ")");
     }
 
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
     // Use saved ruler position from RenderTimelineRuler, not current cursor
-    // The cursor may have moved since the ruler was drawn
-    ImVec2 ruler_pos = ruler_screen_pos_;  // Saved during RenderTimelineRuler
+    ImVec2 ruler_pos = ruler_screen_pos_;
     float ruler_width = ruler_width_;
 
-    // Cache bar at bottom of ruler area
-    const float cache_bar_height = 6.0f;  // Make it more visible
-    const float cache_bar_y = ruler_pos.y + 28.0f;  // Just below time labels
+    // Cache bar dimensions
+    const float cache_bar_height = 6.0f;
+    float cache_bar_y = ruler_pos.y + 28.0f;  // Just below time labels
 
-    // Draw background bar (dark gray) - always draw this
-    draw_list->AddRectFilled(
-        ImVec2(ruler_pos.x, cache_bar_y),
-        ImVec2(ruler_pos.x + ruler_width, cache_bar_y + cache_bar_height),
-        IM_COL32(50, 50, 50, 255)  // More visible background
-    );
+    // In DUAL_VIEW with both caches, stack them vertically
+    const float bar_spacing = 2.0f;
+    float left_bar_y = cache_bar_y;
+    float right_bar_y = cache_bar_y + cache_bar_height + bar_spacing;
 
-    // Draw cached/buffered segments
-    for (const auto& segment : segments) {
-        float start_x = ruler_pos.x + (float)(segment.start_time * zoom_level_) - scroll_offset_x_;
-        float end_x = ruler_pos.x + (float)(segment.end_time * zoom_level_) - scroll_offset_x_;
+    // Helper lambda to render a single cache bar
+    auto renderCacheSegments = [&](TimelineCache* cache, float bar_y, ImU32 color, const char* label) {
+        if (!cache) return;
 
-        // Clamp to visible region
-        start_x = std::max(start_x, ruler_pos.x);
-        end_x = std::min(end_x, ruler_pos.x + ruler_width);
+        auto segments = cache->GetCacheSegments();
+        auto stats = cache->GetStats();
 
-        if (end_x <= start_x) continue;
-
-        // Green for image cache (80% opacity)
-        ImU32 cache_color = IM_COL32(80, 200, 120, 204);
-
+        // Draw background bar (dark gray)
         draw_list->AddRectFilled(
-            ImVec2(start_x, cache_bar_y),
-            ImVec2(end_x, cache_bar_y + cache_bar_height),
-            cache_color
+            ImVec2(ruler_pos.x, bar_y),
+            ImVec2(ruler_pos.x + ruler_width, bar_y + cache_bar_height),
+            IM_COL32(50, 50, 50, 255)
         );
+
+        // Draw cached segments
+        for (const auto& segment : segments) {
+            float start_x = ruler_pos.x + (float)(segment.start_time * zoom_level_) - scroll_offset_x_;
+            float end_x = ruler_pos.x + (float)(segment.end_time * zoom_level_) - scroll_offset_x_;
+
+            // Clamp to visible region
+            start_x = std::max(start_x, ruler_pos.x);
+            end_x = std::min(end_x, ruler_pos.x + ruler_width);
+
+            if (end_x <= start_x) continue;
+
+            draw_list->AddRectFilled(
+                ImVec2(start_x, bar_y),
+                ImVec2(end_x, bar_y + cache_bar_height),
+                color
+            );
+        }
+
+        // Show stats on hover
+        ImVec2 mouse_pos = ImGui::GetMousePos();
+        if (mouse_pos.y >= bar_y && mouse_pos.y <= bar_y + cache_bar_height &&
+            mouse_pos.x >= ruler_pos.x && mouse_pos.x <= ruler_pos.x + ruler_width) {
+            ImGui::BeginTooltip();
+            ImGui::Text("%s Cache", label);
+            ImGui::Separator();
+            if (stats.total_timeline_frames > 0) {
+                float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
+                ImGui::Text("Cached: %d / %d frames (%.1f%%)",
+                            stats.cached_frames, stats.total_timeline_frames, percent);
+            } else {
+                ImGui::Text("Cached frames: %d", stats.cached_frames);
+            }
+            ImGui::Text("Duration: %.2fs", stats.timeline_duration);
+            ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
+            ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
+            ImGui::Text("Pending: %d", stats.pending_requests);
+            ImGui::EndTooltip();
+        }
+    };
+
+    // Render LEFT cache bar (green)
+    if (left_has_content) {
+        ImU32 left_color = IM_COL32(80, 200, 120, 204);  // Green
+        renderCacheSegments(left_cache, left_bar_y, left_color, "LEFT");
     }
 
-    // Show stats on hover
-    ImVec2 mouse_pos = ImGui::GetMousePos();
-    if (mouse_pos.y >= cache_bar_y && mouse_pos.y <= cache_bar_y + cache_bar_height &&
-        mouse_pos.x >= ruler_pos.x && mouse_pos.x <= ruler_pos.x + ruler_width) {
-        ImGui::BeginTooltip();
-        ImGui::Text("Image Cache");
-        ImGui::Separator();
-        if (stats.total_timeline_frames > 0) {
-            float percent = (float)stats.cached_frames / stats.total_timeline_frames * 100.0f;
-            ImGui::Text("Cached: %d / %d frames (%.1f%%)",
-                        stats.cached_frames, stats.total_timeline_frames, percent);
-        } else {
-            ImGui::Text("Cached frames: %d", stats.cached_frames);
-        }
-        ImGui::Text("Duration: %.2fs", stats.timeline_duration);
-        ImGui::Text("Cache size: %.1f MB", stats.cache_bytes / (1024.0 * 1024.0));
-        ImGui::Text("Hit ratio: %.1f%%", stats.GetHitRatio() * 100.0);
-        ImGui::Text("Pending: %d", stats.pending_requests);
-        ImGui::EndTooltip();
+    // Render RIGHT cache bar (cyan) - only in DUAL_VIEW with image content
+    if (right_has_content) {
+        ImU32 right_color = IM_COL32(80, 180, 220, 204);  // Cyan to distinguish from LEFT
+        renderCacheSegments(right_cache, right_bar_y, right_color, "RIGHT");
     }
 }
 

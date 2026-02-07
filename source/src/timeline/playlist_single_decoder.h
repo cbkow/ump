@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <mutex>
+#include <vector>
 #include <d3d11_1.h>
 #include <glad/gl.h>
 
@@ -12,6 +13,9 @@ namespace ump {
 
 // Forward declarations
 class D3D11VideoDecoder;
+class DirectEXRCache;
+class IImageLoader;
+struct CacheSegment;
 
 //=============================================================================
 // PlaylistSingleDecoder
@@ -108,6 +112,47 @@ public:
 
     D3D11VideoDecoder* GetDecoder() const { return decoder_.get(); }
 
+    //=========================================================================
+    // Image Sequence Support
+    //=========================================================================
+
+    // Check if current source is an image sequence
+    bool IsImageSequence() const { return is_image_sequence_; }
+
+    // Set sequence metadata for proper initialization
+    // Must be called before SwitchSource for image sequences
+    // timeline_offset_seconds: where this clip starts in the timeline (for cache bar positioning)
+    void SetSequenceMetadata(const std::string& directory, const std::string& pattern,
+                             int start_frame, int end_frame, double fps,
+                             const std::string& exr_layer = "",
+                             double timeline_offset_seconds = 0.0);
+
+    //=========================================================================
+    // Playback Control (for adaptive speed and buffer management)
+    //=========================================================================
+
+    // Get playback speed factor based on cache health (1.0 = full speed, <1.0 = throttled)
+    double GetPlaybackSpeedFactor() const;
+
+    // Check if playback should pause to let buffer fill
+    // Returns false during warmup grace period after source switch
+    bool NeedsBufferWait() const;
+
+    // Check if we're in warmup period after source switch
+    bool IsInWarmupPeriod() const;
+
+    // Get cache progress (0.0 to 1.0) for progress bar display
+    double GetCacheProgress() const;
+
+    // Get number of frames currently cached
+    int GetCachedFrameCount() const;
+
+    // Get total frames in current source
+    int GetTotalFrameCount() const;
+
+    // Get cache segments for progress bar visualization
+    std::vector<CacheSegment> GetCacheSegments() const;
+
 private:
     //=========================================================================
     // State
@@ -117,12 +162,36 @@ private:
     std::string current_source_;
     std::unique_ptr<D3D11VideoDecoder> decoder_;
 
+    // Image sequence support
+    bool is_image_sequence_ = false;
+    std::unique_ptr<DirectEXRCache> image_cache_;
+    double sequence_fps_ = 24.0;
+    double timeline_offset_seconds_ = 0.0;  // Where this clip starts in the timeline
+    int source_frame_offset_ = 0;  // First source frame number (for converting to 0-indexed)
+
+    // Sequence metadata (set via SetSequenceMetadata before SwitchSource)
+    std::string pending_seq_directory_;
+    std::string pending_seq_pattern_;
+    int pending_seq_start_frame_ = 0;
+    int pending_seq_end_frame_ = 0;
+    std::string pending_seq_exr_layer_;
+
     // D3D11 device reference (not owned)
     ID3D11Device* device_ = nullptr;
 
     // Thread safety for source switching
     mutable std::mutex switch_mutex_;
     std::atomic<bool> switching_{false};
+
+    // Source switch timing - for warmup grace period
+    std::chrono::steady_clock::time_point last_source_switch_time_;
+    static constexpr int kWarmupGraceMs = 500;  // 500ms grace period after source switch
+
+    // Helper to detect if a path is an image sequence
+    bool IsSequencePath(const std::string& path) const;
+
+    // Helper to initialize image sequence cache
+    bool InitializeImageSequence(const std::string& source_path);
 };
 
 } // namespace ump
