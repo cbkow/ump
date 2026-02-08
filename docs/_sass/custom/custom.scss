@@ -37,10 +37,10 @@
     background-image: none;
 }
 
-/* Override content width variable for wider screenshots */
-$content-width: 80rem !default;
-
-/* Wider content area for screenshots */
-.main-content {
-    max-width: 80rem;
+/* Hamburger menu hover - match sidebar hover */
+.site-button:hover,
+.site-button:focus {
+    background-color: rgba(255,255,255, 1);
+    background-image: none;
 }
+
