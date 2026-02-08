@@ -59,13 +59,13 @@ u.m.p. uses a layered GPU pipeline that flows from source media through decode, 
         │    ┌─────────────────────────────────────────────────────────┐      │
         │    │              RING BUFFER (Circular Cache)               │      │
         │    │                                                         │      │
-        │    │   [Behind] ◄─── [CURRENT] ───► [Ahead]                  │      │
-        │    │                     ▲                                   │      │
-        │    │                     │                                   │      │
-        │    │              Playhead Position                          │      │
+        │    │         [Behind] ◄─── [CURRENT] ───► [Ahead]            │      │
+        │    │                           ▲                             │      │
+        │    │                           │                             │      │
+        │    │                    Playhead Position                    │      │
         │    │                                                         │      │
-        │    │   Priority: Current > Ahead > Behind                    │      │
-        │    │   Eviction: Outside window removed                      │      │
+        │    │           Priority: Current > Ahead > Behind            │      │
+        │    │            Eviction: Outside window removed             │      │
         │    └─────────────────────────────────────────────────────────┘      │
         │                                                                     │
         │    FrameCache (Video)          TimelineCache (Composite)            │
@@ -86,18 +86,18 @@ u.m.p. uses a layered GPU pipeline that flows from source media through decode, 
             │  One source   │                         │  D3D11Dual        │
             │  texture      │                         │  Compositor       │
             │               │                         │                   │
-            └───────┬───────┘                         │  ┌─────┬─────┐    │
-                    │                                 │  │ L   │  R  │    │
-                    │                                 │  │ SRV │ SRV │    │
-                    │                                 │  └──┬──┴──┬──┘    │
-                    │                                 │     │     │       │
-                    │                                 │  ┌──▼─────▼──┐    │
-                    │                                 │  │ Composite │    │
-                    │                                 │  │  RGBA16F  │    │
-                    │                                 │  └─────┬─────┘    │
-                    │                                 └────────┼──────────┘
-                    │                                          │
-                    └──────────────────┬───────────────────────┘
+            └───────┬───────┘                         │   ┌─────┬─────┐   │
+                    │                                 │   │ L   │  R  │   │
+                    │                                 │   │ SRV │ SRV │   │
+                    │                                 │   └──┬──┴──┬──┘   │
+                    │                                 │      │     │      │
+                    │                                 │   ┌──▼─────▼──┐   │
+                    │                                 │   │ Composite │   │
+                    │                                 │   │  RGBA16F  │   │
+                    │                                 │   └─────┬─────┘   │
+                    │                                 └─────────┼─────────┘
+                    │                                           │
+                    └──────────────────┬────────────────────────┘
                                        │
                                        │
 ══════════════════════════════════════════════════════════════════════════════════
@@ -108,14 +108,14 @@ u.m.p. uses a layered GPU pipeline that flows from source media through decode, 
                         │     D3D11YUVRenderer        │
                         │     src/gpu/                │
                         │                             │
-                        │   ┌───────────────────┐     │
-                        │   │   HLSL Shaders    │     │
-                        │   │                   │     │
-                        │   │  • BT.709 matrix  │     │
-                        │   │  • BT.2020 matrix │     │
-                        │   │  • PQ EOTF (HDR)  │     │
-                        │   │  • Range expand   │     │
-                        │   └─────────┬─────────┘     │
+                        │   ┌─────────────────────┐   │
+                        │   │   HLSL Shaders      │   │
+                        │   │                     │   │
+                        │   │  • BT.709 matrix    │   │
+                        │   │  • BT.2020 matrix   │   │
+                        │   │  • PQ EOTF (HDR)    │   │
+                        │   │  • Range expand     │   │
+                        │   └─────────┬───────────┘   │
                         │             │               │
                         │   Input:  Y+UV (NV12/P010)  │
                         │   Output: RGBA16F linear    │
@@ -126,38 +126,38 @@ u.m.p. uses a layered GPU pipeline that flows from source media through decode, 
                                 INTEROP LAYER
 ══════════════════════════════════════════════════════════════════════════════════
                                       │
-                       ┌──────────────▼──────────────┐
-                       │    D3D11VideoInterop        │
-                       │    src/gpu/                 │
-                       │                             │
-                       │  ┌───────────────────────┐  │
-                       │  │   TRIPLE BUFFERING    │  │
-                       │  │                       │  │
-                       │  │  ┌─────┐ ┌─────┐ ┌─────┐ │
-                       │  │  │ B0  │ │ B1  │ │ B2  │ │
-                       │  │  └──┬──┘ └──┬──┘ └──┬──┘ │
-                       │  │     │       │       │ │  │
-                       │  │  D3D11   D3D11   D3D11│  │
-                       │  │  Tex     Tex     Tex  │  │
-                       │  │    ↕       ↕       ↕  │  │
-                       │  │   GL      GL      GL  │  │
-                       │  │  Tex     Tex     Tex  │  │
-                       │  │    +       +       +  │  │
-                       │  │  FBO     FBO     FBO  │  │
-                       │  └───────────────────────┘  │
-                       │                             │
-                       │  INTEROP MODES (priority):  │
-                       │  ┌───────────────────────┐  │
-                       │  │1. WGL_NV_DX_interop2  │  │
-                       │  │   (NVIDIA, zero-copy) │  │
-                       │  ├───────────────────────┤  │
-                       │  │2. EXT_external_objects│  │
-                       │  │   (Cross-vendor)      │  │
-                       │  ├───────────────────────┤  │
-                       │  │3. CPU Staging Fallback│  │
-                       │  │   (Universal, slow)   │  │
-                       │  └───────────────────────┘  │
-                       └──────────────┬──────────────┘
+                       ┌──────────────▼───────────────┐
+                       │    D3D11VideoInterop         │
+                       │    src/gpu/                  │
+                       │                              │
+                       │  ┌────────────────────────┐  │
+                       │  │   TRIPLE BUFFERING     │  │
+                       │  │                        │  │
+                       │  │ ┌─────┐ ┌─────┐ ┌─────┐│  │
+                       │  │ │ B0  │ │ B1  │ │ B2  ││  │
+                       │  │ └──┬──┘ └──┬──┘ └──┬──┘│  │
+                       │  │    │       │       │   │  │
+                       │  │  D3D11   D3D11   D3D11 │  │
+                       │  │  Tex     Tex     Tex   │  │
+                       │  │    ↕       ↕       ↕   │  │
+                       │  │   GL      GL      GL   │  │
+                       │  │  Tex     Tex     Tex   │  │
+                       │  │    +       +       +   │  │
+                       │  │  FBO     FBO     FBO   │  │
+                       │  └────────────────────────┘  │
+                       │                              │
+                       │  INTEROP MODES (priority):   │
+                       │  ┌────────────────────────┐  │
+                       │  │1. WGL_NV_DX_interop2   │  │
+                       │  │   (NVIDIA, zero-copy)  │  │
+                       │  ├────────────────────────┤  │
+                       │  │2. EXT_external_objects │  │
+                       │  │   (Cross-vendor)       │  │
+                       │  ├────────────────────────┤  │
+                       │  │3. CPU Staging Fallback │  │
+                       │  │   (Universal, slow)    │  │
+                       │  └────────────────────────┘  │
+                       └──────────────┬───────────────┘
                                       │
                               GLuint texture
                                       │
