@@ -37,11 +37,21 @@
     background-image: none;
 }
 
-/* Wider content area for screenshots */
-.main-content {
-    max-width: 1280px;
+/* Wider layout with balanced margins */
+.side-bar {
+    left: auto;
+    margin-left: 2rem;
 }
 
 .main {
     max-width: none;
+    margin-right: 2rem;
+}
+
+.main-content-wrap {
+    max-width: none;
+}
+
+.main-content {
+    max-width: 1280px;
 }
