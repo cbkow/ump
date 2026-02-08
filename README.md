@@ -1,6 +1,6 @@
 # u.m.p.
 
-![ump image](docs/images/ump_ygOpJTY2Am.jpg)
+![ump image](docs/images/ump_ygOpJTY2Am2.jpg)
 
 **u.m.p.** is a [Dear ImGui](https://github.com/ocornut/imgui) C++ OpenGL playback tool with D3D11VA hardware-accelerated video decoding and support for most video codecs, EXR, PNG, TIFF, and JPEG image sequences for Windows.
 
@@ -22,7 +22,7 @@
  - dual view comparison mode
  - support for Adobe project metadata
 
-![ump image](docs/images/ump_v85ah4VbmC.png)
+![ump image](docs/images/ump_v85ah4VbmC2.png)
 
 ## Manual and documentation
 
