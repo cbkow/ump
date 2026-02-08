@@ -24,4 +24,4 @@ To install, download the latest `.exe` installer from [releases.](https://github
 
 `Check for Updates` in the `Help` menu will bring you the u.m.p. releases page on GitHub. Here you can find the latest installer. 
 
-![ump image](images/ump_Eu03dOzzqP.png)
+![ump image](images/ump_DDl3rYKhs8.png)
