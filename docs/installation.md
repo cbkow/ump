@@ -10,7 +10,7 @@ To install, download the latest `.exe` installer from [releases.](https://github
 
 ![ump image](images/chrome_2OI8tT915q.png)
 
-> The installer has a few extras:
+> Note: The installer has a few extras:
 >  - Registry entries for common media files
 >  - Adds a `ump:///XXX` custom URI scheme to share file paths with colleagues.
 >  - Registry entries and icons for `.umproject` files.
