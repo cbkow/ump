@@ -37,27 +37,10 @@
     background-image: none;
 }
 
-/* Wider layout - center entire page as a unit */
-@media (min-width: 800px) {
-    body {
-        display: flex;
-        justify-content: center;
-    }
+/* Override content width variable for wider screenshots */
+$content-width: 80rem !default;
 
-    .side-bar {
-        position: relative;
-        left: 0;
-    }
-
-    .main {
-        max-width: 1280px;
-    }
-}
-
-.main-content-wrap {
-    max-width: none;
-}
-
+/* Wider content area for screenshots */
 .main-content {
-    max-width: 1280px;
+    max-width: 80rem;
 }
