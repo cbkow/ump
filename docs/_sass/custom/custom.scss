@@ -37,15 +37,21 @@
     background-image: none;
 }
 
-/* Wider layout with balanced margins */
-.side-bar {
-    left: auto;
-    margin-left: 2rem;
-}
+/* Wider layout - center entire page as a unit */
+@media (min-width: 800px) {
+    body {
+        display: flex;
+        justify-content: center;
+    }
 
-.main {
-    max-width: none;
-    margin-right: 2rem;
+    .side-bar {
+        position: relative;
+        left: 0;
+    }
+
+    .main {
+        max-width: 1280px;
+    }
 }
 
 .main-content-wrap {
