@@ -4,7 +4,7 @@ permalink: /ocio-nodes/
 nav_order: 8
 ---
 
-# OCIO Color Panels
+# OCIO (Open Color IO) Color Panels
 
 ## The Panels
 
