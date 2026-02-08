@@ -44,3 +44,9 @@
     background-image: none;
 }
 
+/* Code blocks - single line-height for ASCII diagrams */
+pre,
+pre code {
+    line-height: 1;
+}
+
