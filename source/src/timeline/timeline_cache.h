@@ -183,7 +183,7 @@ struct ClipLoaderInfo {
     GLenum video_texture_format = 0;  // Track internal format for HDR/High-Res switching
 
     //=========================================================================
-    // Coordinator Control - Used by CacheManagementThread
+    // Coordinator Control
     //=========================================================================
 
     // Set active state for decoders based on flattener visibility
@@ -849,23 +849,12 @@ private:
     void EnableDirectEXRCacheForDualView();
 
     //=========================================================================
-    // Background I/O Management (EXR-style)
-    //=========================================================================
-
-    void IOWorkerThread();          // Processes video_requests_ queue
-    void CacheManagementThread();   // Runs every 10ms, fills bi-directionally
-
-    // Process a single load request
-    std::shared_ptr<PixelData> LoadPixels(const TimelineCacheKey& key);
-
-    //=========================================================================
     // GPU Upload Management
     //=========================================================================
-
-    struct PendingUpload {
-        TimelineCacheKey key;
-        std::shared_ptr<PixelData> pixels;
-    };
+    // LEGACY: IOWorkerThread, CacheManagementThread, LoadPixels, PendingUpload removed
+    // All frame loading is now handled by specialized decoders:
+    // - D3D11VideoDecoder for video files
+    // - DirectEXRCache for image sequences
 
     // Create GL texture from pixels (must be called from GL thread)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
@@ -892,7 +881,7 @@ private:
     // Scrub handling is now integrated directly into GetFrame() for better performance.
     //=========================================================================
 
-    // Handle settling phase - called from CacheManagementThread
+    // Handle settling phase - called from GetFrame() on each render
     void HandleAggressiveScrubSettling();
 
     //=========================================================================
@@ -958,21 +947,12 @@ private:
     std::map<std::string, SequenceMetadata> sequence_metadata_;
     mutable std::mutex sequence_metadata_mutex_;
 
-    // Frame cache (key -> texture)
-    std::map<TimelineCacheKey, CachedFrame> frame_cache_;
-    mutable std::mutex cache_mutex_;
-
-    // Pending GPU uploads (filled by I/O threads, consumed by GL thread)
-    std::deque<PendingUpload> pending_uploads_;
-    std::unordered_set<TimelineCacheKey, TimelineCacheKeyHash> pending_uploads_set_;  // O(1) duplicate check
-    mutable std::mutex upload_mutex_;
-
-    // Request queue (frames to load) - managed by CacheThread like EXR
-    std::deque<int> video_requests_;              // Timeline frames to load (FIFO order)
-    std::unordered_set<int> video_requests_set_;  // O(1) duplicate check for video_requests_
-    std::set<int> requests_in_progress_;          // Currently loading
-    mutable std::mutex request_mutex_;
-    std::condition_variable request_cv_;
+    // LEGACY: frame_cache_, pending_uploads_, video_requests_ removed
+    // All frame caching is now handled by specialized decoders:
+    // - D3D11VideoDecoder maintains its own frame buffer
+    // - DirectEXRCache maintains its own texture cache
+    mutable std::mutex cache_mutex_;  // Still used for loaders_ protection
+    mutable std::mutex request_mutex_;  // Still used for UpdatePlayhead
 
     //=========================================================================
     // Playhead Tracking (EXR cache pattern)
@@ -1024,14 +1004,8 @@ private:
     //=========================================================================
     // Threading
     //=========================================================================
-
-    // I/O worker threads
-    std::vector<std::thread> io_threads_;
-    std::atomic<bool> io_running_{false};
-
-    // Cache management thread (like EXR CacheThread - runs every 10ms)
-    std::thread cache_thread_;
-    std::atomic<bool> cache_running_{false};
+    // LEGACY: io_threads_, cache_thread_ removed
+    // All frame loading/caching is now handled by specialized decoders
 
     // Textures marked for deletion (delete on GL thread)
     std::vector<GLuint> textures_to_delete_;
