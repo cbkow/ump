@@ -138,6 +138,11 @@ private:
     std::atomic<bool> playing_{false};
     bool initialized_ = false;
     bool layout_valid_ = false;
+
+    // Frame-change detection to skip redundant compositing
+    int64_t last_composited_left_ = -2;   // -2 = never composited
+    int64_t last_composited_right_ = -2;
+    GLuint last_composite_texture_ = 0;   // Cached result
 };
 
 } // namespace ump

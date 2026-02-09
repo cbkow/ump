@@ -2669,9 +2669,11 @@ namespace ump {
 
         // Clean up EXR/image sequence state if active (video loading will also do this,
         // but explicit cleanup ensures clean transitions even in edge cases)
+        // IMPORTANT: Must use ClearEXRCache() not ResetState() to properly shutdown
+        // the DirectEXRCache and its background I/O threads
         if (video_player && video_player->IsInEXRMode()) {
-            video_player->ResetState();
-            Debug::Log("LoadSingleMediaItem: Cleaned up EXR/image sequence state");
+            video_player->ClearEXRCache();
+            Debug::Log("LoadSingleMediaItem: Cleaned up EXR/image sequence cache");
         }
 
         // Cache view state of current media BEFORE loading new media
@@ -3547,8 +3549,23 @@ namespace ump {
             return;
         }
 
-        // Mark playlist as active
-        playlist->is_active = true;
+        // Clear is_active from all playlists and dual views, then set on target playlist
+        // Must update both media_pool AND bin.items (UI reads from bins)
+        for (auto& pool_item : media_pool) {
+            if (pool_item.type == MediaType::PLAYLIST || pool_item.type == MediaType::DUAL_VIEW) {
+                pool_item.is_active = (pool_item.type == MediaType::PLAYLIST &&
+                                       pool_item.id == playlist_id);
+            }
+        }
+        for (auto& bin : bins) {
+            for (auto& bin_item : bin.items) {
+                if (bin_item.type == MediaType::PLAYLIST || bin_item.type == MediaType::DUAL_VIEW) {
+                    bin_item.is_active = (bin_item.type == MediaType::PLAYLIST &&
+                                          bin_item.id == playlist_id);
+                }
+            }
+        }
+        current_timeline_id.clear();  // Not a regular timeline
 
         // Trigger callback to load playlist into unified timeline editor
         if (playlist_timeline_callback) {

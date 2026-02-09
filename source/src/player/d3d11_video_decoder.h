@@ -475,6 +475,7 @@ private:
     int intermediate_width_ = 0;
     int intermediate_height_ = 0;
     int last_srv_rendered_frame_ = -1;  // Track last frame rendered to intermediate
+    int last_srv_requested_frame_ = -1; // Track last frame REQUESTED (for fallback caching)
 
     // Temporary SRVs for current frame
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv_y_;
@@ -515,6 +516,7 @@ private:
 
     // Frame caching - avoid re-rendering same frame
     int last_rendered_frame_ = -1;
+    int last_requested_frame_ = -1;  // Track requested frame for fallback caching
 };
 
 } // namespace ump

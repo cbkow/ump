@@ -153,6 +153,7 @@ GLuint DualViewPipeline::UpdateFrame(int64_t frame_left, int64_t frame_right) {
     int right_w = right_decoder_ ? right_decoder_->GetWidth() : 0;
     int right_h = right_decoder_ ? right_decoder_->GetHeight() : 0;
 
+    bool layout_changed = false;
     if (!layout_valid_ || layout_.NeedsUpdate(left_w, left_h, right_w, right_h)) {
         if (!UpdateLayout(left_w, left_h, right_w, right_h)) {
             Debug::Log("DualViewPipeline: Layout update failed");
@@ -163,6 +164,16 @@ GLuint DualViewPipeline::UpdateFrame(int64_t frame_left, int64_t frame_right) {
         if (!EnsureCompositorAndInterop()) {
             return 0;
         }
+        layout_changed = true;
+    }
+
+    // Frame-change detection: skip redundant compositing when paused or scrubbing to same frame
+    if (!layout_changed &&
+        frame_left == last_composited_left_ &&
+        frame_right == last_composited_right_ &&
+        last_composite_texture_ != 0) {
+        // Same frames as last composite - return cached texture
+        return last_composite_texture_;
     }
 
     // Get D3D11 SRVs from both decoders
@@ -222,6 +233,11 @@ GLuint DualViewPipeline::UpdateFrame(int64_t frame_left, int64_t frame_right) {
 
     GLuint gl_tex = interop_->GetGLTexture();
 
+    // Cache the result for frame-change detection
+    last_composited_left_ = frame_left;
+    last_composited_right_ = frame_right;
+    last_composite_texture_ = gl_tex;
+
     // Debug: log GL texture periodically
     static int gl_log_count = 0;
     if (++gl_log_count % 100 == 1) {
@@ -238,6 +254,10 @@ void DualViewPipeline::GetOutputDimensions(int& width, int& height) const {
 
 void DualViewPipeline::InvalidateLayout() {
     layout_valid_ = false;
+    // Invalidate frame cache so next UpdateFrame does full composite
+    last_composited_left_ = -2;
+    last_composited_right_ = -2;
+    last_composite_texture_ = 0;
 }
 
 void DualViewPipeline::SetPlaybackMode(bool playing) {
@@ -245,6 +265,11 @@ void DualViewPipeline::SetPlaybackMode(bool playing) {
 }
 
 void DualViewPipeline::OnSeek(int64_t target_frame) {
+    // Invalidate frame cache - decoder state may change after seek
+    last_composited_left_ = -2;
+    last_composited_right_ = -2;
+    last_composite_texture_ = 0;
+
     // Notify decoders of seek
     if (left_decoder_) {
         left_decoder_->UpdatePlayhead(static_cast<int>(target_frame));

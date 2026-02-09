@@ -630,6 +630,9 @@ void D3D11VideoDecoder::Shutdown() {
     initialized_ = false;
     current_frame_number_ = -1;
     last_rendered_frame_ = -1;
+    last_requested_frame_ = -1;
+    last_srv_rendered_frame_ = -1;
+    last_srv_requested_frame_ = -1;
 
     Debug::Log("D3D11VideoDecoder: Shutdown complete");
 }
@@ -1472,8 +1475,9 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
     frame_number = std::clamp(frame_number, 0,
                               frame_count_ > 0 ? frame_count_ - 1 : 0);
 
-    // Return cached texture if same frame
-    if (frame_number == last_rendered_frame_ && interop_ && interop_->GetGLTexture() != 0) {
+    // Return cached texture if same frame REQUESTED (even if we rendered a fallback frame)
+    // This prevents infinite seek loops when B-frame delay means frame 0 isn't immediately available
+    if (frame_number == last_requested_frame_ && interop_ && interop_->GetGLTexture() != 0) {
         return interop_->GetGLTexture();
     }
 
@@ -1702,6 +1706,9 @@ GLuint D3D11VideoDecoder::GetFrameAsGLTexture(int frame_number) {
     }
 
     last_rendered_frame_ = buffered->frame_number;
+    // Track the REQUESTED frame so subsequent requests for same frame use cache
+    // (even if we fell back to a different frame due to B-frame delay)
+    last_requested_frame_ = frame_number;
     return interop_->GetGLTexture();
 }
 
@@ -1721,6 +1728,7 @@ void D3D11VideoDecoder::SetExternalCompositorMode(bool enabled) {
         intermediate_width_ = 0;
         intermediate_height_ = 0;
         last_srv_rendered_frame_ = -1;
+        last_srv_requested_frame_ = -1;
     }
 }
 
@@ -1733,8 +1741,9 @@ ID3D11ShaderResourceView* D3D11VideoDecoder::GetFrameAsD3D11SRV(int frame_number
     frame_number = std::clamp(frame_number, 0,
                               frame_count_ > 0 ? frame_count_ - 1 : 0);
 
-    // Return cached SRV if same frame
-    if (frame_number == last_srv_rendered_frame_ && intermediate_srv_) {
+    // Return cached SRV if same frame REQUESTED (even if we rendered a fallback frame)
+    // This prevents infinite seek loops when B-frame delay means frame 0 isn't immediately available
+    if (frame_number == last_srv_requested_frame_ && intermediate_srv_) {
         return intermediate_srv_.Get();
     }
 
@@ -1941,6 +1950,10 @@ ID3D11ShaderResourceView* D3D11VideoDecoder::GetFrameAsD3D11SRV(int frame_number
     }
 
     last_srv_rendered_frame_ = buffered->frame_number;
+    // Track the REQUESTED frame so subsequent requests for same frame use cache
+    // (even if we fell back to a different frame due to B-frame delay)
+    // Note: frame_number was captured at function entry before any fallback
+    last_srv_requested_frame_ = frame_number;
     return intermediate_srv_.Get();
 }
 
@@ -1991,19 +2004,34 @@ bool D3D11VideoDecoder::IsIntraFrameCodec() const {
 }
 
 void D3D11VideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality, bool force_seek) {
+    // Only wake decode thread if playhead actually changed or we're force seeking
+    // This prevents CPU spin when paused on the same frame
+    int prev_playhead = current_playhead_.load();
+    bool playhead_changed = (frame_number != prev_playhead);
+
     current_playhead_ = frame_number;
     decode_target_ = frame_number;
 
+    // If playhead didn't change and not force seeking, skip all work
+    // This is the common case when paused - called 60x/sec but nothing to do
+    if (!playhead_changed && !force_seek) {
+        return;
+    }
+
     // Check if we're within a reasonable decode range of current position
     // Don't seek if decoder is already close to target
+    // For B-frame codecs, we need larger backward tolerance since early frames
+    // may not be available immediately after seek (e.g., frame 0 may not be
+    // available until frame 4+ is decoded due to reordering delay)
     int head = decode_head_.load();
+    int backward_tolerance = (codec_ctx_ && codec_ctx_->has_b_frames > 0) ? 16 : 4;
     bool in_decode_range = (head >= 0) &&
-                           (frame_number >= head - 4) &&  // Allow small backward tolerance
+                           (frame_number >= head - backward_tolerance) &&
                            (frame_number <= head + 60);   // Within forward decode range
 
     // Skip seek if we're in decode range and not force seeking
     if (in_decode_range && !force_seek) {
-        decode_cv_.notify_one();  // Just wake up decoder to continue
+        decode_cv_.notify_one();  // Wake decoder to continue filling buffer
         return;
     }
 
@@ -2012,14 +2040,22 @@ void D3D11VideoDecoder::UpdatePlayhead(int frame_number, SeekQuality quality, bo
     // Only trigger seek if:
     // 1. force_seek is true OR frame is not in buffer AND not in decode range
     // 2. AND no seek is already pending or in progress
+    // 3. AND we haven't already sought for this exact target recently
     bool should_seek = force_seek || (!has_frame && !in_decode_range);
+
+    // Prevent re-seeking for same target that we just sought to
+    // (covers B-frame case where target frame 0 may never be directly available)
+    if (should_seek && frame_number == last_seek_target_.load() && !force_seek) {
+        // Already sought for this target - don't seek again
+        return;
+    }
 
     if (should_seek && !seek_pending_.load() && !decode_seeking_.load()) {
         last_seek_target_ = frame_number;
         seek_pending_ = true;
     }
 
-    // Wake up decode thread
+    // Wake up decode thread only if we have actual work
     decode_cv_.notify_one();
 }
 
@@ -2116,6 +2152,9 @@ void D3D11VideoDecoder::HardReset(int target_frame) {
     ClearFrameBuffer();
     current_frame_number_ = -1;
     last_rendered_frame_ = -1;
+    last_requested_frame_ = -1;
+    last_srv_rendered_frame_ = -1;
+    last_srv_requested_frame_ = -1;
     decode_head_ = -1;
     decode_target_ = target_frame;
 

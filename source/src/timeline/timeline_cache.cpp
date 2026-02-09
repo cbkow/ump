@@ -3954,6 +3954,14 @@ void TimelineCache::CacheManagementThread() {
                 continue;
             }
 
+            // DUAL_VIEW mode with video: D3D11VideoDecoder handles its own frame caching
+            // via GetFrameAsD3D11SRV. The I/O workers get nullptr from GetFrame() and
+            // frame_cache_ stays empty - all the mutex operations burn CPU for nothing.
+            if (source_mode_ == TimelineSourceMode::DUAL_VIEW && !use_direct_exr_cache_) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                continue;
+            }
+
             iteration++;
 
         // Get current playback position

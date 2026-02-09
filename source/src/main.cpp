@@ -251,7 +251,6 @@ static struct {
     float audio_fine_tune_ms = 0.0f;      // Fine-tune offset in milliseconds (±50ms range)
     float custom_display_latency_ms = 33.0f; // Custom display latency for preset index 5
 
-    // Note: LibMPV settings removed - D3D11VideoDecoder is now the sole video backend
 } cache_settings;
 
 // ============================================================================
@@ -289,6 +288,7 @@ struct {
 bool auto_play_buffering = false;  // True when waiting for buffer to fill before auto-play
 std::chrono::steady_clock::time_point auto_play_buffer_start;  // When buffering started (for timeout)
 
+// ============================================================================
 // SEEK CACHE DELAYED START STATE
 // ============================================================================
 bool pending_seek_cache_start = false;
@@ -320,8 +320,8 @@ size_t exr_cache_bytes_cleared = 0;
 // ============================================================================
 // FRAME RATE LIMITER
 // ============================================================================
-constexpr bool g_limit_imgui_fps = true;           // Enable 30fps UI limit to reduce GPU load
-constexpr double g_target_frame_time = 1.0 / 60.00; // 30fps = ~33.3ms per frame
+constexpr bool g_limit_imgui_fps = true;           // Enable UI limit to reduce GPU load
+constexpr double g_target_frame_time = 1.0 / 60.00; // Locked at 60
 std::chrono::steady_clock::time_point g_last_frame_time;
 
 // ============================================================================
@@ -594,18 +594,6 @@ static int auto_relink_total = 0;
 static std::string auto_relink_status;
 static std::string auto_relink_timeline_id;  // Timeline ID for saving links to project
 
-// Helper: Sync timeline track structure to project for persistence
-// NOTE: Track metadata persistence removed with TIMELINE mode cleanup
-static void SyncTimelineTracksToProject() {
-    // No-op: Track metadata persistence was removed
-}
-
-// Helper: Restore track metadata from project when opening a timeline
-// NOTE: Track metadata persistence removed with TIMELINE mode cleanup
-static void RestoreTracksFromProject() {
-    // No-op: Track metadata persistence was removed
-}
-
 // Right-click clip context menu state
 static std::string right_clicked_clip_id;
 static int right_clicked_track_index = -1;
@@ -632,7 +620,6 @@ namespace OTIOTimeline {
 // SYSTEM PRESSURE MONITOR STATE
 // ============================================================================
 static std::unique_ptr<ump::SystemPressureMonitor> pressure_monitor;
-static bool show_pressure_warning_banner = false;  // Deprecated - no longer used
 static bool show_pressure_critical_dialog = false;
 static bool in_emergency_mode = false;  // Track if we're in critical emergency state
 static ump::SystemPressureStatus last_pressure_status;
@@ -671,14 +658,17 @@ static float g_font_scale = 1.0f;  // Global font scale (0.5x - 2.0x)
 static bool show_font_settings_window = false;
 static float font_settings_temp_scale = 1.0f;  // Temporary scale while editing
 
+// ============================================================================
 // KEYBOARD SHORTCUTS POPUP
 // ============================================================================
 static bool show_shortcuts_popup = false;
 
+// ============================================================================
 // DELETE PREFERENCES CONFIRMATION
 // ============================================================================
 static bool show_delete_prefs_confirm = false;
 
+// ============================================================================
 // LUT EXPORT POPUP
 // ============================================================================
 static bool show_lut_export_popup = false;
@@ -753,8 +743,6 @@ std::filesystem::path g_exe_dir;
 std::string GetAssetPath(const std::string& relative_path) {
     return (g_exe_dir / relative_path).string();
 }
-
-// Note: LibMPV toggle removed - D3D11VideoDecoder is now the sole video backend
 
 ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
     ump::DirectEXRCacheConfig config;
@@ -1016,11 +1004,6 @@ public:
             if (ump::HDROutputManager::Instance().Initialize(hwnd, fb_width, fb_height)) {
                 if (ump::HDROutputManager::Instance().IsHDRActive()) {
                     Debug::Log("HDR output enabled via D3D11 swapchain");
-                    // HDR separation disabled - requires too much replumbing of video playback
-                    // For now, use single-pass HDR rendering (video and UI on same surface)
-                    // TODO: Revisit HDR/SDR layer separation when migrating to D3D11 ImGui backend
-                    // ump::HDROutputManager::Instance().SetHDRSeparationEnabled(true);
-                    // Debug::Log("HDR/SDR layer separation enabled");
                 } else {
                     Debug::Log("D3D11 swapchain initialized (SDR mode)");
                 }
@@ -1094,8 +1077,6 @@ public:
             std::cerr << "Failed to initialize video player" << std::endl;
             return false;
         }
-
-        // Note: MPV property observation removed - using D3D11VideoDecoder
 
         // Apply disk cache settings from loaded config (custom path, retention, etc.)
         video_player->SetCacheSettings(g_custom_cache_path, g_cache_retention_days,
@@ -1195,10 +1176,11 @@ public:
 
                 // 2. Comparison mode removed - no longer needed
 
-                // 3. Clean up EXR/image sequence state if active
+                // 3. Clean up EXR/image sequence cache if active
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
                 if (video_player->IsInEXRMode()) {
-                    video_player->ResetState();
-                    Debug::Log("Timeline entry: Cleaned up EXR/image sequence state");
+                    video_player->ClearEXRCache();
+                    Debug::Log("Timeline entry: Cleaned up EXR/image sequence cache");
                 }
 
                 // Note: MPV cleanup removed - using D3D11VideoDecoder
@@ -1508,12 +1490,6 @@ public:
                     // Restore cached media links if available (from session cache or project file)
                     // Note: If we used cached edits, links are already in the tracks
                     int restored_links = used_cached_edits ? 1 : RestoreLinksFromCache(timeline_id);
-
-                    // Restore cached track structure if available (for added/deleted tracks)
-                    // Skip if we already used cached edits (tracks are fully restored)
-                    if (!used_cached_edits) {
-                        RestoreTracksFromProject();
-                    }
 
                     // If no links were restored, trigger auto-relink from timeline source directory
                     if (restored_links == 0 && timeline_view) {
@@ -1867,6 +1843,13 @@ public:
                     scratch_timeline_controller.reset();
                 }
 
+                // Clean up VideoDisplayComponent's EXR cache if active (legacy path)
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
+                if (video_player && video_player->IsInEXRMode()) {
+                    video_player->ClearEXRCache();
+                    Debug::Log("ImageSequenceTimelineCallback: Cleared EXR cache");
+                }
+
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
                 ump::D3D11VideoInterop::ProcessPendingGLDeletions();
@@ -1993,6 +1976,13 @@ public:
                 if (scratch_timeline_controller) {
                     scratch_timeline_controller->Shutdown();
                     scratch_timeline_controller.reset();
+                }
+
+                // Clean up VideoDisplayComponent's EXR cache if active (legacy path)
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
+                if (video_player && video_player->IsInEXRMode()) {
+                    video_player->ClearEXRCache();
+                    Debug::Log("VideoFileTimelineCallback: Cleared EXR cache");
                 }
 
 #ifdef _WIN32
@@ -2143,6 +2133,13 @@ public:
                     scratch_timeline_controller.reset();
                 }
 
+                // Clean up VideoDisplayComponent's EXR cache if active (legacy path)
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
+                if (video_player && video_player->IsInEXRMode()) {
+                    video_player->ClearEXRCache();
+                    Debug::Log("AudioFileTimelineCallback: Cleared EXR cache");
+                }
+
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
                 ump::D3D11VideoInterop::ProcessPendingGLDeletions();
@@ -2251,6 +2248,13 @@ public:
                 if (scratch_timeline_controller) {
                     scratch_timeline_controller->Shutdown();
                     scratch_timeline_controller.reset();
+                }
+
+                // Clean up VideoDisplayComponent's EXR cache if active (legacy path)
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
+                if (video_player && video_player->IsInEXRMode()) {
+                    video_player->ClearEXRCache();
+                    Debug::Log("PlaylistTimelineCallback: Cleared EXR cache");
                 }
 
 #ifdef _WIN32
@@ -2423,8 +2427,10 @@ public:
                 }
 
                 // Clean up EXR/image sequence state if active
+                // Clean up EXR/image sequence cache if active
+                // Must use ClearEXRCache() to properly shutdown DirectEXRCache threads
                 if (video_player->IsInEXRMode()) {
-                    video_player->ResetState();
+                    video_player->ClearEXRCache();
                 }
             }
 
@@ -3121,13 +3127,12 @@ public:
                 if (otio_timeline_mode && timeline_view && video_player->IsPlaying()) {
                     auto* playback_ctrl = timeline_view->GetEffectivePlaybackController();
 
-                    // Direct MPV mode: MPV handles looping via ab-loop, but we handle playlist and play-once
+                    // Direct MPV mode: MPV handles looping via ab-loop, we handle play-once
                     if (playback_ctrl && playback_ctrl->IsDirectMPVMode()) {
                         double fps = timeline_view->GetFrameRate();
                         double tl_current = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
                         double duration = playback_ctrl->GetDuration();
                         bool is_looping = timeline_view->IsTimelineLooping();
-                        bool playlist_active = false;  // Legacy playlist controller removed
 
                         if (fps > 0) {
                             // Determine end point
@@ -3137,7 +3142,7 @@ public:
                             // Check if at or past end point
                             // Use 1.5 frame tolerance - MPV often stops 1 frame before true EOF
                             if (tl_current >= out_point - (1.5 / fps)) {
-                                if (!playlist_active && !is_looping) {
+                                if (!is_looping) {
                                     // Non-looping mode: pause at end
                                     video_player->Pause();
                                     Debug::Log("Direct MPV play-once: stopped at " + std::to_string(out_point));
@@ -3400,7 +3405,7 @@ public:
             }
 
             // Frame rate limiter - skip ImGui rendering if not enough time has passed
-            // This limits UI updates to 30fps while video processing continues at full rate
+            // This limits UI updates while video processing continues at full rate
             bool should_render_frame = true;
             if (g_limit_imgui_fps) {
                 auto now = std::chrono::steady_clock::now();
@@ -5166,7 +5171,6 @@ private:
         // Render top-level dialogs (outside any parent modal context for proper centering)
         CreateTranscodeProgressDialog(); // EXR transcode progress dialog
         CreateCacheClearDialogs(); // Cache clear dialogs (error + success)
-        // RenderPressureWarningBanner(); // REMOVED: No longer using warning banner
         RenderPressureCriticalDialog(); // System critical emergency dialog with auto-recovery
 
         // Render Frame.io import dialog
@@ -6202,7 +6206,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.2");
+                ImGui::TextDisabled("About u.m.p. v0.9.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -6716,60 +6720,6 @@ private:
         Debug::Log("RAM critical - notification shown in menu bar");
     }
 
-    void RenderPressureWarningBanner() {
-        if (!show_pressure_warning_banner) return;
-
-        ImGui::SetNextWindowPos(ImVec2(0, 0));
-        ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, 50));
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(200, 150, 0, 220));
-
-        if (ImGui::Begin("System Pressure Warning", nullptr,
-            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse)) {
-
-            ImGui::Spacing();
-
-            // Show warning icon with Material Icons
-            if (font_icons) ImGui::PushFont(font_icons);
-            ImGui::Text(ICON_WARNING);
-            if (font_icons) ImGui::PopFont();
-
-            ImGui::SameLine(0, 8);
-
-            // Show relevant metrics
-            std::string warning_text = "System Under Pressure: ";
-
-            if (last_pressure_status.ram_usage_percent >= 0.80f) {
-                warning_text += "RAM " + std::to_string(int(last_pressure_status.ram_usage_percent * 100)) + "%";
-            }
-
-            if (last_pressure_status.cpu_usage_percent >= 0.85f) {
-                if (last_pressure_status.ram_usage_percent >= 0.80f) {
-                    warning_text += " | ";
-                }
-                warning_text += "CPU " + std::to_string(int(last_pressure_status.cpu_usage_percent * 100)) + "%";
-            }
-
-            warning_text += " - Consider reducing cache window if playback stutters";
-
-            ImGui::Text("%s", warning_text.c_str());
-
-            ImGui::SameLine(ImGui::GetWindowWidth() - 200);
-            if (ImGui::Button("View Details", ImVec2(100, 0))) {
-                show_cache_settings = true;
-            }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Dismiss", ImVec2(80, 0))) {
-                show_pressure_warning_banner = false;
-            }
-
-            ImGui::Spacing();
-        }
-        ImGui::End();
-        ImGui::PopStyleColor();
-    }
-
     void RenderPressureCriticalDialog() {
         if (!show_pressure_critical_dialog) return;
 
@@ -7280,121 +7230,6 @@ private:
                         ImGui::EndTabItem();
                     } // End Disk Cache tab
 
-// Timeline ring buffer tab commented out - D3D11 video uses on-demand decode,
-// ring buffer only used for image sequences (configured in Image Buffering tab)
-// Kept for reference/future use.
-#if 0
-                    // === TAB 5: Timeline ===
-                    if (ImGui::BeginTabItem("Timeline")) {
-                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Buffer and threading settings for timeline playback");
-                    ImGui::Spacing();
-
-                    // Read-Ahead Frames
-                    ImGui::Text("Read-Ahead Frames:");
-                    if (ImGui::SliderInt("##TimelineReadAhead", &g_timeline_read_ahead_frames, 12, 180)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Number of frames to buffer ahead of playhead.\n\n"
-                            "More frames = smoother playback, higher memory\n"
-                            "Fewer frames = lower memory, may stutter\n\n"
-                            "72 frames = 3 seconds @ 24fps (default)\n"
-                            "180 frames = 7.5 seconds @ 24fps");
-                    }
-
-                    // Read-Behind Frames
-                    ImGui::Spacing();
-                    ImGui::Text("Read-Behind Frames:");
-                    if (ImGui::SliderInt("##TimelineReadBehind", &g_timeline_read_behind_frames, 0, 48)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Frames to keep behind playhead.\n\n"
-                            "Enables instant backward scrubbing.\n"
-                            "12 frames = 0.5s @ 24fps (default)");
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // I/O Threads
-                    ImGui::Text("I/O Threads:");
-                    if (ImGui::SliderInt("##TimelineIOThreads", &g_timeline_io_threads, 1, 16)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Background threads for loading frames into cache.\n\n"
-                            "More threads = faster cache fill\n"
-                            "Default: 8 threads");
-                    }
-
-                    // Decode Threads
-                    ImGui::Spacing();
-                    ImGui::Text("Decode Threads:");
-                    if (ImGui::SliderInt("##TimelineDecodeThreads", &g_video_decode_threads, 1, 32)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "FFmpeg internal decode threads per clip.\n\n"
-                            "More threads = faster decode, builds buffer ahead\n"
-                            "Effective for intra-frame codecs (ProRes, DNxHR)\n\n"
-                            "Recommended:\n"
-                            "  - 4 threads: Default\n"
-                            "  - 8-16 threads: High-core CPUs\n"
-                            "  - 16-32 threads: Workstations");
-                    }
-                    int hw_cores = std::thread::hardware_concurrency();
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                        "System has %d logical cores", hw_cores);
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-
-                    // Max Textures
-                    ImGui::Text("Max Cached Textures:");
-                    int window_size_tl = g_timeline_read_ahead_frames + g_timeline_read_behind_frames;
-                    int min_textures_tl = std::max(window_size_tl, 32);
-                    if (ImGui::SliderInt("##TimelineMaxTextures", &g_timeline_max_textures, min_textures_tl, 300)) {
-                        settings_changed = true;
-                    }
-                    ImGui::SameLine();
-                    ImGui::TextDisabled("(?)");
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip(
-                            "Maximum GPU textures in cache.\n\n"
-                            "Should be >= buffer window size (~%d frames).\n"
-                            "Higher = smoother scrubbing, more VRAM",
-                            window_size_tl);
-                    }
-                    if (g_timeline_max_textures < window_size_tl) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f),
-                            "Warning: Max textures < window size");
-                    }
-
-                    ImGui::Spacing();
-                    ImGui::Separator();
-                    ImGui::Spacing();
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                        "Settings take effect on next timeline load.");
-
-                        ImGui::EndTabItem();
-                    } // End Timeline tab
-#endif
-
                     // === TAB 6: Audio Sync ===
                     if (ImGui::BeginTabItem("Audio Sync")) {
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
@@ -7801,17 +7636,6 @@ private:
             } else {
                 ImGui::Text("The quick brown fox jumps over the lazy dog");
             }
-
-            ImGui::Spacing();
-
-            // Mono font preview
-        /*    if (font_regular) {
-                ImGui::PushFont(font_regular);
-                ImGui::Text("Mono Font: function main() { return 0; }");
-                ImGui::PopFont();
-            } else {
-                ImGui::Text("Mono Font: function main() { return 0; }");
-            }*/
 
             ImGui::Spacing();
             ImGui::TextDisabled("Scale: %.2fx", font_settings_temp_scale);
@@ -10832,28 +10656,6 @@ private:
         // OTIO timeline is now the only timeline mode
         RenderOTIOTimelinePanel();
     }
-
-    // Dead code removed: Standard Timeline Mode (~2600 lines)
-    // The old single-track timeline UI was never reachable since otio_timeline_mode
-    // was always true. Removed in cleanup along with:
-    // - std_timeline_zoom, std_timeline_pan, std_timeline_visible_width variables
-    // - std_follow_playhead variable
-    // - StdTimelineFrameToScreenX, StdTimelineScreenXToFrame, StdTimelineGetMaxPan helpers
-    // - View state callbacks for std_timeline_* (playhead restore kept)
-
-    // Placeholder to maintain line structure - actual dead code was here
-    void _removed_standard_timeline_placeholder() {
-        // ~2600 lines of dead standard timeline UI code removed
-        // This included: transport controls, seek bar, cache segments visualization,
-        // minimap viewport, zoom/pan controls, follow playhead, annotation markers,
-        // in/out point handles, timecode display, and various mouse interactions
-    }
-
-    // === DEAD CODE REMOVED ===
-    // Standard timeline UI (~2580 lines) and Dual View Timeline Panel (~2360 lines) removed.
-    // Both were unreachable - otio_timeline_mode is always true and RenderDualViewTimelinePanel
-    // was never called. The OTIO dual view system (TimelineSourceMode::DUAL_VIEW) remains active.
-    // [Dead code removed - RenderDualViewTimelinePanel() and RenderDualViewTrack() - ~2350 lines]
 
     // =========================================================================
     // OTIO TIMELINE PANEL - Multi-track timeline editor view
@@ -15687,15 +15489,14 @@ private:
         if (timeline_view && !ImGui::GetIO().WantTextInput) {
             auto* playback_ctrl = timeline_view->GetEffectivePlaybackController();
             bool is_direct_mpv = playback_ctrl && playback_ctrl->IsDirectMPVMode();
-            bool playlist_active = false;  // Legacy playlist controller removed
 
             // I = Set Timeline In Point
             if (ImGui::IsKeyPressed(ImGuiKey_I) && !ImGui::GetIO().KeyCtrl &&
                 !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt) {
                 double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
                 timeline_view->SetTimelineInPoint(playhead_time);
-                // Direct video mode: sync AB-loop if looping is enabled (but not in playlist mode)
-                if (is_direct_mpv && timeline_view->IsTimelineLooping() && !playlist_active) {
+                // Direct video mode: sync AB-loop if looping is enabled
+                if (is_direct_mpv && timeline_view->IsTimelineLooping()) {
                     double out_pt = timeline_view->HasTimelineOutPoint() ?
                                     timeline_view->GetTimelineOutPoint() : playback_ctrl->GetDuration();
                     playback_ctrl->SetABLoop(playhead_time, out_pt);
@@ -15708,8 +15509,8 @@ private:
                 !ImGui::GetIO().KeyShift && !ImGui::GetIO().KeyAlt) {
                 double playhead_time = timeline_manager ? timeline_manager->GetUIPosition() : 0.0;
                 timeline_view->SetTimelineOutPoint(playhead_time);
-                // Direct video mode: sync AB-loop if looping is enabled (but not in playlist mode)
-                if (is_direct_mpv && timeline_view->IsTimelineLooping() && !playlist_active) {
+                // Direct video mode: sync AB-loop if looping is enabled
+                if (is_direct_mpv && timeline_view->IsTimelineLooping()) {
                     double in_pt = timeline_view->HasTimelineInPoint() ?
                                    timeline_view->GetTimelineInPoint() : 0.0;
                     playback_ctrl->SetABLoop(in_pt, playhead_time);
@@ -16119,10 +15920,9 @@ private:
 
                 if (in_clicked) {
                     timeline_view->SetTimelineInPoint(tl_current_time);
-                    // Direct video mode: sync AB-loop if looping is enabled (but not in playlist mode)
+                    // Direct video mode: sync AB-loop if looping is enabled
                     auto* playback_ctrl = timeline_view->GetEffectivePlaybackController();
-                    bool playlist_active = false;  // Legacy playlist controller removed
-                    if (playback_ctrl && playback_ctrl->IsDirectMPVMode() && timeline_view->IsTimelineLooping() && !playlist_active) {
+                    if (playback_ctrl && playback_ctrl->IsDirectMPVMode() && timeline_view->IsTimelineLooping()) {
                         double out_pt = timeline_view->HasTimelineOutPoint() ?
                                         timeline_view->GetTimelineOutPoint() : playback_ctrl->GetDuration();
                         playback_ctrl->SetABLoop(tl_current_time, out_pt);
@@ -16156,10 +15956,9 @@ private:
 
                 if (out_clicked) {
                     timeline_view->SetTimelineOutPoint(tl_current_time);
-                    // Direct video mode: sync AB-loop if looping is enabled (but not in playlist mode)
+                    // Direct video mode: sync AB-loop if looping is enabled
                     auto* playback_ctrl = timeline_view->GetEffectivePlaybackController();
-                    bool playlist_active = false;  // Legacy playlist controller removed
-                    if (playback_ctrl && playback_ctrl->IsDirectMPVMode() && timeline_view->IsTimelineLooping() && !playlist_active) {
+                    if (playback_ctrl && playback_ctrl->IsDirectMPVMode() && timeline_view->IsTimelineLooping()) {
                         double in_pt = timeline_view->HasTimelineInPoint() ?
                                        timeline_view->GetTimelineInPoint() : 0.0;
                         playback_ctrl->SetABLoop(in_pt, tl_current_time);
@@ -17039,40 +16838,34 @@ private:
                     if (ImGui::MenuItem("Add Video Track Above")) {
                         if (timeline_view) {
                             timeline_view->AddVideoTrack(right_clicked_track_header_index);
-                            SyncTimelineTracksToProject();
                         }
                     }
                     if (ImGui::MenuItem("Add Video Track Below")) {
                         if (timeline_view) {
                             timeline_view->AddVideoTrack(right_clicked_track_header_index + 1);
-                            SyncTimelineTracksToProject();
                         }
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Add Audio Track")) {
                         if (timeline_view) {
                             timeline_view->AddAudioTrack();
-                            SyncTimelineTracksToProject();
                         }
                     }
                 } else {
                     if (ImGui::MenuItem("Add Audio Track Above")) {
                         if (timeline_view) {
                             timeline_view->AddAudioTrack(right_clicked_track_header_index);
-                            SyncTimelineTracksToProject();
                         }
                     }
                     if (ImGui::MenuItem("Add Audio Track Below")) {
                         if (timeline_view) {
                             timeline_view->AddAudioTrack(right_clicked_track_header_index + 1);
-                            SyncTimelineTracksToProject();
                         }
                     }
                     ImGui::Separator();
                     if (ImGui::MenuItem("Add Video Track")) {
                         if (timeline_view) {
                             timeline_view->AddVideoTrack();
-                            SyncTimelineTracksToProject();
                         }
                     }
                 }
@@ -17084,7 +16877,6 @@ private:
                 if (ImGui::MenuItem("Delete Track", nullptr, false, can_delete)) {
                     if (timeline_view) {
                         timeline_view->DeleteTrack(right_clicked_track_header_index);
-                        SyncTimelineTracksToProject();
                     }
                 }
                 if (!can_delete && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
@@ -17118,14 +16910,12 @@ private:
             if (ImGui::MenuItem("Add Video Track")) {
                 if (timeline_view) {
                     timeline_view->AddVideoTrack();
-                    SyncTimelineTracksToProject();
                 }
             }
 
             if (ImGui::MenuItem("Add Audio Track")) {
                 if (timeline_view) {
                     timeline_view->AddAudioTrack();
-                    SyncTimelineTracksToProject();
                 }
             }
 
@@ -17458,230 +17248,6 @@ private:
                 // Video mode - use existing CreatePropertiesSection for full metadata display
                 project_manager->CreatePropertiesSection();
             }
-
-            // Dead code block removed - Timeline Mode was removed from the application
-#if 0
-            // Timeline Mode - show timeline properties (TIMELINE mode removed)
-            // NOTE: This block is dead code since show_timeline_inspector is always false
-            constexpr bool show_timeline_inspector = false;  // TIMELINE mode removed
-            if (show_timeline_inspector) {
-                // === SELECTED CLIP INFO (shown when a clip is selected) ===
-                const auto& selection = timeline_view->GetSelection();
-                if (selection.HasSelection()) {
-                    std::string clip_id = selection.GetFirstSelectedClipId();
-                    int track_idx = -1;
-                    ump::OTIOClip* sel_clip = timeline_view->FindClipById(clip_id, &track_idx);
-
-                    if (sel_clip && !sel_clip->is_gap) {
-                        // Header
-                        ImGui::PushStyleColor(ImGuiCol_Text, UI_GRAY_VEC4);
-                        if (font_icons) {
-                            ImGui::PushFont(font_icons);
-                            ImGui::Text(ICON_MOVIE);
-                            ImGui::PopFont();
-                            ImGui::SameLine();
-                        }
-                        ImGui::Text("Selected Clip");
-                        ImGui::PopStyleColor();
-                        ImGui::Separator();
-
-                        // Clip name
-                        ImGui::Text("%s", sel_clip->name.c_str());
-
-                        ImGui::Spacing();
-
-                        // Clip properties table
-                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
-                        if (ImGui::BeginTable("SelectedClipProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
-                            ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-                            ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-
-                            double frame_rate = timeline_view->GetFrameRate();
-
-                            // Track
-                            if (track_idx >= 0 && track_idx < (int)timeline_view->GetTracks().size()) {
-                                const auto& track = timeline_view->GetTracks()[track_idx];
-                                ImGui::TableNextRow();
-                                ImGui::TableSetColumnIndex(0);
-                                ImGui::TextColored(UI_GRAY_VEC4, "Track:");
-                                ImGui::TableSetColumnIndex(1);
-                                        ImGui::Text("%s", track.name.c_str());
-                                    }
-
-                            // Duration
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::TextColored(UI_GRAY_VEC4, "Duration:");
-                            ImGui::TableSetColumnIndex(1);
-                                int clip_frames = (int)(sel_clip->duration * frame_rate);
-                            int clip_secs = (int)sel_clip->duration;
-                            int clip_mins = clip_secs / 60;
-                            int clip_sec_rem = clip_secs % 60;
-                            int clip_frame_rem = clip_frames % (int)frame_rate;
-                            ImGui::Text("%02d:%02d:%02d (%d frames)", clip_mins, clip_sec_rem, clip_frame_rem, clip_frames);
-    
-                            // Timeline position
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::TextColored(UI_GRAY_VEC4, "Position:");
-                            ImGui::TableSetColumnIndex(1);
-                                int pos_frame = (int)(sel_clip->start_time * frame_rate);
-                            int pos_secs = (int)sel_clip->start_time;
-                            int pos_mins = pos_secs / 60;
-                            int pos_sec_rem = pos_secs % 60;
-                            int pos_frame_rem = pos_frame % (int)frame_rate;
-                            ImGui::Text("%02d:%02d:%02d (frame %d)", pos_mins, pos_sec_rem, pos_frame_rem, pos_frame);
-    
-                            // Source range
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::TextColored(UI_GRAY_VEC4, "Source In:");
-                            ImGui::TableSetColumnIndex(1);
-                                int src_in_frame = (int)(sel_clip->source_in * frame_rate);
-                            ImGui::Text("Frame %d", src_in_frame);
-    
-                            // Link status
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
-                            ImGui::TextColored(UI_GRAY_VEC4, "Status:");
-                            ImGui::TableSetColumnIndex(1);
-                            if (sel_clip->is_linked) {
-                                ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "Linked");
-                            } else {
-                                ImGui::TextColored(ImVec4(0.8f, 0.4f, 0.4f, 1.0f), "Offline");
-                            }
-
-                            ImGui::EndTable();
-                        }
-                        ImGui::PopStyleVar();  // CellPadding
-
-                        // Source file path
-                        ImGui::Spacing();
-                        std::string clip_path = !sel_clip->linked_path.empty() ? sel_clip->linked_path : sel_clip->file_path;
-                        ImGui::TextColored(UI_GRAY_VEC4, "Source File:");
-                        if (!clip_path.empty()) {
-                            ImGui::TextWrapped("%s", clip_path.c_str());
-                        } else {
-                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
-                        }
-                        project_manager->RenderPathButtons(clip_path, "ClipPath");
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-                    }
-                }
-
-                // === TIMELINE PROPERTIES ===
-                // Get timeline info
-                std::string timeline_name = timeline_view->GetTimelineName();
-                double frame_rate = timeline_view->GetFrameRate();
-                double duration = timeline_view->GetDuration();
-                int video_tracks = timeline_view->GetVideoTrackCount();
-                int audio_tracks = timeline_view->GetAudioTrackCount();
-
-                // Get resolution from MediaItem if available
-                int width = 1920, height = 1080;
-                ump::MediaItem* timeline_item = project_manager->GetCurrentTimelineItem();
-                if (timeline_item) {
-                    width = timeline_item->timeline_width;
-                    height = timeline_item->timeline_height;
-                }
-
-                // Timeline name
-                ImGui::Text("%s", timeline_name.c_str());
-
-                ImGui::Spacing();
-
-                // Properties table
-                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
-                if (ImGui::BeginTable("TimelineProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
-                    ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
-                    ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
-
-                    // Resolution
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Resolution:");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%dx%d", width, height);
-
-                    // Frame Rate
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Frame Rate:");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%.3f fps", frame_rate);
-
-                    // Duration (HH:MM:SS.FF format)
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Duration:");
-                    ImGui::TableSetColumnIndex(1);
-                    int total_secs = (int)duration;
-                    int hours = total_secs / 3600;
-                    int mins = (total_secs % 3600) / 60;
-                    int secs = total_secs % 60;
-                    int frames = (int)((duration - total_secs) * frame_rate);
-                    if (hours > 0) {
-                        ImGui::Text("%02d:%02d:%02d:%02d", hours, mins, secs, frames);
-                    } else {
-                        ImGui::Text("%02d:%02d:%02d", mins, secs, frames);
-                    }
-
-                    // Total Frames
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Total Frames:");
-                    ImGui::TableSetColumnIndex(1);
-                    int total_frames = (int)(duration * frame_rate);
-                    ImGui::Text("%d", total_frames);
-
-                    // Track counts
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Video Tracks:");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%d", video_tracks);
-
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Audio Tracks:");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%d", audio_tracks);
-
-                    // Clip count
-                    int total_clips = 0;
-                    for (const auto& track : timeline_view->GetTracks()) {
-                        for (const auto& clip : track.clips) {
-                            if (!clip.is_gap) total_clips++;
-                        }
-                    }
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::TextColored(UI_GRAY_VEC4, "Total Clips:");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%d", total_clips);
-
-                    ImGui::EndTable();
-                }
-                ImGui::PopStyleVar();  // CellPadding
-
-                // Source directory info
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-
-                std::string source_dir = timeline_view->GetSourceDirectory();
-                ImGui::TextColored(UI_GRAY_VEC4, "Source Directory:");
-                if (!source_dir.empty()) {
-                    ImGui::TextWrapped("%s", source_dir.c_str());
-                } else {
-                    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "N/A");
-                }
-                project_manager->RenderPathButtons(source_dir, "SourceDir");
-            }
-#endif  // Dead timeline inspector code
         }
         ImGui::End();
         ImGui::PopStyleColor();  // kTransparentBorder
