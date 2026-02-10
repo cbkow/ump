@@ -1,7 +1,0 @@
-﻿  Building Custom Rule D:/z_DevTemp/UnionPlayer/build/_deps/opentimelineio-src/tests/CMakeLists.txt
-  utils.cpp
-  test_track.cpp
-  Generating Code...
-  test_track.vcxproj -> D:\z_DevTemp\UnionPlayer\build\_deps\opentimelineio-build\tests\Release\test_track.exe
-  'pwsh.exe' is not recognized as an internal or external command,
-  operable program or batch file.

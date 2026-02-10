@@ -1,3 +1,28 @@
-source/build/_deps/libharu-src/
-source/build/_deps/nfd-src/
-source/build/_deps/opentimelineio-src/
+# Build directories
+build/
+out/
+
+# IDE files
+.vs/
+.vscode/
+*.vcxproj.user
+*.suo
+*.user
+.idea/
+
+# Compiled binaries
+*.exe
+*.dll
+*.lib
+*.pdb
+*.obj
+
+# Visual Studio resource cache
+*.aps
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and temp
+*.log

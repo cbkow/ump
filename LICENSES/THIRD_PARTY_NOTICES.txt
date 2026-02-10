@@ -196,11 +196,32 @@ found in the respective LICENSE file in this directory.
     File: SoundTouch-LICENSE.txt
     Note: Audio processing library for tempo/pitch adjustment without affecting the other
 
+34. NanoVG
+    Copyright (c) 2013 Mikko Mononen
+    License: zlib
+    Website: https://github.com/memononen/nanovg
+    File: NanoVG-LICENSE.txt
+    Note: Antialiased 2D vector drawing library for OpenGL
+
+35. Ink Stroke Modeler
+    Copyright 2022 Google LLC
+    License: Apache License 2.0
+    Website: https://github.com/google/ink-stroke-modeler
+    File: InkStrokeModeler-LICENSE.txt
+    Note: Library for smoothing input strokes for handwriting/drawing applications
+
+36. Abseil C++ Common Libraries
+    Copyright 2017 The Abseil Authors
+    License: Apache License 2.0
+    Website: https://github.com/abseil/abseil-cpp
+    File: Abseil-LICENSE.txt
+    Note: Google's C++ common libraries (dependency of Ink Stroke Modeler)
+
 ================================================================================
 
 Media Assets (used in documentation)
 
-34. Big Buck Bunny
+37. Big Buck Bunny
     (c) 2008 Blender Foundation
     License: Creative Commons Attribution 3.0 (CC-BY 3.0)
     Website: https://www.bigbuckbunny.org/
