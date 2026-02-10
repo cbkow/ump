@@ -1,6 +1,6 @@
 # Acknowledgments
 
-This document credits projects that inspired the design and architecture of u.m.p. No code from these projects are used.
+This document credits projects that inspired the design and architecture of u.m.p.
 
 ---
 
