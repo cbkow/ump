@@ -36,6 +36,7 @@ ImageFormat DetectImageFormat(const std::string& path) {
     if (ext == ".tif" || ext == ".tiff") return ImageFormat::TIFF;
     if (ext == ".png") return ImageFormat::PNG;
     if (ext == ".jpg" || ext == ".jpeg") return ImageFormat::JPEG;
+    if (ext == ".exr") return ImageFormat::EXR;
 
     return ImageFormat::UNKNOWN;
 }
@@ -50,6 +51,23 @@ bool GetImageInfo(const std::string& path, ImageInfo& info) {
             return PNGLoader::GetInfo(path, info);
         case ImageFormat::JPEG:
             return JPEGLoader::GetInfo(path, info);
+        case ImageFormat::EXR: {
+            // EXR files are always half-float (16-bit float) and use ULTRA_HIGH_RES pipeline
+            int width = 0, height = 0;
+            if (DirectEXRCache::GetFrameDimensions(path, width, height)) {
+                info.width = width;
+                info.height = height;
+                info.channels = 4;  // EXR typically has RGBA
+                info.bit_depth = 16;  // Half-float
+                info.is_float = true;
+                info.recommended_pipeline = PipelineMode::ULTRA_HIGH_RES;
+                Debug::Log("EXRLoader::GetInfo: " + path + " - " +
+                           std::to_string(width) + "x" + std::to_string(height) +
+                           ", 16-bit half-float -> ULTRA_HIGH_RES");
+                return true;
+            }
+            return false;
+        }
         default:
             return false;
     }

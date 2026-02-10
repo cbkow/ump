@@ -23,7 +23,8 @@ enum class ImageFormat {
     UNKNOWN,
     TIFF,
     PNG,
-    JPEG
+    JPEG,
+    EXR
 };
 
 struct ImageInfo {

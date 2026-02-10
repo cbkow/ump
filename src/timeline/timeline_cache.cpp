@@ -2490,11 +2490,24 @@ PipelineMode TimelineCache::GetClipPipelineMode(int timeline_frame) const {
     SourceCoords coords = GetSourceCoords(timeline_frame);
     if (!coords.valid) return PipelineMode::NORMAL;
 
-    std::lock_guard<std::mutex> lock(loaders_mutex_);
-    auto it = loaders_.find(coords.source_path);
-    if (it != loaders_.end() && it->second) {
-        return it->second->pipeline_mode;
+    // First check if loader exists and has pipeline mode set
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        auto it = loaders_.find(coords.source_path);
+        if (it != loaders_.end() && it->second) {
+            return it->second->pipeline_mode;
+        }
     }
+
+    // Fallback: check sequence metadata (registered before loader is created)
+    {
+        std::lock_guard<std::mutex> lock(sequence_metadata_mutex_);
+        auto it = sequence_metadata_.find(coords.source_path);
+        if (it != sequence_metadata_.end() && it->second.valid) {
+            return it->second.pipeline_mode;
+        }
+    }
+
     return PipelineMode::NORMAL;
 }
 

@@ -6053,16 +6053,19 @@ private:
                                 std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
                             }
 
-                            is_exr = (ext == ".exr");
                             bool is_tiff = (ext == ".tiff" || ext == ".tif");
                             bool is_png = (ext == ".png");
 
                             // Check if it's an image sequence
                             is_image_sequence = (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) ||
-                                                is_exr || is_tiff || is_png || (ext == ".jpg" || ext == ".jpeg");
+                                                (ext == ".exr") || is_tiff || is_png || (ext == ".jpg" || ext == ".jpeg");
 
-                            // Check if 16-bit based on current mode (system detected it)
-                            is_16bit_image = (is_tiff || is_png) && (current_mode == PipelineMode::HIGH_RES);
+                            // Use pipeline mode to determine format (more reliable than extension)
+                            // ULTRA_HIGH_RES/HDR_RES = EXR/float content
+                            // HIGH_RES = 16-bit content
+                            // NORMAL = 8-bit content
+                            is_exr = (current_mode == PipelineMode::ULTRA_HIGH_RES || current_mode == PipelineMode::HDR_RES);
+                            is_16bit_image = (current_mode == PipelineMode::HIGH_RES);
                         }
                     }
                 } else if (video_player) {
@@ -6070,11 +6073,11 @@ private:
                     current_mode = video_player->GetPipelineMode();
 
                     // Check for image sequence mode
-                    is_image_sequence = video_player->IsInEXRMode();
-                    std::string seq_format = video_player->GetImageSequenceFormat();
-                    is_exr = (seq_format == "EXR");
-                    is_16bit_image = (seq_format == "TIFF" || seq_format == "PNG") &&
-                                     (current_mode == PipelineMode::HIGH_RES);
+                    is_image_sequence = video_player->IsInEXRMode() || video_player->IsImageSequence();
+
+                    // Use pipeline mode to determine format (more reliable)
+                    is_exr = (current_mode == PipelineMode::ULTRA_HIGH_RES || current_mode == PipelineMode::HDR_RES);
+                    is_16bit_image = (current_mode == PipelineMode::HIGH_RES);
                 }
 
                 // Pipeline Mode menu items - standardized labels
@@ -6305,7 +6308,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.5");
+                ImGui::TextDisabled("About u.m.p. v0.9.5.1");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);

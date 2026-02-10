@@ -971,7 +971,11 @@ void VideoDisplayComponent::InitializeEXRCache(const std::vector<std::string>& s
         exr_cache_->SetConfig(config);
         exr_cache_->SetLooping(loop_enabled_);
         exr_cache_->StartBackgroundCaching();
-        Debug::Log("VideoDisplayComponent: DirectEXRCache initialized");
+
+        // Update pipeline mode so GetPipelineMode() returns the correct mode for menu display
+        current_pipeline_mode_ = PipelineMode::HDR_RES;
+
+        Debug::Log("VideoDisplayComponent: DirectEXRCache initialized with HDR_RES pipeline");
     } else {
         Debug::Log("VideoDisplayComponent: ERROR - Failed to initialize DirectEXRCache");
         exr_cache_.reset();

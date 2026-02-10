@@ -296,7 +296,7 @@ public:
     EXRCacheStats GetEXRCacheStats() const;
 
     // Image sequence methods
-    std::string GetImageSequenceFormat() const { return is_exr_mode_ ? "exr" : ""; }
+    std::string GetImageSequenceFormat() const { return is_exr_mode_ ? "EXR" : ""; }
     bool SupportsPipelineMode(PipelineMode) const { return true; }
     bool IsImageSequence() const { return is_exr_mode_; }
     int GetImageSequenceStartFrame() const { return exr_sequence_start_frame_; }
