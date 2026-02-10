@@ -27,5 +27,5 @@
 ## Manual and documentation
 
 - Feature walk-through and usage guide: [https://cbkow.github.io/ump/](https://cbkow.github.io/ump/)
-- Inspiration: [https://github.com/cbkow/ump/blob/main/Acknowledgments.md](https://github.com/cbkow/ump/blob/main/Acknowledgments.md)
-- Credits: [https://github.com/cbkow/ump/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt](https://github.com/cbkow/ump/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
+- Inspiration: [Acknowledgments.md](Acknowledgments.md)
+- Credits: [/LICENSES/THIRD_PARTY_NOTICES.txt](/LICENSES/THIRD_PARTY_NOTICES.txt)
