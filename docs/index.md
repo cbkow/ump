@@ -35,5 +35,5 @@ nav_order: 1
 u.m.p. is open source. It's a personal, in-house tool, but free to use and alter. GPL is due to dependencies such as FFmpeg and Exiftool.
 
 - Source: [https://github.com/cbkow/ump](https://github.com/cbkow/ump)
-- Inspiration: [Acknowledgments.md](https://github.com/cbkow/ump/blob/main/Acknowledgments.md)
-- Credits: [/LICENSES/THIRD_PARTY_NOTICES.txt](https://github.com/cbkow/ump/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
+- Inspiration: [https://github.com/cbkow/ump/blob/main/Acknowledgments.md](Acknowledgments.md)
+- Credits: [https://github.com/cbkow/ump/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt](/LICENSES/THIRD_PARTY_NOTICES.txt)
