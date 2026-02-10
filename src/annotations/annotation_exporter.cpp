@@ -1,4 +1,5 @@
 #include "annotation_exporter.h"
+#include "markdown_parser.h"
 #include "../utils/debug_utils.h"
 #include "../utils/asset_path.h"
 #include <fstream>
@@ -18,6 +19,153 @@ extern "C" {
 
 namespace ump {
 namespace Annotations {
+
+// Helper: Render a block of text with inline code highlighting in a PDF.
+// Handles word-wrapping across code/non-code segments, drawing gray background
+// rects behind code spans and switching to mono font.
+//
+// Parameters:
+//   page          - current HPDF page
+//   raw_text      - text with backtick markers preserved (bold/italic already stripped)
+//   base_font     - font for regular text (e.g. Helvetica)
+//   code_font     - font for code spans (e.g. Courier)
+//   font_size     - font size in points
+//   x, y          - starting position (y is modified as lines are emitted)
+//   wrap_width    - maximum line width in points
+//   line_height   - vertical advance per line
+static void RenderBlockWithInlineCode(
+    HPDF_Page page,
+    const std::string& raw_text,
+    HPDF_Font base_font,
+    HPDF_Font code_font,
+    float font_size,
+    float x, float& y,
+    float wrap_width,
+    float line_height)
+{
+    auto segments = ParseInlineCodeSegments(raw_text);
+    if (segments.empty()) return;
+
+    // Flatten segments into words, each tagged with is_code
+    struct TaggedWord {
+        std::string text;
+        bool is_code;
+    };
+    std::vector<TaggedWord> words;
+
+    for (const auto& seg : segments) {
+        if (seg.is_code) {
+            // Keep code spans as single "words" (don't split on spaces)
+            words.push_back({seg.text, true});
+        } else {
+            // Split regular text into words
+            std::istringstream stream(seg.text);
+            std::string word;
+            while (stream >> word) {
+                words.push_back({word, false});
+            }
+        }
+    }
+
+    // Build lines by accumulating words until wrap_width is exceeded
+    struct LineSegment {
+        std::string text;
+        bool is_code;
+    };
+
+    std::vector<std::vector<LineSegment>> lines;
+    std::vector<LineSegment> current_line;
+    float current_width = 0;
+
+    for (size_t i = 0; i < words.size(); i++) {
+        const auto& w = words[i];
+
+        // Measure this word in the appropriate font
+        HPDF_Page_SetFontAndSize(page, w.is_code ? code_font : base_font, font_size);
+        float word_w = HPDF_Page_TextWidth(page, w.text.c_str());
+
+        // Add space before non-first, non-code words (and not after code)
+        float space_w = 0;
+        if (!current_line.empty()) {
+            HPDF_Page_SetFontAndSize(page, base_font, font_size);
+            space_w = HPDF_Page_TextWidth(page, " ");
+        }
+
+        if (!current_line.empty() && current_width + space_w + word_w > wrap_width) {
+            // Line is full, start new line
+            lines.push_back(current_line);
+            current_line.clear();
+            current_width = 0;
+            space_w = 0;
+        }
+
+        // Add space separator if needed
+        if (!current_line.empty() && !w.is_code) {
+            // Append space to previous segment if same type, else add new segment
+            if (!current_line.back().is_code) {
+                current_line.back().text += " ";
+                current_width += space_w;
+            } else {
+                current_line.push_back({" ", false});
+                current_width += space_w;
+            }
+        } else if (!current_line.empty() && w.is_code) {
+            // Space before code span
+            HPDF_Page_SetFontAndSize(page, base_font, font_size);
+            space_w = HPDF_Page_TextWidth(page, " ");
+            current_line.push_back({" ", false});
+            current_width += space_w;
+        }
+
+        // Merge with previous segment if same type
+        if (!current_line.empty() && current_line.back().is_code == w.is_code) {
+            current_line.back().text += w.text;
+        } else {
+            current_line.push_back({w.text, w.is_code});
+        }
+        current_width += word_w;
+    }
+
+    if (!current_line.empty()) {
+        lines.push_back(current_line);
+    }
+
+    // Render each line
+    for (const auto& line : lines) {
+        float cursor_x = x;
+
+        for (const auto& seg : line) {
+            HPDF_Font seg_font = seg.is_code ? code_font : base_font;
+            HPDF_Page_SetFontAndSize(page, seg_font, font_size);
+            float seg_w = HPDF_Page_TextWidth(page, seg.text.c_str());
+
+            if (seg.is_code) {
+                // Draw gray background rect behind code
+                float pad_x = 2.0f;
+                float pad_y = 1.5f;
+                HPDF_Page_SetRGBFill(page, 0.9f, 0.9f, 0.9f);
+                HPDF_Page_Rectangle(page,
+                    cursor_x - pad_x,
+                    y - font_size * 0.25f - pad_y,
+                    seg_w + pad_x * 2,
+                    font_size + pad_y * 2);
+                HPDF_Page_Fill(page);
+
+                // Reset fill color to black for text
+                HPDF_Page_SetRGBFill(page, 0.0f, 0.0f, 0.0f);
+            }
+
+            HPDF_Page_BeginText(page);
+            HPDF_Page_SetFontAndSize(page, seg_font, font_size);
+            HPDF_Page_TextOut(page, cursor_x, y, seg.text.c_str());
+            HPDF_Page_EndText(page);
+
+            cursor_x += seg_w;
+        }
+
+        y -= line_height;
+    }
+}
 
 AnnotationExporter::AnnotationExporter() {
 }
@@ -142,7 +290,7 @@ std::string AnnotationExporter::ExportMarkdown(
         if (note.addressed) {
             md << "**[Addressed]**<br>";
         }
-        md << note.text << " |\n";
+        md << ump::Annotations::EscapeForMarkdownTable(note.text) << " |\n";
     }
 
     md << "\n---\n\n";
@@ -285,7 +433,7 @@ std::string AnnotationExporter::ExportHTML(
         if (note.addressed) {
             html << "            <p><strong>[Addressed]</strong></p>\n";
         }
-        html << "            <p>" << note.text << "</p>\n";
+        html << "            <div>" << ump::Annotations::MarkdownToHtml(note.text) << "</div>\n";
         html << "        </div>\n";
         html << "    </div>\n";
     }
@@ -306,7 +454,7 @@ std::string AnnotationExporter::ExportHTML(
         if (note.addressed) {
             html << "        <p><strong>[Addressed]</strong></p>\n";
         }
-        html << "        <p>" << note.text << "</p>\n";
+        html << "        <div class=\"note-text\">" << ump::Annotations::MarkdownToHtml(note.text) << "</div>\n";
         html << "        <hr>\n";
         html << "    </div>\n";
     }
@@ -428,12 +576,53 @@ std::string AnnotationExporter::ExportPDF(
         HPDF_Page_EndText(page);
         y_pos -= 24;
 
-        // File path
-        HPDF_Page_SetFontAndSize(page, font_mono, 10);
-        HPDF_Page_BeginText(page);
-        HPDF_Page_TextOut(page, margin, y_pos, options.media_path.c_str());
-        HPDF_Page_EndText(page);
-        y_pos -= 40;
+        // File path (smaller font, word-wrapped on path separators)
+        HPDF_Page_SetFontAndSize(page, font_mono, 7);
+        {
+            float path_wrap_width = page_width - (margin * 2);
+            std::string remaining = options.media_path;
+            HPDF_Page_BeginText(page);
+
+            while (!remaining.empty()) {
+                // Find how much fits on this line
+                std::string line;
+                size_t pos = 0;
+                while (pos < remaining.size()) {
+                    // Try to break at path separators (/ or \)
+                    size_t next_sep = remaining.find_first_of("/\\", pos);
+                    std::string candidate;
+                    if (next_sep != std::string::npos) {
+                        candidate = remaining.substr(0, next_sep + 1);
+                    } else {
+                        candidate = remaining;
+                    }
+
+                    float text_w = HPDF_Page_TextWidth(page, candidate.c_str());
+                    if (text_w > path_wrap_width && !line.empty()) {
+                        break;  // Current line is full, wrap here
+                    }
+
+                    line = candidate;
+                    if (next_sep != std::string::npos) {
+                        pos = next_sep + 1;
+                    } else {
+                        break;  // No more separators, take the rest
+                    }
+                }
+
+                if (line.empty()) {
+                    // Single segment too long — just output it (will be clipped)
+                    line = remaining;
+                }
+
+                HPDF_Page_TextOut(page, margin, y_pos, line.c_str());
+                y_pos -= 12;
+                remaining = remaining.substr(line.size());
+            }
+
+            HPDF_Page_EndText(page);
+            y_pos -= 10;  // Spacing after path block
+        }
 
         // Metadata
         HPDF_Page_SetFontAndSize(page, font, 12);
@@ -529,34 +718,41 @@ std::string AnnotationExporter::ExportPDF(
                     info_y -= 25;
                 }
 
-                // Note text (word wrap)
-                HPDF_Page_SetFontAndSize(page, font, 10);
+                // Note text (markdown-aware block rendering with inline code)
                 float text_width = page_width - info_x - margin;
-                HPDF_Page_BeginText(page);
+                auto blocks = ump::Annotations::ParseMarkdownBlocks(note.text);
+                int ol_counter = 0;
 
-                // Simple word wrap
-                std::istringstream words(note.text);
-                std::string word;
-                std::string line;
+                for (const auto& block : blocks) {
+                    bool is_heading = block.type == ump::Annotations::MarkdownBlock::Type::Heading;
+                    HPDF_Font block_font = is_heading ? font_bold : font;
+                    float block_size = is_heading ? 11.0f : 10.0f;
 
-                while (words >> word) {
-                    std::string test_line = line.empty() ? word : line + " " + word;
-                    float text_w = HPDF_Page_TextWidth(page, test_line.c_str());
-
-                    if (text_w > text_width && !line.empty()) {
-                        HPDF_Page_TextOut(page, info_x, info_y, line.c_str());
-                        info_y -= 15;
-                        line = word;
+                    // Build display text with prefix for list items
+                    std::string display_text = block.raw_text;
+                    float indent = 0;
+                    if (block.type == ump::Annotations::MarkdownBlock::Type::UnorderedListItem) {
+                        ol_counter = 0;
+                        indent = 10;
+                        display_text = "- " + display_text;
+                    } else if (block.type == ump::Annotations::MarkdownBlock::Type::OrderedListItem) {
+                        ol_counter++;
+                        indent = 10;
+                        display_text = std::to_string(ol_counter) + ". " + display_text;
                     } else {
-                        line = test_line;
+                        ol_counter = 0;
+                    }
+
+                    float draw_x = info_x + indent;
+                    float wrap_w = text_width - indent;
+                    RenderBlockWithInlineCode(page, display_text, block_font, font_mono,
+                                             block_size, draw_x, info_y, wrap_w, 15.0f);
+
+                    // Extra spacing after headings and paragraphs
+                    if (is_heading || block.type == ump::Annotations::MarkdownBlock::Type::Paragraph) {
+                        info_y -= 3;
                     }
                 }
-
-                if (!line.empty()) {
-                    HPDF_Page_TextOut(page, info_x, info_y, line.c_str());
-                }
-
-                HPDF_Page_EndText(page);
             }
 
             y_pos -= thumbnail_height + 20;
@@ -613,34 +809,41 @@ std::string AnnotationExporter::ExportPDF(
                 y_pos -= 25;
             }
 
-            // Note text
-            HPDF_Page_SetFontAndSize(page, font, 12);
-            HPDF_Page_BeginText(page);
-
-            // Word wrap for note text
-            std::istringstream words(note.text);
-            std::string word;
-            std::string line;
+            // Note text (markdown-aware block rendering with inline code)
             float text_width = page_width - (margin * 2);
+            auto blocks = ump::Annotations::ParseMarkdownBlocks(note.text);
+            int ol_counter = 0;
 
-            while (words >> word) {
-                std::string test_line = line.empty() ? word : line + " " + word;
-                float text_w = HPDF_Page_TextWidth(page, test_line.c_str());
+            for (const auto& block : blocks) {
+                bool is_heading = block.type == ump::Annotations::MarkdownBlock::Type::Heading;
+                HPDF_Font block_font = is_heading ? font_bold : font;
+                float block_size = is_heading ? 14.0f : 12.0f;
 
-                if (text_w > text_width && !line.empty()) {
-                    HPDF_Page_TextOut(page, margin, y_pos, line.c_str());
-                    y_pos -= 18;
-                    line = word;
+                // Build display text with prefix for list items
+                std::string display_text = block.raw_text;
+                float indent = 0;
+                if (block.type == ump::Annotations::MarkdownBlock::Type::UnorderedListItem) {
+                    ol_counter = 0;
+                    indent = 15;
+                    display_text = "- " + display_text;
+                } else if (block.type == ump::Annotations::MarkdownBlock::Type::OrderedListItem) {
+                    ol_counter++;
+                    indent = 15;
+                    display_text = std::to_string(ol_counter) + ". " + display_text;
                 } else {
-                    line = test_line;
+                    ol_counter = 0;
+                }
+
+                float draw_x = margin + indent;
+                float wrap_w = text_width - indent;
+                RenderBlockWithInlineCode(page, display_text, block_font, font_mono,
+                                         block_size, draw_x, y_pos, wrap_w, 18.0f);
+
+                // Extra spacing after headings and paragraphs
+                if (is_heading || block.type == ump::Annotations::MarkdownBlock::Type::Paragraph) {
+                    y_pos -= 4;
                 }
             }
-
-            if (!line.empty()) {
-                HPDF_Page_TextOut(page, margin, y_pos, line.c_str());
-            }
-
-            HPDF_Page_EndText(page);
         }
 
         // Save PDF

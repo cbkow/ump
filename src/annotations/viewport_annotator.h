@@ -89,6 +89,11 @@ public:
     bool IsAnnotationMode() const { return mode_ == ViewportMode::ANNOTATION; }
 
     /**
+     * Allow drawing input even when a popup is open (for modal editing).
+     */
+    void SetAllowInputInPopup(bool allow) { allow_input_in_popup_ = allow; }
+
+    /**
      * Get current active drawing tool.
      */
     DrawingTool GetActiveTool() const { return active_tool_; }
@@ -186,6 +191,7 @@ public:
 private:
     ViewportMode mode_ = ViewportMode::PLAYBACK;
     DrawingTool active_tool_ = DrawingTool::NONE;
+    bool allow_input_in_popup_ = false;
 
     // Drawing properties
     ImVec4 drawing_color_ = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // Default: Red

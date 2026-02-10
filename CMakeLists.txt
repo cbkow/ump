@@ -132,6 +132,8 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/annotations/annotation_serializer.cpp"
     "src/annotations/annotation_exporter.h"
     "src/annotations/annotation_exporter.cpp"
+    "src/annotations/markdown_parser.h"
+    "src/annotations/markdown_parser.cpp"
     "src/annotations/ink_stroke_modeler_wrapper.h"
     "src/annotations/ink_stroke_modeler_wrapper.cpp"
     "src/annotations/nanovg_context.h"
@@ -225,6 +227,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_BINARY_DIR}/_deps/opentimelineio-src/src
     # ink-stroke-modeler headers
     ${CMAKE_BINARY_DIR}/_deps/ink_stroke_modeler-src
+    # imgui_markdown (single-header Markdown rendering for ImGui)
+    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui_markdown
 )
 
 # Link directories for Windows

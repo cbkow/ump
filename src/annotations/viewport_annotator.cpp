@@ -41,7 +41,8 @@ bool ViewportAnnotator::ProcessInput(const ImVec2& display_pos, const ImVec2& di
     }
 
     // Don't process drawing input if a popup is open (e.g., color picker)
-    if (ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
+    // Exception: allow input when editing in modal popup
+    if (!allow_input_in_popup_ && ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel)) {
         return false;
     }
 

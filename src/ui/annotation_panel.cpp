@@ -1,6 +1,10 @@
 #include "annotation_panel.h"
+#include "../annotations/annotation_toolbar.h"
+#include "../annotations/viewport_annotator.h"
 #include "../utils/debug_utils.h"
 #include <imgui.h>
+#include <imgui_markdown.h>
+#include <algorithm>
 #include <filesystem>
 #include <png.h>
 #include <vector>
@@ -8,6 +12,164 @@
 #define ICON_CLOSE u8"\uE5CD"
 
 extern ImFont* font_icons;
+extern ImFont* font_bold;
+extern ImFont* font_italic;
+extern ImFont* font_mono;
+
+// Custom markdown format callback: uses bold/italic fonts and SetWindowFontScale
+// for headings. We handle HEADING and EMPHASIS ourselves to avoid the default's
+// extra NewLine/Separator padding.
+static void MarkdownFormatCallback(const ImGui::MarkdownFormatInfo& info, bool start) {
+    switch (info.type) {
+        case ImGui::MarkdownFormatType::HEADING:
+            if (start) {
+                if (font_bold) ImGui::PushFont(font_bold);
+                switch (info.level) {
+                    case 1: ImGui::SetWindowFontScale(1.3f); break;
+                    case 2: ImGui::SetWindowFontScale(1.15f); break;
+                    default: ImGui::SetWindowFontScale(1.05f); break;
+                }
+            } else {
+                ImGui::SetWindowFontScale(1.0f);
+                if (font_bold) ImGui::PopFont();
+            }
+            break;
+        case ImGui::MarkdownFormatType::EMPHASIS:
+            if (start) {
+                if (info.level == 1) {
+                    // Italic (*text*)
+                    if (font_italic) ImGui::PushFont(font_italic);
+                } else {
+                    // Bold (**text**)
+                    if (font_bold) ImGui::PushFont(font_bold);
+                }
+            } else {
+                if (info.level == 1) {
+                    if (font_italic) ImGui::PopFont();
+                } else {
+                    if (font_bold) ImGui::PopFont();
+                }
+            }
+            break;
+        default:
+            ImGui::defaultMarkdownFormatCallback(info, start);
+            break;
+    }
+}
+
+// Renders a single line that may contain `backtick` code spans.
+// Code spans are drawn with font_mono + a subtle rounded background.
+// Non-code text is rendered as plain ImGui text (no markdown processing).
+static void RenderLineWithInlineCode(const char* line_start, const char* line_end) {
+    const char* pos = line_start;
+    bool first_segment = true;
+
+    while (pos < line_end) {
+        const char* tick = static_cast<const char*>(memchr(pos, '`', line_end - pos));
+        if (!tick) {
+            if (pos < line_end) {
+                if (!first_segment) ImGui::SameLine(0, 0);
+                ImGui::TextUnformatted(pos, line_end);
+            }
+            break;
+        }
+
+        // Normal text before the opening backtick
+        if (tick > pos) {
+            if (!first_segment) ImGui::SameLine(0, 0);
+            ImGui::TextUnformatted(pos, tick);
+            first_segment = false;
+        }
+
+        // Find closing backtick
+        const char* close = static_cast<const char*>(memchr(tick + 1, '`', line_end - (tick + 1)));
+        if (!close) {
+            // Unmatched backtick — render the rest as plain text
+            if (!first_segment) ImGui::SameLine(0, 0);
+            ImGui::TextUnformatted(tick, line_end);
+            break;
+        }
+
+        // Render the code span
+        const char* code_start = tick + 1;
+        if (code_start < close) {
+            if (!first_segment) ImGui::SameLine(0, 0);
+
+            const float pad_x = 3.0f;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
+
+            if (font_mono) ImGui::PushFont(font_mono);
+            ImVec2 text_pos = ImGui::GetCursorScreenPos();
+            ImVec2 text_size = ImGui::CalcTextSize(code_start, close);
+            ImGui::GetWindowDrawList()->AddRectFilled(
+                ImVec2(text_pos.x - pad_x, text_pos.y - 1),
+                ImVec2(text_pos.x + text_size.x + pad_x, text_pos.y + text_size.y + 1),
+                IM_COL32(255, 255, 255, 20), 3.0f);
+            ImGui::TextUnformatted(code_start, close);
+            if (font_mono) ImGui::PopFont();
+
+            // Right padding before next segment
+            ImGui::SameLine(0, pad_x);
+            first_segment = false;
+        }
+
+        pos = close + 1;
+    }
+}
+
+// Renders note text with both markdown formatting and inline code support.
+// Lines without backticks are batched and passed to ImGui::Markdown().
+// Lines with backticks are rendered directly with inline code spans.
+static void RenderMarkdownWithCode(const std::string& text, const ImGui::MarkdownConfig& config) {
+    if (text.empty()) return;
+
+    // Fast path: no backticks at all — pure markdown
+    if (text.find('`') == std::string::npos) {
+        ImGui::Markdown(text.c_str(), text.length(), config);
+        return;
+    }
+
+    const char* start = text.c_str();
+    const char* end = start + text.length();
+    const char* batch_start = nullptr;
+    const char* pos = start;
+
+    while (pos <= end) {
+        // Find line boundaries
+        const char* line_start = pos;
+        const char* line_end = static_cast<const char*>(memchr(pos, '\n', end - pos));
+        if (!line_end) line_end = end;
+
+        bool has_backtick = (memchr(line_start, '`', line_end - line_start) != nullptr);
+
+        if (!has_backtick) {
+            // Accumulate into markdown batch
+            if (!batch_start) batch_start = line_start;
+        } else {
+            // Flush any accumulated markdown batch first
+            if (batch_start) {
+                // batch runs from batch_start to line_start (which includes trailing newline of prev line)
+                size_t batch_len = line_start - batch_start;
+                if (batch_len > 0) {
+                    ImGui::Markdown(batch_start, batch_len, config);
+                }
+                batch_start = nullptr;
+            }
+            // Render this line with inline code handling
+            RenderLineWithInlineCode(line_start, line_end);
+        }
+
+        pos = line_end + 1; // skip past newline
+    }
+
+    // Flush remaining markdown batch
+    if (batch_start) {
+        size_t batch_len = end - batch_start;
+        if (batch_len > 0) {
+            ImGui::Markdown(batch_start, batch_len, config);
+        }
+    }
+}
 
 namespace ump {
 
@@ -52,7 +214,9 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
             ImGui::PopFont();
             ImGui::SameLine();
         }
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Annotations");
+        if (font_bold) ImGui::PopFont();
         ImGui::PopStyleColor();
 
         // Close button on the right
@@ -113,39 +277,56 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         return;
     }
 
-    RenderHeader();
+    if (ImGui::BeginTabBar("AnnotationTabs")) {
+        if (ImGui::BeginTabItem("Edit")) {
+            RenderHeader();
 
-    ImGui::Separator();
+            ImGui::Separator();
 
-    // We'll use auto-layout: footer in its own child, notes list takes remaining space
-    // First, render notes list in a child that takes all available space except what footer needs
-    float available_height = ImGui::GetContentRegionAvail().y;
+            // We'll use auto-layout: footer in its own child, notes list takes remaining space
+            // First, render notes list in a child that takes all available space except what footer needs
+            float available_height = ImGui::GetContentRegionAvail().y;
 
-    // Reserve some minimum space for footer (just the enabled button now)
-    // Scale with font (0.65 dampened)
-    const float ui_scale = ImGui::GetIO().FontGlobalScale;
-    const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-    float footer_reserve = 50.0f * height_scale;
+            // Reserve some minimum space for footer (just the enabled button now)
+            // Scale with font (0.65 dampened)
+            const float ui_scale = ImGui::GetIO().FontGlobalScale;
+            const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+            float footer_reserve = 50.0f * height_scale;
 
-    // Scrollable notes list - use transparent background to show panel color
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    if (ImGui::BeginChild("NotesScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
-        RenderNotesList();
+            // Scrollable notes list - use transparent background to show panel color
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            if (ImGui::BeginChild("NotesScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
+                RenderNotesList();
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            ImGui::Separator();
+
+            // Footer in auto-sized child (expands to fit content) - use transparent background
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+            if (ImGui::BeginChild("FooterRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar)) {
+                RenderFooter(accent_regular);
+            }
+            ImGui::EndChild();
+            ImGui::PopStyleColor();
+
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Preview")) {
+            RenderPreviewTab(accent_regular);
+            ImGui::EndTabItem();
+        }
+
+        ImGui::EndTabBar();
     }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-
-    ImGui::Separator();
-
-    // Footer in auto-sized child (expands to fit content) - use transparent background
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
-    if (ImGui::BeginChild("FooterRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar)) {
-        RenderFooter(accent_regular);
-    }
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
 
     ImGui::End();
+
+    // Render the edit modal (must be after End() since it's a separate popup)
+    RenderEditModal(accent_regular, accent_muted_dark);
+
     ImGui::PopStyleColor(2);  // Transparent border + window background
 }
 
@@ -173,9 +354,6 @@ void AnnotationPanel::RenderHeader() {
 void AnnotationPanel::RenderNotesList() {
     const auto& notes = annotation_manager_->GetNotes();
 
-    // Track if we right-clicked on a note (set by RenderNote)
-    right_clicked_note_timecode_.clear();
-
     if (notes.empty()) {
         ImGui::TextDisabled("No annotations yet");
         ImGui::TextDisabled("Click 'Add Note' to create your first annotation");
@@ -189,6 +367,12 @@ void AnnotationPanel::RenderNotesList() {
             // In production, we'd want a better pattern here
             RenderNote(const_cast<AnnotationNote&>(note));
 
+            // Scroll to this note if it was just added
+            if (!scroll_to_timecode_.empty() && note.timecode == scroll_to_timecode_) {
+                ImGui::SetScrollHereY(0.5f);
+                scroll_to_timecode_.clear();
+            }
+
             ImGui::PopID();
 
             // Add spacing between notes (no separator needed since each note has its own border)
@@ -196,59 +380,6 @@ void AnnotationPanel::RenderNotesList() {
         }
     }
 
-    // Context menu - right-click anywhere in the list area or on a note
-    if (right_clicked_note_timecode_.empty() && ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByPopup) &&
-        ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        ImGui::OpenPopup("AnnotationsContextMenu");
-    }
-
-    if (!right_clicked_note_timecode_.empty()) {
-        ImGui::OpenPopup("AnnotationsContextMenu");
-    }
-
-    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-
-    if (ImGui::BeginPopup("AnnotationsContextMenu")) {
-        bool has_notes = annotation_manager_->GetNoteCount() > 0;
-
-        if (ImGui::BeginMenu("Export")) {
-            if (!has_notes) {
-                ImGui::BeginDisabled();
-            }
-            if (ImGui::MenuItem("Markdown")) {
-                if (export_callback_) export_callback_("markdown");
-            }
-            if (ImGui::MenuItem("HTML")) {
-                if (export_callback_) export_callback_("html");
-            }
-            if (ImGui::MenuItem("PDF")) {
-                if (export_callback_) export_callback_("pdf");
-            }
-            if (!has_notes) {
-                ImGui::EndDisabled();
-            }
-            ImGui::EndMenu();
-        }
-
-        // Import requires media to be loaded
-        bool has_media = !annotation_manager_->GetImagesFolder().empty();
-        if (!has_media) {
-            ImGui::BeginDisabled();
-        }
-        if (ImGui::BeginMenu("Import")) {
-            if (ImGui::MenuItem("From Frame.io")) {
-                if (frameio_import_callback_) frameio_import_callback_();
-            }
-            ImGui::EndMenu();
-        }
-        if (!has_media) {
-            ImGui::EndDisabled();
-        }
-
-        ImGui::EndPopup();
-    }
-
-    ImGui::PopStyleColor();
 }
 
 void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
@@ -297,219 +428,191 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // Add left padding and begin inner content
     ImGui::Indent(padding);
 
-    // 3-column layout: Thumbnail | Timecode+Frame | Edit+Delete buttons
     float content_width = ImGui::GetContentRegionAvail().x - padding;
+    const float column_spacing = 8.0f;
 
-    // Column widths and spacing
-    const float thumbnail_width = 140.0f;  // Increased from 100.0f for better visibility
-    const float button_width = 80.0f;
-    const float column_spacing = 12.0f; // Spacing between columns
-    const float middle_width = content_width - thumbnail_width - button_width - column_spacing * 2;
-
-    // === COLUMN 1: Thumbnail ===
-    GLuint thumbnail_id = 0;
-    float thumbnail_aspect = video_aspect_ratio_;  // Default fallback
-    std::string full_image_path;
-
-    if (annotation_manager_) {
-        std::string images_folder = annotation_manager_->GetImagesFolder();
-        full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
-        thumbnail_id = LoadThumbnail(full_image_path);
-
-        // Use cached aspect ratio from actual image if available
-        auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
-        if (aspect_it != thumbnail_aspect_cache_.end()) {
-            thumbnail_aspect = aspect_it->second;
-        }
-    }
-
-    float thumbnail_height = thumbnail_width / thumbnail_aspect;
-
-    if (thumbnail_id != 0) {
-        // No fade on thumbnail - keep fully visible
-        ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
-
-        // Single-click to navigate to frame
-        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    // === ROW 1: Timecode (top-left) + Frame number (next to it) ===
+    {
+        if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(ImGui::CalcTextSize(note.timecode.c_str()).x, 0))) {
             selected_timecode_ = note.timecode;
             if (seek_callback_) {
                 seek_callback_(note.timestamp_seconds);
             }
+            // Auto-enter viewport drawing for this note
+            if (!note.addressed && enter_edit_mode_callback_) {
+                if (annotations_enabled_ptr_ && !(*annotations_enabled_ptr_))
+                    *annotations_enabled_ptr_ = true;
+                enter_edit_mode_callback_(note.timecode, note.timestamp_seconds, note.frame, note.annotation_data);
+            }
         }
 
-        // Show tooltip on hover
-        if (ImGui::IsItemHovered()) {
-            ImGui::SetTooltip("Click to navigate to this frame");
+        ImGui::SameLine(0.0f, column_spacing);
+
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::Text("F: %d", note.frame);
+        ImGui::PopStyleColor();
+    }
+
+    // === ROW 2: Thumbnail (left) + Text input (fills rest) ===
+    {
+        const float thumbnail_width = 120.0f;
+        GLuint thumbnail_id = 0;
+        float thumbnail_aspect = video_aspect_ratio_;
+        std::string full_image_path;
+
+        if (annotation_manager_) {
+            std::string images_folder = annotation_manager_->GetImagesFolder();
+            full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+            thumbnail_id = LoadThumbnail(full_image_path);
+
+            auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
+            if (aspect_it != thumbnail_aspect_cache_.end()) {
+                thumbnail_aspect = aspect_it->second;
+            }
         }
-    } else {
-        // Placeholder if no thumbnail
-        ImGui::Dummy(ImVec2(thumbnail_width, thumbnail_height));
-    }
 
-    // Add spacing before next column
-    ImGui::SameLine(0.0f, column_spacing);
+        float thumbnail_height = thumbnail_width / thumbnail_aspect;
 
-    // === COLUMN 2: Timecode and Frame (stacked) ===
-    ImGui::BeginGroup();
-    ImGui::PushItemWidth(middle_width);
+        if (thumbnail_id != 0) {
+            ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
 
-    // Get mono font for timecode and frame display
-    ImFont* mono_font = ImGui::GetIO().Fonts->Fonts.Size > 2 ? ImGui::GetIO().Fonts->Fonts[2] : nullptr;
-
-    // Timecode (clickable with bright accent color, mono font)
-    ImVec4 timecode_color = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
-    ImGui::PushStyleColor(ImGuiCol_Text, timecode_color);
-    if (mono_font) ImGui::PushFont(mono_font);
-    if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(middle_width, 0))) {
-        selected_timecode_ = note.timecode;
-        if (seek_callback_) {
-            seek_callback_(note.timestamp_seconds);
-        }
-    }
-    if (mono_font) ImGui::PopFont();
-    ImGui::PopStyleColor();
-
-    // Frame number (disabled text style with mono font)
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    if (mono_font) ImGui::PushFont(mono_font);
-    ImGui::Text("Frame: %d", note.frame);
-    if (mono_font) ImGui::PopFont();
-    ImGui::PopStyleColor();
-
-    ImGui::PopItemWidth();
-    ImGui::EndGroup();
-
-    // Add spacing before next column
-    ImGui::SameLine(0.0f, column_spacing);
-
-    // === COLUMN 3: Edit and Delete buttons (stacked) ===
-    ImGui::BeginGroup();
-
-    const float button_height = 0;  // Auto-height based on frame padding
-
-    // Material Icons edit icon
-    #define ICON_EDIT u8"\uE3C9"
-
-    // Get icon font if available (index 3: MaterialSymbolsSharp)
-    ImFont* icon_font = ImGui::GetIO().Fonts->Fonts.Size > 3 ? ImGui::GetIO().Fonts->Fonts[3] : nullptr;
-
-    // Check if this note is currently being edited
-    bool is_currently_editing = is_editing_callback_ ? is_editing_callback_(note.timecode) : false;
-
-    // Edit button colors (disabled if note is addressed)
-    ImVec4 accent_bright = get_bright_accent_color_callback_ ? get_bright_accent_color_callback_() : ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
-    ImVec4 accent_regular = ImVec4(accent_bright.x * 0.7f, accent_bright.y * 0.7f, accent_bright.z * 0.7f, accent_bright.w);
-    ImVec4 accent_muted_dark = ImVec4(accent_bright.x * 0.35f, accent_bright.y * 0.35f, accent_bright.z * 0.35f, accent_bright.w * 0.7f);
-
-    bool edit_button_enabled = !note.addressed;
-
-    if (edit_button_enabled) {
-        if (is_currently_editing) {
-            // Currently editing this note - use accent color
-            ImGui::PushStyleColor(ImGuiCol_Button, accent_regular);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
-        } else {
-            // Not editing - use normal colors with muted-dark for active
-            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered));
-            ImGui::PushStyleColor(ImGuiCol_ButtonActive, accent_muted_dark);
-        }
-    } else {
-        // Disabled state - use greyed out colors
-        ImVec4 disabled_color = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(disabled_color.x * 0.5f, disabled_color.y * 0.5f, disabled_color.z * 0.5f, 0.3f));
-        ImGui::PushStyleColor(ImGuiCol_Text, disabled_color);
-    }
-
-    if (icon_font) ImGui::PushFont(icon_font);
-    bool edit_clicked = edit_button_enabled && ImGui::Button(icon_font ? ICON_EDIT : "Edit", ImVec2(button_width, button_height));
-    if (icon_font) ImGui::PopFont();
-
-    if (edit_button_enabled) {
-        ImGui::PopStyleColor(3);
-    } else {
-        ImGui::PopStyleColor(4); // Pop 4 colors for disabled state
-    }
-
-    if (edit_clicked) {
-        if (is_currently_editing) {
-            // Already editing this note - save and exit
-            if (exit_edit_mode_callback_) {
-                exit_edit_mode_callback_();
+            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                selected_timecode_ = note.timecode;
+                if (seek_callback_) {
+                    seek_callback_(note.timestamp_seconds);
+                }
+                // Auto-enter viewport drawing for this note
+                if (!note.addressed && enter_edit_mode_callback_) {
+                    if (annotations_enabled_ptr_ && !(*annotations_enabled_ptr_))
+                        *annotations_enabled_ptr_ = true;
+                    enter_edit_mode_callback_(note.timecode, note.timestamp_seconds, note.frame, note.annotation_data);
+                }
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Click to navigate to this frame");
             }
         } else {
-            // Enter edit mode for this note
-            // Ensure annotations are enabled when entering edit mode
-            if (annotations_enabled_ptr_ && !(*annotations_enabled_ptr_)) {
-                *annotations_enabled_ptr_ = true;
-                Debug::Log("Annotations auto-enabled for editing");
-            }
+            ImGui::Dummy(ImVec2(thumbnail_width, thumbnail_height));
+        }
 
-            if (enter_edit_mode_callback_) {
+        ImGui::SameLine(0.0f, column_spacing);
+
+        // Text input fills remaining width, matches thumbnail height
+        float text_width = content_width - thumbnail_width - column_spacing;
+
+        char text_buffer[1024];
+        strncpy(text_buffer, note.text.c_str(), sizeof(text_buffer) - 1);
+        text_buffer[sizeof(text_buffer) - 1] = '\0';
+
+        if (note.addressed) {
+            ImVec4 text_color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+            text_color.w = 0.6f;
+            ImGui::PushStyleColor(ImGuiCol_Text, text_color);
+        }
+
+        if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
+            ImVec2(text_width, thumbnail_height), ImGuiInputTextFlags_WordWrap)) {
+            annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
+        }
+
+        if (note.addressed) {
+            ImGui::PopStyleColor();
+        }
+
+        if (ImGui::IsItemActivated()) {
+            selected_timecode_ = note.timecode;
+            if (seek_callback_) {
+                seek_callback_(note.timestamp_seconds);
+            }
+            // Auto-enter viewport drawing for this note
+            if (!note.addressed && enter_edit_mode_callback_) {
+                if (annotations_enabled_ptr_ && !(*annotations_enabled_ptr_))
+                    *annotations_enabled_ptr_ = true;
                 enter_edit_mode_callback_(note.timecode, note.timestamp_seconds, note.frame, note.annotation_data);
             }
         }
     }
 
-    // Delete button (stacked below Edit)
-    if (ImGui::Button("Delete", ImVec2(button_width, button_height))) {
-        HandleDeleteNote(note.timecode);
-    }
+    // === ROW 3: Addressed (left) + Edit & Delete buttons (flush right) ===
+    ImGui::Dummy(ImVec2(0, 1.0f));
+    {
+        bool edit_button_enabled = !note.addressed;
 
-    #undef ICON_EDIT
-
-    ImGui::EndGroup();
-
-    // === Full-width Text field below ===
-    // Add some spacing before text field
-    ImGui::Spacing();
-
-    char text_buffer[1024];
-    strncpy(text_buffer, note.text.c_str(), sizeof(text_buffer) - 1);
-    text_buffer[sizeof(text_buffer) - 1] = '\0';
-
-    // Text field - fade down to 60% opacity if addressed
-    if (note.addressed) {
-        ImVec4 text_color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
-        text_color.w = 0.6f; // 60% opacity
-        ImGui::PushStyleColor(ImGuiCol_Text, text_color);
-    }
-
-    // InputTextMultiline with WordWrap - always editable with wrapped text
-    if (ImGui::InputTextMultiline("##text", text_buffer, sizeof(text_buffer),
-        ImVec2(content_width, ImGui::GetTextLineHeight() * 4), ImGuiInputTextFlags_WordWrap)) {
-        // Text changed - update note
-        annotation_manager_->UpdateNoteText(note.timecode, text_buffer);
-    }
-
-    if (note.addressed) {
+        // Addressed checkbox (left side)
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::SetWindowFontScale(0.85f);
+        bool addressed = note.addressed;
+        if (ImGui::Checkbox("Addressed", &addressed)) {
+            if (annotation_manager_) {
+                annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
+            }
+        }
+        ImGui::SetWindowFontScale(1.0f);
         ImGui::PopStyleColor();
-    }
+        ImGui::PopStyleVar();
 
-    // If user clicked into this text field, seek to this note's frame
-    if (ImGui::IsItemActivated()) {
-        selected_timecode_ = note.timecode;
-        if (seek_callback_) {
-            seek_callback_(note.timestamp_seconds);
-        }
-    }
+        // Edit and Delete buttons flush right
+        const float button_spacing = 4.0f;
+        const float edit_padding_x = 12.0f;
+        float edit_text_button_width = ImGui::CalcTextSize("Edit").x + edit_padding_x * 2;
+        const float delete_padding_x = 12.0f;
+        float delete_button_width = ImGui::CalcTextSize("Delete").x + delete_padding_x * 2;
+        float buttons_total_width = edit_text_button_width + delete_button_width + button_spacing;
+        float indent_amount = padding;  // match our left indent
 
-    // Addressed checkbox (flush-left below text field, smaller regular font)
-    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::SetWindowFontScale(0.85f);
-    bool addressed = note.addressed;
-    if (ImGui::Checkbox("Addressed", &addressed)) {
-        if (annotation_manager_) {
-            annotation_manager_->UpdateNoteAddressed(note.timecode, addressed);
+        ImGui::SameLine(content_width - buttons_total_width + indent_amount);
+
+        // Edit button (opens modal editor)
+        if (!edit_button_enabled) ImGui::BeginDisabled();
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(edit_padding_x, ImGui::GetStyle().FramePadding.y));
+        bool edit_modal_clicked = ImGui::Button("Edit", ImVec2(0, 0));
+        ImGui::PopStyleVar();
+        if (!edit_button_enabled) ImGui::EndDisabled();
+
+        if (edit_modal_clicked && edit_button_enabled) {
+            modal_edit_timecode_ = note.timecode;
+            modal_edit_timestamp_ = note.timestamp_seconds;
+            modal_edit_frame_ = note.frame;
+            modal_edit_text_buffer_ = note.text;
+            modal_edit_text_buffer_.resize(4096);
+
+            // Load thumbnail for modal and read its real aspect ratio
+            if (annotation_manager_) {
+                std::string images_folder = annotation_manager_->GetImagesFolder();
+                std::string full_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+                modal_image_texture_ = LoadThumbnail(full_path);
+
+                auto aspect_it = thumbnail_aspect_cache_.find(full_path);
+                if (aspect_it != thumbnail_aspect_cache_.end()) {
+                    modal_image_aspect_ = aspect_it->second;
+                } else {
+                    modal_image_aspect_ = video_aspect_ratio_;  // fallback
+                }
+            }
+
+            edit_modal_open_ = true;
+            edit_modal_just_opened_ = true;
+
+            // Enter annotation edit mode for this note
+            if (annotations_enabled_ptr_ && !(*annotations_enabled_ptr_)) {
+                *annotations_enabled_ptr_ = true;
+            }
+            if (enter_modal_edit_callback_) {
+                enter_modal_edit_callback_(note.timecode, note.timestamp_seconds, note.frame, note.annotation_data);
+            }
         }
+
+        // Delete button (extra horizontal padding for text breathing room)
+        ImGui::SameLine(0.0f, button_spacing);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, ImGui::GetStyle().FramePadding.y));
+        if (ImGui::Button("Delete", ImVec2(0, 0))) {
+            HandleDeleteNote(note.timecode);
+        }
+        ImGui::PopStyleVar();
+
+        #undef ICON_DRAW
     }
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar();
 
     // Add bottom padding
     ImGui::Dummy(ImVec2(0, padding));
@@ -543,15 +646,375 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
             rounding);
     }
 
-    // Right-click detection for context menu
-    ImVec2 mouse_pos = ImGui::GetMousePos();
-    ImVec2 note_max = ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y);
-    bool mouse_in_note = mouse_pos.x >= group_start_pos.x && mouse_pos.x <= note_max.x &&
-                         mouse_pos.y >= group_start_pos.y && mouse_pos.y <= note_max.y;
+}
 
-    if (mouse_in_note && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-        right_clicked_note_timecode_ = note.timecode;
+void AnnotationPanel::RenderPreviewTab(ImVec4 accent_regular) {
+    // Header: note count + loading/saving status (no Add Note button)
+    size_t note_count = annotation_manager_->GetNoteCount();
+    ImGui::Text("Notes: %zu", note_count);
+
+    if (annotation_manager_->IsLoading()) {
+        ImGui::SameLine();
+        ImGui::Text("Loading...");
     }
+    if (annotation_manager_->IsSaving()) {
+        ImGui::SameLine();
+        ImGui::Text("Saving...");
+    }
+
+    ImGui::Separator();
+
+    // Layout: scrollable notes + footer
+    float available_height = ImGui::GetContentRegionAvail().y;
+    const float ui_scale = ImGui::GetIO().FontGlobalScale;
+    const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
+    float footer_reserve = 50.0f * height_scale;
+
+    // Scrollable preview notes
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    if (ImGui::BeginChild("PreviewScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
+        const auto& notes = annotation_manager_->GetNotes();
+        if (notes.empty()) {
+            ImGui::TextDisabled("No annotations yet");
+        } else {
+            int note_index = 0;
+            for (auto& note : annotation_manager_->GetNotes()) {
+                ImGui::PushID(note_index++);
+                RenderPreviewNote(const_cast<AnnotationNote&>(note));
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
+        }
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    ImGui::Separator();
+
+    // Footer with Annotations Enabled button
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
+    if (ImGui::BeginChild("PreviewFooterRegion", ImVec2(0, 0), false, ImGuiWindowFlags_NoScrollbar)) {
+        RenderFooter(accent_regular);
+    }
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+}
+
+void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
+    const float padding = 8.0f;
+    const float rounding = 9.0f;
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 group_start_pos = ImGui::GetCursorScreenPos();
+
+    ImGui::BeginGroup();
+
+    // Apply alpha modulation for addressed notes
+    if (note.addressed) {
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.35f);
+    }
+
+    ImGui::Dummy(ImVec2(0, padding));
+    ImGui::Indent(padding);
+
+    float content_width = ImGui::GetContentRegionAvail().x - padding;
+
+    // Timecode + frame number
+    ImGui::Text("%s", note.timecode.c_str());
+    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::Text("Frame: %d", note.frame);
+    ImGui::PopStyleColor();
+
+    // Full-width thumbnail
+    GLuint thumbnail_id = 0;
+    float thumbnail_aspect = video_aspect_ratio_;
+
+    if (annotation_manager_) {
+        std::string images_folder = annotation_manager_->GetImagesFolder();
+        std::string full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+        thumbnail_id = LoadThumbnail(full_image_path);
+
+        auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
+        if (aspect_it != thumbnail_aspect_cache_.end()) {
+            thumbnail_aspect = aspect_it->second;
+        }
+    }
+
+    float thumb_w = content_width;
+    float thumb_h = thumb_w / thumbnail_aspect;
+
+    if (thumbnail_id != 0) {
+        ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumb_w, thumb_h));
+        if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            if (seek_callback_) {
+                seek_callback_(note.timestamp_seconds);
+            }
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Click to seek to this frame");
+        }
+    } else {
+        ImGui::Dummy(ImVec2(thumb_w, thumb_h));
+    }
+
+    // Markdown-rendered note text
+    if (!note.text.empty()) {
+        ImGui::Spacing();
+
+        ImGui::MarkdownConfig md_config;
+        md_config.linkCallback = nullptr;
+        md_config.tooltipCallback = nullptr;
+        md_config.imageCallback = nullptr;
+        md_config.headingFormats[0] = { nullptr, true };
+        md_config.headingFormats[1] = { nullptr, true };
+        md_config.headingFormats[2] = { nullptr, false };
+        md_config.formatCallback = MarkdownFormatCallback;
+
+        RenderMarkdownWithCode(note.text, md_config);
+    }
+
+    ImGui::Dummy(ImVec2(0, padding));
+    ImGui::Unindent(padding);
+
+    if (note.addressed) {
+        ImGui::PopStyleVar();
+    }
+
+    ImGui::EndGroup();
+
+    // Draw rounded border (same style as Edit tab)
+    ImVec2 group_end_pos = ImGui::GetItemRectMax();
+    ImVec2 group_size = ImVec2(group_end_pos.x - group_start_pos.x, group_end_pos.y - group_start_pos.y);
+    const float right_extension = 8.0f;
+
+    draw_list->AddRect(
+        group_start_pos,
+        ImVec2(group_start_pos.x + group_size.x + right_extension, group_start_pos.y + group_size.y),
+        IM_COL32(255, 255, 255, 15),
+        rounding, 0, 1.0f);
+
+    // Invisible button over the card for click interactions
+    ImVec2 card_size = ImVec2(group_size.x + right_extension, group_size.y);
+    ImGui::SetCursorScreenPos(group_start_pos);
+    ImGui::InvisibleButton("##card_click", card_size);
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+        // Left-click: select note and seek to its timestamp
+        selected_timecode_ = note.timecode;
+        if (seek_callback_) {
+            seek_callback_(note.timestamp_seconds);
+        }
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        // Right-click: toggle addressed state
+        annotation_manager_->UpdateNoteAddressed(note.timecode, !note.addressed);
+    }
+}
+
+void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted_dark) {
+    if (!edit_modal_open_) return;
+
+    // Handle deferred open
+    if (edit_modal_just_opened_) {
+        ImGui::OpenPopup("##EditAnnotationModal");
+        edit_modal_just_opened_ = false;
+    }
+
+    // Modal height is fixed at 95% viewport; width wraps to image width
+    // (clamped between 50% and 95% of viewport for tall/wide extremes).
+    ImGuiViewport* vp = ImGui::GetMainViewport();
+    float padding = 16.0f;
+
+    float modal_h = vp->Size.y * 0.95f;
+
+    // Pre-compute expected image width from vertical budget + aspect ratio
+    // so we can size the modal *before* BeginPopupModal.
+    float est_line_h = ImGui::GetFontSize() + ImGui::GetStyle().ItemSpacing.y;
+    float est_frame_pad_y = ImGui::GetStyle().FramePadding.y;
+    float est_spacing_y = ImGui::GetStyle().ItemSpacing.y;
+    float est_header = est_line_h * 2.0f + 2.0f + est_spacing_y;  // title + subtitle + separator
+    float est_text_area = est_line_h * 12.0f;
+    float est_toolbar = est_line_h + est_frame_pad_y * 2.0f;
+    float est_bottom = est_spacing_y + est_text_area + est_spacing_y + 2.0f + est_spacing_y + est_toolbar;
+    float est_img_h = (modal_h - 2.0f * padding) - est_header - est_bottom;
+    if (est_img_h < 60.0f) est_img_h = 60.0f;
+    float est_img_w = est_img_h * modal_image_aspect_;
+
+    // Clamp modal width: at least 50% viewport, at most 95%
+    float modal_w = est_img_w + 2.0f * padding;
+    modal_w = std::max(modal_w, vp->Size.x * 0.5f);
+    modal_w = std::min(modal_w, vp->Size.x * 0.95f);
+
+    ImVec2 center = vp->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(modal_w, modal_h), ImGuiCond_Always);
+
+    ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+
+    bool modal_open = true;
+    if (ImGui::BeginPopupModal("##EditAnnotationModal", &modal_open,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar)) {
+
+        // Handle close request from external code (Done/Cancel from toolbar)
+        if (modal_close_requested_) {
+            modal_close_requested_ = false;
+            edit_modal_open_ = false;
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            ImGui::PopStyleVar(2);
+            ImGui::PopStyleColor();
+            return;
+        }
+
+        float content_w = ImGui::GetContentRegionAvail().x;
+
+        // === Header: Title + Close button ===
+        {
+            ImGui::Text("Edit Annotation");
+            ImGui::SameLine(content_w - 20.0f);
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+                if (ImGui::SmallButton(ICON_CLOSE)) {
+                    if (save_modal_edit_callback_) save_modal_edit_callback_();
+                    edit_modal_open_ = false;
+                    ImGui::CloseCurrentPopup();
+                    ImGui::PopFont();
+                    ImGui::EndPopup();
+                    ImGui::PopStyleVar(2);
+                    ImGui::PopStyleColor();
+                    return;
+                }
+                ImGui::PopFont();
+            } else {
+                if (ImGui::SmallButton("X")) {
+                    if (save_modal_edit_callback_) save_modal_edit_callback_();
+                    edit_modal_open_ = false;
+                    ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
+                    ImGui::PopStyleVar(2);
+                    ImGui::PopStyleColor();
+                    return;
+                }
+            }
+        }
+
+        // Subtitle: timecode and frame
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::Text("Editing: %s  (Frame: %d)", modal_edit_timecode_.c_str(), modal_edit_frame_);
+        ImGui::PopStyleColor();
+
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // --- Measure remaining space and allocate to image / text / toolbar ---
+        // We know what comes after the image: spacing + text area + separator + spacing + toolbar row.
+        // Measure those heights from actual ImGui metrics so we don't drift.
+        float line_h = ImGui::GetTextLineHeightWithSpacing();
+        float frame_pad_y = ImGui::GetStyle().FramePadding.y;
+        float item_spacing_y = ImGui::GetStyle().ItemSpacing.y;
+
+        float text_area_h = line_h * 12.0f;  // ~12 lines for notes
+        float toolbar_row_h = line_h + frame_pad_y * 2.0f;  // one row of buttons
+        float bottom_chrome = item_spacing_y          // Spacing() after image
+                            + text_area_h             // text input
+                            + item_spacing_y          // spacing before separator
+                            + 2.0f                    // Separator
+                            + item_spacing_y          // Spacing() after separator
+                            + toolbar_row_h;          // toolbar + delete button row
+
+        float avail_h = ImGui::GetContentRegionAvail().y;
+        float img_h = avail_h - bottom_chrome;
+        if (img_h < 60.0f) img_h = 60.0f;
+
+        // Constrain image by its actual aspect ratio (from the thumbnail file, not the video player)
+        float img_w = img_h * modal_image_aspect_;
+        if (img_w > content_w) {
+            img_w = content_w;
+            img_h = img_w / modal_image_aspect_;
+        }
+
+        // === Image ===
+        if (modal_image_texture_ != 0) {
+            ImGui::Image((void*)(intptr_t)modal_image_texture_, ImVec2(img_w, img_h));
+        } else {
+            ImGui::Dummy(ImVec2(img_w, img_h));
+        }
+
+        // Read back the actual rendered rect — this is what NanoVG must match exactly
+        modal_image_screen_pos_ = ImGui::GetItemRectMin();
+        modal_image_screen_size_ = ImGui::GetItemRectSize();
+
+        ImGui::Spacing();
+
+        // === Text area: match image width, but never narrower than 50% of modal ===
+        float text_w = std::max(img_w, content_w * 0.5f);
+        if (ImGui::InputTextMultiline("##ModalText", modal_edit_text_buffer_.data(),
+            modal_edit_text_buffer_.capacity(), ImVec2(text_w, text_area_h),
+            ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackResize,
+            [](ImGuiInputTextCallbackData* data) -> int {
+                if (data->EventFlag == ImGuiInputTextFlags_CallbackResize) {
+                    auto* str = static_cast<std::string*>(data->UserData);
+                    str->resize(data->BufTextLen);
+                    data->Buf = str->data();
+                }
+                return 0;
+            }, &modal_edit_text_buffer_)) {
+            // Save text changes immediately
+            if (annotation_manager_) {
+                annotation_manager_->UpdateNoteText(modal_edit_timecode_, modal_edit_text_buffer_.c_str());
+            }
+        }
+
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        // === Toolbar ===
+        if (annotation_toolbar_ && viewport_annotator_) {
+            bool can_undo = can_undo_callback_ ? can_undo_callback_() : false;
+            bool can_redo = can_redo_callback_ ? can_redo_callback_() : false;
+
+            ImFont* icon_font = font_icons;
+            annotation_toolbar_->Render(viewport_annotator_, can_undo, can_redo,
+                                        icon_font, accent_regular, accent_muted_dark);
+        }
+
+        // Delete Note button (accent dark, flush right)
+        ImGui::SameLine(content_w - ImGui::CalcTextSize("Delete Note").x - 24.0f);
+        ImVec4 del_hover(
+            std::min(accent_muted_dark.x * 1.25f, 1.0f),
+            std::min(accent_muted_dark.y * 1.25f, 1.0f),
+            std::min(accent_muted_dark.z * 1.25f, 1.0f),
+            accent_muted_dark.w);
+        ImVec4 del_active(
+            accent_muted_dark.x * 0.8f,
+            accent_muted_dark.y * 0.8f,
+            accent_muted_dark.z * 0.8f,
+            accent_muted_dark.w);
+        ImGui::PushStyleColor(ImGuiCol_Button, accent_muted_dark);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, del_hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, del_active);
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, ImGui::GetStyle().FramePadding.y));
+        if (ImGui::Button("Delete Note")) {
+            std::string tc = modal_edit_timecode_;
+            edit_modal_open_ = false;
+            ImGui::CloseCurrentPopup();
+            if (delete_note_callback_) delete_note_callback_(tc);
+        }
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+
+        ImGui::EndPopup();
+    } else {
+        // Modal was closed via Escape or clicking outside
+        if (edit_modal_open_) {
+            if (save_modal_edit_callback_) save_modal_edit_callback_();
+            edit_modal_open_ = false;
+        }
+    }
+
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor();
 }
 
 void AnnotationPanel::HandleAddNote() {
@@ -612,6 +1075,9 @@ void AnnotationPanel::HandleAddNote() {
 
     // Add note to annotation manager (it will generate image path internally)
     annotation_manager_->AddNote(timestamp, timecode, frame, "");
+
+    // Scroll the list to the newly added note on the next frame
+    scroll_to_timecode_ = timecode;
 
     Debug::Log("Note added successfully at " + timecode);
 }

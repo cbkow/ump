@@ -62,6 +62,7 @@ static ump::EXRTranscoder& GetSharedTranscoder() {
 }
 
 extern ImFont* font_regular;
+extern ImFont* font_bold;
 extern ImFont* font_mono;
 
 // External variables from main.cpp
@@ -1312,7 +1313,9 @@ namespace ump {
                 ImGui::PopFont();
                 ImGui::SameLine();
             }
+            if (font_bold) ImGui::PushFont(font_bold);
             ImGui::Text("Project Manager");
+            if (font_bold) ImGui::PopFont();
             ImGui::PopStyleColor();
 
             // Close button on the right
@@ -2196,7 +2199,9 @@ namespace ump {
 
                 if (video_player && video_player->HasVideo()) {
                     ImGui::Spacing();
+                    if (font_bold) ImGui::PushFont(font_bold);
                     ImGui::Text("Sequence Properties");
+                    if (font_bold) ImGui::PopFont();
                     ImGui::Separator();
 
                     ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
@@ -4237,7 +4242,9 @@ namespace ump {
 
         // Always show file information
         ImGui::Spacing();
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("File Information");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         DisplayFileInfoTable(video_meta);
 
@@ -4245,27 +4252,35 @@ namespace ump {
         if (is_audio_only) {
             if (HasAudioInfo(video_meta)) {
                 ImGui::Spacing();
+                if (font_bold) ImGui::PushFont(font_bold);
                 ImGui::Text("Audio Properties");
+                if (font_bold) ImGui::PopFont();
                 ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
         } else {
             // For video files, show video properties first
             ImGui::Spacing();
+            if (font_bold) ImGui::PushFont(font_bold);
             ImGui::Text("Video Properties");
+            if (font_bold) ImGui::PopFont();
             ImGui::Separator();
             DisplayVideoPropertiesTable(video_meta);
 
             if (HasColorInfo(video_meta)) {
                 ImGui::Spacing();
+                if (font_bold) ImGui::PushFont(font_bold);
                 ImGui::Text("Color Properties");
+                if (font_bold) ImGui::PopFont();
                 ImGui::Separator();
                 DisplayColorPropertiesTable(video_meta);
             }
 
             if (HasAudioInfo(video_meta)) {
                 ImGui::Spacing();
+                if (font_bold) ImGui::PushFont(font_bold);
                 ImGui::Text("Audio Properties");
+                if (font_bold) ImGui::PopFont();
                 ImGui::Separator();
                 DisplayAudioPropertiesTable(video_meta);
             }
@@ -4284,7 +4299,9 @@ namespace ump {
         }
 
         ImGui::Spacing();
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Adobe Projects");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         DisplayAdobeProjectsTable(adobe_meta);
     }
@@ -4301,7 +4318,9 @@ namespace ump {
         }
 
         ImGui::Spacing();
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Timecode");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
 
         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
@@ -4377,20 +4396,26 @@ namespace ump {
 
         // Show file information
         ImGui::Spacing();
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("File Information");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         DisplayEXRFileInfoTable(exr_meta);
 
         // Show image properties
         ImGui::Spacing();
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Image Properties");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         DisplayEXRImagePropertiesTable(exr_meta);
 
         // Show layer information (lazy loaded)
         if (exr_meta->extended_properties_detected && exr_meta->total_layers > 0) {
             ImGui::Spacing();
+            if (font_bold) ImGui::PushFont(font_bold);
             ImGui::Text("EXR Layers");
+            if (font_bold) ImGui::PopFont();
             ImGui::Separator();
             DisplayEXRChannelsTable(exr_meta);
         }
@@ -4837,7 +4862,9 @@ namespace ump {
 
             // === FILE INFORMATION SECTION ===
             ImGui::Spacing();
-            ImGui::Text("File Information");
+            if (font_bold) ImGui::PushFont(font_bold);
+        ImGui::Text("File Information");
+        if (font_bold) ImGui::PopFont();
             ImGui::Separator();
 
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
@@ -4892,7 +4919,9 @@ namespace ump {
 
             // === IMAGE PROPERTIES SECTION ===
             ImGui::Spacing();
-            ImGui::Text("Image Properties");
+            if (font_bold) ImGui::PushFont(font_bold);
+        ImGui::Text("Image Properties");
+        if (font_bold) ImGui::PopFont();
             ImGui::Separator();
 
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
@@ -4992,7 +5021,9 @@ namespace ump {
                 // Show dropdown if we have layers
                 if (!available_layer_display_names.empty()) {
                     ImGui::Spacing();
+                    if (font_bold) ImGui::PushFont(font_bold);
                     ImGui::Text("Layer Selection");
+                    if (font_bold) ImGui::PopFont();
                     ImGui::Separator();
 
                     ImGui::SetNextItemWidth(250.0f);
@@ -5071,7 +5102,9 @@ namespace ump {
                 std::vector<EXRLayer> layers;
                 if (detector.DetectLayers(first_exr, layers) && !layers.empty()) {
                     ImGui::Spacing();
-                    ImGui::Text("EXR Layers");
+                    if (font_bold) ImGui::PushFont(font_bold);
+            ImGui::Text("EXR Layers");
+            if (font_bold) ImGui::PopFont();
                     ImGui::Separator();
 
                     // Layer summary

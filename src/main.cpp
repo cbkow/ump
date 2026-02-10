@@ -154,6 +154,8 @@ std::unique_ptr<OCIOConfigManager> ocio_manager;
 // GLOBAL VARIABLES
 // ============================================================================
 ImFont* font_regular = nullptr;
+ImFont* font_bold = nullptr;
+ImFont* font_italic = nullptr;
 ImFont* font_mono = nullptr;
 ImFont* font_icons = nullptr;
 
@@ -165,7 +167,7 @@ ImVec4 custom_picker_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);  // User-selected c
 // Accent color palette (hex colors converted to ImVec4)
 // Note: extern const to give external linkage for other translation units
 extern const ImVec4 accent_color_palette[] = {
-    ImVec4(0x7e/255.0f, 0x73/255.0f, 0x5f/255.0f, 1.0f),  // 0: 7e735f - Default tan
+    ImVec4(0xdb/255.0f, 0x85/255.0f, 0x32/255.0f, 1.0f),  // 0: db8532 - Default amber
     ImVec4(0x69/255.0f, 0x79/255.0f, 0x7e/255.0f, 1.0f),  // 1: 69797e - Gray-blue (old default)
     ImVec4(0x65/255.0f, 0x55/255.0f, 0x15/255.0f, 1.0f),  // 2: 655515 - Old yellow
     ImVec4(0xda/255.0f, 0x3b/255.0f, 0x01/255.0f, 1.0f),  // 3: da3b01 - Orange
@@ -2217,6 +2219,9 @@ public:
                 return;
             }
 
+            // Clear dual view mode flag (may be set if switching from dual view)
+            otio_dual_view_mode = false;
+
             // Create TimelineView if it doesn't exist (first time entering timeline mode)
             if (!timeline_view) {
                 Debug::Log("PlaylistTimelineCallback: Creating TimelineView for first use");
@@ -2590,6 +2595,7 @@ public:
 
         // Set up annotation panel callbacks
         annotation_panel->SetSeekCallback([this](double timestamp) {
+            AutoSaveAnnotationOnSeek();
             if (video_player) {
                 video_player->Seek(timestamp);
             }
@@ -2616,6 +2622,12 @@ public:
         });
 
         annotation_panel->SetAnnotationsEnabled(&annotations_enabled);
+
+        // Pass annotation toolbar and viewport annotator for modal editing
+        annotation_panel->SetAnnotationToolbar(annotation_toolbar.get());
+        annotation_panel->SetViewportAnnotator(viewport_annotator.get());
+        annotation_panel->SetCanUndoCallback([this]() { return !annotation_undo_stack_.empty(); });
+        annotation_panel->SetCanRedoCallback([this]() { return !annotation_redo_stack_.empty(); });
 
         // Callback to check if a timecode is currently being edited
         annotation_panel->SetIsEditingCallback([this](const std::string& timecode) {
@@ -2709,6 +2721,91 @@ public:
             current_annotation_strokes_.clear();
 
             Debug::Log("Edit mode deactivated");
+        });
+
+        // Callback for entering modal edit mode (Edit button in annotation panel)
+        annotation_panel->SetEnterModalEditCallback([this](const std::string& timecode, double timestamp, int frame, const std::string& annotation_data) {
+            if (!video_player || !viewport_annotator || !annotation_toolbar) {
+                Debug::Log("Cannot enter modal edit mode: Missing required components");
+                return;
+            }
+
+            // Auto-save if switching from a different annotation
+            if (viewport_annotator->IsAnnotationMode() && !current_editing_timecode_.empty() && current_editing_timecode_ != timecode) {
+                auto active_stroke = viewport_annotator->FinalizeStroke();
+                if (active_stroke) {
+                    current_annotation_strokes_.push_back(*active_stroke);
+                }
+                if (annotation_manager) {
+                    std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                    annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+                }
+            }
+
+            current_editing_timecode_ = timecode;
+
+            video_player->Pause();
+            video_player->Seek(timestamp);
+
+            current_annotation_strokes_.clear();
+            annotation_undo_stack_.clear();
+            annotation_redo_stack_.clear();
+
+            if (!annotation_data.empty()) {
+                current_annotation_strokes_ = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
+            }
+
+            viewport_annotator->SetMode(ump::Annotations::ViewportMode::ANNOTATION);
+            viewport_annotator->SetActiveTool(ump::Annotations::DrawingTool::FREEHAND);
+            viewport_annotator->SetAllowInputInPopup(true);
+            annotation_toolbar->SetVisible(true);
+
+            Debug::Log("Modal edit mode activated for: " + timecode);
+        });
+
+        // Callback for saving modal edit (called when modal closes)
+        annotation_panel->SetSaveModalEditCallback([this]() {
+            if (!viewport_annotator || !annotation_toolbar) return;
+
+            auto active_stroke = viewport_annotator->FinalizeStroke();
+            if (active_stroke) {
+                current_annotation_strokes_.push_back(*active_stroke);
+            }
+
+            if (annotation_manager && !current_editing_timecode_.empty()) {
+                std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+            }
+
+            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetAllowInputInPopup(false);
+            annotation_toolbar->SetVisible(false);
+            current_editing_timecode_.clear();
+            current_annotation_strokes_.clear();
+            annotation_undo_stack_.clear();
+            annotation_redo_stack_.clear();
+
+            Debug::Log("Modal edit saved and closed");
+        });
+
+        // Callback for deleting a note from modal
+        annotation_panel->SetDeleteNoteCallback([this](const std::string& timecode) {
+            if (viewport_annotator) {
+                viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                viewport_annotator->SetAllowInputInPopup(false);
+            }
+            if (annotation_toolbar) {
+                annotation_toolbar->SetVisible(false);
+            }
+            current_editing_timecode_.clear();
+            current_annotation_strokes_.clear();
+            annotation_undo_stack_.clear();
+            annotation_redo_stack_.clear();
+
+            if (annotation_manager) {
+                annotation_manager->DeleteNote(timecode);
+            }
+            Debug::Log("Note deleted from modal: " + timecode);
         });
 
         // Callback for export
@@ -3425,7 +3522,12 @@ public:
                 // Check if any popup is open (e.g., color picker) before rendering
                 // Popups render in ImGui layer, so we need to skip NanoVG when they're open
                 // to prevent NanoVG from rendering on top of them
-                nvg_popup_open_ = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+                // Exception: when modal edit is open, we still want NanoVG to render strokes on the modal image
+                {
+                    bool any_popup = ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+                    bool modal_edit = annotation_panel && annotation_panel->IsEditModalOpen();
+                    nvg_popup_open_ = any_popup && !modal_edit;
+                }
 
                 ImGui::Render();
                 int display_w, display_h;
@@ -3472,6 +3574,14 @@ public:
                         // This makes strokes scale proportionally with the viewport
                         float line_width_scale = (nvg_video_width_ > 0) ? (scaled_size_x / nvg_video_width_) : 1.0f;
 
+                        // When modal is open, clip strokes to the modal image area
+                        bool modal_scissor = annotation_panel && annotation_panel->IsEditModalOpen();
+                        if (modal_scissor) {
+                            glEnable(GL_SCISSOR_TEST);
+                            glScissor((GLint)scaled_pos_x, display_h - (GLint)(scaled_pos_y + scaled_size_y),
+                                      (GLsizei)scaled_size_x, (GLsizei)scaled_size_y);
+                        }
+
                         // Pass DPI scale as devicePixelRatio for proper anti-aliasing
                         annotation_renderer->BeginFrame((float)display_w, (float)display_h, dpi_scale);
                         for (const auto& stroke : nvg_strokes_to_render_) {
@@ -3481,6 +3591,10 @@ public:
                             );
                         }
                         annotation_renderer->EndFrame();
+
+                        if (modal_scissor) {
+                            glDisable(GL_SCISSOR_TEST);
+                        }
                         pending_nvg_render_ = false;
                     }
 
@@ -3519,6 +3633,14 @@ public:
                         // Calculate line width scale: viewport size / video size
                         float line_width_scale = (nvg_video_width_ > 0) ? (scaled_size_x / nvg_video_width_) : 1.0f;
 
+                        // When modal is open, clip strokes to the modal image area
+                        bool modal_scissor = annotation_panel && annotation_panel->IsEditModalOpen();
+                        if (modal_scissor) {
+                            glEnable(GL_SCISSOR_TEST);
+                            glScissor((GLint)scaled_pos_x, display_h - (GLint)(scaled_pos_y + scaled_size_y),
+                                      (GLsizei)scaled_size_x, (GLsizei)scaled_size_y);
+                        }
+
                         // Pass DPI scale as devicePixelRatio for proper anti-aliasing
                         annotation_renderer->BeginFrame((float)display_w, (float)display_h, dpi_scale);
                         for (const auto& stroke : nvg_strokes_to_render_) {
@@ -3528,6 +3650,10 @@ public:
                             );
                         }
                         annotation_renderer->EndFrame();
+
+                        if (modal_scissor) {
+                            glDisable(GL_SCISSOR_TEST);
+                        }
                         pending_nvg_render_ = false;
                     }
 
@@ -3565,6 +3691,14 @@ public:
                     // Calculate line width scale: viewport size / video size
                     float line_width_scale = (nvg_video_width_ > 0) ? (scaled_size_x / nvg_video_width_) : 1.0f;
 
+                    // When modal is open, clip strokes to the modal image area
+                    bool modal_scissor = annotation_panel && annotation_panel->IsEditModalOpen();
+                    if (modal_scissor) {
+                        glEnable(GL_SCISSOR_TEST);
+                        glScissor((GLint)scaled_pos_x, display_h - (GLint)(scaled_pos_y + scaled_size_y),
+                                  (GLsizei)scaled_size_x, (GLsizei)scaled_size_y);
+                    }
+
                     // Pass DPI scale as devicePixelRatio for proper anti-aliasing
                     annotation_renderer->BeginFrame((float)display_w, (float)display_h, dpi_scale);
                     for (const auto& stroke : nvg_strokes_to_render_) {
@@ -3574,6 +3708,10 @@ public:
                         );
                     }
                     annotation_renderer->EndFrame();
+
+                    if (modal_scissor) {
+                        glDisable(GL_SCISSOR_TEST);
+                    }
                     pending_nvg_render_ = false;
                 }
 
@@ -3934,6 +4072,43 @@ private:
     std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_undo_stack_;
     std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_redo_stack_;
 
+    // Auto-save and close annotation mode if the user seeks/scrubs away.
+    // Called before any user-initiated seek so drawings aren't lost.
+    void AutoSaveAnnotationOnSeek() {
+        if (!viewport_annotator || !viewport_annotator->IsAnnotationMode()) return;
+
+        Debug::Log("Auto-saving annotation before seek");
+
+        // Finalize any active stroke being drawn
+        auto active_stroke = viewport_annotator->FinalizeStroke();
+        if (active_stroke) {
+            current_annotation_strokes_.push_back(*active_stroke);
+        }
+
+        // Serialize and save
+        std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+        if (annotation_manager && !current_editing_timecode_.empty()) {
+            annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+            Debug::Log("Auto-saved " + std::to_string(current_annotation_strokes_.size()) + " strokes");
+        }
+
+        // Clear editing state
+        current_annotation_strokes_.clear();
+        current_editing_timecode_.clear();
+        annotation_undo_stack_.clear();
+        annotation_redo_stack_.clear();
+
+        // Exit annotation mode
+        viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+        viewport_annotator->SetAllowInputInPopup(false);
+        if (annotation_toolbar) annotation_toolbar->SetVisible(false);
+
+        // Close edit modal if open
+        if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+            annotation_panel->CloseEditModal();
+        }
+    }
+
     bool first_time_setup;
     std::string layout_ini_path;  // Persistent storage for ImGui ini filename
 
@@ -4048,6 +4223,8 @@ private:
 
         io.Fonts->AddFontDefault();
         font_regular = io.Fonts->AddFontFromFileTTF(GetAssetPath("assets/fonts/Inter_18pt-Regular.ttf").c_str(), 17.0f);
+        font_bold = io.Fonts->AddFontFromFileTTF(GetAssetPath("assets/fonts/Inter_18pt-Bold.ttf").c_str(), 17.0f);
+        font_italic = io.Fonts->AddFontFromFileTTF(GetAssetPath("assets/fonts/Inter_18pt-Italic.ttf").c_str(), 17.0f);
         font_mono = io.Fonts->AddFontFromFileTTF(GetAssetPath("assets/fonts/JetBrainsMono-Regular.ttf").c_str(), 15.0f);
 
         ImFontConfig icons_config;
@@ -4069,7 +4246,7 @@ private:
     // WINDOWS ACCENT COLOR UTILITIES
     // ========================================================================
     ImVec4 GetDefaultAccentColor() {
-        return accent_color_palette[0];  // 7e735f - Default tan
+        return accent_color_palette[0];  // db8532 - Default amber
     }
 
     ImVec4 GetCustomAccentColor() {
@@ -4493,6 +4670,7 @@ private:
                     project_manager->NotifyPlaybackState(false);
                 }
             } else {
+                AutoSaveAnnotationOnSeek();
                 video_player->Play();
                 if (project_manager) {
                     project_manager->NotifyPlaybackState(true);
@@ -4589,6 +4767,7 @@ private:
 
         // Q - Frame Back
         if (ImGui::IsKeyPressed(ImGuiKey_Q)) {
+            AutoSaveAnnotationOnSeek();
             video_player->StepFrame(-1);
             timeline_manager->ScheduleFrameStepSync();
             Debug::Log("Q - Frame back");
@@ -4596,6 +4775,7 @@ private:
 
         // E - Frame Forward
         if (ImGui::IsKeyPressed(ImGuiKey_E)) {
+            AutoSaveAnnotationOnSeek();
             video_player->StepFrame(1);
             timeline_manager->ScheduleFrameStepSync();
             Debug::Log("E - Frame forward");
@@ -4608,6 +4788,7 @@ private:
         // A - Rewind (held for continuous)
         bool a_pressed = ImGui::IsKeyDown(ImGuiKey_A);
         if (a_pressed && !rewind_a_held) {
+            AutoSaveAnnotationOnSeek();
             rewind_a_held = true;
             video_player->StartRewind();
             Debug::Log("A - Start rewind");
@@ -4621,6 +4802,7 @@ private:
         // D - Fast Forward (held for continuous)
         bool d_pressed = ImGui::IsKeyDown(ImGuiKey_D);
         if (d_pressed && !fastforward_d_held) {
+            AutoSaveAnnotationOnSeek();
             fastforward_d_held = true;
             video_player->StartFastForward();
             Debug::Log("D - Start fast forward");
@@ -4749,8 +4931,9 @@ private:
             Debug::Log("Escape: Exiting fullscreen mode");
             ToggleFullscreen();
         }
-        // Escape - Cancel annotation mode (if active and not in fullscreen)
-        else if (ImGui::IsKeyPressed(ImGuiKey_Escape) && viewport_annotator && viewport_annotator->IsAnnotationMode()) {
+        // Escape - Cancel annotation mode (if active and not in fullscreen, and not in edit modal)
+        else if (ImGui::IsKeyPressed(ImGuiKey_Escape) && viewport_annotator && viewport_annotator->IsAnnotationMode()
+                 && !(annotation_panel && annotation_panel->IsEditModalOpen())) {
             Debug::Log("Escape: Canceling annotation mode");
             viewport_annotator->ClearActiveStroke();
             current_annotation_strokes_.clear();
@@ -4761,8 +4944,9 @@ private:
             }
         }
 
-        // Enter - Done with annotation (if in annotation mode)
-        if (ImGui::IsKeyPressed(ImGuiKey_Enter) && viewport_annotator && viewport_annotator->IsAnnotationMode()) {
+        // Enter - Done with annotation (if in annotation mode, not in edit modal)
+        if (ImGui::IsKeyPressed(ImGuiKey_Enter) && viewport_annotator && viewport_annotator->IsAnnotationMode()
+            && !(annotation_panel && annotation_panel->IsEditModalOpen())) {
             Debug::Log("Enter: Saving annotation and exiting mode");
 
             // Finalize any active stroke being drawn
@@ -6308,7 +6492,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.5.1");
+                ImGui::TextDisabled("About u.m.p. v0.9.6");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
@@ -8190,7 +8374,8 @@ private:
             // Transport and bottom toolbar rows use dampened scaling (less aggressive than full ui_scale)
             const float ui_scale = ImGui::GetIO().FontGlobalScale;
             const float scale_factor = 1.0f + (ui_scale - 1.0f) * 0.5f;  // Half the scaling effect
-            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode()) ? 36.0f * scale_factor : 0.0f;
+            const bool modal_edit_open = annotation_panel && annotation_panel->IsEditModalOpen();
+            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode() && !modal_edit_open) ? 36.0f * scale_factor : 0.0f;
 
             // Timeline height: dynamic based on mode
             // OTIO mode: expanded height for multi-track view
@@ -8247,21 +8432,8 @@ private:
             }
             ImVec2 total_region = ImGui::GetContentRegionAvail();
 
-            // Render annotation toolbar at top (only in annotation mode)
-            if (toolbar_height > 0.0f && annotation_toolbar) {
-                ImGui::BeginChild("##ToolbarArea", ImVec2(0, toolbar_height), true,
-                    ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-
-                // Add vertical spacing at top (scale with toolbar height)
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
-                ImGui::AlignTextToFramePadding();
-
-                // Add left padding
-                const float toolbar_h_padding = 4.0f;
-                ImGui::Dummy(ImVec2(toolbar_h_padding, 0));
-                ImGui::SameLine();
-
-                // Set up toolbar callbacks
+            // Set up annotation toolbar callbacks (always when in annotation mode, so modal toolbar can use them too)
+            if (viewport_annotator && viewport_annotator->IsAnnotationMode() && annotation_toolbar) {
                 ump::Annotations::AnnotationToolbar::Callbacks callbacks;
 
                 callbacks.on_tool_changed = [this](ump::Annotations::DrawingTool tool) {
@@ -8315,7 +8487,13 @@ private:
 
                     // Exit annotation mode
                     viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    viewport_annotator->SetAllowInputInPopup(false);
                     annotation_toolbar->SetVisible(false);
+
+                    // Close modal if open
+                    if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+                        annotation_panel->CloseEditModal();
+                    }
                 };
 
                 callbacks.on_cancel = [this]() {
@@ -8330,7 +8508,13 @@ private:
 
                     // Exit annotation mode without saving
                     viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    viewport_annotator->SetAllowInputInPopup(false);
                     annotation_toolbar->SetVisible(false);
+
+                    // Close modal if open
+                    if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+                        annotation_panel->CloseEditModal();
+                    }
                 };
 
                 callbacks.on_undo = [this]() {
@@ -8374,18 +8558,33 @@ private:
 
                 annotation_toolbar->SetCallbacks(callbacks);
 
-                // Render the toolbar inline
-                bool can_undo = !annotation_undo_stack_.empty();
-                bool can_redo = !annotation_redo_stack_.empty();
+                // Only render viewport toolbar when modal is NOT open (modal has its own toolbar)
+                if (!(annotation_panel && annotation_panel->IsEditModalOpen())) {
+                    ImGui::BeginChild("##ToolbarArea", ImVec2(0, toolbar_height), true,
+                        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-                // Get system accent colors
-                ImVec4 accent_regular = GetWindowsAccentColor();
-                ImVec4 accent_muted_dark = MutedDark(GetWindowsAccentColor());
+                    // Add vertical spacing at top (scale with toolbar height)
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+                    ImGui::AlignTextToFramePadding();
 
-                annotation_toolbar->Render(viewport_annotator.get(), can_undo, can_redo,
-                                           font_icons, accent_regular, accent_muted_dark);
+                    // Add left padding
+                    const float toolbar_h_padding = 4.0f;
+                    ImGui::Dummy(ImVec2(toolbar_h_padding, 0));
+                    ImGui::SameLine();
 
-                ImGui::EndChild();  // ##ToolbarArea
+                    // Render the toolbar inline
+                    bool can_undo = !annotation_undo_stack_.empty();
+                    bool can_redo = !annotation_redo_stack_.empty();
+
+                    // Get system accent colors
+                    ImVec4 accent_regular = GetWindowsAccentColor();
+                    ImVec4 accent_muted_dark = MutedDark(GetWindowsAccentColor());
+
+                    annotation_toolbar->Render(viewport_annotator.get(), can_undo, can_redo,
+                                               font_icons, accent_regular, accent_muted_dark);
+
+                    ImGui::EndChild();  // ##ToolbarArea
+                }
             }
 
             // Create child window for video area
@@ -8405,20 +8604,29 @@ private:
                 int video_height = video_player->GetVideoHeight();
 
                 if (video_width > 0 && video_height > 0) {
-                    // Calculate display bounds (same logic as video rendering)
-                    float aspect_ratio = (float)video_width / video_height;
-                    ImVec2 display_size = canvas_size;
+                    ImVec2 display_pos, display_size;
 
-                    if (canvas_size.x / canvas_size.y > aspect_ratio) {
-                        display_size.x = canvas_size.y * aspect_ratio;
+                    // When modal is open, route input to modal image coordinates
+                    if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+                        display_pos = annotation_panel->GetModalImageScreenPos();
+                        display_size = annotation_panel->GetModalImageScreenSize();
                     } else {
-                        display_size.y = canvas_size.x / aspect_ratio;
+                        // Calculate display bounds (same logic as video rendering)
+                        float aspect_ratio = (float)video_width / video_height;
+                        display_size = canvas_size;
+
+                        if (canvas_size.x / canvas_size.y > aspect_ratio) {
+                            display_size.x = canvas_size.y * aspect_ratio;
+                        } else {
+                            display_size.y = canvas_size.x / aspect_ratio;
+                        }
+
+                        display_pos = ImVec2(
+                            canvas_pos.x + (canvas_size.x - display_size.x) * 0.5f,
+                            canvas_pos.y + (canvas_size.y - display_size.y) * 0.5f
+                        );
                     }
 
-                    ImVec2 display_pos = ImVec2(
-                        canvas_pos.x + (canvas_size.x - display_size.x) * 0.5f,
-                        canvas_pos.y + (canvas_size.y - display_size.y) * 0.5f
-                    );
                     // Store display area for consistent NanoVG rendering later
                     nvg_display_pos_ = display_pos;
                     nvg_display_size_ = display_size;
@@ -8945,10 +9153,15 @@ private:
                                 if (has_strokes_to_render) {
                                     nvg_strokes_to_render_.clear();
 
-                                    // Use the same display area calculation as input processing
-                                    // (strokes are normalized based on these coords, so rendering must match)
-                                    nvg_display_pos_ = display_pos;
-                                    nvg_display_size_ = display_size;
+                                    // When modal is open, NanoVG must render onto the modal image rect
+                                    // (already set during input routing). Don't overwrite with viewport coords.
+                                    if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+                                        nvg_display_pos_ = annotation_panel->GetModalImageScreenPos();
+                                        nvg_display_size_ = annotation_panel->GetModalImageScreenSize();
+                                    } else {
+                                        nvg_display_pos_ = display_pos;
+                                        nvg_display_size_ = display_size;
+                                    }
                                     nvg_video_width_ = video_width;  // Store for line width scaling
 
                                     // Collect saved annotations at current frame (when not in edit mode)
@@ -9636,6 +9849,7 @@ private:
 
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 8.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // Remove button padding for centered icons
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);       // No borders on buttons
 
         if (ImGui::Begin("Sidebar", &show_sidebar_panel, panel_flags)) {
             ImGui::PushFont(font_icons);
@@ -9807,7 +10021,7 @@ private:
         }
         ImGui::End();
 
-        ImGui::PopStyleVar(2);  // WindowPadding + FramePadding
+        ImGui::PopStyleVar(3);  // WindowPadding + FramePadding + FrameBorderSize
     }
 
     void RenderTrimToolbarPanel() {
@@ -11012,6 +11226,7 @@ private:
             // Previous clip (PLAYLIST mode only)
             if (is_playlist_mode) {
                 if (ImGui::Button(ICON_FIRST_PAGE "##prev_clip", ImVec2(small_button, button_size))) {
+                    AutoSaveAnnotationOnSeek();
                     // Seek to previous clip start
                     if (timeline_view) {
                         auto& tracks = timeline_view->GetTracks();
@@ -11034,6 +11249,7 @@ private:
 
             // Skip to start
             if (ImGui::Button(ICON_SKIP_PREVIOUS "##otio_start", ImVec2(small_button, button_size))) {
+                AutoSaveAnnotationOnSeek();
                 if (video_player) {
                     video_player->GoToStart();
                     // Scroll timeline view to show playhead at start
@@ -11118,6 +11334,7 @@ private:
                     } else if (is_playing) {
                         video_player->Pause();
                     } else {
+                        AutoSaveAnnotationOnSeek();
                         video_player->Play();
                     }
                 }
@@ -11156,6 +11373,7 @@ private:
 
             // Skip to end
             if (ImGui::Button(ICON_SKIP_NEXT "##otio_end", ImVec2(small_button, button_size))) {
+                AutoSaveAnnotationOnSeek();
                 if (video_player) {
                     video_player->GoToEnd();
                     // Scroll timeline view to show playhead at end
@@ -11175,6 +11393,7 @@ private:
             if (is_playlist_mode) {
                 ImGui::SameLine();
                 if (ImGui::Button(ICON_LAST_PAGE "##next_clip", ImVec2(small_button, button_size))) {
+                    AutoSaveAnnotationOnSeek();
                     // Seek to next clip start
                     if (timeline_view) {
                         auto& tracks = timeline_view->GetTracks();
@@ -14135,6 +14354,7 @@ private:
                 double new_time = std::max(0.0, std::min(mouse_time, max_time));
                 if (video_player) {
                     if (!timeline_manager->IsScrubbing()) {
+                        AutoSaveAnnotationOnSeek();
                         timeline_manager->StartScrubbing(video_player.get());
                     }
                     timeline_manager->UpdateScrubbing(new_time, video_player.get());
@@ -17080,12 +17300,17 @@ private:
                 const char* inspector_context = "Media Properties";
 
                 // Get current media item - check multiple sources in priority order:
-                // 1. Image sequences loaded into TimelineView (source_mode_ == IMAGE_SEQUENCE)
+                // 1. Media loaded into TimelineView (IMAGE_SEQUENCE, PLAYLIST, VIDEO_FILE modes)
                 // 2. Timelines (via GetCurrentTimelineItem)
                 // 3. Videos/other media (via GetMediaItemFromCurrentPath)
                 ump::MediaItem* current_item = nullptr;
-                if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
-                    current_item = timeline_view->GetSourceMediaItem();
+                if (timeline_view) {
+                    auto source_mode = timeline_view->GetSourceMode();
+                    if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE ||
+                        source_mode == ump::TimelineSourceMode::PLAYLIST ||
+                        source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
+                        current_item = timeline_view->GetSourceMediaItem();
+                    }
                 }
                 if (!current_item && project_manager) {
                     // Check for active timeline first (current_file_path is cleared for timelines)
@@ -17117,7 +17342,9 @@ private:
                     ImGui::PopFont();
                     ImGui::SameLine();
                 }
+                if (font_bold) ImGui::PushFont(font_bold);
                 ImGui::Text("Inspector: %s", inspector_context);
+                if (font_bold) ImGui::PopFont();
                 ImGui::PopStyleColor();
 
                 // Close button on the right
@@ -17261,7 +17488,9 @@ private:
                     } else {
                         // Regular image sequence - show basic properties
                         ImGui::Spacing();
-                        ImGui::Text("Sequence Properties");
+                        if (font_bold) ImGui::PushFont(font_bold);
+        ImGui::Text("Sequence Properties");
+        if (font_bold) ImGui::PopFont();
                         ImGui::Separator();
 
                         ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
@@ -17399,7 +17628,9 @@ private:
             ImGui::PopFont();
             ImGui::SameLine();
         }
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("OCIO Configs");
+        if (font_bold) ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::Separator();
 
@@ -17661,7 +17892,9 @@ private:
             ImGui::PopFont();
             ImGui::SameLine();
         }
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Color Presets");
+        if (font_bold) ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::Separator();
 
@@ -18663,7 +18896,9 @@ private:
             ImGui::PopFont();
             ImGui::SameLine();
         }
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Color Nodes");
+        if (font_bold) ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::Separator();
 
@@ -18712,7 +18947,9 @@ private:
             ImGui::PopFont();
             ImGui::SameLine();
         }
-        ImGui::Text("Color Paramaters");
+        if (font_bold) ImGui::PushFont(font_bold);
+        ImGui::Text("Color Parameters");
+        if (font_bold) ImGui::PopFont();
         ImGui::PopStyleColor();
         ImGui::Separator();
 
@@ -18991,7 +19228,9 @@ private:
         auto* display_node = dynamic_cast<ump::OutputDisplayNode*>(node);
         if (!display_node) return;
 
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Display Settings");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         ImGui::Spacing();
 
@@ -19095,7 +19334,9 @@ private:
         auto* cs_node = dynamic_cast<ump::InputColorSpaceNode*>(node);
         if (!cs_node) return;
 
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Input ColorSpace");
+        if (font_bold) ImGui::PopFont();
         ImGui::Spacing();
 
         std::string current_cs = cs_node->GetColorSpace();
@@ -19124,7 +19365,9 @@ private:
         auto* look_node = dynamic_cast<ump::LookNode*>(node);
         if (!look_node) return;
 
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Look Settings");
+        if (font_bold) ImGui::PopFont();
         ImGui::Spacing();
 
         std::string current_look = look_node->GetLook();
@@ -19139,7 +19382,9 @@ private:
         auto* lut_node = dynamic_cast<ump::SceneLUTNode*>(node);
         if (!lut_node) return;
 
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Scene-Referred LUT Settings");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         ImGui::Spacing();
 
@@ -19212,7 +19457,9 @@ private:
         auto* lut_node = dynamic_cast<ump::DisplayLUTNode*>(node);
         if (!lut_node) return;
 
+        if (font_bold) ImGui::PushFont(font_bold);
         ImGui::Text("Display-Referred LUT Settings");
+        if (font_bold) ImGui::PopFont();
         ImGui::Separator();
         ImGui::Spacing();
 
@@ -19454,7 +19701,9 @@ private:
                 ImGui::PopFont();
                 ImGui::SameLine();
             }
+            if (font_bold) ImGui::PushFont(font_bold);
             ImGui::Text("Color");
+            if (font_bold) ImGui::PopFont();
             ImGui::PopStyleColor();
 
             // Close button on the right
@@ -22277,6 +22526,7 @@ private:
                     }
 
                     // Seek via appropriate controller
+                    AutoSaveAnnotationOnSeek();
                     if (is_otio_mode) {
                         if (auto* ctrl = timeline_view->GetEffectivePlaybackController()) {
                             ctrl->Seek(target_position);

@@ -217,11 +217,17 @@ found in the respective LICENSE file in this directory.
     File: Abseil-LICENSE.txt
     Note: Google's C++ common libraries (dependency of Ink Stroke Modeler)
 
+37. imgui_markdown
+    Copyright (c) 2019 Juliette Foucaut and Doug Binks
+    License: zlib
+    Website: https://github.com/enkisoftware/imgui_markdown
+    File: imgui_markdown_LICENSE.txt
+
 ================================================================================
 
 Media Assets (used in documentation)
 
-37. Big Buck Bunny
+38. Big Buck Bunny
     (c) 2008 Blender Foundation
     License: Creative Commons Attribution 3.0 (CC-BY 3.0)
     Website: https://www.bigbuckbunny.org/
