@@ -97,7 +97,7 @@ Thee are four possible backgrounds that will appear behind alpha channels in all
 
 ![ump image](images/ump_zMAsPqyqhE.png)
 
-`Ctrl + Shift + B` or the button below opens the **Video Background** panel and lets you select one of four background options (default grey, black, dark checker board or light checkerboard). Alpha channels in any media will pass through to the background, so you can use them for alpha review. Pressing `B` will cycle through the options without using the panel for selection.
+`Ctrl + Shift + B` or the background button opens the **Video Background** panel and lets you select one of four background options (default grey, black, dark checker board or light checkerboard). Alpha channels in any media will pass through to the background, so you can use them for alpha review. Pressing `B` will cycle through the options without using the panel for selection.
 
 ### Safety Guides
 
