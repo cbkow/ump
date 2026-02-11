@@ -10,12 +10,12 @@ nav_order: 4
 
 ### The Menu
 
-There are a few ways to load files. You can simply drag one more file into the app. Or you can use the File menu to **Open Media** `Ctrl + O`,  **Open Project** `Ctrl + Shift + O`, or **Import a Timeline**. In this menu, you can also create a **New Project** (this will wipe out your current project), a **New Playlist**, or a **New Timeline**.
+There are a few ways to load files. You can simply drag one more file into the app. Or you can use the File menu to **Open Media** `Ctrl + O`,  **Open Project** `Ctrl + Shift + O`. In this menu, you can also create a **New Project** (this will wipe out your current project), a **New Playlist**, or a **New Dual View**.
 
 
 ### Drag and Drop
 
-To load files you have already opened, you can double-click on them in the Project Manager or drag them into the Viewer. The Viewer's border will be highlighted with your theme’s accent color if a drop is detected.
+To load files you have already opened, you can double-click on them in the Project Manager or drag them into the Viewer. The Viewer's border will be highlighted if a drop is detected.
 
 ![ump image](images/ump_pqZfzIfY9v.jpg)
 
@@ -32,7 +32,7 @@ In the View menu, you can toggle the different app panels:
 * **The Timeline Panel** `Ctrl + 3`
 * **The Color Panels** `Ctrl + 4`
 * **Annotations** `Ctrl + 5`
-* **Playlists** `Ctrl +7`
+* **Sidebar** `Ctrl +7`
 
 You also have a few helpful shortcuts for layout management:
 
