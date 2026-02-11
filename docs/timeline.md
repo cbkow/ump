@@ -72,10 +72,7 @@ In the bottom-right corner of u.m.p., timecode and frame counts are displayed fo
 
 ![window](images/explorer_bAe4hyHgen.png)
 
-
-![window](images/ump_pkya5PB0BW.png)
-
-When you are watching a video, an additional button will appear in the far right that lets you switch to the embedded timecode if it's available. 
+When you are watching a video, an additional button, with a clock icon, will appear in the far right that lets you switch to the embedded timecode if it's available. 
 
 ---
 
