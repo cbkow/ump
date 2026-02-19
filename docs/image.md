@@ -43,8 +43,12 @@ If you choose to transcode a sequence for better playback, this is where the tem
 
 ![Window](images/ump_XAi7OscCdL.png)
 
----
-
 *Note: Because the playback cache is RAM-based, it is affected by our Memory Safety system. If the Memory Safety system has detected full system RAM, Images will not play back. See the Memory Safety page for details.*
 
 *Another Note: See the Inspector page to see you can swith EXR layers after loading.*
+
+---
+
+## Flash Frames
+
+u.m.p will detect an incomplete image sequence and fill in the gaps with a transparent texture so that you can review in-progress renders. Additionally, it's sensitive to files under 15 KB and assumes they are busted frames. If it detects a file under 15 KB, it will flash a red frame and won't bother trying to decode it.
