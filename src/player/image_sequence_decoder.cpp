@@ -141,6 +141,7 @@ void ImageSequenceDecoder::Shutdown() {
         buffer_size_ = 0;
     }
 
+    failed_frames_.clear();
     loader_.reset();
     initialized_ = false;
 }
@@ -414,21 +415,33 @@ void ImageSequenceDecoder::IOThread() {
                 int start = start_frame_;
                 std::string layer = exr_layer_;
                 PipelineMode mode = pipeline_mode_;
+                int sentinel_w = width_;
+                int sentinel_h = height_;
 
                 AsyncLoadRequest request;
                 request.frame = next_frame;
                 request.future = std::async(std::launch::async,
-                    [dir, pat, start, next_frame, layer, mode]() -> std::shared_ptr<PixelData> {
-                        // Create fresh loader for this task (no shared state)
-                        std::string ext = GetExtensionFromPattern(pat);
-                        auto loader = CreateLoaderForExtension(ext);
-                        if (!loader) return nullptr;
-
+                    [dir, pat, start, next_frame, layer, mode, sentinel_w, sentinel_h]() -> std::shared_ptr<PixelData> {
                         // Build frame path
                         int file_frame = next_frame + start;
                         char buffer[1024];
                         snprintf(buffer, sizeof(buffer), pat.c_str(), file_frame);
                         std::filesystem::path full_path = std::filesystem::path(dir) / buffer;
+
+                        // Gap sentinel: file doesn't exist
+                        std::error_code ec;
+                        if (!std::filesystem::exists(full_path, ec) || ec)
+                            return MakeGapSentinel(sentinel_w, sentinel_h);
+
+                        // Broken sentinel: file too small (truncated/corrupt)
+                        auto fsize = std::filesystem::file_size(full_path, ec);
+                        if (!ec && fsize < kBrokenFileThresholdBytes)
+                            return MakeBrokenSentinel(sentinel_w, sentinel_h);
+
+                        // Create fresh loader for this task (no shared state)
+                        std::string ext = GetExtensionFromPattern(pat);
+                        auto loader = CreateLoaderForExtension(ext);
+                        if (!loader) return nullptr;
 
                         return loader->LoadFrame(full_path.string(), layer, mode);
                     });
@@ -458,10 +471,24 @@ void ImageSequenceDecoder::IOThread() {
                         // Add to buffer if valid and not stale
                         if (pixels && running_ && !seek_requested_) {
                             AddToBuffer(frame, pixels);
+                            if (IsSentinel(pixels)) {
+                                failed_frames_.insert(frame);
+                            }
+                        } else if (!pixels && running_ && !seek_requested_) {
+                            // Unexpected load failure → red sentinel + never retry
+                            auto sentinel = MakeBrokenSentinel(width_, height_);
+                            AddToBuffer(frame, sentinel);
+                            failed_frames_.insert(frame);
                         }
                     } catch (const std::exception& e) {
                         Debug::Log("ImageSequenceDecoder: Async load failed: " + std::string(e.what()));
                         frames_in_flight_.erase(frame);
+                        // Insert broken sentinel for exception too
+                        if (running_ && !seek_requested_) {
+                            auto sentinel = MakeBrokenSentinel(width_, height_);
+                            AddToBuffer(frame, sentinel);
+                            failed_frames_.insert(frame);
+                        }
                     }
 
                     it = async_requests_.erase(it);
@@ -595,6 +622,7 @@ int ImageSequenceDecoder::GetNextFrameToLoad() {
     // Prioritize frames ahead of playhead (with wrap-around for seamless looping)
     for (int offset = 0; offset <= config_.readAheadFrames; offset++) {
         int frame = wrapFrame(playhead + offset);
+        if (failed_frames_.count(frame)) continue;
         if (buffer_frame_set_.count(frame) == 0) {
             // Check not in-flight (caller holds in_flight_mutex_)
             if (frames_in_flight_.count(frame) == 0) {
@@ -606,6 +634,7 @@ int ImageSequenceDecoder::GetNextFrameToLoad() {
     // Then fill behind playhead (with wrap-around)
     for (int offset = 1; offset <= config_.readBehindFrames; offset++) {
         int frame = wrapFrame(playhead - offset);
+        if (failed_frames_.count(frame)) continue;
         if (buffer_frame_set_.count(frame) == 0) {
             // Check not in-flight (caller holds in_flight_mutex_)
             if (frames_in_flight_.count(frame) == 0) {

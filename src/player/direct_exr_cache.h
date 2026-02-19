@@ -11,6 +11,7 @@
 #include <deque>
 #include <functional>
 #include <chrono>
+#include <unordered_set>
 
 #include <glad/gl.h>
 #include <half.h>
@@ -507,6 +508,11 @@ private:
     // NEW: Runtime-swappable image loader (nullptr = use EXR legacy path)
     std::unique_ptr<IImageLoader> loader_;
 
+    // Probed media dimensions (from first valid file in sequence)
+    // Used by sentinel factories so gap/broken frames carry correct dimensions
+    int frameWidth_ = 0;
+    int frameHeight_ = 0;
+
     // NEW: Pipeline mode for current sequence
     PipelineMode pipelineMode_ = PipelineMode::NORMAL;
 
@@ -557,6 +563,10 @@ private:
     static constexpr double RATE_WINDOW_SECONDS = 2.0;  // Measure rate over 2 second window
     static constexpr double RATE_SAFETY_MARGIN = 0.85;  // Target 85% of measured rate for safety
     std::atomic<double> measured_fill_rate_{0.0};       // Frames per second (cached for UI)
+
+    // Frames that failed to load — never retry (gap/broken sentinel already cached)
+    std::unordered_set<int> failed_frames_;
+    std::mutex failed_frames_mutex_;
 
     // Pre-calculated frame size (from actual file, not estimated)
     size_t actualFrameSize_ = 0;  // Calculated from first loaded frame

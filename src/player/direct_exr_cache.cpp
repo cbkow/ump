@@ -14,6 +14,7 @@
 #include <ImfThreading.h>
 
 #include <algorithm>
+#include <filesystem>
 
 namespace ump {
 
@@ -241,6 +242,19 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     fps_ = fps;
     startFrame_ = start_frame;
 
+    // Probe media dimensions from first non-empty file
+    // Sentinels use these so gap/broken frames carry the correct resolution
+    frameWidth_ = 0;
+    frameHeight_ = 0;
+    for (const auto& f : files) {
+        if (f.empty()) continue;
+        if (loader_) {
+            if (loader_->GetDimensions(f, frameWidth_, frameHeight_)) break;
+        } else {
+            if (GetFrameDimensions(f, frameWidth_, frameHeight_)) break;
+        }
+    }
+
     // Set cache size as safety cap (frame-based eviction is the primary limiter)
     // Estimate: (readAhead + readBehind) frames * ~64MB per 4K frame * 1.5 buffer
     int totalWindowFrames = config_.readAheadFrames + config_.readBehindFrames + 50;
@@ -305,6 +319,11 @@ void DirectEXRCache::Shutdown() {
 
     pixelCache_.Clear();
 
+    {
+        std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+        failed_frames_.clear();
+    }
+
     initialized_ = false;
     sequenceFiles_.clear();
 }
@@ -329,6 +348,12 @@ void DirectEXRCache::RequestFrame(int frame) {
     // Already in cache?
     if (pixelCache_.Contains(frame)) {
         return;
+    }
+
+    // Already failed? (gap/broken sentinel cached, never retry)
+    {
+        std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+        if (failed_frames_.count(frame)) return;
     }
 
     // Already in progress?
@@ -727,18 +752,25 @@ void DirectEXRCache::ClearLoopRange() {
 }
 
 bool DirectEXRCache::GetFrameDimensions(int& width, int& height) const {
-    // Return dimensions from first cached pixel data
+    // Prefer probed dimensions (always correct, even before any frames are cached)
+    if (frameWidth_ > 0 && frameHeight_ > 0) {
+        width = frameWidth_;
+        height = frameHeight_;
+        return true;
+    }
+
+    // Fallback: Return dimensions from first non-sentinel cached pixel data
     auto keys = pixelCache_.GetKeys();
-    if (!keys.empty()) {
+    for (size_t i = 0; i < keys.size(); ++i) {
         std::shared_ptr<PixelData> pixels;
-        if (pixelCache_.Get(keys[0], pixels)) {
+        if (pixelCache_.Get(keys[i], pixels) && pixels && !pixels->is_sentinel) {
             width = pixels->width;
             height = pixels->height;
             return true;
         }
     }
 
-    // Fallback: return default dimensions
+    // Last resort: return default dimensions
     width = 3840;
     height = 2160;
     return false;
@@ -852,6 +884,11 @@ void DirectEXRCache::ClearCache() {
     }
 
     pixelCache_.Clear();
+
+    {
+        std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+        failed_frames_.clear();
+    }
 
     // Clear GL texture cache and queue textures for deletion
     std::vector<GLuint> textures_to_delete;
@@ -1533,10 +1570,15 @@ void DirectEXRCache::IOWorkerThread() {
                 const std::string path = sequenceFiles_[frame];
                 const std::string layer = layerName_;
 
-                // Validate path is not empty before spawning async task
+                // Gap frame (empty path from padded vector) → cache sentinel immediately
                 if (path.empty()) {
-                   /* Debug::Log("DirectEXRCache: [IO-SKIP] Frame " + std::to_string(frame) +
-                               " has empty path, skipping");*/
+                    auto sentinel = MakeGapSentinel(frameWidth_, frameHeight_);
+                    pixelCache_.Add(frame, sentinel, kSentinelCacheByteSize);
+                    {
+                        std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                        failed_frames_.insert(frame);
+                    }
+                    segmentsDirty_ = true;
                     continue;
                 }
 
@@ -1593,9 +1635,15 @@ void DirectEXRCache::IOWorkerThread() {
                             // Discard stale result - user has seeked since this was requested
                             // Debug::Log("DirectEXRCache: [STALE] Discarding frame " + std::to_string(it->first));
                         } else if (pixelData && !pixelData->pixels.empty()) {
-                            // Add directly to pixel cache (no intermediate queue!)
-                            size_t byteCount = pixelData->pixels.size();  // Already in bytes (uint8_t vector)
+                            // Sentinels use minimal LRU weight so they don't evict real frames
+                            size_t byteCount = pixelData->is_sentinel ? kSentinelCacheByteSize : pixelData->pixels.size();
                             pixelCache_.Add(it->first, pixelData, byteCount);
+
+                            // Track sentinel frames as failed (never retry)
+                            if (pixelData->is_sentinel) {
+                                std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                                failed_frames_.insert(it->first);
+                            }
 
                             // Register with SharedMemoryPool for global LRU coordination
                             RegisterWithPool(it->first, byteCount);
@@ -1628,6 +1676,15 @@ void DirectEXRCache::IOWorkerThread() {
                             completed++;
                           /*  Debug::Log("DirectEXRCache: [IO-COMPLETE] Frame " + std::to_string(it->first) +
                                        " added to pixel cache (" + std::to_string(byteCount / (1024*1024)) + "MB)");*/
+                        } else if (!is_stale) {
+                            // Load failure (nullptr or empty) → red sentinel + never retry
+                            auto sentinel = MakeBrokenSentinel(frameWidth_, frameHeight_);
+                            pixelCache_.Add(it->first, sentinel, kSentinelCacheByteSize);
+                            {
+                                std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                                failed_frames_.insert(it->first);
+                            }
+                            segmentsDirty_ = true;
                         }
                     } catch (const std::exception& e) {
                        /* Debug::Log("DirectEXRCache: Error processing completed request - " +
@@ -1650,6 +1707,23 @@ void DirectEXRCache::IOWorkerThread() {
 //=============================================================================
 
 std::shared_ptr<PixelData> DirectEXRCache::LoadPixels(const std::string& path) {
+    // Gap sentinel: empty path means frame doesn't exist in sequence
+    if (path.empty()) {
+        return MakeGapSentinel(frameWidth_, frameHeight_);
+    }
+
+    // Gap sentinel: file doesn't exist on disk
+    std::error_code ec;
+    if (!std::filesystem::exists(path, ec) || ec) {
+        return MakeGapSentinel(frameWidth_, frameHeight_);
+    }
+
+    // Broken sentinel: file too small (likely truncated/corrupt render)
+    auto fsize = std::filesystem::file_size(path, ec);
+    if (!ec && fsize < kBrokenFileThresholdBytes) {
+        return MakeBrokenSentinel(frameWidth_, frameHeight_);
+    }
+
     // If custom loader is provided, use it
     if (loader_) {
         return loader_->LoadFrame(path, layerName_, pipelineMode_);

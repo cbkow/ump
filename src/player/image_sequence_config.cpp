@@ -13,8 +13,6 @@ ImageSequenceConfig ImageSequencePatternConverter::ParseSequence(const std::vect
     ImageSequenceConfig config;
     config.fps = fps;
     config.pipeline_mode = pipeline_mode;
-    config.frame_count = static_cast<int>(sequence_files.size());
-    config.duration = static_cast<double>(config.frame_count) / fps;
 
     // Store the actual file paths for native image loading
     config.sequence_files = sequence_files;
@@ -55,6 +53,10 @@ ImageSequenceConfig ImageSequencePatternConverter::ParseSequence(const std::vect
         config.end_number = first_frame_number;
         Debug::Log("ImageSequencePatternConverter: Could not parse last filename, using first frame number");
     }
+
+    // frame_count/duration based on logical range, not file count
+    config.frame_count = config.end_number - config.start_number + 1;
+    config.duration = static_cast<double>(config.frame_count) / fps;
 
     // Validate the sequence
     if (!ValidateSequence(sequence_files, config)) {

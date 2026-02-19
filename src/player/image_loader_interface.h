@@ -21,9 +21,60 @@ struct PixelData {
     GLenum gl_format = GL_RGBA;          // Always GL_RGBA (4 channels)
     GLenum gl_type = GL_UNSIGNED_BYTE;   // GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT, or GL_HALF_FLOAT
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
+    bool is_sentinel = false;            // True for gap/broken sentinel frames
 
     size_t ByteSize() const { return pixels.size(); }
 };
+
+//=============================================================================
+// Sentinel Constants & Factories
+//=============================================================================
+
+// Files smaller than this are considered corrupt/broken (e.g. truncated renders)
+static constexpr size_t kBrokenFileThresholdBytes = 15 * 1024;  // 15 KB
+
+// Minimal LRU weight so sentinels don't evict real frames
+static constexpr size_t kSentinelCacheByteSize = 4;
+
+// Transparent RGBA8 sentinel — represents a gap (file doesn't exist in sequence)
+// Full-size buffer so dimensions propagate correctly through the display pipeline
+inline std::shared_ptr<PixelData> MakeGapSentinel(int w = 1, int h = 1) {
+    auto pd = std::make_shared<PixelData>();
+    pd->width = w;
+    pd->height = h;
+    pd->gl_format = GL_RGBA;
+    pd->gl_type = GL_UNSIGNED_BYTE;
+    pd->pipeline_mode = PipelineMode::NORMAL;
+    pd->is_sentinel = true;
+    pd->pixels.resize(static_cast<size_t>(w) * h * 4, 0);  // All zeros (transparent RGBA8)
+    return pd;
+}
+
+// Solid red RGBA8 sentinel — represents a broken/corrupt file
+// Full-size buffer so dimensions propagate correctly through the display pipeline
+inline std::shared_ptr<PixelData> MakeBrokenSentinel(int w = 1, int h = 1) {
+    auto pd = std::make_shared<PixelData>();
+    pd->width = w;
+    pd->height = h;
+    pd->gl_format = GL_RGBA;
+    pd->gl_type = GL_UNSIGNED_BYTE;
+    pd->pipeline_mode = PipelineMode::NORMAL;
+    pd->is_sentinel = true;
+    size_t pixel_count = static_cast<size_t>(w) * h;
+    pd->pixels.resize(pixel_count * 4);
+    for (size_t i = 0; i < pixel_count; ++i) {
+        pd->pixels[i * 4 + 0] = 255;  // R
+        pd->pixels[i * 4 + 1] = 0;    // G
+        pd->pixels[i * 4 + 2] = 0;    // B
+        pd->pixels[i * 4 + 3] = 255;  // A
+    }
+    return pd;
+}
+
+// Check if a PixelData is a sentinel (gap or broken frame)
+inline bool IsSentinel(const std::shared_ptr<PixelData>& pd) {
+    return pd && pd->is_sentinel;
+}
 
 //=============================================================================
 // Abstract Image Loader Interface

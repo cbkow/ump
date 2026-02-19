@@ -270,6 +270,10 @@ private:
     std::unordered_set<int> frames_in_flight_;
     std::mutex in_flight_mutex_;
 
+    // Frames that failed to load — never retry (sentinel already buffered)
+    // Single-threaded access from IOThread, no mutex needed
+    std::unordered_set<int> failed_frames_;
+
     // Parallel async loading (each task creates its own loader for thread safety)
     struct AsyncLoadRequest {
         int frame;

@@ -6407,14 +6407,18 @@ namespace ump {
                 // Without separator: base + digits (be more specific to avoid false matches)
                 search_pattern = base_name + R"(\d{)" + std::to_string(number_str.length()) + R"(})";
             }
-            std::regex sequence_pattern(search_pattern);
+            std::regex sequence_pattern(search_pattern, std::regex_constants::icase);
 
             int count = 0;
+            std::string ext_lower = extension;
+            std::transform(ext_lower.begin(), ext_lower.end(), ext_lower.begin(), ::tolower);
             for (const auto& entry : std::filesystem::directory_iterator(directory)) {
                 if (!entry.is_regular_file()) continue;
 
                 std::filesystem::path other_path = entry.path();
-                if (other_path.extension() != extension) continue;
+                std::string other_ext = other_path.extension().string();
+                std::transform(other_ext.begin(), other_ext.end(), other_ext.begin(), ::tolower);
+                if (other_ext != ext_lower) continue;
 
                 std::string other_filename = other_path.stem().string();
                 if (std::regex_match(other_filename, sequence_pattern)) {
@@ -6466,7 +6470,9 @@ namespace ump {
                 // Without separator: base + digits (be more specific to avoid false matches)
                 search_pattern = base_name + R"(\d{)" + std::to_string(number_str.length()) + R"(})";
             }
-            std::regex sequence_pattern(search_pattern);
+            // Case-insensitive: render farms sometimes produce mixed-case filenames
+            // e.g. BoxClose_v010_0001.exr vs BoxClose_V010_0036.exr in the same sequence
+            std::regex sequence_pattern(search_pattern, std::regex_constants::icase);
 
             // Collect all matching files
             std::vector<std::string> sequence_files;
@@ -6491,7 +6497,14 @@ namespace ump {
                 }
 
                 std::filesystem::path other_path = entry.path();
-                if (other_path.extension() != extension) continue;
+                // Case-insensitive extension check (render farms may produce mixed case)
+                {
+                    std::string other_ext = other_path.extension().string();
+                    std::transform(other_ext.begin(), other_ext.end(), other_ext.begin(), ::tolower);
+                    std::string ext_lower = extension;
+                    std::transform(ext_lower.begin(), ext_lower.end(), ext_lower.begin(), ::tolower);
+                    if (other_ext != ext_lower) continue;
+                }
 
                 std::string other_filename = other_path.stem().string();
                 if (std::regex_match(other_filename, sequence_pattern)) {
@@ -6503,13 +6516,83 @@ namespace ump {
             // directory_iterator does NOT guarantee order!
             std::sort(sequence_files.begin(), sequence_files.end());
 
+            Debug::Log("DetectImageSequence: Found " + std::to_string(sequence_files.size()) +
+                       " matching files with pattern: " + search_pattern);
+
             // Handle single image with numbered pattern (only 1 matching file found)
             if (sequence_files.empty()) {
                 Debug::Log("DetectImageSequence: Single image detected (numbered pattern, no other files): " + path.string());
                 return {path.string()};
             }
 
-            return sequence_files;
+            // === Pad vector with empty strings for gap frames ===
+            // Extract frame numbers from sorted file list and build a
+            // map of frame_number → path, then build a dense vector
+            // over [first_frame, last_frame] with empty strings for gaps.
+            {
+                // Build frame_number → path lookup
+                std::regex num_pattern(R"(^(.+)([_\.\-])(\d+)$)");
+                std::regex num_no_sep(R"(^(.+?)(\d{3,})$)");
+
+                struct FrameEntry { int number; std::string path; };
+                std::vector<FrameEntry> entries;
+                entries.reserve(sequence_files.size());
+
+                for (const auto& f : sequence_files) {
+                    std::filesystem::path fp(f);
+                    std::string stem = fp.stem().string();
+                    std::smatch m;
+                    int frame_num = -1;
+                    if (std::regex_match(stem, m, num_pattern)) {
+                        frame_num = std::stoi(m[3].str());
+                    } else if (std::regex_match(stem, m, num_no_sep)) {
+                        frame_num = std::stoi(m[2].str());
+                    }
+                    if (frame_num >= 0) {
+                        entries.push_back({frame_num, f});
+                    }
+                }
+
+                if (entries.empty()) {
+                    return sequence_files;  // Fallback: return as-is
+                }
+
+                // Use explicit min/max — alphabetical sort may not match numerical order
+                // (e.g. non-zero-padded names: frame_9 sorts after frame_56)
+                int first_frame = entries.front().number;
+                int last_frame = entries.front().number;
+                for (const auto& e : entries) {
+                    if (e.number < first_frame) first_frame = e.number;
+                    if (e.number > last_frame) last_frame = e.number;
+                }
+
+                Debug::Log("DetectImageSequence: " + std::to_string(entries.size()) +
+                           " entries, frame range " + std::to_string(first_frame) +
+                           "-" + std::to_string(last_frame));
+
+                // Build dense padded vector
+                int range = last_frame - first_frame + 1;
+                std::vector<std::string> padded(range);  // default empty strings = gaps
+
+                for (const auto& e : entries) {
+                    int idx = e.number - first_frame;
+                    if (idx >= 0 && idx < range) {
+                        padded[idx] = e.path;
+                    }
+                }
+
+                int gap_count = 0;
+                for (const auto& s : padded) {
+                    if (s.empty()) gap_count++;
+                }
+                if (gap_count > 0) {
+                    Debug::Log("DetectImageSequence: Padded " + std::to_string(range) +
+                               " frames (" + std::to_string(gap_count) + " gaps) for range " +
+                               std::to_string(first_frame) + "-" + std::to_string(last_frame));
+                }
+
+                return padded;
+            }
         } catch (const std::exception& e) {
             Debug::Log("DetectImageSequence: Exception - " + std::string(e.what()));
             return {}; // Any error returns empty vector
