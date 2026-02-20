@@ -51,4 +51,6 @@ If you choose to transcode a sequence for better playback, this is where the tem
 
 ## Flash Frames
 
-u.m.p will detect an incomplete image sequence and fill in the gaps with a transparent texture so that you can review in-progress renders. Additionally, it's sensitive to files under 15 KB and assumes they are busted frames. If it detects a file under 15 KB, it will flash a red frame and won't bother trying to decode it.
+u.m.p will detect an incomplete image sequence and fill in the gaps with a transparent texture so that you can review in-progress renders. Additionally, it's sensitive to files under 15 KB and assumes they are busted frames. If it detects a file under 15 KB, it will flash this image and won't bother trying to decode it.
+
+![Window](images/broken.png)

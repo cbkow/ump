@@ -50,26 +50,10 @@ inline std::shared_ptr<PixelData> MakeGapSentinel(int w = 1, int h = 1) {
     return pd;
 }
 
-// Solid red RGBA8 sentinel — represents a broken/corrupt file
-// Full-size buffer so dimensions propagate correctly through the display pipeline
-inline std::shared_ptr<PixelData> MakeBrokenSentinel(int w = 1, int h = 1) {
-    auto pd = std::make_shared<PixelData>();
-    pd->width = w;
-    pd->height = h;
-    pd->gl_format = GL_RGBA;
-    pd->gl_type = GL_UNSIGNED_BYTE;
-    pd->pipeline_mode = PipelineMode::NORMAL;
-    pd->is_sentinel = true;
-    size_t pixel_count = static_cast<size_t>(w) * h;
-    pd->pixels.resize(pixel_count * 4);
-    for (size_t i = 0; i < pixel_count; ++i) {
-        pd->pixels[i * 4 + 0] = 255;  // R
-        pd->pixels[i * 4 + 1] = 0;    // G
-        pd->pixels[i * 4 + 2] = 0;    // B
-        pd->pixels[i * 4 + 3] = 255;  // A
-    }
-    return pd;
-}
+// Broken/corrupt file sentinel — gray #787878 background with centered broken.png icon
+// PNG loaded lazily on first call, cached for process lifetime.
+// Falls back to plain gray if PNG missing. Thread-safe.
+std::shared_ptr<PixelData> MakeBrokenSentinel(int w = 1, int h = 1);
 
 // Check if a PixelData is a sentinel (gap or broken frame)
 inline bool IsSentinel(const std::shared_ptr<PixelData>& pd) {

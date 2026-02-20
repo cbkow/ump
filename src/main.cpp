@@ -940,7 +940,7 @@ public:
         glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "u.m.p.", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "u.m.p. v0.9.8", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
@@ -6492,7 +6492,7 @@ private:
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.7.0");
+                ImGui::TextDisabled("About u.m.p. v0.9.8");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);

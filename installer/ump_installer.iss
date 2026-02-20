@@ -2,7 +2,7 @@
 ; https://jrsoftware.org/isinfo.php
 
 #define MyAppName "ump"
-#define MyAppVersion "0.9.7"
+#define MyAppVersion "0.9.8"
 #define MyAppPublisher "cbkow"
 #define MyAppURL "https://github.com/cbkow/ump"
 #define MyAppExeName "ump.exe"
