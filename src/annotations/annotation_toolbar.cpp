@@ -1,4 +1,5 @@
 #include "annotation_toolbar.h"
+#include "../app/app_ui_macros.h"
 
 namespace ump {
 namespace Annotations {
@@ -271,11 +272,13 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     ImGui::SameLine();
 
     // Save button - uses regular button colors (not system accent)
+    PushOutlineButtonStyle();
     if (ImGui::Button("Save")) {
         if (callbacks_.on_done) {
             callbacks_.on_done();
         }
     }
+    PopOutlineButtonStyle();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Save annotations and exit annotation mode (Enter)");
@@ -284,11 +287,13 @@ void AnnotationToolbar::RenderActionButtons(bool can_undo, bool can_redo, ImFont
     ImGui::SameLine();
 
     // Discard button - uses regular button colors (not system accent)
+    PushOutlineButtonStyle();
     if (ImGui::Button("Discard")) {
         if (callbacks_.on_cancel) {
             callbacks_.on_cancel();
         }
     }
+    PopOutlineButtonStyle();
 
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip("Discard annotations and exit annotation mode (Esc)");

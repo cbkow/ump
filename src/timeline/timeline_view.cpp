@@ -601,7 +601,7 @@ void TimelineView::ClearTimelineInOutPoints() {
 void TimelineView::SetTimelineLooping(bool enabled) {
     timeline_loop_enabled_ = enabled;
 
-    // CRITICAL: Also tell the playback controller so MPV gets the loop-file property
+    // Also tell the playback controller so it can update loop state
     auto* controller = GetEffectivePlaybackController();
     if (controller) {
         controller->SetLooping(enabled);
@@ -949,7 +949,7 @@ void TimelineView::RenderTrackList() {
         auto& track = tracks_[i];
 
         // Hide audio tracks in Audio-only mode (no video tracks, just audio file)
-        // The A1 track is not needed since MPV handles everything
+        // The A1 track is not needed for audio-only playback
         if (source_mode_ == TimelineSourceMode::VIDEO_FILE &&
             GetVideoTrackCount() == 0 &&
             !track.is_video) {
@@ -1041,10 +1041,7 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
         }
 
         // Video track: Speaker icon for audio mute
-        // Hide in direct MPV mode (MPV handles its own audio)
-        auto* playback_ctrl = GetEffectivePlaybackController();
-        bool is_direct_mpv = playback_ctrl && playback_ctrl->IsDirectMPVMode();
-        if (!is_direct_mpv) {
+        {
             ImGui::SameLine();
             const char* audio_icon = track.audio_muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
             ImGui::PushID("audio");
@@ -1063,10 +1060,7 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
         }
     } else {
         // Audio track: Speaker icon for mute
-        // Hide in direct MPV mode (MPV handles its own audio)
-        auto* playback_ctrl = GetEffectivePlaybackController();
-        bool is_direct_mpv = playback_ctrl && playback_ctrl->IsDirectMPVMode();
-        if (!is_direct_mpv) {
+        {
             ImGui::SameLine();
             const char* mute_icon = track.muted ? ICON_VOLUME_MUTE : ICON_VOLUME_UP;
             ImGui::PushID("mute");
@@ -1910,19 +1904,6 @@ bool TimelineView::CanDeleteTrack(int track_index) const {
     }
 }
 
-// DEPRECATED: OTIO/EDL import removed - use VIDEO_FILE, IMAGE_SEQUENCE, DUAL_VIEW, or PLAYLIST modes
-bool TimelineView::LoadOTIOFile(const std::string& file_path) {
-    Debug::Log("LoadOTIOFile: OTIO import has been removed. Use other modes instead.");
-    (void)file_path;  // Unused
-    return false;
-}
-
-bool TimelineView::LoadEDLFile(const std::string& file_path) {
-    Debug::Log("LoadEDLFile: EDL import has been removed. Use other modes instead.");
-    (void)file_path;  // Unused
-    return false;
-}
-
 void TimelineView::AutoMuteVideoClipsWithAudio() {
     // Auto-mute video clips that have embedded audio on video tracks
     // This is useful for imported timelines that likely have their own audio track layout
@@ -2297,8 +2278,8 @@ bool TimelineView::LoadAudioFileAsTimeline(MediaItem* item) {
 
     Debug::Log("Loading audio file as timeline: " + item->name);
 
-    // Set source mode to VIDEO_FILE so MPV handles playback
-    // MPV can play audio-only files - it just won't produce video frames (black display)
+    // Set source mode to VIDEO_FILE for direct playback
+    // Audio-only files won't produce video frames (black display)
     source_mode_ = TimelineSourceMode::VIDEO_FILE;
     source_media_item_ = item;
     source_media_item_id_ = item ? item->id : "";
@@ -2880,175 +2861,7 @@ bool TimelineView::CanEditClip(const OTIOClip& clip, const OTIOTrack& track) con
     return true;
 }
 
-bool TimelineView::ParseOTIOTimeline(const std::string& file_path) {
-    // DEPRECATED: OTIO import removed
-    Debug::Log("ParseOTIOTimeline: OTIO import has been removed. Use other modes instead.");
-    (void)file_path;  // Unused
-    return false;
-}
-
 #ifdef USE_OPENTIMELINEIO
-void TimelineView::ExtractTracksFromOTIO(otio::Timeline* timeline) {
-    tracks_.clear();
-
-    auto* stack = timeline->tracks();
-    if (!stack) {
-        Debug::Log("Timeline has no tracks stack");
-        return;
-    }
-
-    int video_track_num = 0;
-    int audio_track_num = 0;
-
-    for (auto& child : stack->children()) {
-        auto* track = dynamic_cast<otio::Track*>(child.value);
-        if (!track) continue;
-
-        OTIOTrack our_track;
-        std::string otio_track_name = track->name();
-
-        // Determine track type
-        std::string kind = track->kind();
-        our_track.is_video = (kind == otio::Track::Kind::video);
-
-        // Set track name - use OTIO name only if it's meaningful
-        // AAF often exports generic names like "sequence" - ignore those
-        // Always use V1/V2/A1/A2 naming for consistency across all import formats
-        if (our_track.is_video) {
-            video_track_num++;
-            our_track.name = "V" + std::to_string(video_track_num);
-            our_track.id = "V" + std::to_string(video_track_num) + "_" + std::to_string(std::time(nullptr));
-            our_track.z_index = video_track_num;
-        } else {
-            audio_track_num++;
-            our_track.name = "A" + std::to_string(audio_track_num);
-            our_track.id = "A" + std::to_string(audio_track_num) + "_" + std::to_string(std::time(nullptr));
-            our_track.z_index = 0;
-        }
-
-        Debug::Log("Track from OTIO: otio_name='" + otio_track_name + "' -> name='" +
-                   our_track.name + "' kind=" + kind);
-
-        our_track.visible = true;
-        our_track.muted = false;
-
-        // Track timeline position as we process clips
-        double track_position = 0.0;
-
-        // Process track children (clips, gaps, transitions, nested stacks)
-        for (auto& item : track->children()) {
-            if (auto* clip = dynamic_cast<otio::Clip*>(item.value)) {
-                OTIOClip our_clip = ConvertOTIOClip(clip, track_position);
-                our_track.clips.push_back(our_clip);
-                track_position += our_clip.duration;
-            }
-            else if (auto* nested_stack = dynamic_cast<otio::Stack*>(item.value)) {
-                // Nested composition (AAF sub-master, XML compound clip, OTIO nested stack)
-                OTIOClip nest_clip;
-                nest_clip.id = "nested_" + std::to_string(our_track.clips.size()) + "_" +
-                               std::to_string(reinterpret_cast<uintptr_t>(nested_stack));
-                nest_clip.is_nested = true;
-                nest_clip.nested_name = nested_stack->name().empty() ?
-                                        "Nested Sequence" : nested_stack->name();
-                nest_clip.name = nest_clip.nested_name;
-                nest_clip.start_time = track_position;
-                nest_clip.is_gap = false;
-
-                // Get nested stack duration
-                otio::ErrorStatus nest_err;
-                auto nest_dur = nested_stack->duration(&nest_err);
-                if (!otio::is_error(nest_err)) {
-                    nest_clip.duration = nest_dur.to_seconds();
-                    nest_clip.nested_fps = nest_dur.rate();
-                } else {
-                    nest_clip.duration = 1.0;  // Fallback
-                }
-
-                nest_clip.source_in = 0.0;
-                nest_clip.source_out = nest_clip.duration;
-
-                // Parse nested stack eagerly (not lazily) - this links all media upfront
-                std::string source_dir = GetSourceDirectory();
-                ParseNestedStack(nest_clip, nested_stack, source_dir);
-
-                Debug::Log("Found nested composition: " + nest_clip.name +
-                           " (duration: " + std::to_string(nest_clip.duration) + "s, " +
-                           std::to_string(nest_clip.nested_tracks.size()) + " tracks)");
-
-                our_track.clips.push_back(nest_clip);
-                track_position += nest_clip.duration;
-            }
-            else if (auto* gap = dynamic_cast<otio::Gap*>(item.value)) {
-                // Create a gap clip
-                OTIOClip gap_clip;
-                gap_clip.id = "gap_" + std::to_string(our_track.clips.size());
-                gap_clip.name = "Gap";
-                gap_clip.is_gap = true;
-                gap_clip.start_time = track_position;
-
-                // Get gap duration
-                otio::ErrorStatus err;
-                auto duration_rt = gap->duration(&err);
-                if (!otio::is_error(err)) {
-                    gap_clip.duration = duration_rt.to_seconds();
-                } else {
-                    gap_clip.duration = 1.0; // Default 1 second
-                }
-
-                gap_clip.source_in = 0.0;
-                gap_clip.source_out = gap_clip.duration;
-
-                our_track.clips.push_back(gap_clip);
-                track_position += gap_clip.duration;
-            }
-            else if (auto* transition = dynamic_cast<otio::Transition*>(item.value)) {
-                // Mark adjacent clips as having fades
-                auto in_offset = transition->in_offset();
-                auto out_offset = transition->out_offset();
-
-                // Apply fade to previous clip (fade out)
-                if (!our_track.clips.empty()) {
-                    auto& prev_clip = our_track.clips.back();
-                    prev_clip.has_fade_out = true;
-                    prev_clip.fade_out_duration = in_offset.to_seconds();
-                }
-
-                // Note: fade in will be applied to next clip when it's processed
-                // We'd need more complex logic to handle this properly
-            }
-        }
-
-        tracks_.push_back(our_track);
-    }
-
-    // Reorder tracks for NLE-style display: video tracks reversed (V5, V4, V3, V2, V1),
-    // then audio tracks in order (A1, A2, A3...)
-    // This puts V1 at the bottom of video section, closest to audio
-    std::vector<OTIOTrack> video_tracks, audio_tracks;
-    for (auto& track : tracks_) {
-        if (track.is_video) {
-            video_tracks.push_back(std::move(track));
-        } else {
-            audio_tracks.push_back(std::move(track));
-        }
-    }
-
-    // Reverse video tracks so highest number is first (top of display)
-    std::reverse(video_tracks.begin(), video_tracks.end());
-
-    // Rebuild tracks: video (reversed) then audio
-    tracks_.clear();
-    for (auto& track : video_tracks) {
-        tracks_.push_back(std::move(track));
-    }
-    for (auto& track : audio_tracks) {
-        tracks_.push_back(std::move(track));
-    }
-
-    Debug::Log("Extracted " + std::to_string(video_track_num) + " video and " +
-               std::to_string(audio_track_num) + " audio tracks");
-}
-
 OTIOClip TimelineView::ConvertOTIOClip(otio::Clip* otio_clip, double global_offset) {
     OTIOClip clip;
 
@@ -3538,13 +3351,12 @@ void TimelineView::SetTracks(const std::vector<OTIOTrack>& tracks,
                               const std::string& timeline_name,
                               const std::string& source_file_path) {
     // Restore tracks from cached edits (when re-entering a previously edited timeline)
-    // This should behave similarly to LoadEDLFile - shutdown existing playback
-    // so it can be properly reinitialized with the restored tracks
+    // Shutdown existing playback so it can be properly reinitialized with the restored tracks
 
     // Reset source mode to VIDEO_FILE (default) for restored timelines
     ResetSourceMode();
 
-    // Shutdown existing playback controller first (like LoadEDLFile does)
+    // Shutdown existing playback controller first
     // This ensures a fresh dummy video is generated for the restored timeline
     ShutdownPlayback();
 

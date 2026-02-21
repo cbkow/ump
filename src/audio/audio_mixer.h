@@ -12,8 +12,8 @@
 
 #include "audio_decoder.h"
 #include "audio_time_stretch.h"
-// AudioRateCorrector removed - caused crackling artifacts, and mpv-style approach
-// is to keep audio pristine and adjust video timing for sync instead
+// AudioRateCorrector removed - caused crackling artifacts; audio is kept pristine
+// and video timing is adjusted for sync instead
 
 // Forward declare WASAPI device
 namespace ump { class WasapiAudioDevice; }

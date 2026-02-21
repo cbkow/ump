@@ -87,19 +87,13 @@ public:
     virtual void ProcessPendingOperations() = 0;
 
     //=========================================================================
-    // Buffer Health (for speed coordination)
+    // Buffer Health (for statistics)
     //=========================================================================
 
     // Get current buffer health metrics
     virtual BufferHealth GetBufferHealth() const = 0;
 
-    // Get adaptive playback speed factor (0.0-1.0)
-    virtual double GetPlaybackSpeedFactor() const = 0;
-
-    // Check if source needs playback to wait for buffer
-    virtual bool NeedsBufferWait() const = 0;
-
-    // Reset speed/buffer state (call on seek, pause)
+    // Reset playback state (call on seek, pause)
     virtual void ResetPlaybackState() = 0;
 
     //=========================================================================

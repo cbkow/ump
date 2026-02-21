@@ -369,7 +369,7 @@ private:
     // O(1) frame lookup: frame_number -> buffer_index
     std::unordered_map<int, int> frame_map_;
 
-    // Delay queue for B-frame reordering (MPV-style)
+    // Delay queue for B-frame reordering
     std::atomic<int> frames_since_seek_{0};      // Frames decoded since last seek
     std::atomic<bool> delay_queue_filling_{false}; // True while filling delay queue after seek
 

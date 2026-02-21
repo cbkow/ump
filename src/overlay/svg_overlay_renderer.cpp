@@ -343,63 +343,6 @@ void SVGOverlayRenderer::ParseSVGPolyline(const std::string& points_data) {
     }
 }
 
-bool SVGOverlayRenderer::ParseSVGPathForRectangles(const std::string& svg_content) {
-    // Extract viewBox dimensions
-    std::regex viewbox_regex(R"(viewBox=\"([^\"]+)\")");
-    std::smatch viewbox_match;
-    if (std::regex_search(svg_content, viewbox_match, viewbox_regex)) {
-        std::string viewbox = viewbox_match[1].str();
-        std::istringstream iss(viewbox);
-        float x, y, width, height;
-        if (iss >> x >> y >> width >> height) {
-            guides.svg_width = width;
-            guides.svg_height = height;
-            Debug::Log("Extracted viewBox: " + std::to_string(width) + "x" + std::to_string(height));
-        }
-    } else {
-        Debug::Log("Could not find viewBox in SVG");
-        return false;
-    }
-
-    // Find all path elements and extract rectangles
-    std::regex path_regex(R"(<path[^>]*d=\"([^\"]+)\")");
-    std::sregex_iterator path_iter(svg_content.begin(), svg_content.end(), path_regex);
-    std::sregex_iterator path_end;
-
-    std::vector<ImVec2> rectangles;
-
-    for (auto it = path_iter; it != path_end; ++it) {
-        std::string path_data = (*it)[1].str();
-        ImVec2 rect = ExtractRectangleFromPath(path_data);
-        if (rect.x > 0 && rect.y > 0) {
-            rectangles.push_back(rect);
-            Debug::Log("Found rectangle: " + std::to_string(rect.x) + "," + std::to_string(rect.y));
-        }
-    }
-
-    // Legacy rectangle parsing - no longer used since we parse full SVG paths
-    // This method is kept for potential fallback but doesn't update the new path-based structure
-    Debug::Log("Legacy rectangle parsing found " + std::to_string(rectangles.size()) + " rectangles, but using full path parsing instead");
-
-    return false;
-}
-
-ImVec2 SVGOverlayRenderer::ExtractRectangleFromPath(const std::string& path_data) {
-    // Look for rectangular path patterns like "M96,54h1728v972" or "M96,54H1824V1026"
-    // This extracts the starting coordinates which represent the margin from edges
-
-    std::regex rect_pattern(R"(M(\d+(?:\.\d+)?),(\d+(?:\.\d+)?))");
-    std::smatch match;
-
-    if (std::regex_search(path_data, match, rect_pattern)) {
-        float x = std::stof(match[1].str());
-        float y = std::stof(match[2].str());
-        return ImVec2(x, y);
-    }
-
-    return ImVec2(0, 0); // Invalid rectangle
-}
-
 std::vector<std::string> SVGOverlayRenderer::GetAvailableSVGs() const {
     std::vector<std::string> svg_files;
 

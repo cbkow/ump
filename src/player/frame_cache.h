@@ -21,16 +21,12 @@ struct VideoMetadata;
 #include "pipeline_mode.h"
 #include "shared_memory_pool.h"
 
-// Note: MPVConversionStrategy removed - using D3D11VideoDecoder
-
-// Removed: Disk cache forward declarations (simplified to RAM-only cache)
-
 struct CachedFrame {
     GLuint texture_id = 0;
     int width = 0;
     int height = 0;
     double timestamp = 0.0;
-    // Removed: memory_size tracking (memory-based eviction removed)
+
     std::chrono::steady_clock::time_point last_accessed;
     bool is_valid = false;
     
@@ -51,7 +47,6 @@ struct CachedFrame {
     void CreateTexture(int w, int h, const void* data, PipelineMode pipeline_mode = PipelineMode::NORMAL);
     void ReleaseTexture();
     bool EnsureTextureCreated(); // Create texture from pixel_data if not already created
-    // Removed: GetMemorySize() method (memory-based eviction removed)
 };
 
 class FrameCache {
@@ -63,9 +58,8 @@ public:
         int cache_width = 1920;                 // Fixed width for consistent quality
         int cache_height = -1;                  // Calculate from video aspect ratio
         int background_thread_priority = -1;    // Lower priority for background extraction
-        // TEMPORARY: Keyframe cache settings for compilation - will be removed
         bool enable_keyframe_cache = false;      // Disabled - background extractor handles all caching
-        size_t keyframe_cache_size_mb = 0;       // Not used
+        size_t keyframe_cache_size_mb = 0;
         bool adaptive_threading = true;         // Slow down during playback
         int max_extractions_per_second = 100;   // Maximum extraction rate for fastest caching
 
@@ -82,7 +76,6 @@ public:
         // SharedMemoryPool integration (NEW)
         bool use_shared_pool = false;           // Use global SharedMemoryPool instead of local eviction
 
-        // Removed: Disk cache settings (simplified to RAM-only cache)
     };
 
     explicit FrameCache(const CacheConfig& config = CacheConfig{});
@@ -100,7 +93,6 @@ public:
     // Cache statistics
     struct CacheStats {
         size_t total_frames_cached = 0;
-        // Removed: memory_used_mb (memory-based eviction removed)
         size_t cache_hits = 0;
         size_t cache_misses = 0;
         float hit_ratio = 0.0f;
@@ -109,7 +101,6 @@ public:
     };
     CacheStats GetStats() const;
     
-    // TEMPORARY: Cache visualization structure kept for compilation - will be removed
     struct CacheSegment {
         double start_time = 0.0;
         double end_time = 0.0;
@@ -121,10 +112,7 @@ public:
     };
     std::vector<CacheSegment> GetCacheSegments() const;
     
-    // Control
-    // EXR PATTERN: Removed PauseBackgroundCaching, ResumeBackgroundCaching, RestartBackgroundThread
-    // EXR PATTERN: Removed StartBackgroundCaching, StopBackgroundCaching
-    // Thread is created once in constructor, runs permanently until destructor
+    // Control - thread is created once in constructor, runs permanently until destructor
     void SetCachingEnabled(bool enabled); // Enable/disable caching operations (thread keeps running)
     void ClearCachedFrames(); // Clear all cached frames but keep cache structure
     bool IsBackgroundCachingActive() const { return background_thread_active; }
@@ -154,17 +142,14 @@ public:
     void AddExtractedFrame(int frame_number, double timestamp, const std::vector<uint8_t>& pixel_data, int width, int height, bool from_native_image = false); // Called by background extractor with pixel data
     bool IsFrameCached(int frame_number) const; // Check if frame is already cached
 
-    // Removed: Disk cache interface (simplified to RAM-only cache)
 
 private:
     CacheConfig config;
     
-    // TEMPORARY: Keep old frame storage for compilation - will be removed after cleanup
     std::unordered_map<int, std::unique_ptr<CachedFrame>> scrub_cache;    // Frame number -> cached frame
     std::unordered_map<int, std::unique_ptr<CachedFrame>> keyframe_cache; // Keyframe cache for long seeks
     mutable std::mutex cache_mutex;
     
-    // Removed: Memory management tracking (memory-based eviction removed)
     std::atomic<size_t> cache_hits{0};
     std::atomic<size_t> cache_misses{0};
     
@@ -184,26 +169,16 @@ private:
     std::unique_ptr<MediaBackgroundExtractor> background_extractor;
     std::string current_video_path;
 
-    // Removed: Disk cache members (simplified to RAM-only cache)
-
     // GPU conversion strategy removed - background extractor handles metadata
 
     // Sequential caching state
     std::atomic<int> sequential_cache_position{0}; // Track where we left off in sequential scan
     std::atomic<bool> sequential_cache_complete{false}; // Track if we've cached all frames
 
-    // Removed: Frame request queue (opportunistic caching removed)
-
-    // Removed: Immediate disk caching threads (simplified to RAM-only cache)
-
-    
     // Internal methods
     void BackgroundCacheWorker();
     void ExtractFrameAtPosition(double timestamp, VideoPlayer* video_player);
 
-    // Removed: Disk caching worker methods (simplified to RAM-only cache)
-
-    // Removed: Opportunistic caching methods (using only spiral background caching)
 
     // RAM cache management (simplified from 3-tier to RAM-only)
     bool GetFrameFromRAM(int frame_number, GLuint& texture_id, int& width, int& height);
@@ -212,12 +187,10 @@ private:
     double FrameNumberToTimestamp(int frame_number, double fps) const;
     void EvictOldFrames();
     void EvictFramesBeyondWindow(double center_timestamp, double window_seconds);
-    // Removed: EvictFramesFarthestFromSeekbar() (memory-based eviction removed)
 
-    // Seconds-based cache management (NEW: replaces memory-based)
+    // Seconds-based cache management
     void EvictFramesBeyondSeconds(double center_timestamp, int max_seconds);
     bool ShouldCacheFrame(int frame_number, double current_frame) const;
-    // Removed: EstimateFrameSize() and EvictOldestFrames() (memory-based eviction removed)
 
     // OpenGL helpers - UPDATED for GPU copying
     bool ExtractFrameFromCurrentTexture(VideoPlayer* video_player, double timestamp,

@@ -3,6 +3,7 @@
 
 #include "project_manager.h"
 #include "../utils/debug_utils.h"
+#include "../app/app_ui_macros.h"
 #include "../color/ocio_pipeline.h"
 #include "../color/ocio_config_manager.h"
 #include "../player/video_player.h"
@@ -229,6 +230,7 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
     ImGui::InputText("##OutputDir", settings.output_directory,
                     sizeof(settings.output_directory));
     ImGui::SameLine();
+    PushOutlineButtonStyle();
     if (ImGui::Button("Browse...")) {
         nfdchar_t* out_path = nullptr;
         nfdresult_t result = NFD_PickFolder(&out_path, settings.output_directory);
@@ -243,6 +245,7 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
             Debug::Log("ERROR: Directory picker failed: " + std::string(NFD_GetError()));
         }
     }
+    PopOutlineButtonStyle();
 
     ImGui::Separator();
 
@@ -261,6 +264,7 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
     float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
     ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - addW - cancelW - btnSpacing);
 
+    PushOutlineButtonStyle();
     if (ImGui::Button("Add to Queue")) {
         ProcessAddToTranscodeQueue();
         show_transcode_settings_dialog = false;
@@ -275,6 +279,7 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
         transcode_settings_dialog_opened = false;
         ImGui::CloseCurrentPopup();
     }
+    PopOutlineButtonStyle();
 
     ImGui::PopStyleColor();
     ImGui::EndPopup();

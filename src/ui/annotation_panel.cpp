@@ -1,4 +1,5 @@
 #include "annotation_panel.h"
+#include "../app/app_ui_macros.h"
 #include "../annotations/annotation_toolbar.h"
 #include "../annotations/viewport_annotator.h"
 #include "../utils/debug_utils.h"
@@ -10,6 +11,9 @@
 #include <vector>
 
 #define ICON_CLOSE u8"\uE5CD"
+#define ICON_NOTE  u8"\uF1FC"
+
+ImVec4 GetWindowsAccentColor();
 
 extern ImFont* font_icons;
 extern ImFont* font_bold;
@@ -277,6 +281,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         return;
     }
 
+    ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.25f, 0.25f, 0.50f));
     if (ImGui::BeginTabBar("AnnotationTabs")) {
         if (ImGui::BeginTabItem("Edit")) {
             RenderHeader();
@@ -321,6 +326,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
 
         ImGui::EndTabBar();
     }
+    ImGui::PopStyleColor();  // Border
 
     ImGui::End();
 
@@ -345,9 +351,11 @@ void AnnotationPanel::RenderHeader() {
     }
 
     // Full-width Add Note button on its own row
+    PushOutlineButtonStyle();
     if (ImGui::Button("Add Note", ImVec2(-1, 0))) {
         HandleAddNote();
     }
+    PopOutlineButtonStyle();
 }
 
 
@@ -386,14 +394,18 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
     if (!annotations_enabled_ptr_) return;
 
     // Button colors based on enabled state
-    ImVec4 button_color = *annotations_enabled_ptr_ ? accent_regular : ImGui::GetStyleColorVec4(ImGuiCol_Button);
+    // When disabled: outline style (transparent bg + visible border)
+    // When enabled: solid accent fill (unchanged)
+    bool outline_border = !(*annotations_enabled_ptr_);
+    ImVec4 button_color = *annotations_enabled_ptr_ ? accent_regular : ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
     ImVec4 button_hover = *annotations_enabled_ptr_ ?
         ImVec4(accent_regular.x * 1.2f, accent_regular.y * 1.2f, accent_regular.z * 1.2f, accent_regular.w) :
-        ImGui::GetStyleColorVec4(ImGuiCol_ButtonHovered);
+        ImVec4(0.28f, 0.28f, 0.28f, 0.50f);
     ImVec4 button_active = *annotations_enabled_ptr_ ?
         ImVec4(accent_regular.x * 0.8f, accent_regular.y * 0.8f, accent_regular.z * 0.8f, accent_regular.w) :
-        ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive);
+        ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
 
+    if (outline_border) ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.45f, 0.45f, 0.45f, 0.50f));
     ImGui::PushStyleColor(ImGuiCol_Button, button_color);
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hover);
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active);
@@ -405,6 +417,7 @@ void AnnotationPanel::RenderFooter(ImVec4 accent_regular) {
     }
 
     ImGui::PopStyleColor(3);
+    if (outline_border) ImGui::PopStyleColor();
 }
 
 void AnnotationPanel::RenderNote(AnnotationNote& note) {
@@ -412,7 +425,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // Padding and styling
     const float padding = 8.0f;
-    const float rounding = 9.0f;
+    const float rounding = 1.0f;
 
     // Get draw list for background shape
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -433,6 +446,15 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // === ROW 1: Timecode (top-left) + Frame number (next to it) ===
     {
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImVec4 accent = GetWindowsAccentColor();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(accent.x, accent.y, accent.z, 1.0f));
+            ImGui::Text("%s", ICON_NOTE);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImGui::SameLine();
+        }
         if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(ImGui::CalcTextSize(note.timecode.c_str()).x, 0))) {
             selected_timecode_ = note.timecode;
             if (seek_callback_) {
@@ -565,9 +587,11 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
         // Edit button (opens modal editor)
         if (!edit_button_enabled) ImGui::BeginDisabled();
+        PushOutlineButtonStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(edit_padding_x, ImGui::GetStyle().FramePadding.y));
         bool edit_modal_clicked = ImGui::Button("Edit", ImVec2(0, 0));
         ImGui::PopStyleVar();
+        PopOutlineButtonStyle();
         if (!edit_button_enabled) ImGui::EndDisabled();
 
         if (edit_modal_clicked && edit_button_enabled) {
@@ -605,11 +629,13 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
         // Delete button (extra horizontal padding for text breathing room)
         ImGui::SameLine(0.0f, button_spacing);
+        PushOutlineButtonStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, ImGui::GetStyle().FramePadding.y));
         if (ImGui::Button("Delete", ImVec2(0, 0))) {
             HandleDeleteNote(note.timecode);
         }
         ImGui::PopStyleVar();
+        PopOutlineButtonStyle();
 
         #undef ICON_DRAW
     }
@@ -702,7 +728,7 @@ void AnnotationPanel::RenderPreviewTab(ImVec4 accent_regular) {
 
 void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     const float padding = 8.0f;
-    const float rounding = 9.0f;
+    const float rounding = 1.0f;
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 group_start_pos = ImGui::GetCursorScreenPos();
 

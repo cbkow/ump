@@ -42,7 +42,6 @@ if(WIN32)
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
     set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
 
-    # Note: LibMPV removed - using D3D11VideoDecoder instead
 endif()
 
 # Add subdirectory for external dependencies
@@ -56,13 +55,6 @@ file(GLOB_RECURSE SOURCES
     "src/*.cpp"
     "src/*.h"
 )
-
-# Exclude OLD files
-list(FILTER SOURCES EXCLUDE REGEX ".*_OLD\\.(cpp|h)$")
-
-# Exclude broken hdr_direct_decoder (failed FFmpeg D3D11VA approach, replaced by MF HDR)
-list(FILTER SOURCES EXCLUDE REGEX ".*hdr_direct_decoder\\.(cpp|h)$")
-
 
 # Create executable
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
@@ -188,13 +180,13 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/gpu/frame_readback.cpp"
     "src/player/cpu_frame_pool.h"
     "src/player/cpu_frame_pool.cpp"
-    # Unified dual view (single decoder, mpv-style)
+    # Unified dual view (single decoder)
     "src/player/unified_dual_view.h"
     "src/player/unified_dual_view.cpp"
     # D3D11 OCIO renderer (Windows)
     "src/color/d3d11_ocio_renderer.h"
     "src/color/d3d11_ocio_renderer.cpp"
-    # Playlist single decoder (mpv EDL-style, Windows)
+    # Playlist single decoder (EDL-style, Windows)
     "src/timeline/playlist_single_decoder.h"
     "src/timeline/playlist_single_decoder.cpp"
     # Windows application icon
@@ -264,7 +256,6 @@ target_link_libraries(${PROJECT_NAME}
     avfilter
     swscale
     swresample
-    # Note: LibMPV removed - using D3D11VideoDecoder
     # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
     Imath-3_2          # Must be first for half-float support
     Iex-3_4
@@ -302,7 +293,7 @@ if(WIN32)
     # Used by AudioTimeStretch for adaptive speed control during playback
     find_package(SoundTouch QUIET)
     if(SoundTouch_FOUND)
-        target_link_libraries(${PROJECT_NAME} PRIVATE SoundTouch::SoundTouch)
+        target_link_libraries(${PROJECT_NAME} SoundTouch::SoundTouch)
         target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
         message(STATUS "SoundTouch: Found via CMake package")
     else()
@@ -310,7 +301,7 @@ if(WIN32)
         set(SOUNDTOUCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/soundtouch")
         if(EXISTS "${SOUNDTOUCH_DIR}/include/SoundTouch.h")
             target_include_directories(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/include)
-            target_link_libraries(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/lib/SoundTouch.lib)
+            target_link_libraries(${PROJECT_NAME} ${SOUNDTOUCH_DIR}/lib/SoundTouch.lib)
             target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
             message(STATUS "SoundTouch: Found in external/soundtouch")
         else()
@@ -379,8 +370,6 @@ if(WIN32)
             COMMENT "Copying FFmpeg DLL: ${DLL_NAME}"
         )
     endforeach()
-
-    # Note: LibMPV DLL copy removed - using D3D11VideoDecoder
 
     # Copy OCIO DLLs - using explicit list for reliability across Debug/Release
     # Hybrid approach: Core API + C++ API for DWAB support

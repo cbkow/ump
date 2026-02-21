@@ -178,8 +178,6 @@ bool VideoDisplayComponent::Initialize() {
 void VideoDisplayComponent::Cleanup() {
     Debug::Log("VideoDisplayComponent::Cleanup starting...");
 
-    // Note: MPV cleanup removed - using D3D11VideoDecoder
-
     // Reset content dimensions
     content_width_ = 0;
     content_height_ = 0;
@@ -1256,13 +1254,6 @@ bool VideoDisplayComponent::IsActuallyPlaying() const {
     return false;
 }
 
-bool VideoDisplayComponent::IsWaitingForBuffer() const {
-    if (timeline_controller_) {
-        return timeline_controller_->IsWaitingForBuffer();
-    }
-    return false;
-}
-
 //=============================================================================
 // Media Info (Cached Values)
 //=============================================================================
@@ -1713,18 +1704,6 @@ double VideoDisplayComponent::GetFastSeekSpeed() const {
     return 1.0;
 }
 
-// MPV functionality removed - using D3D11VideoDecoder instead
-
-// NOTE: The following MPV-related functions have been removed:
-// - InitializeMPV, CleanupMPV, LoadVideoFile, UnloadVideoFile
-// - CreateMPVTextures, CleanupMPVTextures, RenderMPVFrame, ProcessMPVEvents
-// - MPVPlay, MPVPause, MPVSeek, MPVStepFrame, MPVSetLoop, MPVSetSpeed
-// - MPVSetVolume, MPVSetMute, GetMPVPosition, GetMPVDuration, GetMPVSpeed
-// - MPVStartScrub, MPVUpdateScrub, MPVEndScrub
-// - MPVSetABLoop, MPVClearABLoop
-// - MPVStartFastSeek, MPVUpdateFastSeek, MPVStopFastSeek
-
-// (All ~800 lines of MPV implementation code removed - using D3D11VideoDecoder instead)
 
 #ifdef _WIN32
 //=============================================================================

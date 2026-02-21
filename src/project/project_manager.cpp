@@ -15,12 +15,14 @@
 #include <regex>
 #include <random>
 #include "../utils/debug_utils.h"
+#include "../app/app_ui_macros.h"
 #include <nfd.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
 
 #ifdef _WIN32
 #include <dwmapi.h>
+#include <shellapi.h>
 #pragma comment(lib, "dwmapi.lib")
 #endif
 
@@ -29,16 +31,20 @@ extern void ScheduleImport(const std::string& path, const std::string& message);
 
 #define ICON_MOVIE                  u8"\uE02C"
 #define ICON_AUDIO_TRACK           u8"\uE3A1"
-#define ICON_IMAGE                 u8"\uE1A6"
-#define ICON_VIDEO_LIBRARY         u8"\uE02C"
+#define ICON_IMAGE                 u8"\uE3F4"
+#define ICON_VIDEO_LIBRARY         u8"\uEB87"
+#define ICON_SPLIT_SCENE           u8"\uF3BF"
+#define ICON_PLAYLIST_PLAY         u8"\ue05f"
 #define ICON_PLAY_CIRCLE          u8"\uE1C4"
 #define ICON_MOVIE_CREATION       u8"\uE404"
 #define ICON_PLAYLIST_ADD         u8"\uE03B"
+#define ICON_COLOR_PROFILE_ENTRY  u8"\uF70C"
 #define ICON_FOLDER_OPEN          u8"\uE2C8"
 #define ICON_CONTENT_COPY         u8"\xE14D"
 #define ICON_ARTICLE              u8"\uEF42"
 #define ICON_CLOSE                 u8"\uE5CD"
 #define ICON_TOPIC                 u8"\uEB13"
+#define ICON_FOLDER                u8"\uE2C7"
 
 extern ImFont* font_icons;
 
@@ -952,9 +958,6 @@ namespace ump {
                         item.view_state.timeline_in_point = item_json.value("timeline_view_in", -1.0);
                         item.view_state.timeline_out_point = item_json.value("timeline_view_out", -1.0);
 
-                        // NOTE: clip_links and track_metadata loading removed with TIMELINE mode cleanup
-                        // Legacy project files with these fields will be ignored
-
                         // Restore cached edited tracks (full timeline edits)
                         if (item_json.contains("edited_tracks") && item_json.value("has_cached_edits", false)) {
                             item.has_cached_edits = true;
@@ -1252,7 +1255,7 @@ namespace ump {
         // Now we defer cache init to background thread, allowing immediate playback
         else if (cache_enabled) {
             std::thread([this, file_path]() {
-                // Brief delay to let MPV start playback first
+                // Brief delay to let playback start first
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
                 // Initialize cache in background without blocking viewport
@@ -1260,8 +1263,7 @@ namespace ump {
             }).detach();
         }
 
-        // === METADATA NOW EXTRACTED BY FFMPEG BEFORE MPV LOAD ===
-        // Previously queued MPV metadata extraction here - no longer needed
+        // Metadata extracted by FFmpeg before playback
         // FFmpeg extracts all video metadata upfront in LoadSingleMediaItem()
         // Only queue Adobe metadata (timecode, project links) if needed
         if (video_player && video_player->HasVideo()) {
@@ -1427,9 +1429,9 @@ namespace ump {
         char header_text[128];
         size_t item_count = bin.items.size();
         if (item_count > 0) {
-            snprintf(header_text, sizeof(header_text), "%s (%zu)", bin.name.c_str(), item_count);
+            snprintf(header_text, sizeof(header_text), "    %s (%zu)", bin.name.c_str(), item_count);
         } else {
-            snprintf(header_text, sizeof(header_text), "%s", bin.name.c_str());
+            snprintf(header_text, sizeof(header_text), "    %s", bin.name.c_str());
         }
 
         // Unique ID for state persistence
@@ -1441,13 +1443,10 @@ namespace ump {
             flags |= ImGuiTreeNodeFlags_DefaultOpen;
         }
 
-        // Style the collapsing header
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.15f, 0.15f, 0.15f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.25f, 0.25f, 0.25f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
-
-        bool node_open = ImGui::CollapsingHeader(header_id.c_str(), flags);
-        ImGui::PopStyleColor(3);
+        // Style the collapsing header with accent folder icon
+        PushOutlineHeaderStyle();
+        bool node_open = CollapsingHeaderWithIcon(header_id.c_str(), font_icons, ICON_FOLDER, GetWindowsAccentColor(), flags);
+        PopOutlineHeaderStyle();
 
         // Right-click context menu for bin headers
         std::string bin_context_id = "bin_context_" + bin.name;
@@ -1540,6 +1539,17 @@ namespace ump {
             ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImVec4(0.35f, 0.35f, 0.35f, 1.0f));
+        }
+
+        // Icon before the item label
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImVec4 accent = GetWindowsAccentColor();
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(accent.x, accent.y, accent.z, 0.4f));
+            ImGui::Text("%s", ICON_COLOR_PROFILE_ENTRY);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImGui::SameLine();
         }
 
         if (font_regular) ImGui::PushFont(font_regular);
@@ -1637,14 +1647,18 @@ namespace ump {
             float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - createW - cancelW - btnSpacing);
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("Create")) {
                 CreateNewProject(project_name, project_path);
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
             ImGui::SameLine();
+            PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
 
             ImGui::EndPopup();
         }
@@ -1676,14 +1690,18 @@ namespace ump {
             float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW - cancelW - btnSpacing);
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("OK") || enter_pressed) {
                 ProcessRenameItem();
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
             ImGui::SameLine();
+            PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
 
             ImGui::EndPopup();
         }
@@ -1767,6 +1785,7 @@ namespace ump {
             ImGui::Separator();
             ImGui::Spacing();
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("Create")) {
                 std::string name = new_dual_view_name_buffer;
                 if (name.empty()) {
@@ -1779,10 +1798,13 @@ namespace ump {
                 }
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
             ImGui::SameLine();
+            PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
 
             ImGui::EndPopup();
         }
@@ -1817,6 +1839,7 @@ namespace ump {
             ImGui::Separator();
             ImGui::Spacing();
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("Create")) {
                 std::string name = new_playlist_name_buffer;
                 if (name.empty()) {
@@ -1829,10 +1852,13 @@ namespace ump {
                 }
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
             ImGui::SameLine();
+            PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
 
             ImGui::EndPopup();
         }
@@ -2025,6 +2051,7 @@ namespace ump {
                 ImGui::Text("Please select a frame rate:");
 
                 // Common frame rate buttons in a simple grid layout
+                PushOutlineButtonStyle();
                 if (ImGui::Button("23.976")) selected_frame_rate = 23.976;
                 ImGui::SameLine();
                 if (ImGui::Button("24")) selected_frame_rate = 24.0;
@@ -2040,6 +2067,7 @@ namespace ump {
                 if (ImGui::Button("59.94")) selected_frame_rate = 59.94;
                 ImGui::SameLine();
                 if (ImGui::Button("60")) selected_frame_rate = 60.0;
+                PopOutlineButtonStyle();
 
                 ImGui::Separator();
                 ImGui::Text("Custom frame rate:");
@@ -2056,6 +2084,7 @@ namespace ump {
             float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW - cancelW - btnSpacing);
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("OK")) {
                 Debug::Log("OK button pressed");
                 if (!pending_sequence_path.empty() && selected_frame_rate > 0.0) {
@@ -2090,12 +2119,15 @@ namespace ump {
                 frame_rate_dialog_opened = false;
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
             ImGui::SameLine();
+            PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 show_frame_rate_dialog = false;
                 frame_rate_dialog_opened = false;
                 ImGui::CloseCurrentPopup();
             }
+            PopOutlineButtonStyle();
 
             ImGui::EndPopup();
         } else if (frame_rate_dialog_opened) {
@@ -2686,7 +2718,7 @@ namespace ump {
 
         // Set frame rate for image sequences before loading
         if ((item.type == MediaType::IMAGE_SEQUENCE || item.type == MediaType::EXR_SEQUENCE) && item.frame_rate > 0.0) {
-            // Set MPV frame rate for playback
+            // Set frame rate for playback
             video_player->SetMFFrameRate(item.frame_rate);
         }
 
@@ -2881,7 +2913,7 @@ namespace ump {
             }
         }
 
-        // Load into MPV for playback
+        // Load for playback
         video_player->LoadFile(item.path);
         *current_file_path = item.path;
 
@@ -3236,24 +3268,22 @@ namespace ump {
         }
 
 #ifdef _WIN32
-        // Launch explorer in a separate thread to avoid blocking the UI
-        std::thread([resolved_path]() {
-            std::string windows_path = resolved_path;
-            std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
+        std::string windows_path = resolved_path;
+        std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
 
-            // Use /select for files, plain path for directories
-            std::filesystem::path fs_path(windows_path);
-            std::string command;
+        std::wstring wide_path(windows_path.begin(), windows_path.end());
+        std::wstring params;
 
-            if (std::filesystem::is_directory(fs_path)) {
-                command = "explorer \"" + windows_path + "\"";
-            } else {
-                command = "explorer /select,\"" + windows_path + "\"";
-            }
+        // Use /select for files, plain path for directories
+        std::filesystem::path fs_path(windows_path);
+        if (std::filesystem::is_directory(fs_path)) {
+            params = L"\"" + wide_path + L"\"";
+        } else {
+            params = L"/select,\"" + wide_path + L"\"";
+        }
 
-            Debug::Log("ShowInExplorer: Executing command: " + command);
-            system(command.c_str());
-        }).detach();
+        Debug::Log("ShowInExplorer: Opening: " + windows_path);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
 #endif
     }
 
@@ -3777,7 +3807,7 @@ namespace ump {
                 Debug::Log("LoadSingleFileFromDrop: Video loaded via OTIO timeline");
                 return;
             } else {
-                Debug::Log("LoadSingleFileFromDrop: WARNING - No video_file_timeline_callback, falling back to MPV");
+                Debug::Log("LoadSingleFileFromDrop: WARNING - No video_file_timeline_callback, using legacy path");
             }
         }
 
@@ -3802,12 +3832,12 @@ namespace ump {
                 Debug::Log("LoadSingleFileFromDrop: Audio loaded via OTIO timeline");
                 return;
             } else {
-                Debug::Log("LoadSingleFileFromDrop: WARNING - No audio_file_timeline_callback, falling back to MPV");
+                Debug::Log("LoadSingleFileFromDrop: WARNING - No audio_file_timeline_callback, using legacy path");
             }
         }
 
-        // FALLBACK: Legacy MPV path (for GIFs or if timeline callback not set)
-        Debug::Log("LoadSingleFileFromDrop: Using legacy MPV path");
+        // FALLBACK: Legacy direct-load path (for GIFs or if timeline callback not set)
+        Debug::Log("LoadSingleFileFromDrop: Using legacy direct-load path");
 
         // Check if this is a GIF (disable cache for GIFs - they're fast enough without it)
         std::string extension = std::filesystem::path(file_path).extension().string();
@@ -3839,7 +3869,7 @@ namespace ump {
             Debug::Log("LoadSingleFileFromDrop: WARNING - No cached metadata found (AddMediaFileToProject may have failed)");
         }
 
-        // Load into MPV for playback (metadata already cached)
+        // Load for playback (metadata already cached)
         video_player->LoadFile(file_path);
         *current_file_path = file_path;
 
@@ -3954,7 +3984,6 @@ namespace ump {
                 // Log extraction timing
                 auto duration = std::chrono::steady_clock::now() - it->second.start_time;
                 auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
-                // Debug removed
             }
         }
     }
@@ -4147,14 +4176,11 @@ namespace ump {
             std::lock_guard<std::mutex> lock(video_queue_mutex);
             video_metadata_queue.push({file_path, high_priority});
         }
-
-        // Debug removed
     }
 
     void ProjectManager::StartVideoMetadataWorkerThread() {
         video_worker_running = true;
         video_metadata_worker_thread = std::thread(&ProjectManager::VideoMetadataWorkerLoop, this);
-        // Debug removed
     }
 
     void ProjectManager::StopVideoMetadataWorkerThread() {
@@ -4162,7 +4188,6 @@ namespace ump {
         if (video_metadata_worker_thread.joinable()) {
             video_metadata_worker_thread.join();
         }
-        // Debug removed
     }
 
     void ProjectManager::VideoMetadataWorkerLoop() {
@@ -4191,7 +4216,7 @@ namespace ump {
     }
 
     void ProjectManager::ProcessVideoMetadata(const std::string& file_path) {
-        // === REFACTORED: Video metadata now extracted by FFmpeg BEFORE MPV load ===
+        // Video metadata extracted by FFmpeg before playback
         // This method now ONLY handles Adobe metadata (timecode, project links)
         // Video metadata is extracted in LoadSingleMediaItem() using FFmpegMetadataExtractor
 
@@ -4201,7 +4226,7 @@ namespace ump {
         const CombinedMetadata* cached_meta = GetCachedMetadata(file_path);
         if (!cached_meta || !cached_meta->video_meta || !cached_meta->video_meta->is_loaded) {
             Debug::Log("ProcessVideoMetadata: WARNING - No FFmpeg metadata found for: " + file_path);
-            Debug::Log("  This should have been extracted before MPV load!");
+            Debug::Log("  This should have been extracted before playback!");
             return;
         }
 
@@ -4335,14 +4360,11 @@ namespace ump {
                 ImGui::TextDisabled("QT Start:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_start_timecode.c_str());
-                // Invert button background based on row alternation
-                int row_idx = ImGui::TableGetRowIndex();
-                bool is_alt_row = (row_idx % 2) == 1;
-                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                PushOutlineButtonStyle();
                 if (ImGui::SmallButton("Copy##QTStart")) {
                     CopyToClipboard(adobe_meta->qt_start_timecode);
                 }
-                ImGui::PopStyleColor();
+                PopOutlineButtonStyle();
             }
 
             // QuickTime General Timecode
@@ -4352,14 +4374,11 @@ namespace ump {
                 ImGui::TextDisabled("QT TimeCode:");
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextColored(Bright(GetWindowsAccentColor()), "%s", adobe_meta->qt_timecode.c_str());
-                // Invert button background based on row alternation
-                int row_idx2 = ImGui::TableGetRowIndex();
-                bool is_alt_row2 = (row_idx2 % 2) == 1;
-                ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row2 ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+                PushOutlineButtonStyle();
                 if (ImGui::SmallButton("Copy##QTCode")) {
                     CopyToClipboard(adobe_meta->qt_timecode);
                 }
-                ImGui::PopStyleColor();
+                PopOutlineButtonStyle();
             }
 
             // Creation dates for reference
@@ -5466,10 +5485,7 @@ namespace ump {
             ImGui::SetTooltip("%s", project_path.c_str());
         }
         // Buttons below the filename in the same row
-        // Invert button background based on row alternation
-        int row_idx = ImGui::TableGetRowIndex();
-        bool is_alt_row = (row_idx % 2) == 1;
-        ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+        PushOutlineButtonStyle();
         if (button_suffix != "PRM") { // Mac paths might not work with Windows Explorer
             std::string open_button = "Open##" + button_suffix;
             if (ImGui::SmallButton(open_button.c_str())) {
@@ -5481,7 +5497,7 @@ namespace ump {
         if (ImGui::SmallButton(copy_button.c_str())) {
             CopyToClipboard(project_path);
         }
-        ImGui::PopStyleColor();
+        PopOutlineButtonStyle();
     }
 
     // ============================================================================
@@ -5696,10 +5712,7 @@ namespace ump {
         std::string open_id = std::string("Open##") + id_suffix;
         std::string copy_id = std::string("Copy##") + id_suffix;
 
-        // Respect alt row button color logic
-        int row_idx = ImGui::TableGetRowIndex();
-        bool is_alt_row = (row_idx % 2) == 1;
-        ImGui::PushStyleColor(ImGuiCol_Button, is_alt_row ? ImVec4(0.141f, 0.141f, 0.141f, 1.0f) : ImVec4(0.192f, 0.192f, 0.192f, 1.0f));
+        PushOutlineButtonStyle();
 
         if (ImGui::SmallButton(open_id.c_str())) {
             ShowInExplorer(path);
@@ -5710,7 +5723,7 @@ namespace ump {
             CopyToClipboard(path);
         }
 
-        ImGui::PopStyleColor();
+        PopOutlineButtonStyle();
     }
 
     // ============================================================================
@@ -5816,7 +5829,7 @@ namespace ump {
         if (is_image_sequence) {
             Debug::Log("ProjectManager: Skipping FFMPEG cache for image sequence (uses DirectEXRCache)");
         } else if (cache_enabled && video_cache_manager) {
-            // NEW FLOW: Get metadata BEFORE initializing cache (metadata extracted by FFmpeg before MPV load)
+            // Get metadata BEFORE initializing cache (extracted by FFmpeg before playback)
             const CombinedMetadata* cached_meta = GetCachedMetadata(video_path);
 
             if (cached_meta && cached_meta->video_meta && cached_meta->video_meta->is_loaded) {
@@ -6227,7 +6240,6 @@ namespace ump {
         for (const auto& pair : video_caches) {
             auto stats = pair.second->cache->GetStats();
             total_stats.total_frames_cached += stats.total_frames_cached;
-            // Removed: Memory usage aggregation (memory-based eviction removed)
             total_stats.cache_hits += stats.cache_hits;
             total_stats.cache_misses += stats.cache_misses;
         }
@@ -6784,8 +6796,8 @@ namespace ump {
         int end_frame = std::stoi(last_number);
         Debug::Log("ProcessImageSequence: Step 6 - Frame range: " + std::to_string(start_frame) + " to " + std::to_string(end_frame));
 
-        // Create a more specific MPV pattern
-        // MPV supports patterns like: mf://path/sequence_%04d.exr:fps=24
+        // Create image sequence pattern
+        // Uses mf:// URL format like: mf://path/sequence_%04d.exr:fps=24
         std::string directory = first_file.parent_path().string();
         std::string extension = first_file.extension().string();
         Debug::Log("ProcessImageSequence: Step 7 - Directory: " + directory);
@@ -6797,10 +6809,10 @@ namespace ump {
         std::string mf_pattern = base_name + separator + "%0" + std::to_string(padding) + "d" + extension;
         Debug::Log("ProcessImageSequence: Step 8 - MF pattern: " + mf_pattern);
 
-        // Replace backslashes with forward slashes for MPV (cross-platform compatibility)
+        // Replace backslashes with forward slashes (cross-platform compatibility)
         std::replace(directory.begin(), directory.end(), '\\', '/');
 
-        // Create MPV MF:// URL using the working C# pattern
+        // Create MF:// URL using the working pattern
         // For complex names like "20250920_1809--ACES2065-1_TIFF", we need to remove the separator + digits
         std::string file_basename = base_name;
         if (!separator.empty()) {
@@ -6819,8 +6831,8 @@ namespace ump {
         std::string first_file_path = sequence_files[0];
         Debug::Log("ProcessImageSequence: Step 9b - First file for testing: " + first_file_path);
 
-        // For non-standard start frames, we can add start parameter if MPV supports it
-        // For now, we'll let MPV handle the sequence as-is
+        // For non-standard start frames, a start parameter could be added
+        // For now, the sequence is handled as-is
 
         // Determine if this is an EXR sequence
         std::filesystem::path seq_path(sequence_path);
@@ -7023,7 +7035,7 @@ namespace ump {
 
         Debug::Log("Processed image sequence: " + item.name + " (" + std::to_string(sequence_files.size()) +
                    " frames at " + std::to_string(frame_rate) + " fps)");
-        Debug::Log("MPV URL: " + mf_url);
+        Debug::Log("MF URL: " + mf_url);
     }
 
     void ProjectManager::ProcessImageSequenceWithTranscode(const std::string& sequence_path, double frame_rate,

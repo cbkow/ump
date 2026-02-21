@@ -25,7 +25,7 @@ class CPUFramePool;
 // UnifiedDualView
 //
 // Single-decoder architecture for dual view that avoids D3D11 multi-decoder
-// threading issues. Follows mpv's approach: one HW decoder, frames read back
+// threading issues. Uses one HW decoder, frames read back
 // to CPU for secondary view, then uploaded to GL.
 //
 // Architecture:

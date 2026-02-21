@@ -80,7 +80,4 @@ private:
     void ParseSVGPolygon(const std::string& points_data);
     void ParseSVGPolyline(const std::string& points_data);
 
-    // Legacy rectangle extraction (kept for fallback)
-    bool ParseSVGPathForRectangles(const std::string& svg_content);
-    ImVec2 ExtractRectangleFromPath(const std::string& path_data);
 };

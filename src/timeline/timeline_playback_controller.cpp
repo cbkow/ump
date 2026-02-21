@@ -76,9 +76,6 @@ TimelinePlaybackController::~TimelinePlaybackController() {
     Shutdown();
 }
 
-// NOTE: Old dummy-based InitializeForTimeline and InitializeForScratchTimeline removed
-// Use InitializeForVirtualTimeline and InitializeForVirtualScratchTimeline instead
-
 bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView* timeline_view) {
     if (!initialized_) {
         Debug::Log("TimelinePlaybackController::InitializeCacheForScratchTimeline: Controller not initialized");
@@ -337,60 +334,27 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
             frame = boundary_start;
         }
 
-        // If waiting for buffer (after seek/loop), return last texture
-        // UpdateTimer will handle decoding and resuming
-        if (waiting_for_frame_) {
-            if (current_texture_ != 0) {
-                width = current_texture_width_;
-                height = current_texture_height_;
-                return current_texture_;
-            }
-            width = 0;
-            height = 0;
-            return 0;
-        }
-
         // Loop/end handling for D3D11VA HDR mode
         // Triggered by OUR playhead position, not decoder's internal state
-        // Strategy: Pause cleanly on last frame, then restart fresh from frame 0
         if (is_playing_.load() && frame >= boundary_end) {
             bool is_looping = timeline_view_ && timeline_view_->IsTimelineLooping();
 
             Debug::Log("D3D11VA_HDR LOOP: frame=" + std::to_string(frame) +
                        " >= boundary_end=" + std::to_string(boundary_end) +
-                       ", total_frames=" + std::to_string(total_frames) +
-                       " (tc_offset=" + std::to_string(timecode_offset) + ")" +
-                       ", actual_last=" + std::to_string(actual_last) +
-                       ", safe_last=" + std::to_string(safe_last_frame) +
                        ", looping=" + std::to_string(is_looping));
 
-            // Step 1: Pause everything first (stops decoder's background read-ahead)
-            if (timeline_timer_) {
-                timeline_timer_->Pause();
-            }
-            is_playing_ = false;  // Mark as not playing during transition
-
             if (is_looping) {
-                // Step 2: Set up loop restart state
-                // Don't seek decoder yet - let it fully stop first
-                // The seek will happen in UpdateTimer's buffer wait handling
+                // Seek decoder and timer to loop start, continue playing
                 double start_time = static_cast<double>(boundary_start) / fps;
+                d3d11va_decoder_->SeekToFrame(boundary_start);
                 if (timeline_timer_) {
                     timeline_timer_->Seek(start_time);
                 }
                 current_frame_ = boundary_start;
 
-                Debug::Log("D3D11VA_HDR LOOP: Seeking to boundary_start=" + std::to_string(boundary_start) +
-                           " (time=" + std::to_string(start_time) + "s)");
+                Debug::Log("D3D11VA_HDR LOOP: Seeked to boundary_start=" + std::to_string(boundary_start));
 
-                // Step 3: Enter buffer wait with seek flag
-                // Decoder will be seeked to boundary_start before resuming
-                waiting_for_frame_ = true;
-                d3d11va_needs_seek_ = true;  // Signal that decoder needs to seek before decoding
-                waiting_start_time_ = std::chrono::steady_clock::now();
-                is_playing_ = true;  // Mark as playing so buffer wait will resume
-
-                // Return cached texture (last successfully decoded frame) while transitioning
+                // Return cached texture while decoder catches up
                 width = current_texture_width_;
                 height = current_texture_height_;
                 return current_texture_;
@@ -455,18 +419,6 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
             frame = boundary_start;
         }
 
-        // If waiting for buffer (after seek/loop), return last texture
-        if (waiting_for_frame_) {
-            if (current_texture_ != 0) {
-                width = current_texture_width_;
-                height = current_texture_height_;
-                return current_texture_;
-            }
-            width = 0;
-            height = 0;
-            return 0;
-        }
-
         // Loop/end handling
         if (is_playing_.load() && frame >= boundary_end) {
             bool is_looping = timeline_view_ && timeline_view_->IsTimelineLooping();
@@ -475,29 +427,18 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
                        " >= boundary_end=" + std::to_string(boundary_end) +
                        ", looping=" + std::to_string(is_looping));
 
-            // Pause timer
-            if (timeline_timer_) {
-                timeline_timer_->Pause();
-            }
-            is_playing_ = false;
-
             if (is_looping) {
-                // Seek to start
+                // Seek decoder and timer to loop start, continue playing
                 double start_time = static_cast<double>(boundary_start) / fps;
+                d3d11_decoder_->UpdatePlayhead(boundary_start, SeekQuality::NORMAL, true);
                 if (timeline_timer_) {
                     timeline_timer_->Seek(start_time);
                 }
                 current_frame_ = boundary_start;
 
-                // Seek decoder
-                d3d11_decoder_->UpdatePlayhead(boundary_start, SeekQuality::NORMAL, true);
+                Debug::Log("D3D11_DECODER LOOP: Seeked to boundary_start=" + std::to_string(boundary_start));
 
-                // Enter buffer wait then resume
-                waiting_for_frame_ = true;
-                waiting_start_time_ = std::chrono::steady_clock::now();
-                is_playing_ = true;
-
-                // Return cached texture while transitioning
+                // Return cached texture while decoder catches up
                 width = current_texture_width_;
                 height = current_texture_height_;
                 return current_texture_;
@@ -756,7 +697,7 @@ void TimelinePlaybackController::NotifyTracksEdited() {
     }
 
     // Force viewport refresh by re-seeking to current position
-    // This triggers MPV to request a new frame, which will come from our refreshed cache
+    // This triggers a new frame request from the refreshed cache
     if (video_player_) {
         double current_pos = video_player_->GetPosition();
         video_player_->Seek(current_pos);
@@ -782,8 +723,6 @@ void TimelinePlaybackController::UpdateDuration(double new_duration) {
                    std::to_string(old_duration) + "s -> " + std::to_string(new_duration) + "s");
     }
 }
-
-// NOTE: RegenerateDummy and CheckAndExtendDummy removed - virtual timeline mode doesn't need dummy videos
 
 void TimelinePlaybackController::ProcessPendingUploads() {
     if (cache_) {
@@ -863,157 +802,10 @@ bool TimelinePlaybackController::IsPlaying() const {
     return is_playing_.load();
 }
 
-bool TimelinePlaybackController::IsWaitingForBuffer() const {
-    return waiting_for_frame_;
-}
-
 bool TimelinePlaybackController::IsActuallyPlaying() const {
-    // True only if playing AND not waiting for buffer to fill
-    // Used by UI to show correct play/pause state
-    return is_playing_.load() && !waiting_for_frame_;
+    return is_playing_.load();
 }
 
-//=============================================================================
-// Buffer-Wait Control
-//=============================================================================
-
-void TimelinePlaybackController::SetBufferWaitEnabled(bool enabled) {
-    buffer_wait_enabled_ = enabled;
-    Debug::Log("TimelinePlaybackController: Buffer-wait " +
-               std::string(enabled ? "enabled" : "disabled"));
-}
-
-bool TimelinePlaybackController::ShouldApplyBufferWait() const {
-    // Buffer wait only applies to image/EXR content at the current playhead
-    // Video uses D3D11 decoders which handle their own buffering
-    // This is clip-aware: only waits within image clips, not during video clips
-
-    // Setting must be enabled
-    if (!buffer_wait_enabled_) return false;
-
-    // D3D11VA HDR mode - decoder handles buffering
-    if (use_d3d11va_hdr_ && d3d11va_decoder_) return false;
-
-    // D3D11 GPU-native mode - decoder handles buffering
-    if (use_d3d11_decoder_ && d3d11_decoder_) return false;
-
-#ifdef _WIN32
-    // Unified D3D11 composite pipeline - decoders handle buffering
-    if (use_unified_composite_ && dual_view_pipeline_) return false;
-#endif
-
-    // Must have cache
-    if (!cache_) return false;
-
-    // Clip-aware check: only buffer wait if current frame is image/EXR content
-    // This allows playlists with mixed video+image content to only buffer wait
-    // during image clips, not during video clips
-    int current_frame = current_frame_.load();
-    if (!cache_->IsFrameImageContent(current_frame)) return false;
-
-    return true;  // Current frame is image/EXR - buffer wait applies
-}
-
-void TimelinePlaybackController::SetBufferWaitPercent(int /*percent*/) {
-    // No-op: buffer wait percent is now hardcoded to 90%
-    // This method is kept for API compatibility but does nothing
-}
-
-void TimelinePlaybackController::SetVideoBufferFrames(int frames) {
-    video_buffer_frames_ = std::clamp(frames, 2, 48);
-    Debug::Log("TimelinePlaybackController: Video buffer frames set to " +
-               std::to_string(video_buffer_frames_));
-}
-
-int TimelinePlaybackController::GetEffectiveBufferWaitPercent() const {
-    return 90;  // Hardcoded to 90% - simplifies interaction with adaptive speed
-}
-
-bool TimelinePlaybackController::IsSequentialBufferReady() const {
-    if (!cache_) return true;  // No cache = ready (nothing to wait for)
-
-    // Buffer wait only applies to image/EXR content at the current frame
-    // Video uses D3D11 decoders which handle their own buffering
-    int current_frame = current_frame_.load();
-    if (!cache_->IsFrameImageContent(current_frame)) {
-        return true;  // Video clip = always ready (D3D11 handles buffering)
-    }
-
-#ifdef _WIN32
-    // Unified D3D11 composite pipeline: decoders have their own buffering
-    // Skip buffer checks - similar to VIDEO_FILE mode with MPV
-    if (use_unified_composite_ && dual_view_pipeline_) {
-        return true;
-    }
-#endif
-
-    // Image sequence / mixed timeline: check sequential buffer fill
-    // Get priority-sorted frames from engine: [current, ahead1, ahead2, ..., behind1, ...]
-    std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
-    if (priority_frames.empty()) return true;
-
-    // Image/EXR mode: use configured % of readahead
-    int read_ahead = cache_->GetReadAheadFrames();
-    int effective_percent = GetEffectiveBufferWaitPercent();
-    int needed = std::max(1, (read_ahead * effective_percent) / 100);
-
-    // The first (1 + needed) frames in priority order are: current, ahead1, ahead2, ...
-    // Check if these are ALL ready (sequential from playhead)
-    int frames_to_check = std::min(needed + 1, static_cast<int>(priority_frames.size()));
-
-    for (int i = 0; i < frames_to_check; i++) {
-        if (!cache_->HasFrameReady(priority_frames[i])) {
-            return false;  // Sequential chain broken
-        }
-    }
-
-    return true;  // All immediate frames ready
-}
-
-void TimelinePlaybackController::GetBufferFillStatus(int& filled, int& needed) const {
-    filled = 0;
-    needed = 1;
-
-    if (!cache_) return;
-
-    // Buffer status only applies to image/EXR content at the current frame
-    // For video clips, report 100% full since D3D11 handles buffering
-    int current_frame = current_frame_.load();
-    if (!cache_->IsFrameImageContent(current_frame)) {
-        filled = 1;
-        needed = 1;
-        return;
-    }
-
-#ifdef _WIN32
-    // Unified D3D11 composite pipeline: decoders have their own buffering
-    if (use_unified_composite_ && dual_view_pipeline_) {
-        filled = 1;
-        needed = 1;
-        return;
-    }
-#endif
-
-    // Image sequence / mixed timeline: check buffer fill status
-    std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
-    if (priority_frames.empty()) return;
-
-    // Image/EXR mode: use configured % of readahead
-    int read_ahead = cache_->GetReadAheadFrames();
-    int effective_percent = GetEffectiveBufferWaitPercent();
-    needed = std::max(1, (read_ahead * effective_percent) / 100);
-
-    int frames_to_check = std::min(needed + 1, static_cast<int>(priority_frames.size()));
-
-    // Count sequential ready frames from start
-    for (int i = 0; i < frames_to_check; i++) {
-        if (cache_->HasFrameReady(priority_frames[i])) {
-            filled++;
-        } else {
-            break;  // Stop at first gap (sequential check)
-        }
-    }
-}
 
 std::string TimelinePlaybackController::GetCurrentClipName() const {
     if (!cache_) return "";
@@ -1065,7 +857,6 @@ std::string TimelinePlaybackController::GetSourceFilePath() const {
     return timeline_view_->GetSourceFilePath();
 }
 
-// NOTE: SyncFromMPV and GenerateDummy removed - virtual timeline mode uses PlaybackTimer
 
 //=============================================================================
 // Virtual Timeline Mode Implementation
@@ -1149,7 +940,6 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     timeline_timer_ = std::make_unique<PlaybackTimer>();
     timeline_timer_->SetDuration(timeline_duration_);
     timeline_timer_->SetFrameRate(fps_);
-    // SetLooping removed - loop control handled by main.cpp boundary system
     timeline_timer_->Seek(0.0);
 
     // Setup position change callback - updates frame index and audio
@@ -1264,7 +1054,7 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     }
 
     // D3D11VideoDecoder mode: use FFmpeg + D3D11 for direct GPU textures
-    // Always use D3D11 decoder for video files (MPV removed)
+    // Use D3D11 decoder for video files
     if (!use_d3d11va_hdr_ && is_video_file_mode && !media_file_path.empty()) {
         Debug::Log("TimelinePlaybackController: D3D11 GPU-native mode for: " + media_file_path);
 
@@ -1376,9 +1166,15 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
             cache_->SetGapTextureDimensions(width_, height_);
             cache_->SetCanvasDimensions(width_, height_);  // Ensure consistent output dimensions
         }
+
+        // For PLAYLIST mode, trigger EnableDirectEXRCacheIfSequence() via NotifyTracksEdited
+        // (sequence metadata was just registered above, cache needs to detect it)
+        if (timeline_view_->GetSourceMode() == TimelineSourceMode::PLAYLIST) {
+            cache_->NotifyTracksEdited();
+        }
     }
 
-    // Initialize audio mixer (always needed now - MPV removed)
+    // Initialize audio mixer
     audio_mixer_ = std::make_unique<AudioMixer>();
     if (audio_mixer_->Initialize()) {
         audio_mixer_->SetFlattener(&timeline_view_->GetFlattener());
@@ -1439,7 +1235,6 @@ bool TimelinePlaybackController::InitializeForVirtualScratchTimeline(
     timeline_timer_ = std::make_unique<PlaybackTimer>();
     timeline_timer_->SetDuration(timeline_duration_);
     timeline_timer_->SetFrameRate(fps_);
-    // SetLooping removed - loop control handled by main.cpp boundary system
     timeline_timer_->Seek(0.0);
 
     // Setup callbacks
@@ -1479,184 +1274,6 @@ void TimelinePlaybackController::UpdateTimer() {
     // NOTE: ProcessPendingUploads now called from ProcessPendingTextureUploads()
     // BEFORE ImGui::NewFrame() to avoid GL state corruption during render
 
-    // Wait-for-frame logic: when Play() is called, we don't start the timer
-    // until the sequential buffer is ready. This prevents stuttering,
-    // especially when crossing edit boundaries where multiple clips need to be buffered.
-    // Buffer wait only applies to image/EXR content - video uses D3D11 decoders with internal buffering.
-    if (waiting_for_frame_ && is_playing_.load()) {
-        // Safety check: if buffer wait no longer applies (setting changed, content type changed),
-        // exit wait state immediately and start playback
-        if (!ShouldApplyBufferWait()) {
-            waiting_for_frame_ = false;
-            accumulated_time_ = 0.0;
-            last_timer_update_ = now;
-            timeline_timer_->Play();
-            if (audio_mixer_) {
-                audio_mixer_->Play();
-            }
-            return;
-        }
-
-#ifdef _WIN32
-        // D3D11VA HDR mode: seek (if needed for loop restart) and try to decode
-        // Note: This path is only reached if ShouldApplyBufferWait() returned true,
-        // which shouldn't happen for D3D11VA HDR mode, but keep as safety fallback.
-        if (use_d3d11va_hdr_ && d3d11va_decoder_) {
-            int target_frame = current_frame_.load();
-
-            // Seek decoder if this is a loop restart (from end -> start)
-            // SeekToFrame is safe when paused - no background read-ahead
-            if (d3d11va_needs_seek_) {
-                Debug::Log("D3D11VA_HDR BUFFER_WAIT: Seeking decoder to frame " + std::to_string(target_frame));
-                d3d11va_decoder_->SeekToFrame(target_frame);
-                d3d11va_needs_seek_ = false;  // Only seek once
-            }
-
-            // Now try to decode the frame
-            GLuint texture = d3d11va_decoder_->GetFrameAsGLTexture(target_frame);
-
-            if (texture != 0) {
-                // Frame ready - resume playback
-                Debug::Log("D3D11VA_HDR BUFFER_WAIT: Frame " + std::to_string(target_frame) + " ready, resuming playback");
-                current_texture_ = texture;
-                current_texture_width_ = d3d11va_decoder_->GetWidth();
-                current_texture_height_ = d3d11va_decoder_->GetHeight();
-
-                waiting_for_frame_ = false;
-                accumulated_time_ = 0.0;
-                last_timer_update_ = now;
-                timeline_timer_->Play();
-            }
-            // If not ready, keep waiting (timer stays paused)
-            return;
-        }
-#endif
-
-        // Use engine-aware sequential buffer check
-        // Needs 50% of readahead filled SEQUENTIALLY from playhead
-        bool buffer_ready = IsSequentialBufferReady();
-
-        // Check for timeout - don't wait forever if cache can't fill
-        auto wait_elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - waiting_start_time_).count();
-        bool timed_out = wait_elapsed > kMaxWaitMs;
-
-        // Also check if at least current frame is ready (minimum requirement)
-        bool current_ready = cache_ && cache_->HasFrameReady(current_frame_.load());
-
-        if (buffer_ready || (timed_out && current_ready)) {
-            // Sequential buffer ready OR timed out with at least current frame
-            waiting_for_frame_ = false;
-
-            // Clear DirectEXRCache buffer wait flag (IMAGE_SEQUENCE mode)
-            if (cache_ && cache_->IsDirectEXRCacheMode()) {
-                cache_->ClearBufferWait();
-            }
-
-            // DEBUG: Log the exact state when transitioning from wait to play
-            int frame_at_start = current_frame_.load();
-            double timer_pos_at_start = timeline_timer_->GetPosition();
-            Debug::Log("TimelinePlaybackController: [BUFFER WAIT -> PLAY] frame=" +
-                       std::to_string(frame_at_start) +
-                       " timer_pos=" + std::to_string(timer_pos_at_start) + "s" +
-                       " wait_elapsed=" + std::to_string(wait_elapsed) + "ms" +
-                       " buffer_ready=" + std::to_string(buffer_ready));
-
-            // Reset debug counter to log first N updates after play starts
-            debug_post_play_updates_ = 0;
-
-            if (timed_out && !buffer_ready) {
-                int filled, needed;
-                GetBufferFillStatus(filled, needed);
-                Debug::Log("TimelinePlaybackController: Buffer wait timed out after " +
-                           std::to_string(wait_elapsed) + "ms, starting with " +
-                           std::to_string(filled) + "/" + std::to_string(needed) + " sequential frames");
-            }
-
-            // Reset timing accumulator to start fresh
-            accumulated_time_ = 0.0;
-            last_timer_update_ = now;
-
-            // Start timer and audio
-            timeline_timer_->Play();
-            if (audio_mixer_) {
-                audio_mixer_->Play();
-                audio_paused_for_throttle_ = false;  // Clear throttle pause flag
-            }
-        }
-        // If not ready yet, just keep waiting (don't advance timer)
-        return;
-    }
-
-    // Adaptive throttle: check buffer health and adjust playback speed
-    // Only runs during actual playback (not buffer-wait or paused)
-    if (is_playing_.load() && throttle_enabled_) {
-        // For IMAGE_SEQUENCE with DirectEXRCache: use its speed factor directly
-        // DirectEXRCache has proven rate-based adaptive speed control
-        if (cache_ && cache_->IsDirectEXRCacheMode()) {
-            // Check if DirectEXRCache is triggering buffer wait (< 6 frames ahead)
-            if (cache_->NeedsBufferWait() && !waiting_for_frame_) {
-                // Buffer critically low - pause playback until buffer refills
-                waiting_for_frame_ = true;
-                waiting_start_time_ = std::chrono::steady_clock::now();
-                throttle_state_ = ThrottleState::BUFFER_PAUSE;
-                if (timeline_timer_) {
-                    timeline_timer_->Pause();
-                }
-                if (audio_mixer_ && !audio_paused_for_throttle_) {
-                    audio_mixer_->Pause();
-                    audio_paused_for_throttle_ = true;
-                }
-                Debug::Log("TimelinePlaybackController: DirectEXRCache triggered buffer wait");
-                return;  // Wait for buffer to refill
-            }
-
-            double speed = cache_->GetPlaybackSpeedFactor();
-            if (timeline_timer_) {
-                timeline_timer_->SetPlaybackSpeed(speed);
-            }
-            current_speed_factor_ = speed;
-
-            // Wire to audio: use pitch-preserving time stretch instead of pausing
-            // SoundTouch can handle 0.5x-2.0x range; below 0.5x pause audio
-            if (audio_mixer_) {
-                if (speed >= 0.5) {
-                    // Use time stretch for tempo control (pitch preserved)
-                    audio_mixer_->SetPlaybackTempo(speed);
-                    if (audio_paused_for_throttle_) {
-                        audio_mixer_->Play();
-                        audio_paused_for_throttle_ = false;
-                    }
-                } else {
-                    // Below 0.5x is too extreme for time stretch - pause audio
-                    if (!audio_paused_for_throttle_) {
-                        audio_mixer_->Pause();
-                        audio_paused_for_throttle_ = true;
-                    }
-                }
-            }
-
-            // Map speed to throttle state for UI display
-            if (speed >= 1.0) {
-                throttle_state_ = ThrottleState::FULL;
-            } else if (speed >= 0.75) {
-                throttle_state_ = ThrottleState::SLIGHT;
-            } else if (speed >= 0.5) {
-                throttle_state_ = ThrottleState::MODERATE;
-            } else if (speed >= 0.33) {
-                throttle_state_ = ThrottleState::SIGNIFICANT;
-            } else if (speed >= 0.25) {
-                throttle_state_ = ThrottleState::HEAVY;
-            } else {
-                throttle_state_ = ThrottleState::SEVERE;
-            }
-
-        } else {
-            // Normal path: use UpdateThrottleState for other modes
-            UpdateThrottleState();
-        }
-    }
-
     // Simple wall-clock based timing: let PlaybackTimer handle elapsed time directly
     // Timer always advances at real-time speed (or throttled speed) - if frames aren't ready, we hold/skip
     // This prevents video from playing slower than audio
@@ -1668,8 +1285,9 @@ void TimelinePlaybackController::UpdateTimer() {
     // Use rounding (+ 0.5) to match decoder's PTS-based frame numbering
     int old_frame = current_frame_.load();
     double timer_pos = timeline_timer_->GetPosition();
-    current_frame_ = static_cast<int>(timer_pos * fps_ + 0.5);
-    int new_frame = current_frame_.load();
+    int new_frame = static_cast<int>(timer_pos * fps_ + 0.5);
+
+    current_frame_ = new_frame;
 
     // DEBUG: Log first N updates after play starts to diagnose frame jumps
     if (debug_post_play_updates_ < kDebugPostPlayLogCount && is_playing_.load()) {
@@ -1699,6 +1317,16 @@ double TimelinePlaybackController::GetPosition() const {
     }
     // Fallback: calculate from frame
     return static_cast<double>(current_frame_.load()) / fps_;
+}
+
+void TimelinePlaybackController::SetPlaybackStride(int stride) {
+    playback_stride_ = stride;
+    if (cache_) cache_->SetPlaybackStride(stride);
+    if (right_cache_) right_cache_->SetPlaybackStride(stride);
+}
+
+int TimelinePlaybackController::GetPlaybackStride() const {
+    return playback_stride_;
 }
 
 void TimelinePlaybackController::ApplyPendingFPSUpdate() {
@@ -1737,67 +1365,19 @@ void TimelinePlaybackController::Play() {
 
     if (use_virtual_timeline_ && timeline_timer_) {
         is_playing_ = true;
-
-        // Buffer wait only applies to image/EXR content
-        // Video and D3D11 pipelines handle their own buffering
-        if (ShouldApplyBufferWait()) {
-            // Enter wait-for-frame state - don't actually start timer/audio until
-            // the cache has the current frame ready. This prevents stuttering at start.
-            waiting_for_frame_ = true;
-            waiting_start_time_ = std::chrono::steady_clock::now();
-
-            // Notify cache that we're playing so decoder starts buffering
-            if (cache_) {
-                cache_->UpdatePlayhead(current_frame_.load(), true);
-            }
-            // Timer and audio will be started in UpdateTimer() once frame is ready
-        } else {
-            // No buffer wait - start playback immediately
-            waiting_for_frame_ = false;
-            accumulated_time_ = 0.0;
-            last_timer_update_ = std::chrono::steady_clock::now();
-            timer_initialized_ = true;
-            timeline_timer_->Play();
-            if (audio_mixer_) {
-                audio_mixer_->Play();
-            }
-            if (cache_) {
-                cache_->UpdatePlayhead(current_frame_.load(), true);
-            }
-        }
-    }
-}
-
-void TimelinePlaybackController::ForcePlay() {
-    if (use_virtual_timeline_ && timeline_timer_) {
-        // Skip buffer wait and start immediately
-        is_playing_ = true;
-        waiting_for_frame_ = false;
-
-        // Set force-play cooldown to prevent immediate BUFFER_PAUSE re-trigger
-        force_play_active_ = true;
-        force_play_time_ = std::chrono::steady_clock::now();
-
-        // Reset timing accumulator
         accumulated_time_ = 0.0;
         last_timer_update_ = std::chrono::steady_clock::now();
         timer_initialized_ = true;
-
-        // Start timer and audio immediately
         timeline_timer_->Play();
         if (audio_mixer_) {
             audio_mixer_->Play();
         }
-
-        // Notify cache that we're playing
         if (cache_) {
             cache_->UpdatePlayhead(current_frame_.load(), true);
         }
-
-        Debug::Log("TimelinePlaybackController: ForcePlay - skipped buffer wait, cooldown active for " +
-                   std::to_string(kForcePlayCooldownMs) + "ms");
     }
 }
+
 
 void TimelinePlaybackController::Pause() {
     // Notify thumbnail cache to resume all workers
@@ -1810,7 +1390,6 @@ void TimelinePlaybackController::Pause() {
     if (use_d3d11va_hdr_ && d3d11va_decoder_ && timeline_timer_) {
         timeline_timer_->Pause();
         is_playing_ = false;
-        waiting_for_frame_ = false;
         d3d11va_needs_seek_ = false;  // Cancel any pending loop seek
         if (audio_mixer_) {
             audio_mixer_->Pause();
@@ -1822,7 +1401,6 @@ void TimelinePlaybackController::Pause() {
     if (use_d3d11_decoder_ && d3d11_decoder_ && timeline_timer_) {
         timeline_timer_->Pause();
         is_playing_ = false;
-        waiting_for_frame_ = false;
         if (audio_mixer_) {
             audio_mixer_->Pause();
         }
@@ -1833,12 +1411,16 @@ void TimelinePlaybackController::Pause() {
     if (use_virtual_timeline_ && timeline_timer_) {
         timeline_timer_->Pause();
         is_playing_ = false;
-        waiting_for_frame_ = false;  // Cancel waiting if paused
         d3d11va_needs_seek_ = false;  // Reset seek flag
-        force_play_active_ = false;  // Clear ForcePlay cooldown on pause
-        ResetThrottle();  // Reset to full speed on pause
+        // Reset timer speed and audio tempo to 1.0 on pause
+        timeline_timer_->SetPlaybackSpeed(1.0);
         if (audio_mixer_) {
+            audio_mixer_->SetPlaybackTempo(1.0);
             audio_mixer_->Pause();
+        }
+        // Reset DirectEXRCache adaptive speed (IMAGE_SEQUENCE mode)
+        if (cache_) {
+            cache_->ResetPlaybackSpeed();
         }
     }
 }
@@ -1851,45 +1433,6 @@ void TimelinePlaybackController::TogglePlayPause() {
     }
 }
 
-void TimelinePlaybackController::TriggerLoopBufferWait() {
-    // Called when playback loops back to boundary start
-    // Pauses the timer briefly to let cache fill the loop-start frames
-    // Buffer wait only applies to image/EXR content
-    if (!is_playing_.load() || !timeline_timer_) return;
-
-    // Buffer wait only applies to image/EXR content - skip for video
-    if (!ShouldApplyBufferWait()) {
-        // Just notify cache and continue without pausing
-        if (cache_) {
-            cache_->UpdatePlayhead(current_frame_.load(), true);
-        }
-        if (dual_view_mode_ && right_cache_) {
-            right_cache_->UpdatePlayhead(current_frame_.load(), true);
-        }
-        return;
-    }
-
-    // Pause timer and audio while we wait
-    timeline_timer_->Pause();
-    if (audio_mixer_) {
-        audio_mixer_->Pause();
-    }
-
-    // Enter buffer-wait state (UpdateTimer will resume when ready)
-    waiting_for_frame_ = true;
-    waiting_start_time_ = std::chrono::steady_clock::now();
-
-    // Notify cache of new position so it prioritizes these frames
-    if (cache_) {
-        cache_->UpdatePlayhead(current_frame_.load(), true);
-    }
-    if (dual_view_mode_ && right_cache_) {
-        right_cache_->UpdatePlayhead(current_frame_.load(), true);
-    }
-
-    Debug::Log("TimelinePlaybackController: Loop buffer-wait triggered at frame " +
-               std::to_string(current_frame_.load()));
-}
 
 void TimelinePlaybackController::Seek(double position) {
 #ifdef _WIN32
@@ -1965,17 +1508,14 @@ void TimelinePlaybackController::Seek(double position) {
         if (position < 0) position = 0;
         if (position > timeline_duration_) position = timeline_duration_;
 
-        // Check if we're currently playing (need to enter buffer wait after seek)
-        bool was_playing = is_playing_.load() && !waiting_for_frame_;
-
         timeline_timer_->Seek(position);
 
         // Reset timing accumulator to prevent accumulated time from causing jumps
         accumulated_time_ = 0.0;
         last_timer_update_ = std::chrono::steady_clock::now();
 
-        // Reset throttle on seek - give cache a fresh start
-        ResetThrottle();
+        // Reset overrun state on seek - give cache a fresh start
+        if (cache_) cache_->ResetPlaybackSpeed();
 
         // Seek audio to new position
         if (audio_mixer_) {
@@ -1995,21 +1535,6 @@ void TimelinePlaybackController::Seek(double position) {
             right_cache_->UpdatePlayhead(target_frame, timeline_timer_->IsPlaying());
         }
 
-        // If playing, enter buffer wait to ensure frames are ready at new position
-        // Buffer wait only applies to image/EXR content - video uses D3D11 decoders
-        if (was_playing && ShouldApplyBufferWait()) {
-            waiting_for_frame_ = true;
-            waiting_start_time_ = std::chrono::steady_clock::now();
-
-            // Pause timer/audio until buffer ready (UpdateTimer will resume)
-            timeline_timer_->Pause();
-            if (audio_mixer_) {
-                audio_mixer_->Pause();
-            }
-
-            Debug::Log("TimelinePlaybackController: Seek while playing - entering buffer wait at frame " +
-                       std::to_string(target_frame));
-        }
     }
 }
 
@@ -2322,271 +1847,7 @@ void TimelinePlaybackController::UpdateFastSeek() {
 // Adaptive Throttle Implementation
 //=============================================================================
 
-void TimelinePlaybackController::SetThrottleEnabled(bool enabled) {
-    throttle_enabled_ = enabled;
-    if (!enabled) {
-        // When disabled, reset to full speed
-        ResetThrottle();
-    }
-}
 
-void TimelinePlaybackController::ResetThrottle() {
-    throttle_state_ = ThrottleState::FULL;
-    current_speed_factor_ = 1.0;
-    was_healthy_ = true;
-    if (timeline_timer_) {
-        timeline_timer_->SetPlaybackSpeed(1.0);
-    }
-    // Reset audio tempo back to normal (1.0x)
-    if (audio_mixer_) {
-        audio_mixer_->SetPlaybackTempo(1.0);
-    }
-    // Clear audio throttle state (audio will be resumed by Play() call if needed)
-    audio_paused_for_throttle_ = false;
-
-    // Reset DirectEXRCache adaptive speed (IMAGE_SEQUENCE mode)
-    if (cache_) {
-        cache_->ResetPlaybackSpeed();
-    }
-}
-
-double TimelinePlaybackController::GetSpeedForState(ThrottleState state) {
-    switch (state) {
-        case ThrottleState::FULL:        return 1.0;
-        case ThrottleState::SLIGHT:      return 0.75;
-        case ThrottleState::MODERATE:    return 0.5;
-        case ThrottleState::SIGNIFICANT: return 0.33;
-        case ThrottleState::HEAVY:       return 0.25;
-        case ThrottleState::SEVERE:      return 0.125;
-        case ThrottleState::CRAWL:       return 0.17;  // ~4fps at 24fps base
-        case ThrottleState::BUFFER_PAUSE: return 0.0;  // Triggers pause
-    }
-    return 1.0;
-}
-
-void TimelinePlaybackController::UpdateThrottleState() {
-    if (!cache_ || !timeline_timer_) return;
-
-    // Adaptive throttle only applies to image/EXR content at the current frame
-    // Video uses D3D11 decoders which handle their own buffering
-    // Use ShouldApplyBufferWait() which is clip-aware for playlists
-    if (!ShouldApplyBufferWait()) {
-        if (throttle_state_ != ThrottleState::FULL) {
-            throttle_state_ = ThrottleState::FULL;
-            current_speed_factor_ = 1.0;
-            timeline_timer_->SetPlaybackSpeed(1.0);
-        }
-        return;
-    }
-
-#ifdef _WIN32
-    // Unified D3D11 composite pipeline: decoders handle their own buffering
-    // No throttling needed - similar to VIDEO_FILE mode with MPV
-    if (use_unified_composite_ && dual_view_pipeline_) {
-        if (throttle_state_ != ThrottleState::FULL) {
-            throttle_state_ = ThrottleState::FULL;
-            current_speed_factor_ = 1.0;
-            timeline_timer_->SetPlaybackSpeed(1.0);
-        }
-        return;
-    }
-#endif
-
-    // Use engine-aware priority frames for throttle calculation
-    // These are circle-aware - no boundary hacks needed
-    std::vector<int> priority_frames = cache_->GetPriorityFrameWindow();
-
-    if (priority_frames.empty()) {
-        return;
-    }
-
-    // Use 50% of readahead as our target window (matches buffer-wait default)
-    int read_ahead = cache_->GetReadAheadFrames();
-
-    //=========================================================================
-    // End-of-Timeline Bypass: If we're within one window of the end/out-point
-    // and have all remaining frames cached, skip throttling - we're set to finish
-    //=========================================================================
-    int current_frame = current_frame_.load();
-    int boundary_end = cache_->GetBoundaryEnd();
-    int frames_to_end = boundary_end - current_frame;
-
-    // Only applies when approaching end (not after wrap)
-    if (frames_to_end > 0 && frames_to_end <= read_ahead) {
-        // Count cached frames from current to end
-        int cached_to_end = 0;
-        for (int f = current_frame; f <= boundary_end; f++) {
-            if (cache_->HasFrameReady(f)) {
-                cached_to_end++;
-            }
-        }
-
-        // Require 90% of remaining frames cached before bypassing throttle
-        double fill_to_end = static_cast<double>(cached_to_end) / frames_to_end;
-        if (fill_to_end >= 0.90) {
-            // We have enough cached to finish at full speed - no throttle needed
-            if (throttle_state_ != ThrottleState::FULL) {
-                throttle_state_ = ThrottleState::FULL;
-                current_speed_factor_ = 1.0;
-                timeline_timer_->SetPlaybackSpeed(1.0);
-                Debug::Log("TimelinePlaybackController: End-of-timeline bypass - " +
-                           std::to_string(cached_to_end) + "/" + std::to_string(frames_to_end) +
-                           " frames to end (" + std::to_string(static_cast<int>(fill_to_end * 100)) + "%)");
-            }
-            return;
-        }
-    }
-
-    int target_frames = std::max(1, read_ahead / 2);
-    int frames_to_check = std::min(target_frames + 1, static_cast<int>(priority_frames.size()));
-
-    // Count SEQUENTIAL ready frames from playhead (circle-aware via engine)
-    // This is the key difference from before - we stop at first gap
-    int sequential_ready = 0;
-    for (int i = 0; i < frames_to_check; i++) {
-        if (cache_->HasFrameReady(priority_frames[i])) {
-            sequential_ready++;
-        } else {
-            break;  // Stop at first gap - sequential check
-        }
-    }
-
-    // Calculate fill percentage based on sequential frames
-    double fill_percent = (frames_to_check > 0)
-        ? static_cast<double>(sequential_ready) / frames_to_check
-        : 0.0;
-
-    // Map to throttle state with more granular tiers
-    // 50% sequential = full speed, scaling down from there
-    ThrottleState new_state;
-    if (fill_percent >= 0.50)      new_state = ThrottleState::FULL;         // 50%+ = 100% speed
-    else if (fill_percent >= 0.40) new_state = ThrottleState::SLIGHT;       // 40-50% = 75% speed
-    else if (fill_percent >= 0.30) new_state = ThrottleState::MODERATE;     // 30-40% = 50% speed
-    else if (fill_percent >= 0.20) new_state = ThrottleState::SIGNIFICANT;  // 20-30% = 33% speed
-    else if (fill_percent >= 0.15) new_state = ThrottleState::HEAVY;        // 15-20% = 25% speed
-    else if (fill_percent >= 0.10) new_state = ThrottleState::SEVERE;       // 10-15% = 12.5% speed
-    else if (fill_percent >= 0.05) new_state = ThrottleState::CRAWL;        // 5-10% = ~4fps
-    else                           new_state = ThrottleState::BUFFER_PAUSE; // <5% = pause & wait
-
-    // Handle BUFFER_PAUSE - trigger waiting state instead of just slowing
-    if (new_state == ThrottleState::BUFFER_PAUSE) {
-        // Check ForcePlay cooldown - don't immediately re-trigger BUFFER_PAUSE after user forced play
-        auto now = std::chrono::steady_clock::now();
-        if (force_play_active_) {
-            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - force_play_time_).count();
-            if (elapsed < kForcePlayCooldownMs) {
-                // Still in cooldown - use CRAWL speed instead of BUFFER_PAUSE
-                new_state = ThrottleState::CRAWL;
-                // Fall through to normal throttle handling
-            } else {
-                // Cooldown expired
-                force_play_active_ = false;
-            }
-        }
-
-        // Only trigger BUFFER_PAUSE if not in cooldown
-        if (new_state == ThrottleState::BUFFER_PAUSE) {
-            // Critical buffer state - pause and wait for buffer to refill
-            if (!waiting_for_frame_) {
-                waiting_for_frame_ = true;
-                waiting_start_time_ = now;
-                timeline_timer_->Pause();
-                if (audio_mixer_ && !audio_paused_for_throttle_) {
-                    audio_mixer_->Pause();
-                    audio_paused_for_throttle_ = true;
-                }
-                Debug::Log("TimelinePlaybackController: Buffer critical (" +
-                           std::to_string(sequential_ready) + "/" + std::to_string(frames_to_check) +
-                           " sequential) - triggering buffer pause");
-            }
-            // Don't update throttle state further - UpdateTimer will handle resume
-            return;
-        }
-    }
-
-    // Debounce both directions to prevent oscillation
-    // Enum ordering: FULL=0 (fastest) ... BUFFER_PAUSE=7 (slowest)
-    // So new_state < throttle_state_ means speeding UP, new_state > means slowing DOWN
-    auto now = std::chrono::steady_clock::now();
-    static constexpr int kSlowdownDebounceMs = 250;  // Faster response when slowing down
-
-    if (new_state > throttle_state_) {
-        // Slowing down (new_state has higher enum value = slower)
-        if (was_healthy_) {
-            last_healthy_time_ = now;
-            was_healthy_ = false;
-        }
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - last_healthy_time_).count();
-        if (elapsed >= kSlowdownDebounceMs) {
-            // Step down one level at a time for smooth degradation
-            int current_level = static_cast<int>(throttle_state_);
-            int max_level = static_cast<int>(ThrottleState::CRAWL);  // Don't step into BUFFER_PAUSE via this path
-            if (current_level < max_level) {
-                throttle_state_ = static_cast<ThrottleState>(current_level + 1);
-                last_healthy_time_ = now;  // Reset for next step
-                Debug::Log("TimelinePlaybackController: Throttle down to " +
-                           std::to_string(static_cast<int>(GetSpeedForState(throttle_state_) * 100)) +
-                           "% (" + std::to_string(sequential_ready) + "/" +
-                           std::to_string(frames_to_check) + " sequential)");
-            }
-        }
-    } else if (new_state < throttle_state_) {
-        // Speeding up (new_state has lower enum value = faster) - longer debounce
-        if (!was_healthy_) {
-            last_healthy_time_ = now;
-            was_healthy_ = true;
-        }
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - last_healthy_time_).count();
-        if (elapsed >= kThrottleDebounceMs) {
-            // Step up one level at a time for smooth recovery
-            int current_level = static_cast<int>(throttle_state_);
-            if (current_level > 0) {
-                throttle_state_ = static_cast<ThrottleState>(current_level - 1);
-                was_healthy_ = false;  // Reset debounce for next step
-                Debug::Log("TimelinePlaybackController: Throttle up to " +
-                           std::to_string(static_cast<int>(GetSpeedForState(throttle_state_) * 100)) + "%");
-            }
-        }
-    } else {
-        // At target state - reset debounce tracking
-        was_healthy_ = (new_state == ThrottleState::FULL);
-    }
-
-    // Apply speed factor to timer and handle audio sync
-    double new_speed = GetSpeedForState(throttle_state_);
-    if (new_speed != current_speed_factor_) {
-        current_speed_factor_ = new_speed;
-        timeline_timer_->SetPlaybackSpeed(current_speed_factor_);
-
-        // Handle audio: use pitch-preserving time stretch for tempo control
-        // SoundTouch can handle 0.5x-2.0x range; AudioRateCorrector only ±3%
-        // Use time stretch for speed >= 0.5, pause audio below 0.5 (too extreme)
-        if (audio_mixer_) {
-            if (new_speed >= 0.5) {
-                // Use time stretch for smooth tempo control (pitch preserved)
-                audio_mixer_->SetPlaybackTempo(new_speed);
-                if (audio_paused_for_throttle_) {
-                    // Resume audio if it was paused from extreme throttle
-                    audio_mixer_->Play();
-                    audio_paused_for_throttle_ = false;
-                    Debug::Log("TimelinePlaybackController: Audio resumed with tempo " +
-                               std::to_string(static_cast<int>(new_speed * 100)) + "%");
-                }
-            } else {
-                // Below 0.5x is too extreme for SoundTouch - pause audio
-                if (!audio_paused_for_throttle_) {
-                    audio_mixer_->Pause();
-                    audio_paused_for_throttle_ = true;
-                    Debug::Log("TimelinePlaybackController: Audio paused - throttle too extreme (" +
-                               std::to_string(static_cast<int>(new_speed * 100)) + "% speed)");
-                }
-            }
-        }
-    }
-}
 
 //=============================================================================
 // Dual View Mode Implementation
@@ -2653,7 +1914,6 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
     timeline_timer_ = std::make_unique<PlaybackTimer>();
     timeline_timer_->SetDuration(timeline_duration_);
     timeline_timer_->SetFrameRate(fps_);
-    // SetLooping removed - loop control handled by main.cpp boundary system
     timeline_timer_->Seek(0.0);
 
     // Setup position change callback
@@ -3113,24 +2373,6 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
     }
 
     return result;
-}
-
-//=============================================================================
-// AB-Loop for In/Out Point Playback
-// Note: AB-loop was only used by MPV. Now handled via in/out points in timeline.
-//=============================================================================
-
-void TimelinePlaybackController::SetABLoop(double /*in_point*/, double /*out_point*/) {
-    // No-op: AB-loop was MPV-specific feature, now handled via timeline in/out points
-}
-
-void TimelinePlaybackController::ClearABLoop() {
-    // No-op: AB-loop was MPV-specific feature
-}
-
-bool TimelinePlaybackController::HasABLoop() const {
-    // AB-loop was MPV-specific feature
-    return false;
 }
 
 } // namespace ump

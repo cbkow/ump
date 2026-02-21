@@ -182,8 +182,6 @@ void MultiCacheCoordinator::ResetPlaybackState() {
     for (auto& [id, source] : sources_) {
         source->ResetPlaybackState();
     }
-    // Invalidate speed cache
-    speed_cache_timestamp_.store(0);
 }
 
 //=============================================================================
@@ -221,55 +219,6 @@ void MultiCacheCoordinator::ProcessPendingOperations() {
     }
 }
 
-//=============================================================================
-// Unified Speed Control
-//=============================================================================
-
-double MultiCacheCoordinator::GetUnifiedPlaybackSpeed() const {
-    // Check cache validity
-    auto now = std::chrono::steady_clock::now().time_since_epoch().count() / 1000000;  // ms
-    auto cached_time = speed_cache_timestamp_.load();
-
-    if (now - cached_time < SPEED_CACHE_VALID_MS) {
-        return cached_unified_speed_.load();
-    }
-
-    // Recalculate
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    if (sources_.empty()) {
-        cached_unified_speed_.store(1.0);
-        speed_cache_timestamp_.store(now);
-        return 1.0;
-    }
-
-    // Find minimum speed across all sources (slowest wins)
-    double min_speed = 1.0;
-    for (const auto& [id, source] : sources_) {
-        double speed = source->GetPlaybackSpeedFactor();
-        if (speed < min_speed) {
-            min_speed = speed;
-        }
-    }
-
-    cached_unified_speed_.store(min_speed);
-    speed_cache_timestamp_.store(now);
-
-    return min_speed;
-}
-
-bool MultiCacheCoordinator::NeedsBufferWait() const {
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    // If ANY source needs buffer wait, return true
-    for (const auto& [id, source] : sources_) {
-        if (source->NeedsBufferWait()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 BufferHealth MultiCacheCoordinator::GetCombinedBufferHealth() const {
     std::lock_guard<std::mutex> lock(mutex_);
 
@@ -281,25 +230,16 @@ BufferHealth MultiCacheCoordinator::GetCombinedBufferHealth() const {
     }
 
     // Aggregate health from all sources
-    double min_speed = 1.0;
-    int min_frames_ahead = INT_MAX;
-    bool any_needs_wait = false;
     int total_cached = 0;
     int total_frames = 0;
 
     for (const auto& [id, source] : sources_) {
         BufferHealth health = source->GetBufferHealth();
-
-        min_speed = std::min(min_speed, health.speed_factor);
-        min_frames_ahead = std::min(min_frames_ahead, health.frames_ahead);
-        any_needs_wait = any_needs_wait || health.needs_buffer_wait;
         total_cached += health.total_cached;
         total_frames += health.total_frames;
     }
 
-    combined.frames_ahead = (min_frames_ahead == INT_MAX) ? 0 : min_frames_ahead;
-    combined.speed_factor = min_speed;
-    combined.needs_buffer_wait = any_needs_wait;
+    combined.speed_factor = 1.0;
     combined.total_cached = total_cached;
     combined.total_frames = total_frames;
 

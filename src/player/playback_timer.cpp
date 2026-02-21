@@ -87,7 +87,7 @@ void PlaybackTimer::StepBackward(int frames) {
 
 void PlaybackTimer::SyncToExternalPosition(double position) {
     // Update position without triggering callbacks
-    // Used when an external source (like left MPV) is driving playback
+    // Used when an external source is driving playback
     // and we just need to keep the timer in sync for UI display
     position_ = position;
     ClampPosition();
@@ -199,8 +199,6 @@ void PlaybackTimer::SetDuration(double duration) {
 void PlaybackTimer::SetFrameRate(double fps) {
     frame_rate_ = std::max(0.001, fps);  // Prevent division by zero
 }
-
-// SetLooping is now an inline no-op in the header
 
 void PlaybackTimer::SetPlaybackSpeed(double speed) {
     playback_speed_ = std::max(0.0, speed);  // No negative speeds

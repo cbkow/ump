@@ -48,8 +48,8 @@ public:
     void SeekToStart();
     void SeekToEnd();
 
-    // Sync to external position (e.g., from MPV playback) without triggering callbacks
-    // Used when an external source (like left MPV) is driving playback and we just
+    // Sync to external position without triggering callbacks
+    // Used when an external source is driving playback and we just
     // need to keep the timer's position in sync for UI display purposes.
     void SyncToExternalPosition(double position);
 
@@ -81,10 +81,9 @@ public:
     void SetFrameRate(double fps);
     double GetFrameRate() const { return frame_rate_; }
 
-    // DEPRECATED: Loop control moved to main.cpp using boundary system
-    // These are kept as no-ops for compatibility
-    void SetLooping(bool /*enabled*/) {}  // No-op
-    bool IsLooping() const { return false; }  // Always false - main.cpp handles looping
+    // No-ops: loop control handled by main.cpp boundary system
+    void SetLooping(bool /*enabled*/) {}
+    bool IsLooping() const { return false; }
 
     void SetPlaybackSpeed(double speed);  // 1.0 = normal, 2.0 = 2x, 0.5 = half speed
     double GetPlaybackSpeed() const { return playback_speed_; }
@@ -113,8 +112,7 @@ public:
     // Callbacks
     //=========================================================================
 
-    // DEPRECATED: Loop callback removed - loop control handled by main.cpp
-    void SetOnLoop(std::function<void()> /*callback*/) {}  // No-op
+    void SetOnLoop(std::function<void()> /*callback*/) {}  // No-op: loop control in main.cpp
 
     // Called when playback reaches end (non-looping mode)
     void SetOnEnd(std::function<void()> callback) { on_end_ = callback; }
@@ -131,7 +129,6 @@ private:
 
     // State
     bool is_playing_ = false;
-    // DEPRECATED: looping_ removed - loop control handled by main.cpp
 
     // High-resolution timing
     using Clock = std::chrono::steady_clock;

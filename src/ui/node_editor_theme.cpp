@@ -74,7 +74,7 @@ ImU32 ToImU32(const ImVec4& color) {
         style.Colors[ImNodesCol_NodeBackground] = IM_COL32(45, 45, 45, 240);         
         style.Colors[ImNodesCol_NodeBackgroundHovered] = IM_COL32(55, 55, 55, 255);   
         style.Colors[ImNodesCol_NodeBackgroundSelected] = IM_COL32(65, 65, 65, 255); 
-        style.Colors[ImNodesCol_NodeOutline] = IM_COL32(100, 100, 105, 255);          
+        style.Colors[ImNodesCol_NodeOutline] = IM_COL32(100, 100, 105, 128);          
 
         // === TITLE BAR (Default - will be overridden per node type) ===
         style.Colors[ImNodesCol_TitleBar] = IM_COL32(70, 70, 70, 255);               
@@ -97,9 +97,9 @@ ImU32 ToImU32(const ImVec4& color) {
         style.Colors[ImNodesCol_BoxSelectorOutline] = IM_COL32(50, 150, 250, 200);    
 
         // === SIZING & SPACING ===
-        style.NodeCornerRounding = 6.0f;                                           
-        style.NodePadding = ImVec2(10.0f, 8.0f);                                     
-        style.NodeBorderThickness = 1.5f;                                            
+        style.NodeCornerRounding = 1.0f;       // Match app FrameRounding
+        style.NodePadding = ImVec2(10.0f, 8.0f);
+        style.NodeBorderThickness = 1.0f;      // Match app FrameBorderSize                                            
         style.LinkThickness = 3.5f;                                                  
         style.LinkLineSegmentsPerLength = 0.08f;                                     
         style.LinkHoverDistance = 12.0f;                                              

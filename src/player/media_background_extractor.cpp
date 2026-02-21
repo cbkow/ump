@@ -50,9 +50,6 @@ MediaBackgroundExtractor::MediaBackgroundExtractor(FrameCache* parent_cache, con
     // Initialize FFmpeg (global, thread-safe)
     av_log_set_level(AV_LOG_WARNING);  // Reduce spam
 
-    // NOTE: Texture pool initialization removed from constructor
-    // Textures are now created on-demand via AcquireTexture() when first needed
-    // This avoids GL_INVALID_OPERATION errors during video load when GL context may not be ready
 }
 
 MediaBackgroundExtractor::~MediaBackgroundExtractor() {
@@ -330,7 +327,7 @@ void MediaBackgroundExtractor::StartBackgroundExtraction() {
     for (int i = 0; i < config.max_concurrent_batches; ++i) {
         worker_threads.emplace_back(&MediaBackgroundExtractor::WorkerThread, this);
 
-        // Set thread priority to avoid competing with MPV for CPU and disk I/O
+        // Set thread priority to avoid competing with decoder for CPU and disk I/O
         // This prevents hitching during playback startup
 #ifdef _WIN32
         SetThreadPriority(worker_threads[i].native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
@@ -1789,8 +1786,6 @@ bool MediaBackgroundExtractor::WorkerContext::Initialize(const std::string& vide
 bool MediaBackgroundExtractor::CanRequestMoreFrames() const {
     if (!parent_cache) return false;
 
-    // Removed: Memory-based throttling (memory-based eviction removed)
-    // Always allow extraction requests - time-based eviction will handle cache management
     return true;
 }
 

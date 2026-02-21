@@ -168,50 +168,14 @@ BufferHealth DirectEXRCacheSource::GetBufferHealth() const {
     auto stats = cache_->GetStats();
     health.total_cached = stats.cachedFrames;
     health.total_frames = stats.totalFrames;
-    health.speed_factor = cache_->GetPlaybackSpeedFactor();
-    health.needs_buffer_wait = cache_->NeedsBufferWait();
-
-    // Calculate frames ahead from cache segments
-    // This is a simplified estimate - DirectEXRCache tracks this internally
-    auto segments = cache_->GetCacheSegments();
-    if (!segments.empty()) {
-        // Approximate frames_ahead based on cached frames vs read-ahead setting
-        auto config = cache_->GetConfig();
-        int healthy_threshold = (config.readAheadFrames * 50) / 100;
-
-        // Use speed factor as proxy for buffer health
-        // speed_factor = 1.0 means healthy buffer
-        // speed_factor < 1.0 means buffer is struggling
-        if (health.speed_factor >= 1.0) {
-            health.frames_ahead = config.readAheadFrames;
-        } else if (health.speed_factor >= 0.75) {
-            health.frames_ahead = (config.readAheadFrames * 40) / 100;
-        } else if (health.speed_factor >= 0.5) {
-            health.frames_ahead = (config.readAheadFrames * 30) / 100;
-        } else if (health.speed_factor >= 0.25) {
-            health.frames_ahead = (config.readAheadFrames * 20) / 100;
-        } else {
-            health.frames_ahead = (config.readAheadFrames * 10) / 100;
-        }
-    }
+    health.speed_factor = 1.0;
 
     return health;
-}
-
-double DirectEXRCacheSource::GetPlaybackSpeedFactor() const {
-    if (!cache_) return 1.0;
-    return cache_->GetPlaybackSpeedFactor();
-}
-
-bool DirectEXRCacheSource::NeedsBufferWait() const {
-    if (!cache_) return false;
-    return cache_->NeedsBufferWait();
 }
 
 void DirectEXRCacheSource::ResetPlaybackState() {
     if (cache_) {
         cache_->ResetPlaybackSpeed();
-        cache_->ClearBufferWait();
         cache_->ResetOverrunMode();
     }
 }

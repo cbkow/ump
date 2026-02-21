@@ -43,8 +43,6 @@ public:
     void ProcessPendingOperations() override;
 
     BufferHealth GetBufferHealth() const override;
-    double GetPlaybackSpeedFactor() const override;
-    bool NeedsBufferWait() const override;
     void ResetPlaybackState() override;
 
     int GetTotalFrames() const override;

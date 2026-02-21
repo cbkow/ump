@@ -11,13 +11,12 @@ struct AVStream;
 namespace ump {
 
 /**
- * FFmpeg-based metadata extractor - completely isolated from MPV
+ * FFmpeg-based metadata extractor
  *
- * PURPOSE: Extract ALL metadata BEFORE loading into MPV for playback
+ * PURPOSE: Extract ALL metadata BEFORE playback begins
  * - One-pass extraction of all video/audio/color properties
  * - No frame decoding required (container + stream info only)
  * - Fast: ~10-50ms for most files
- * - Isolated: MPV stays focused on playback only
  *
  * USAGE:
  *   auto metadata = FFmpegMetadataExtractor::Extract(file_path);
@@ -59,7 +58,7 @@ public:
      *
      * PERFORMANCE: Very fast (~5-20ms)
      * - Only opens container, doesn't initialize codec
-     * - Much faster than creating a temporary MPV instance
+     * - Very fast, only opens container without initializing codec
      */
     static double ProbeDuration(const std::string& file_path);
 

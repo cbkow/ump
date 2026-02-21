@@ -107,6 +107,30 @@ bool PlaylistPlaybackController::InitializeCache() {
     // Set canvas dimensions for consistent output
     cache_->SetCanvasDimensions(width_, height_);
 
+    // Register sequence metadata for any image sequence clips
+    // This enables DirectEXRCache for playlist items that are image sequences
+    for (const auto& clip : track.clips) {
+        if (clip.is_sequence && clip.is_linked && !clip.linked_path.empty()) {
+            SequenceMetadata seq_meta;
+            seq_meta.directory = clip.sequence_directory;
+            seq_meta.pattern = clip.sequence_pattern;
+            seq_meta.start_frame = clip.sequence_start_frame;
+            seq_meta.end_frame = clip.sequence_end_frame;
+            seq_meta.exr_layer = clip.sequence_exr_layer;
+            // Detect pipeline mode from extension
+            std::string pat = clip.sequence_pattern;
+            std::transform(pat.begin(), pat.end(), pat.begin(), ::tolower);
+            seq_meta.pipeline_mode = (pat.find(".exr") != std::string::npos)
+                ? PipelineMode::ULTRA_HIGH_RES : PipelineMode::NORMAL;
+            seq_meta.valid = true;
+            cache_->RegisterSequenceMetadata(clip.linked_path, seq_meta);
+            Debug::Log("[PlaylistPlaybackController] Registered sequence metadata for " + clip.linked_path);
+        }
+    }
+
+    // Trigger DirectEXRCache enable for image sequence content
+    cache_->NotifyTracksEdited();
+
     // Preload audio clips
     audio_mixer_->PreloadClips(track.clips);
 

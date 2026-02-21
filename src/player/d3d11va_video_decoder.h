@@ -217,7 +217,7 @@ private:
     AVRational time_base_ = {0, 1};
 
     //=========================================================================
-    // Frame Buffer (Delay Queue) - MPV-style buffering
+    // Frame Buffer (Delay Queue)
     //=========================================================================
 
     // Buffered frame structure
@@ -237,7 +237,7 @@ private:
         }
     };
 
-    // MPV uses HWDEC_DELAY_QUEUE_COUNT = 2
+    // Delay queue size for B-frame reordering
     static constexpr int kFrameBufferSize = 2;
     std::array<BufferedFrame, kFrameBufferSize> frame_buffer_;
     int buffer_head_ = 0;  // Index of oldest frame in buffer

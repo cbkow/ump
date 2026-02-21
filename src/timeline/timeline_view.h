@@ -96,10 +96,6 @@ public:
     // UI rendering
     void Render(bool* show_timeline_panel);
 
-    // Timeline file import (creates mock data when OTIO not available)
-    bool LoadOTIOFile(const std::string& file_path);
-    bool LoadEDLFile(const std::string& file_path);
-
     // Auto-mute video clips with embedded audio on video tracks
     // Called after import since imported timelines likely have their own audio tracks
     void AutoMuteVideoClipsWithAudio();
@@ -313,14 +309,10 @@ private:
     void UpdateFlattenedPlayback();
     void LoadFlattenedClipForPlayback(const OTIOClip& clip);
 
-    // Timeline parsing helpers
-    bool ParseOTIOTimeline(const std::string& file_path);
     void CreateMockTimeline();  // For testing without OTIO
 
 #ifdef USE_OPENTIMELINEIO
-    void ExtractTracksFromOTIO(otio::Timeline* timeline);
     OTIOClip ConvertOTIOClip(otio::Clip* otio_clip, double global_offset);
-    // Recursively parse nested stack into nested_tracks and link media
     void ParseNestedStack(OTIOClip& nest_clip, otio::Stack* nested_stack, const std::string& source_dir);
 #endif
 

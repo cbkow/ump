@@ -86,7 +86,7 @@ bool VideoMetadata::DetectHDRContent() const {
 // Detect range type from various metadata sources
 std::string VideoMetadata::DetectRangeType() const {
     // This would typically be populated during metadata extraction
-    // from MPV or FFmpeg properties, but we can make educated guesses
+    // from FFmpeg properties, but we can make educated guesses
 
     if (!range_type.empty() && range_type != "unknown") {
         return range_type;

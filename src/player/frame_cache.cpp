@@ -16,7 +16,6 @@
 #define AV_TIME_BASE 1000000
 #endif
 
-// Removed: Disk cache using statements (simplified to RAM-only cache)
 
 
 // GPU conversion strategy removed - no longer needed with background extractor
@@ -34,7 +33,7 @@ CachedFrame::CachedFrame(CachedFrame&& other) noexcept
     , width(other.width)
     , height(other.height)
     , timestamp(other.timestamp)
-    // Removed: memory_size copying (memory-based eviction removed)
+
     , last_accessed(other.last_accessed)
     , is_valid(other.is_valid)
     , pixel_data(std::move(other.pixel_data))
@@ -44,7 +43,7 @@ CachedFrame::CachedFrame(CachedFrame&& other) noexcept
     other.texture_id = 0;
     other.width = 0;
     other.height = 0;
-    // Removed: memory_size reset (memory-based eviction removed)
+
     other.is_valid = false;
     other.texture_created = false;
 }
@@ -57,7 +56,7 @@ CachedFrame& CachedFrame::operator=(CachedFrame&& other) noexcept {
         width = other.width;
         height = other.height;
         timestamp = other.timestamp;
-        // Removed: memory_size assignment (memory-based eviction removed)
+
         last_accessed = other.last_accessed;
         is_valid = other.is_valid;
         pixel_data = std::move(other.pixel_data);
@@ -67,7 +66,7 @@ CachedFrame& CachedFrame::operator=(CachedFrame&& other) noexcept {
         other.texture_id = 0;
         other.width = 0;
         other.height = 0;
-        // Removed: memory_size reset (memory-based eviction removed)
+    
         other.is_valid = false;
         other.texture_created = false;
     }
@@ -100,7 +99,7 @@ void CachedFrame::CreateTexture(int w, int h, const void* data, PipelineMode pip
 
     width = w;
     height = h;
-    // Removed: memory_size calculation (memory-based eviction removed)
+
     is_valid = true;
     last_accessed = std::chrono::steady_clock::now();
 }
@@ -111,26 +110,19 @@ bool CachedFrame::EnsureTextureCreated() {
     }
     
     if (pixel_data.empty()) {
-        // Debug removed
         return false;
     }
-    
-    // Debug::Log("CachedFrame: Creating texture on main thread " + 
-    //            std::to_string(width) + "x" + std::to_string(height) + 
-    //            " from " + std::to_string(pixel_data.size()) + " bytes");
-    
+
     // Create texture from stored pixel data
     CreateTexture(width, height, pixel_data.data(), pipeline_mode);
     
     // Check for errors
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
-        // Debug removed
         return false;
     }
-    
+
     if (texture_id == 0) {
-        // Debug removed
         return false;
     }
     
@@ -151,7 +143,7 @@ void CachedFrame::ReleaseTexture() {
     }
     width = 0;
     height = 0;
-    // Removed: memory_size reset (memory-based eviction removed)
+
     is_valid = false;
 }
 
@@ -174,8 +166,6 @@ FrameCache::FrameCache(const CacheConfig& cfg) : config(cfg) {
 
     background_extractor = std::make_unique<MediaBackgroundExtractor>(this, extractor_config);
     Debug::Log("FrameCache: Created MediaBackgroundExtractor");
-
-    // Removed: Disk cache initialization (simplified to RAM-only cache)
 
     // Start background caching thread
     background_thread_active = true;
@@ -301,7 +291,6 @@ void FrameCache::UpdateScrubPosition(double timestamp, VideoPlayer* video_player
         // CacheDebugLog("UpdateScrubPosition: Updated position to " + std::to_string(timestamp) + " (keeping existing video_player)"); // Commented out to reduce debug spam
     }
     
-    // NOTE: Individual memory limits removed - eviction handled globally by VideoCache
 }
 
 void FrameCache::BackgroundCacheWorker() {
@@ -372,12 +361,6 @@ void FrameCache::BackgroundCacheWorker() {
         bool use_centered_caching = config.use_centered_caching;
         bool use_full_video_sequential = !config.use_centered_caching;
 
-        // Debug: Log which caching mode we're using
-        static int debug_counter = 0;
-        if (debug_counter++ % 100 == 0) { // Log every 100 cycles to avoid spam
-            // Debug removed - caching mode logging
-        }
-        
         // Background extractor is initialized separately - just check if ready
         bool extractor_ready = false;
         if (background_extractor) {
@@ -589,7 +572,6 @@ void FrameCache::BackgroundCacheWorker() {
                     continue; // Already cached
                 }
                 
-                // NOTE: Individual memory limit checks removed - global limit enforced by VideoCache
             }
             
             // Double-check we're not playing before extracting
@@ -699,8 +681,6 @@ bool FrameCache::TryCacheCurrentFrame(VideoPlayer* video_player) {
     return false; // No opportunistic requests made
 }
 
-// Removed: RequestFrameCaching() method (opportunistic caching no longer used)
-
 void FrameCache::AddExtractedFrame(int frame_number, double timestamp, GLuint texture_id, int width, int height) {
     std::lock_guard<std::mutex> lock(cache_mutex);
 
@@ -718,13 +698,12 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, GLuint te
     cached_frame->timestamp = timestamp;
     cached_frame->width = width;
     cached_frame->height = height;
-    // Removed: memory_size tracking (memory-based eviction removed)
     cached_frame->is_valid = true;
     cached_frame->last_accessed = std::chrono::steady_clock::now();
     cached_frame->texture_id = texture_id;
     cached_frame->texture_created = true;
 
-    // Removed: memory usage tracking (memory-based eviction removed)
+
 
     // Add to cache
     scrub_cache[frame_number] = std::move(cached_frame);
@@ -804,14 +783,13 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
     cached_frame->timestamp = timestamp;
     cached_frame->width = width;
     cached_frame->height = height;
-    // Removed: memory_size tracking (memory-based eviction removed)
     cached_frame->is_valid = true;
     cached_frame->last_accessed = std::chrono::steady_clock::now();
     cached_frame->texture_id = texture_id;
     cached_frame->texture_created = true;
     cached_frame->pipeline_mode = config.pipeline_mode;  // Store pipeline mode for consistency
 
-    // Removed: memory usage tracking (memory-based eviction removed)
+
 
     // Add to cache
     scrub_cache[frame_number] = std::move(cached_frame);
@@ -912,7 +890,7 @@ void FrameCache::EvictOldFrames() {
         for (auto it = cache.begin(); it != cache.end();) {
             if (it->second->last_accessed < evict_threshold) {
                 int frame_number = it->first;
-                // Removed: memory usage tracking (memory-based eviction removed)
+            
                 it = cache.erase(it);
 
                 // Notify background extractor to remove from tracking
@@ -938,7 +916,7 @@ void FrameCache::EvictFramesBeyondWindow(double center_timestamp, double window_
         int frame_distance = std::abs(it->first - center_frame);
         if (frame_distance > window_frames) {
             int frame_number = it->first;
-            // Removed: memory usage tracking (memory-based eviction removed)
+        
             RemoveFromPool(frame_number);  // Remove from SharedMemoryPool first
             it = scrub_cache.erase(it);
 
@@ -951,10 +929,6 @@ void FrameCache::EvictFramesBeyondWindow(double center_timestamp, double window_
         }
     }
 }
-
-// Removed: EvictFramesFarthestFromSeekbar() method (memory-based eviction removed)
-
-// Removed: EvictOldestFrames() method (memory-based eviction removed)
 
 void FrameCache::EvictFramesBeyondSeconds(double center_timestamp, int max_seconds) {
     if (scrub_cache.empty() || !cached_video_player) return;
@@ -993,7 +967,7 @@ void FrameCache::EvictFramesBeyondSeconds(double center_timestamp, int max_secon
     for (auto it = scrub_cache.begin(); it != scrub_cache.end();) {
         int frame_number = it->first;
         if (frame_number < window_start || frame_number > window_end) {
-            // Removed: memory usage tracking (memory-based eviction removed)
+        
             RemoveFromPool(frame_number);  // Remove from SharedMemoryPool first
             it = scrub_cache.erase(it);
 
@@ -1017,7 +991,6 @@ FrameCache::CacheStats FrameCache::GetStats() const {
     
     CacheStats stats;
     stats.total_frames_cached = scrub_cache.size() + keyframe_cache.size();
-    // Removed: memory_used_mb (memory-based eviction removed)
     stats.cache_hits = cache_hits.load();
     stats.cache_misses = cache_misses.load();
     
@@ -1184,8 +1157,6 @@ void FrameCache::InvalidateCache() {
 
     scrub_cache.clear();
     keyframe_cache.clear();
-    // Removed: current_cache_size reset (memory-based eviction removed)
-    // Debug::Log("FrameCache: Cache invalidated");
 }
 
 void FrameCache::SetCacheConfig(const CacheConfig& new_config) {
@@ -1207,14 +1178,7 @@ void FrameCache::SetCacheConfig(const CacheConfig& new_config) {
         sequential_cache_complete.store(false);
     }
 
-    // Debug removed - configuration logging
 }
-
-// EXR PATTERN: Removed PauseBackgroundCaching, ResumeBackgroundCaching, RestartBackgroundThread
-// These are no longer needed - thread runs permanently
-
-// EXR PATTERN: Removed StartBackgroundCaching and StopBackgroundCaching
-// Thread is created once in constructor, destroyed only in destructor
 
 void FrameCache::SetCachingEnabled(bool enabled) {
     // EXR PATTERN: Just set the flag, thread checks it in the loop
@@ -1282,8 +1246,6 @@ void FrameCache::ClearCachedFrames() {
 // 3-Tier Cache Implementation (RAM → Disk → Direct EXR)
 // ============================================================================
 
-// Removed: InitializeDiskCache method (simplified to RAM-only cache)
-
 bool FrameCache::GetFrameFromRAM(int frame_number, GLuint& texture_id, int& width, int& height) {
     auto it = scrub_cache.find(frame_number);
     if (it != scrub_cache.end() && it->second->is_valid && it->second->texture_id != 0) {
@@ -1300,27 +1262,6 @@ bool FrameCache::GetFrameFromRAM(int frame_number, GLuint& texture_id, int& widt
     return false;
 }
 
-// Removed: GetFrameFromDisk (disk cache removed)
-
-// Removed: CacheFrameToDisk (disk cache removed)
-
-// Removed: ReadTexturePixels (disk cache removed)
-
-// Removed: SyncRAMToDisk (disk cache removed)
-
-// Removed: GetFrameLocation (disk cache removed)
-
-// Removed: PromoteFrameFromDisk (disk cache removed)
-
-// Removed: InvalidateDiskCache (disk cache removed)
-
-// Removed: Immediate disk caching methods (disk cache removed)
-
-// Removed: ExtractAndCacheFrameFromVideo (disk cache removed)
-
-// Removed: ExtractAndCacheEXRFrame (disk cache removed)
-
-// Removed: ExtractAndCacheVideoFrame (disk cache removed)
 
 //=============================================================================
 // SharedMemoryPool Integration

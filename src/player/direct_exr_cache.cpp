@@ -490,141 +490,26 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
     if (is_actually_cached && texture != 0) {
         consecutive_misses_.store(0);
         last_was_sync_load_.store(false);  // Cache hit - not a sync load
-
-        // Adaptive speed control based on buffer health
-        // Uses frames_ahead count with tunable thresholds
-        if (isPlaying_ && fps_ > 0) {
-            double current_speed = playback_speed_factor_.load();
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - last_speed_change_time_).count();
-
-            //=================================================================
-            // TUNABLE THRESHOLDS (percentage of user's readAheadFrames)
-            //=================================================================
-            // All thresholds scale with user's read-ahead setting
-            // Range: 50% (healthy) down to 6% (dire) before buffer pause
-
-            const int ra = config_.readAheadFrames;
-            const int HEALTHY_THRESHOLD  = (ra * 50) / 100;  // 50% = healthy (36 frames @ 72)
-            const int SLIGHT_THRESHOLD   = (ra * 40) / 100;  // 40% = slight slowdown (29 frames @ 72)
-            const int MODERATE_THRESHOLD = (ra * 30) / 100;  // 30% = moderate slowdown (22 frames @ 72)
-            const int LOW_THRESHOLD      = (ra * 20) / 100;  // 20% = low (14 frames @ 72)
-            const int CRITICAL_THRESHOLD = (ra * 15) / 100;  // 15% = critical (11 frames @ 72)
-            const int SEVERE_THRESHOLD   = (ra * 10) / 100;  // 10% = severe (7 frames @ 72)
-            const int DIRE_THRESHOLD     = (ra *  6) / 100;  // 6% = dire (4 frames @ 72)
-            const int END_FREEZE_MARGIN  = HEALTHY_THRESHOLD + 4;  // freeze speed near end
-
-            //=================================================================
-            // NEAR-END FREEZE: Skip speed adjustment when close to loop/end
-            // The cache wraps around but frames_ahead count doesn't, so near
-            // the end we'd falsely think buffer is low. Just hold current speed.
-            //=================================================================
-            int end_frame = has_loop_range_ ? loop_out_frame_ : static_cast<int>(sequenceFiles_.size()) - 1;
-            int frames_to_end = end_frame - frame;
-            if (frames_to_end >= 0 && frames_to_end < END_FREEZE_MARGIN) {
-                // Near end of timeline/loop - don't adjust speed, just hold current
-                // If we're at full speed, we stay there. If throttled, we stay throttled.
-                return true;  // Cache hit, keep current speed
-            }
-
-            //=================================================================
-            // SPEED TIERS (widened with 6% step before buffer pause)
-            //=================================================================
-            double new_speed = current_speed;
-
-            if (frames_ahead >= HEALTHY_THRESHOLD) {
-                // Buffer healthy: full speed
-                new_speed = 1.0;
-            } else if (frames_ahead >= SLIGHT_THRESHOLD) {
-                // Buffer adequate: 75% speed
-                new_speed = 0.75;
-            } else if (frames_ahead >= MODERATE_THRESHOLD) {
-                // Buffer getting low: 50% speed
-                new_speed = 0.5;
-            } else if (frames_ahead >= LOW_THRESHOLD) {
-                // Buffer low: 33% speed
-                new_speed = 0.33;
-            } else if (frames_ahead >= CRITICAL_THRESHOLD) {
-                // Buffer critical: 25% speed
-                new_speed = 0.25;
-            } else if (frames_ahead >= SEVERE_THRESHOLD) {
-                // Buffer severe: 12.5% speed
-                new_speed = 0.125;
-            } else if (frames_ahead >= DIRE_THRESHOLD) {
-                // Buffer dire: 6% speed
-                new_speed = 0.06;
-            } else if (frames_ahead <= 1) {
-                // Only 1 frame or less: trigger buffer wait
-                new_speed = 0.0;
-                needs_buffer_wait_.store(true);
-                Debug::Log("DirectEXRCache: Buffer empty (" + std::to_string(frames_ahead) +
-                           " ahead) - triggering buffer wait");
-            }
-
-            // Apply speed changes with debouncing in BOTH directions to prevent oscillation
-            // The asymmetry of immediate slowdown + delayed speedup causes crackling at boundaries
-            if (new_speed > current_speed) {
-                // Speed UP: require longer debounce (2s) to ensure buffer is truly stable
-                if (elapsed_ms >= SPEED_RESTORE_DEBOUNCE_MS) {
-                    playback_speed_factor_.store(new_speed);
-                    last_speed_change_time_ = now;
-                    overrun_mode_.store(new_speed < 1.0);
-                    needs_buffer_wait_.store(false);  // Clear buffer wait on recovery
-                    Debug::Log("DirectEXRCache: Buffer healthy (" + std::to_string(frames_ahead) +
-                               " ahead) - speed up to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
-                }
-            } else if (new_speed < current_speed) {
-                // Speed DOWN: short debounce (150ms) to prevent rapid oscillation
-                // Still responsive to buffer issues, but won't flip-flop every frame
-                if (elapsed_ms >= SPEED_SLOWDOWN_DEBOUNCE_MS) {
-                    playback_speed_factor_.store(new_speed);
-                    last_speed_change_time_ = now;
-                    overrun_mode_.store(true);
-                    Debug::Log("DirectEXRCache: Buffer low (" + std::to_string(frames_ahead) +
-                               " ahead) - slow to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
-                }
-            }
-        }
         return true;
     }
 
     // === CACHE MISS (frame not in pixel cache) ===
     last_was_sync_load_.store(true);
 
-    if (isPlaying_ && fps_ > 0) {
-        consecutive_misses_.fetch_add(1);
-        int misses = consecutive_misses_.load();
-        double current_speed = playback_speed_factor_.load();
+    // When stride > 1, don't reactively request frames — read-ahead is the sole loader.
+    // Just return the fallback texture immediately (zero I/O for skipped frames).
+    if (config_.playbackStride <= 1) {
+        // Request frame via background thread (always keep prefetching!)
+        RequestFrame(frame);
 
-        //=================================================================
-        // CACHE MISS SPEED TIERS (based on consecutive misses)
-        //=================================================================
-        double new_speed;
-        if (misses <= 1)       new_speed = 0.5;    // First miss: drop to 50%
-        else if (misses <= 2)  new_speed = 0.33;   // 2 misses: 33%
-        else if (misses <= 4)  new_speed = 0.25;   // 3-4 misses: 25%
-        else                   new_speed = 0.125;  // 5+ misses: 12.5%
-
-        if (new_speed < current_speed) {
-            playback_speed_factor_.store(new_speed);
-            last_speed_change_time_ = std::chrono::steady_clock::now();
-            overrun_mode_.store(true);
-            Debug::Log("DirectEXRCache: Cache miss #" + std::to_string(misses) +
-                       " - slow to " + std::to_string(static_cast<int>(new_speed * 100)) + "%");
+        // Also request next frame for lookahead
+        if (frame + 1 < (int)sequenceFiles_.size()) {
+            RequestFrame(frame + 1);
         }
+
+        // Wake up IO thread immediately
+        cv_.notify_one();
     }
-
-    // Request frame via background thread (always keep prefetching!)
-    RequestFrame(frame);
-
-    // Also request next frame for lookahead
-    if (frame + 1 < (int)sequenceFiles_.size()) {
-        RequestFrame(frame + 1);
-    }
-
-    // Wake up IO thread immediately
-    cv_.notify_one();
 
     // Return last good frame for display continuity
     if (last_good_texture_ != 0) {
@@ -713,14 +598,8 @@ void DirectEXRCache::ResetOverrunMode() {
 }
 
 void DirectEXRCache::ResetPlaybackSpeed() {
-    double old_speed = playback_speed_factor_.exchange(1.0);
     consecutive_misses_.store(0);
     last_was_sync_load_.store(false);
-    needs_buffer_wait_.store(false);  // Clear buffer wait flag
-
-    if (old_speed < 1.0) {
-        Debug::Log("DirectEXRCache: Playback speed reset to 1.0");
-    }
 }
 
 void DirectEXRCache::SetLooping(bool enabled) {
@@ -854,13 +733,6 @@ void DirectEXRCache::ClearRequests() {
         needsFillReset_ = true;
     }
 
-    // Reset rate tracking - old rate data is invalid after seek
-    {
-        std::lock_guard<std::mutex> rate_lock(rate_mutex_);
-        frame_completion_times_.clear();
-        measured_fill_rate_.store(0.0);
-    }
-
     /*Debug::Log("DirectEXRCache: Cleared " + std::to_string(pending) +
                " pending + " + std::to_string(inProgress) + " in-progress (cache preserved)");*/
 }
@@ -913,6 +785,11 @@ void DirectEXRCache::ClearCache() {
     //Debug::Log("DirectEXRCache: Cleared cache (" + std::to_string(pixel_count) +
     //           " pixel frames) + requests, queued " + std::to_string(textures_to_delete.size()) +
     //           " GL textures for deletion");
+}
+
+void DirectEXRCache::SetPlaybackStride(int stride) {
+    stride = std::clamp(stride, 1, 4);
+    config_.playbackStride = stride;
 }
 
 void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
@@ -1110,7 +987,7 @@ void DirectEXRCache::CacheThread() {
 
                 // Immediately evict stale frames on major seek
                 // This prevents memory tracking issues where old frames consume budget
-                int readBehindFrames = config_.readBehindFrames;
+                int readBehindFrames = config_.playbackStride > 1 ? 0 : config_.readBehindFrames;
                 int readAheadFrames = std::min(config_.readAheadFrames, 72);  // Smaller immediate window for seek
 
                 auto cached_frames_pre = pixelCache_.GetKeys();
@@ -1156,7 +1033,8 @@ void DirectEXRCache::CacheThread() {
 
             // Evict old frames with read-behind + read-ahead window
             // Calculate read-behind/read-ahead in frames
-            int readBehindFrames = config_.readBehindFrames;
+            // When stride > 1, zero read-behind so all cache budget goes forward
+            int readBehindFrames = config_.playbackStride > 1 ? 0 : config_.readBehindFrames;
             // Use configured read-ahead window for eviction
             int readAheadFrames = config_.readAheadFrames;
 
@@ -1311,7 +1189,8 @@ void DirectEXRCache::CacheThread() {
                 int requested_count = 0;
 
                 // Calculate frame ranges for both directions
-                int readBehindFrames = config_.readBehindFrames;
+                // When stride > 1, zero read-behind so all budget goes forward
+                int readBehindFrames = config_.playbackStride > 1 ? 0 : config_.readBehindFrames;
 
                 // Fill read-ahead frames (priority for forward playback)
                 // When loop range is active, cache ONLY frames within the loop zone
@@ -1331,6 +1210,10 @@ void DirectEXRCache::CacheThread() {
                     for (int i = 0; i < loop_size && requested_count < max_to_request; i++) {
                         // Calculate frame with wrap-around within loop zone
                         int frame = loop_in_frame_ + ((current_in_loop + i) % loop_size);
+
+                        // Stride: only cache frames on absolute grid (frame % stride == 0)
+                        // i=0 is current frame — skip when stride > 1 (same as normal mode)
+                        if (config_.playbackStride > 1 && (i == 0 || frame % config_.playbackStride != 0)) continue;
                         int frame_in_loop = frame - loop_in_frame_;
 
                         // Calculate wrap-around distances (MUST match eviction logic exactly)
@@ -1366,16 +1249,20 @@ void DirectEXRCache::CacheThread() {
                     // NORMAL MODE: Read-ahead from current position
 
                     // PRIORITY: Always request current frame FIRST (fixes first-frame delay on high-res files)
-                    if (requested_count < max_to_request &&
-                        !pixelCache_.Contains(current_frame) &&
-                        requestsInProgress_.find(current_frame) == requestsInProgress_.end()) {
-                        bool already_pending = false;
-                        for (int pending : videoRequests_) {
-                            if (pending == current_frame) { already_pending = true; break; }
-                        }
-                        if (!already_pending) {
-                            videoRequests_.push_back(current_frame);
-                            requested_count++;
+                    // When stride > 1, skip this — read-ahead pre-caches stride frames,
+                    // non-stride frames are intentional misses (show fallback texture)
+                    if (config_.playbackStride <= 1) {
+                        if (requested_count < max_to_request &&
+                            !pixelCache_.Contains(current_frame) &&
+                            requestsInProgress_.find(current_frame) == requestsInProgress_.end()) {
+                            bool already_pending = false;
+                            for (int pending : videoRequests_) {
+                                if (pending == current_frame) { already_pending = true; break; }
+                            }
+                            if (!already_pending) {
+                                videoRequests_.push_back(current_frame);
+                                requested_count++;
+                            }
                         }
                     }
 
@@ -1390,6 +1277,11 @@ void DirectEXRCache::CacheThread() {
                             // Stop at end
                             if (frame >= sequence_size) break;
                         }
+
+                        // Stride: only cache frames on absolute grid (frame % stride == 0)
+                        // Using absolute frame numbers prevents the grid from shifting every
+                        // display frame, which would defeat the stride filter entirely
+                        if (config_.playbackStride > 1 && (frame % config_.playbackStride != 0)) continue;
 
                         // Skip if already cached
                         if (pixelCache_.Contains(frame)) continue;
@@ -1413,8 +1305,9 @@ void DirectEXRCache::CacheThread() {
                     }
 
                     // Fill read-behind frames (for backward scrubbing responsiveness)
+                    // Skip entirely when stride > 1 — all budget goes to read-ahead
                     // Only fill if we have remaining capacity (skip in loop zone mode - handled above)
-                    for (int i = 1; requested_count < max_to_request && i <= readBehindFrames; i++) {
+                    for (int i = 1; config_.playbackStride <= 1 && requested_count < max_to_request && i <= readBehindFrames; i++) {
                         int frame = current_frame - i;
 
                         // Wrap or clamp based on looping mode
@@ -1468,7 +1361,7 @@ void DirectEXRCache::CacheThread() {
                             priority_bytes += estimated_frame_size;
                         }
 
-                        if (dist > 0 && frame_minus >= 0 && pixelCache_.Contains(frame_minus)) {
+                        if (dist > 0 && frame_minus >= 0 && config_.playbackStride <= 1 && pixelCache_.Contains(frame_minus)) {
                             frames_to_prioritize.push_back(frame_minus);
                             priority_bytes += estimated_frame_size;
                         }
@@ -1647,30 +1540,6 @@ void DirectEXRCache::IOWorkerThread() {
 
                             // Register with SharedMemoryPool for global LRU coordination
                             RegisterWithPool(it->first, byteCount);
-
-                            // Track completion time for rate measurement
-                            {
-                                std::lock_guard<std::mutex> rate_lock(rate_mutex_);
-                                auto now = std::chrono::steady_clock::now();
-                                frame_completion_times_.push_back(now);
-
-                                // Prune old entries outside the measurement window
-                                auto cutoff = now - std::chrono::milliseconds(
-                                    static_cast<int>(RATE_WINDOW_SECONDS * 1000));
-                                while (!frame_completion_times_.empty() &&
-                                       frame_completion_times_.front() < cutoff) {
-                                    frame_completion_times_.pop_front();
-                                }
-
-                                // Update measured fill rate
-                                if (frame_completion_times_.size() >= 2) {
-                                    auto window_start = frame_completion_times_.front();
-                                    auto window_duration = std::chrono::duration<double>(now - window_start).count();
-                                    if (window_duration > 0.1) {  // Need at least 100ms of data
-                                        measured_fill_rate_.store(frame_completion_times_.size() / window_duration);
-                                    }
-                                }
-                            }
 
                             segmentsDirty_ = true;  // Mark segments dirty for UI update
                             completed++;

@@ -508,7 +508,7 @@ struct TimelineCacheConfig {
     // Video pipeline mode (8-bit NORMAL or 16-bit HIGH_RES)
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
 
-    // Single-decoder mode for PLAYLIST (mpv EDL-style)
+    // Single-decoder mode for PLAYLIST (EDL-style)
     // When enabled: only one D3D11VideoDecoder active at a time
     // Eliminates D3D11 contention, adds ~100-200ms pause at clip boundaries
     // Only applies to PLAYLIST mode - VIDEO_FILE and DUAL_VIEW unaffected
@@ -766,19 +766,12 @@ public:
     // Check if using DirectEXRCache (IMAGE_SEQUENCE mode)
     bool IsDirectEXRCacheMode() const { return use_direct_exr_cache_; }
 
-    // Get adaptive playback speed factor from DirectEXRCache
-    // Returns 1.0 for non-IMAGE_SEQUENCE modes
-    double GetPlaybackSpeedFactor() const;
+    // Playback stride (cache-side frame skip for heavy sequences)
+    void SetPlaybackStride(int stride);
+    int GetPlaybackStride() const;
 
     // Reset adaptive playback speed to 1.0 (call on pause/seek)
     void ResetPlaybackSpeed();
-
-    // Check if DirectEXRCache needs buffer wait (< 6 frames ahead)
-    // Returns false for non-IMAGE_SEQUENCE modes
-    bool NeedsBufferWait() const;
-
-    // Clear buffer wait flag (call when buffer has recovered)
-    void ClearBufferWait();
 
     // Update DirectEXRCache config (for live settings changes)
     // Call when user changes Image Playback/Threading settings
@@ -843,18 +836,14 @@ private:
     // Get or create loader for a source path (returns shared_ptr for thread safety)
     std::shared_ptr<ClipLoaderInfo> GetOrCreateLoader(const std::string& source_path);
 
-    // Enable DirectEXRCache for DUAL_VIEW mode when content is image sequences
+    // Enable DirectEXRCache for DUAL_VIEW/PLAYLIST mode when content is image sequences
     // Called from NotifyTracksEdited when sequence metadata is present
-    // This gives DUAL_VIEW the same performance benefits as IMAGE_SEQUENCE mode
-    void EnableDirectEXRCacheForDualView();
+    // This gives DUAL_VIEW/PLAYLIST the same performance benefits as IMAGE_SEQUENCE mode
+    void EnableDirectEXRCacheIfSequence();
 
     //=========================================================================
     // GPU Upload Management
     //=========================================================================
-    // LEGACY: IOWorkerThread, CacheManagementThread, LoadPixels, PendingUpload removed
-    // All frame loading is now handled by specialized decoders:
-    // - D3D11VideoDecoder for video files
-    // - DirectEXRCache for image sequences
 
     // Create GL texture from pixels (must be called from GL thread)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
@@ -877,8 +866,6 @@ private:
 
     //=========================================================================
     // Aggressive Scrub Mode Helpers (DUAL_VIEW only)
-    // NOTE: GetDirectDecoderFrame and GetAggressiveScrubFrame have been removed.
-    // Scrub handling is now integrated directly into GetFrame() for better performance.
     //=========================================================================
 
     // Handle settling phase - called from GetFrame() on each render
@@ -897,7 +884,7 @@ private:
     // Source mode - determines decoder backend selection
     TimelineSourceMode source_mode_ = TimelineSourceMode::VIDEO_FILE;
 
-    // Single-decoder mode (PLAYLIST only) - mpv EDL-style
+    // Single-decoder mode (PLAYLIST only) - EDL-style
     // When enabled: only one D3D11VideoDecoder active, eliminates D3D11 contention
     bool use_single_decoder_mode_ = false;
 #ifdef _WIN32
@@ -911,6 +898,9 @@ private:
     std::unique_ptr<DirectEXRCache> direct_exr_cache_;
     std::string direct_exr_cache_source_path_;  // Track which source the cache was initialized for
     double fps_ = 24.0;  // Cache fps for DirectEXRCache position conversion
+
+    // Playback stride (frame skip) - stored at cache level for single-decoder path
+    int playback_stride_ = 1;
 
     // Pipeline mode for video (bit depth / HDR)
     PipelineMode video_pipeline_mode_ = PipelineMode::NORMAL;
@@ -947,11 +937,7 @@ private:
     std::map<std::string, SequenceMetadata> sequence_metadata_;
     mutable std::mutex sequence_metadata_mutex_;
 
-    // LEGACY: frame_cache_, pending_uploads_, video_requests_ removed
-    // All frame caching is now handled by specialized decoders:
-    // - D3D11VideoDecoder maintains its own frame buffer
-    // - DirectEXRCache maintains its own texture cache
-    mutable std::mutex cache_mutex_;  // Still used for loaders_ protection
+    mutable std::mutex cache_mutex_;  // Used for loaders_ protection
     mutable std::mutex request_mutex_;  // Still used for UpdatePlayhead
 
     //=========================================================================
@@ -1004,8 +990,6 @@ private:
     //=========================================================================
     // Threading
     //=========================================================================
-    // LEGACY: io_threads_, cache_thread_ removed
-    // All frame loading/caching is now handled by specialized decoders
 
     // Textures marked for deletion (delete on GL thread)
     std::vector<GLuint> textures_to_delete_;

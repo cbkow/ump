@@ -20,7 +20,7 @@ struct CacheSegment;
 //=============================================================================
 // PlaylistSingleDecoder
 //
-// mpv EDL-style single decoder for playlist playback.
+// EDL-style single decoder for playlist playback.
 //
 // Key design principles:
 // - **Single decoder instance** for the entire playlist
@@ -119,6 +119,9 @@ public:
     // Check if current source is an image sequence
     bool IsImageSequence() const { return is_image_sequence_; }
 
+    // Pass playback stride to internal DirectEXRCache
+    void SetPlaybackStride(int stride);
+
     // Set sequence metadata for proper initialization
     // Must be called before SwitchSource for image sequences
     // timeline_offset_seconds: where this clip starts in the timeline (for cache bar positioning)
@@ -131,12 +134,6 @@ public:
     // Playback Control (for adaptive speed and buffer management)
     //=========================================================================
 
-    // Get playback speed factor based on cache health (1.0 = full speed, <1.0 = throttled)
-    double GetPlaybackSpeedFactor() const;
-
-    // Check if playback should pause to let buffer fill
-    // Returns false during warmup grace period after source switch
-    bool NeedsBufferWait() const;
 
     // Check if we're in warmup period after source switch
     bool IsInWarmupPeriod() const;

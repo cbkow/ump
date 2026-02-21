@@ -454,6 +454,10 @@ bool PlaylistSingleDecoder::InitializeImageSequence(const std::string& source_pa
     return true;
 }
 
+void PlaylistSingleDecoder::SetPlaybackStride(int stride) {
+    if (image_cache_) image_cache_->SetPlaybackStride(stride);
+}
+
 //=============================================================================
 // Playback Control
 //=============================================================================
@@ -465,36 +469,6 @@ bool PlaylistSingleDecoder::IsInWarmupPeriod() const {
     return elapsed < kWarmupGraceMs;
 }
 
-double PlaylistSingleDecoder::GetPlaybackSpeedFactor() const {
-    std::lock_guard<std::mutex> lock(switch_mutex_);
-
-    if (is_image_sequence_ && image_cache_) {
-        // During warmup grace period, don't throttle
-        if (IsInWarmupPeriod()) {
-            return 1.0;
-        }
-        return image_cache_->GetPlaybackSpeedFactor();
-    }
-
-    // Video decoder doesn't have adaptive speed - return full speed
-    return 1.0;
-}
-
-bool PlaylistSingleDecoder::NeedsBufferWait() const {
-    std::lock_guard<std::mutex> lock(switch_mutex_);
-
-    if (is_image_sequence_ && image_cache_) {
-        // During warmup grace period after source switch, don't trigger buffer wait
-        // This gives the cache time to start loading before we pause
-        if (IsInWarmupPeriod()) {
-            return false;
-        }
-        return image_cache_->NeedsBufferWait();
-    }
-
-    // Video decoder handles its own buffering
-    return false;
-}
 
 double PlaylistSingleDecoder::GetCacheProgress() const {
     std::lock_guard<std::mutex> lock(switch_mutex_);

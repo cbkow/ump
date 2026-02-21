@@ -98,7 +98,7 @@ struct DualViewTimeline {
     // Get the virtual timeline duration
     // In comparison mode, the left/primary video is LOCKED - it defines the timeline.
     // The right video can be trimmed/offset but the timeline is clamped to left's duration.
-    // This ensures MPV can handle seeking (no virtual extension past source duration).
+    // This ensures the decoder can handle seeking (no virtual extension past source duration).
     double GetVirtualDuration() const {
         // Left clip defines the timeline - it's locked with no trim/offset
         if (left.IsLoaded()) {

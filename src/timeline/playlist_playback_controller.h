@@ -47,7 +47,7 @@ struct PlaylistPlaybackConfig {
 // Playlist Playback Controller
 //
 // Simplified playback controller for unified playlist that:
-// - Uses native decoders (MPV for video, native loaders for image sequences)
+// - Uses native decoders (D3D11 for video, native loaders for image sequences)
 // - Pre-warms next clip's decoder as boundary approaches
 // - Handles clip transitions seamlessly
 //

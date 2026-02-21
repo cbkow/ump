@@ -210,8 +210,7 @@ public:
     void GoToStart();
     void GoToEnd();
     bool IsPlaying() const;
-    bool IsActuallyPlaying() const;  // True only when playing AND not in buffer-wait
-    bool IsWaitingForBuffer() const; // True when in buffer-wait state
+    bool IsActuallyPlaying() const;  // True only when actually playing
     ump::TimelinePlaybackController* GetTimelineController() const { return timeline_controller_; }
 
     //=========================================================================

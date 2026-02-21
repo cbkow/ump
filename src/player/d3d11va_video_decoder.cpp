@@ -315,7 +315,7 @@ bool D3D11VAVideoDecoder::SetupFramesContext() {
     frames_ctx->sw_format = is_10bit_ ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
     frames_ctx->width = codec_ctx_->width;
     frames_ctx->height = codec_ctx_->height;
-    // Base pool size + extra frames for buffering (MPV uses hwdec_extra_frames = 6)
+    // Base pool size + extra frames for buffering
     frames_ctx->initial_pool_size = 20 + 6;
 
     // KEY: Add shader resource binding for direct SRV creation
@@ -869,7 +869,7 @@ bool D3D11VAVideoDecoder::SeekToTime(double time_seconds) {
 }
 
 //=============================================================================
-// Frame Buffer Management (MPV-style delay queue)
+// Frame Buffer Management (delay queue for B-frame reordering)
 //=============================================================================
 
 void D3D11VAVideoDecoder::ClearFrameBuffer() {
@@ -901,7 +901,7 @@ D3D11VAVideoDecoder::BufferedFrame* D3D11VAVideoDecoder::GetBufferedFrame(int fr
 }
 
 bool D3D11VAVideoDecoder::DecodeNextFrameToBuffer() {
-    // MPV-style decode loop: Try to receive first, only send packets when EAGAIN
+    // Decode loop: Try to receive first, only send packets when EAGAIN
     // This properly drains all buffered frames due to B-frame reordering
     av_frame_unref(current_frame_);
 

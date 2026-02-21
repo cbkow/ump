@@ -106,16 +106,8 @@ public:
     void ProcessPendingOperations();
 
     //=========================================================================
-    // Unified Speed Control (THE KEY FEATURE)
+    // Buffer Health (for statistics)
     //=========================================================================
-
-    // Get unified playback speed (minimum across all sources)
-    // This is what TimelinePlaybackController uses to pace playback
-    // Returns value in range [0.0, 1.0]
-    double GetUnifiedPlaybackSpeed() const;
-
-    // Check if ANY source needs buffer wait
-    bool NeedsBufferWait() const;
 
     // Get combined buffer health (aggregated across all sources)
     BufferHealth GetCombinedBufferHealth() const;
@@ -173,9 +165,6 @@ private:
     std::string active_source_id_;
 
     // Cached unified speed (for performance - avoid recalculating every frame)
-    mutable std::atomic<double> cached_unified_speed_{1.0};
-    mutable std::atomic<uint64_t> speed_cache_timestamp_{0};
-    static constexpr uint64_t SPEED_CACHE_VALID_MS = 8;  // Refresh every ~8ms (120fps)
 };
 
 } // namespace ump

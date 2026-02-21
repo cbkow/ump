@@ -27,7 +27,7 @@ ConversionStrategy ConversionStrategy::FromMetadata(const VideoMetadata& metadat
     // Store source bit depth for quality decisions
     strategy.source_bit_depth = metadata.bit_depth;
 
-    // Colorspace mapping from MPV metadata to FFmpeg constants
+    // Colorspace mapping from video metadata to FFmpeg constants
     Debug::Log("ConversionStrategy: Input colorspace='" + metadata.colorspace + "', range='" + metadata.range_type + "'");
 
     if (metadata.colorspace == "bt709" || metadata.colorspace == "bt.709") {

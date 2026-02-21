@@ -1,5 +1,6 @@
 #include "transcode_queue_window.h"
 #include "../utils/debug_utils.h"
+#include "../app/app_ui_macros.h"
 #include <imgui.h>
 #include <algorithm>
 #include <sstream>
@@ -10,6 +11,7 @@
 
 #ifdef _WIN32
 #include <dwmapi.h>
+#include <shellapi.h>
 #pragma comment(lib, "dwmapi.lib")
 #endif
 
@@ -121,18 +123,13 @@ void TranscodeQueueWindow::Render() {
         was_open = false;
     }
 
-    // Center modal on screen with dampened scaling for height
-    float ui_scale = ImGui::GetIO().FontGlobalScale;
-    float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;  // Dampened scaling for height
+    // Center modal on screen — 80% of viewport
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImVec2 center = viewport->GetCenter();
     ImVec2 viewport_size = viewport->Size;
 
-    // Calculate modal size - fit within viewport (95% max) while respecting preferred size
-    float preferred_width = 1300.0f * ui_scale;
-    float preferred_height = 950.0f * height_scale;
-    float max_width = std::min(preferred_width, viewport_size.x * 0.95f);
-    float max_height = std::min(preferred_height, viewport_size.y * 0.95f);
+    float max_width = viewport_size.x * 0.9f;
+    float max_height = viewport_size.y * 0.9f;
 
     // Always center and size to fit viewport (prevents modal from becoming separate OS window)
     ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
@@ -266,25 +263,32 @@ void TranscodeQueueWindow::RenderToolbar() {
 
     // Primary action button (Start/Pause/Resume)
     if (pool_status == TranscodeWorkerPool::Status::ACTIVE) {
+        PushOutlineButtonStyle();
         if (ImGui::Button("Pause Queue", ImVec2(primary_btn_w, 0))) {
             worker_pool_->Pause();
             Debug::Log("TranscodeQueueWindow: Queue paused");
         }
+        PopOutlineButtonStyle();
     } else if (pool_status == TranscodeWorkerPool::Status::PAUSED) {
+        PushOutlineButtonStyle();
         if (ImGui::Button("Resume Queue", ImVec2(primary_btn_w, 0))) {
             worker_pool_->Resume();
             Debug::Log("TranscodeQueueWindow: Queue resumed");
         }
+        PopOutlineButtonStyle();
     } else {
+        PushOutlineButtonStyle();
         if (ImGui::Button("Start Queue", ImVec2(primary_btn_w, 0))) {
             worker_pool_->Start();
             Debug::Log("TranscodeQueueWindow: Queue started");
         }
+        PopOutlineButtonStyle();
     }
 
     ImGui::SameLine();
 
     // Stop All button (critical action, keep visible)
+    PushOutlineButtonStyle();
     if (ImGui::Button("Stop All", ImVec2(stop_btn_w, 0))) {
         // Cancel all active, queued, and paused jobs first
         auto all_jobs = queue_->GetAllJobs();
@@ -299,13 +303,16 @@ void TranscodeQueueWindow::RenderToolbar() {
         worker_pool_->Stop();
         Debug::Log("TranscodeQueueWindow: Cancelled all jobs and stopped workers");
     }
+    PopOutlineButtonStyle();
 
     ImGui::SameLine();
 
     // Actions dropdown menu
+    PushOutlineButtonStyle();
     if (ImGui::Button("Actions", ImVec2(actions_btn_w, 0))) {
         ImGui::OpenPopup("ActionsMenu");
     }
+    PopOutlineButtonStyle();
 
     // Actions menu popup
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.07f, 0.07f, 0.07f, 1.00f));
@@ -363,6 +370,7 @@ void TranscodeQueueWindow::RenderWorkerStatusBar() {
     char header_text[64];
     snprintf(header_text, sizeof(header_text), "Workers (%d/%d active)", active_count, worker_count);
 
+    PushOutlineHeaderStyle();
     if (ImGui::CollapsingHeader(header_text, ImGuiTreeNodeFlags_None)) {
         ImGui::Spacing();
 
@@ -387,6 +395,7 @@ void TranscodeQueueWindow::RenderWorkerStatusBar() {
 
         ImGui::Spacing();
     }
+    PopOutlineHeaderStyle();
 }
 
 void TranscodeQueueWindow::RenderQueueTable() {
@@ -864,23 +873,21 @@ void TranscodeQueueWindow::OpenOutputFolder() {
         std::string folder = output_path.substr(0, last_slash);
 
 #ifdef _WIN32
-        // Launch explorer in a separate thread to avoid blocking the UI
-        std::thread([folder]() {
-            std::string windows_path = folder;
-            std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
+        std::string windows_path = folder;
+        std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
 
-            std::filesystem::path fs_path(windows_path);
-            std::string command;
+        std::wstring wide_path(windows_path.begin(), windows_path.end());
+        std::wstring params;
 
-            if (std::filesystem::is_directory(fs_path)) {
-                command = "explorer \"" + windows_path + "\"";
-            } else {
-                command = "explorer /select,\"" + windows_path + "\"";
-            }
+        std::filesystem::path fs_path(windows_path);
+        if (std::filesystem::is_directory(fs_path)) {
+            params = L"\"" + wide_path + L"\"";
+        } else {
+            params = L"/select,\"" + wide_path + L"\"";
+        }
 
-            Debug::Log("TranscodeQueueWindow: Executing command: " + command);
-            system(command.c_str());
-        }).detach();
+        Debug::Log("TranscodeQueueWindow: Opening: " + windows_path);
+        ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
 #elif __APPLE__
         std::thread([folder]() {
             std::string cmd = "open \"" + folder + "\"";
@@ -1220,6 +1227,7 @@ void TranscodeQueueWindow::RenderSettingsTab() {
             float preset_btn_padding = ImGui::GetStyle().FramePadding.x * 2 + 16.0f;
             float preset_btn_w = ImGui::CalcTextSize("Conservative (12 threads)").x + preset_btn_padding;
 
+            PushOutlineButtonStyle();
             if (ImGui::Button("Conservative (12 threads)", ImVec2(preset_btn_w, 0))) {
                 transcode_settings.concurrent_loads = 6;
                 transcode_settings.openexr_threads = 2;
@@ -1251,6 +1259,7 @@ void TranscodeQueueWindow::RenderSettingsTab() {
             }
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Threadripper / HEDT");
+            PopOutlineButtonStyle();
 
             ImGui::Spacing();
             ImGui::Separator();

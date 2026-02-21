@@ -21,7 +21,7 @@ class ProjectManager;
 // - Clips cannot overlap (ripple editing enforced)
 // - Fixed gaps between clips (default 10 frames)
 // - Each clip references a MediaItem from the project
-// - Native decoder per clip (MPV for video, native loaders for sequences)
+// - Native decoder per clip (D3D11 for video, native loaders for sequences)
 //
 // Ripple Editing Behavior:
 // - Move clip: pushes downstream clips

@@ -47,8 +47,6 @@ struct PipelineConfig {
 // Pipeline configurations map - defined in video_display_component.cpp
 extern const std::map<PipelineMode, PipelineConfig> PIPELINE_CONFIGS;
 
-// Note: LibMPV toggle removed - D3D11VideoDecoder is now the sole video backend
-
 // Helper function to convert pipeline mode to display string
 const char* PipelineModeToString(PipelineMode mode);
 

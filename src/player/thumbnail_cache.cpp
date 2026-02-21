@@ -41,7 +41,7 @@ ThumbnailCache::ThumbnailCache(
     // Start background worker thread
     worker_thread_ = std::thread(&ThumbnailCache::WorkerThread, this);
 
-    // Set thread priority to avoid competing with MPV for CPU and disk I/O
+    // Set thread priority to avoid competing with decoder for CPU and disk I/O
     // This prevents hitching during playback startup
 #ifdef _WIN32
     SetThreadPriority(worker_thread_.native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
