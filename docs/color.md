@@ -4,89 +4,86 @@ permalink: /ocio-nodes/
 nav_order: 8
 ---
 
-# OCIO (Open Color IO) Color Panels
+# OCIO Color Nodes
 
-## The Panels
+QCView includes a node-based [OpenColorIO](https://opencolorio.org/) pipeline for live color management. Build transform chains visually and see results applied to the Viewer in real time.
 
-The OCIO color panel is a basic node builder for OCIO flows. Currently, u.m.p supports `ACES 1.3`, `ACES 2.0`, `Blender 4.5`, and the `Blender 5.0` configs. 
+**Bundled configs:** ACES 1.3, ACES 2.0, Blender 4.5, Blender 5.0
 
----
-
-## The Flow
-
-### Using OCIO Configs
-
-To build an OCIO node tree, you need at least an **Input** node and an **Output** node. 
-
-![Window](images/ump_UwUmLjS1jr.png)
+![Inspector panel for video](images/QCView_v027.png)
 
 ---
 
-### Select a Config
+## Building a Node Tree
 
-First, select a config that matches your DLC.
+A color transform requires at minimum an **Input** node and an **Output** node. Follow these steps:
 
-![Window](images/explorer_Tb3I9yZutD.png)
+### 1. Select a Config
 
----
+Choose a config that matches your color pipeline.
 
-### Select a Input Node
+![Config selection](images/QCView_v028.png)
 
-Then, select an **Input** Node and drag it into the **Node Graph** panel.
+### 2. Add an Input Node
 
-![Window](images/explorer_o2DVEEmj5w.png)
+Drag an **Input** node into the Node Graph panel.
 
----
+![Input node](images/QCView_v029.png)
 
-### Select a Output Node
+### 3. Add an Output Node
 
-Select and output node and drag it into the graph.
+Drag an **Output** node into the graph.
 
-![Window](images/explorer_uOYcPtNbO0.png)
+![Output node](images/QCView_v030.png)
 
----
+### 4. Connect and Apply
 
-### Generate a Shader
+Connect the nodes, then click the Output node to open its settings. Select a **View** if required, then click **Apply** to see the transform in the Viewer. Click **Remove** to clear it.
 
-Hook them up. Click on the output node to load a settings panel on the right side of the color panel layout. Select a View if the **Output** node requires one. Then click the `Apply` button. You will see the shader applied in your Viewer. Click `Remove` to undo. 
-
-![Window](images/ump_FOQe26cKjN.png)
+![Applied color transform](images/QCView_v031.png)
 
 ---
 
 ## Node Management
 
-You can click on any node or branch and use the keyboard's `X` or `Delete` to remove it.
+Select any node or connection and press `X` or `Delete` to remove it.
 
-![Window](images/ump_xUqZ2ryb9r.png)
+![Deleting a node](images/QCView_v032.png)
 
 ---
 
-## LUTS
+## LUTs
 
-You can add custom LUTs to the chain. **Scene LUTs** go before the **Output** node, and **Display LUTs** go after. Click on the `Select LUT File` button to assign a .cube file. 
+Add custom LUT files (.cube) to the transform chain:
 
-![Window](images/ump_jad5M9BPZt.png)
+| LUT Type | Position in Chain |
+|---|---|
+| Scene LUT | Before the Output node |
+| Display LUT | After the Output node |
+
+Click **Select LUT File** on the node to assign a .cube file.
+
+![LUT node](images/QCView_v033.png)
 
 ---
 
 ## Looks
 
-**Looks** belong in the chain between **Input** and **Output**. All Blender looks are supported (Contrast looks, AGX looks, Greyscale looks, Punchy, etc...)
+**Look** nodes go between Input and Output. All Blender looks are supported — Contrast, AgX, Greyscale, Punchy, and more.
 
-![Window](images/ump_1brxUpGf9c.png)
+![Look node](images/QCView_v035.png)
 
 ---
 
 ## Presets
 
-Presets are provided for each included config. Click on the preset to apply.
+Each bundled config includes ready-made presets. Click a preset to apply it instantly.
 
-![Window](images/explorer_6OLaCMRhyB.png)
+![Built-in presets](images/QCView_v036.png)
 
 ### Custom Presets
 
-Save your own presets.
+Save your own node tree configurations as presets for quick recall.
 
-![Window](images/ump_pCTEROVGKT.png)
+![Saving a custom preset](images/QCView_v038.png)
 
