@@ -6,86 +6,69 @@ nav_order: 4
 
 # App Basics
 
-## Opening files
+## Opening Files
 
-### The Menu
+### File Menu
 
-There are a few ways to load files. You can simply drag one more file into the app. Or you can use the File menu to **Open Media** `Ctrl + O`,  **Open Project** `Ctrl + Shift + O`. In this menu, you can also create a **New Project** (this will wipe out your current project), a **New Playlist**, or a **New Dual View**.
+Use the **File** menu to load media into QCView:
 
+![QCView main interface](images/QCView_v004.png)
+
+| Action | Shortcut |
+|---|---|
+| Open Media | `Ctrl + O` |
+| Open Project | `Ctrl + Shift + O` |
+| New Project | Clears the current project |
+| New Playlist | Creates an empty playlist |
+| New Dual View | Opens side-by-side comparison |
 
 ### Drag and Drop
 
-To load files you have already opened, you can double-click on them in the Project Manager or drag them into the Viewer. The Viewer's border will be highlighted if a drop is detected.
+You can also drag files directly into the app. The Viewer border highlights when a drop target is detected.
 
-![ump image](images/ump_pqZfzIfY9v.jpg)
+To load files already in your project, double-click them in the Project Manager or drag them into the Viewer.
+
+![QCView main interface](images/QCView_v002.png)
 
 ---
 
-## The Layout
+## Layout
 
 ### Panels
 
-In the View menu, you can toggle the different app panels:
+Toggle panels from the **View** menu or with keyboard shortcuts:
 
-* **The Project Panel** `Ctrl + 1`
-* **The Inspector Panel** `Ctrl + 2`
-* **The Timeline Panel** `Ctrl + 3`
-* **The Color Panels** `Ctrl + 4`
-* **Annotations** `Ctrl + 5`
-* **Sidebar** `Ctrl +7`
+| Panel | Shortcut |
+|---|---|
+| Project | `Ctrl + 1` |
+| Inspector | `Ctrl + 2` |
+| Timeline | `Ctrl + 3` |
+| Color | `Ctrl + 4` |
+| Annotations | `Ctrl + 5` |
+| Sidebar | `Ctrl + 7` |
 
-You also have a few helpful shortcuts for layout management:
+Right-clicking the Viewer also reveals panel toggles.
 
-#### Default View
+![QCView main interface](images/QCView_v003.png)
 
-`Ctrl + 0` reverts the app to a default view with key panels for media management.
+### Layout Presets
 
----
-#### Show All Panels
+| Preset | Shortcut | Description |
+|---|---|---|
+| Default View | `Ctrl + 0` | Standard layout with key panels |
+| Show All Panels | `Ctrl + 9` | Opens every panel |
+| Minimal View | `Ctrl + -` | Viewport and timeline only (toggle) |
+| Full Screen | `F` | Viewer only, no UI. Press `F` or `Esc` to exit |
 
-![ump image](images/ump_caPD2BuLZb.png)
+![QCView main interface](images/QCView_v005.png)
 
-`Ctrl + 9` opens all the panels.
+### Resizing and Closing Panels
 
-![ump image](images/Code_Ua10MtFmZ7.png)
+Drag the dividers between panels to resize them. Click the **X** in a panel's top-right corner to close it.
 
-A mouse right-click reveals panel toggles.
+![QCView main interface](images/QCView_v006.png)
 
----
-#### Minimal View
-
-![ump image](images/ump_kgm0f9rK1u.png)
-
-`Ctrl + -` simplifies the layout to just the Viewport and timeline—-the more traditional video player layout. This is a toggle state. You can click it again to return to your previous layout. 
-
----
-
-#### Full Screen
-
-![ump image](images/ump_c0Ol5aOLrh.png)
-
-
-`F` will toggle the full-screen mode without the timeline. You can escape by pressing `F` again or `esc`.
-
----
-
-### Closing Panels
-
-Clicking the X button in the top-right will also close a panel.
-
-![ump image](images/ump_i9xth6tDnh.png)
-
----
-
-### Resizing the Layout
-
-You can resize panels by dragging the dividers.
-
-![ump image](images/ump_uqaxpK0PSD.png)
-
-`Ctrl + R` or `View > Reset Layout` in the main menu will restore default proportions.
-
-![ump image](images/ump_a8Td8E4yY0.jpg)
+Use `Ctrl + R` or **View > Reset Layout** to restore default proportions.
 
 ---
 
@@ -93,33 +76,31 @@ You can resize panels by dragging the dividers.
 
 ### Backgrounds
 
-Thee are four possible backgrounds that will appear behind alpha channels in all media.
+QCView provides four background options for reviewing alpha-channel media: grey (default), black, dark checkerboard, and light checkerboard. Alpha channels in any media pass through to the selected background.
 
-![ump image](images/ump_zMAsPqyqhE.png)
+| Action | Shortcut |
+|---|---|
+| Open background panel | `Ctrl + Shift + B` |
+| Cycle backgrounds | `B` |
 
-`Ctrl + Shift + B` or the background button opens the **Video Background** panel and lets you select one of four background options (default grey, black, dark checker board or light checkerboard). Alpha channels in any media will pass through to the background, so you can use them for alpha review. Pressing `B` will cycle through the options without using the panel for selection.
+![Background options](images/ump_zMAsPqyqhE.png)
 
-### Safety Guides
+### Title Safety Guides
 
-`Ctrl + /` or the button below opens the **Title Safety** panel, where you can select various title safety options to overlay your Viewer with. You can select a color with the color picker, and this color will be saved in your personal settings. Once a safety guide has been applied, toggling the button again will remove it.
+Open the **Title Safety** panel with `Ctrl + /` to overlay broadcast and social-media safety guides on the Viewer. Choose a guide color with the color picker — your selection is saved in settings. Toggle the button again to remove the overlay.
 
-![ump image](images/ump_lgYDSkyRfc.png)
-
----
+![Title safety guides](images/ump_lgYDSkyRfc.png)
 
 ### OCIO Presets
 
-`Ctrl + C` or the button below opens the **OCIO Color Preset** panel. Enabling one of these options applies an OCIO node-tree preset to your **Viewer**, and everything in the **Viewer** will have this color correction applied. See the **OCIO Nodes** page for more details on how these presets work.
+Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction preset to the Viewer. Presets use OCIO node trees — see the [Color](color) page for details.
 
-![ump image](images/ump_oCQIkFvqiC.png)
+![OCIO presets](images/ump_oCQIkFvqiC.png)
 
 ---
 
 ## Themes
 
-### Color Theme Options
+QCView can use your **Windows Accent Color** for UI highlights, or you can choose from several built-in color themes.
 
-Toggleing **System Accent Color** will use your Windows Accent Color.
-You can also select a color theme from one of these options.
-
-![ump image](images/ump_hEApa4y2cp.png)
+![Theme options](images/ump_hEApa4y2cp.png)
