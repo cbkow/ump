@@ -87,3 +87,10 @@ Save your own node tree configurations as presets for quick recall.
 
 ![Saving a custom preset](images/QCView_v038.png)
 
+---
+
+## Exporting LUTS
+
+Click here to export a Cube LUT for other software/pipelines.
+
+![Saving a custom preset](images/QCView_v039.png)
