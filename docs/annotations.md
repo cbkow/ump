@@ -18,7 +18,7 @@ Click **Add Note** to create a note at the current playhead position. A diamond 
 
 ### Drawing Tools
 
-The annotation toolbar provides shapes (box, circle, arrow), a line-width slider, and color selection for drawing directly on the Viewer.
+The annotation toolbar provides shapes (freehand, box, circle, arrow), a line-width slider, and color selection for drawing directly on the Viewer.
 
 | Shortcut | Action |
 |---|---|
