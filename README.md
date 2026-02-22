@@ -41,3 +41,5 @@
 - [Acknowledgments](https://github.com/cbkow/QCView-Player/blob/main/Acknowledgments.md)
 - [Third-Party Notices](https://github.com/cbkow/QCView-Player/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
 - [Privacy Policy](https://github.com/cbkow/QCView-Player/blob/main/PRIVACY_POLICY.md)
+
+QCView is open source under the GPL v3 license.
