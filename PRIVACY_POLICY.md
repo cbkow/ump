@@ -43,4 +43,4 @@ If this policy changes, the updated version will be published at the same locati
 ## Contact
 
 If you have questions about this privacy policy, please open an issue at:
-https://github.com/cbkow/ump/issues
+https://github.com/cbkow/QCView-Player/issues
