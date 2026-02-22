@@ -47,10 +47,6 @@ Toggle panels from the **View** menu or with keyboard shortcuts:
 | Annotations | `Ctrl + 5` |
 | Sidebar | `Ctrl + 7` |
 
-Right-clicking the Viewer also reveals panel toggles.
-
-![QCView main interface](images/QCView_v003.png)
-
 ### Layout Presets
 
 | Preset | Shortcut | Description |
@@ -61,6 +57,13 @@ Right-clicking the Viewer also reveals panel toggles.
 | Full Screen | `F` | Viewer only, no UI. Press `F` or `Esc` to exit |
 
 ![QCView main interface](images/QCView_v005.png)
+
+### Panel Shortcuts
+
+Right-clicking the **Show All Panels** button also reveals panel toggles.
+
+![QCView main interface](images/QCView_v003.png)
+
 
 ### Resizing and Closing Panels
 
@@ -83,19 +86,19 @@ QCView provides four background options for reviewing alpha-channel media: grey 
 | Open background panel | `Ctrl + Shift + B` |
 | Cycle backgrounds | `B` |
 
-![Background options](images/ump_zMAsPqyqhE.png)
+![QCView main interface](images/QCView_v007.png)
 
 ### Title Safety Guides
 
 Open the **Title Safety** panel with `Ctrl + /` to overlay broadcast and social-media safety guides on the Viewer. Choose a guide color with the color picker — your selection is saved in settings. Toggle the button again to remove the overlay.
 
-![Title safety guides](images/ump_lgYDSkyRfc.png)
+![QCView main interface](images/QCView_v008.png)
 
 ### OCIO Presets
 
 Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction preset to the Viewer. Presets use OCIO node trees — see the [Color](color) page for details.
 
-![OCIO presets](images/ump_oCQIkFvqiC.png)
+![QCView main interface](images/QCView_v009.png)
 
 ---
 
@@ -103,4 +106,4 @@ Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction
 
 QCView can use your **Windows Accent Color** for UI highlights, or you can choose from several built-in color themes.
 
-![Theme options](images/ump_hEApa4y2cp.png)
+![QCView main interface](images/QCView_v010.png)
