@@ -8,123 +8,110 @@ nav_order: 5
 
 ## Panel Toggles
 
-At the top of the sidebar are buttons that toggle panels:
-- Project Manager
-- Inspector
-- Timleline
-- Color Panels
-- Annotations.
+The top of the sidebar has buttons to toggle each panel: Project Manager, Inspector, Timeline, Color, and Annotations.
 
-![window](images/ump_KtM5t3jrDA.png)
-
----
+![Sidebar panel toggles](images/ump_KtM5t3jrDA.png)
 
 ## Open / Save Shortcuts
 
-Below are options to:
-- Open Media
-- Open Projects
-- Save Projects
+Below the panel toggles are quick-access buttons for opening media, opening projects, and saving projects.
 
-![window](images/ump_6YAMx610bm.png)
+![Open and save shortcuts](images/ump_6YAMx610bm.png)
 
 ---
 
 # Timeline and Transport Controls
 
-## The Timeline
-
-The bottom of the **Viewport** panel contains controls for media playback and app state shortcuts. The layout dynamically shifts based on the loaded media.
-
-![window](images/explorer_GS6MdVgrBT.png)
+The bottom of the Viewport contains playback controls and app state shortcuts. The layout adapts based on the type of media loaded.
 
 ---
 
 ## Transport Controls
 
-Media navigation is controlled with these buttons:
+| Button | Action |
+|---|---|
+| Beginning | Jump to start of media |
+| Rewind | Press and hold — accelerates over time |
+| Back One Frame | Step back one frame |
+| Play / Pause | Toggle playback |
+| Forward One Frame | Step forward one frame |
+| Fast Forward | Press and hold — accelerates over time |
+| End | Jump to end of media |
 
-* Beginning of media
-* Rewind (press and hold–it will speed up over time)
-* Back one frame
-* Play/Pause
-* Forward one frame
-* Fast Forward (press and hold–it will speed up over time)
-* End of media
-
-![window](images/Code_QIwTl7AMDI.png)
+![Transport controls](images/Code_QIwTl7AMDI.png)
 
 ---
 
+## Frame Skipping
+
+When playing back high-resolution image sequences or dense timelines, QCView can skip frames to maintain real-time playback speed. If decoding can't keep up with the target frame rate, the playhead advances at the correct tempo and displays the nearest available frame rather than stalling or slowing down. This keeps audio in sync and gives an accurate sense of timing during review, even when every frame can't be decoded in time.
+
+---
 
 ## Screenshots
 
-These two buttons allow you to take screenshots of the **Viewer**. The first saves the screenshot to the Windows clipboard so you can paste it into other apps. The second saves a screenshot to your Desktop.
+Two screenshot buttons capture the current Viewer contents:
 
-![window](images/ump_KOxuTTdVu9.png)
+| Button | Action |
+|---|---|
+| Clipboard | Copies the screenshot to the Windows clipboard for pasting into other apps |
+| Desktop | Saves a screenshot file to your Desktop |
+
+![Screenshot buttons](images/ump_KOxuTTdVu9.png)
 
 ---
 
 ## Timecode and Frames
 
-In the bottom-right corner of u.m.p., timecode and frame counts are displayed for loaded media. Immediately to the right of the timecode and frame count is a button that lets you seek to a specific time or frame.
+The bottom-right corner displays the current timecode and frame count. Click the seek button next to the counter to jump to a specific time or frame.
 
+![Timecode display](images/explorer_bAe4hyHgen.png)
 
-![window](images/explorer_bAe4hyHgen.png)
-
-When you are watching a video, an additional button, with a clock icon, will appear in the far right that lets you switch to the embedded timecode if it's available. 
+For video files with embedded timecode, a clock icon appears at the far right to switch between file timecode and elapsed time.
 
 ---
 
-## Zoom/Pan the Timeline
+## Zoom and Pan
 
-You can zoom in on a tighter framing of the timeline visual using `Mouse Scroll`. If you `Ctrl + Mouse Scroll` this area, you can pan it. Sliding or dragging the edges of this zoom level visual also manipulates the timeline.
+Navigate the timeline with these controls:
 
-![window](images/explorer_qLjT8nmZCG.png)
+| Input | Action |
+|---|---|
+| `Mouse Scroll` | Zoom in/out on the timeline |
+| `Ctrl + Mouse Scroll` | Pan the timeline |
+| `Middle Mouse Click` + drag | Grab and reposition the timeline |
 
-A `Middle Mouse Click` on the timeline itself lets you grab it and reposition it.
+You can also drag the edges of the zoom region indicator to adjust the visible range.
+
+![Timeline zoom](images/explorer_qLjT8nmZCG.png)
 
 ---
 
 ## Volume
 
-In the bottom-left u.m.p., you can adjust the volume or toggle mute.
+Adjust the volume slider or click the speaker icon to toggle mute. Located in the bottom-left of the Viewport.
 
-![window](images/explorer_gclvIIuMuh.png)
+![Volume control](images/explorer_gclvIIuMuh.png)
 
 ---
 
 ## Looping
 
-Loop mode is toggled by default. The loaded media will loop to start and play again after reaching the end. Untoggling loop mode will stop the media at its end.
+Loop mode is on by default — media restarts automatically after reaching the end. Disable it to stop at the last frame.
 
-![window](images/explorer_enC92lIRxw.png)
+![Loop toggle](images/explorer_enC92lIRxw.png)
 
-The keyboard command `I` and `O`, as well as the two buttons in `Set Range`, will toggle In and Out points on your timeline. Once an Out point is toggled, a Loop Zone will appear. This visual signifies a set range within which the media will play. Pressing `Clear` releases the Loop Zone and lets you play the entire clip again. 
+### In/Out Range
 
-![window](images/explorer_jhRKFGLeQ4.png)
+Set a loop range with `I` (in point) and `O` (out point), or use the **Set Range** buttons. A highlighted loop zone appears on the timeline showing the active range. Press **Clear** to remove the range and play the full clip.
+
+![Loop range](images/explorer_jhRKFGLeQ4.png)
 
 ---
 
 ## Follow Playhead
 
-If `Follow Playhead` is toggled, and the timeline is zoomed in, the timeline will shift every time the playhead is about to leave the view. This keeps the playhead on screen at all times.
+When enabled and the timeline is zoomed in, the view automatically scrolls to keep the playhead visible during playback.
 
-![window](images/explorer_wVTivZgY0c.png) 
-
----
-
-## Adaptive Speed
-
-The `Adaptive Speed` toggle appears when viewing an image sequence and is enabled by default. If playback can't keep up with decoding, fps will throttle in increments to keep the playhead from overrunning the image buffer.
-
-![alt text](images/explorer_YSwulyXFMJ.png)
-
----
-
-## Buffer Wait
-
-In image sequences and timelines, 'Buffer Wait' appears. This toggle pauses the playhead when play is triggered, allowing the image buffer to fill to a specific duration. The default value is 2 frames, but you can right-click the toggle to select other values.
-
-![alt text](images/explorer_eibM98zV4O.png)
+![Follow playhead](images/explorer_wVTivZgY0c.png)
 
