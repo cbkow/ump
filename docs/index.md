@@ -6,7 +6,7 @@ nav_order: 1
 
 # QCView
 
-![QCView main interface](images/ump_ygOpJTY2Am2.jpg)
+![QCView main interface](images/QCView_v001.png)
 
 **QCView** is a professional media player and reviewer for Windows, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
@@ -44,8 +44,6 @@ nav_order: 1
 - Custom project files (.qcv, .qcvproj, .qcvexr)
 - `qcview://` URI scheme for sharing file paths
 
-![QCView color pipeline](images/ump_v85ah4VbmC2.png)
-
 ---
 
 ## Documentation
@@ -56,9 +54,9 @@ Use the sidebar to browse the full manual, including [installation](installation
 
 ## Links
 
-- [Source Code](https://github.com/cbkow/ump)
-- [Acknowledgments](https://github.com/cbkow/ump/blob/main/Acknowledgments.md)
-- [Third-Party Notices](https://github.com/cbkow/ump/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
-- [Privacy Policy](https://github.com/cbkow/ump/blob/main/PRIVACY_POLICY.md)
+- [Source Code](https://github.com/cbkow/QCView-Player)
+- [Acknowledgments](https://github.com/cbkow/QCView-Player/blob/main/Acknowledgments.md)
+- [Third-Party Notices](https://github.com/cbkow/QCView-Player/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
+- [Privacy Policy](https://github.com/cbkow/QCView-Player/blob/main/PRIVACY_POLICY.md)
 
 QCView is open source under the GPL v3 license.
