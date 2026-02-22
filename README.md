@@ -1,7 +1,5 @@
 # QCView
 
-![QCView main interface](docs/images/QCView_v001.png)
-
 **QCView** is a professional media player and reviewer for Windows, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
