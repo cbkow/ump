@@ -5,7 +5,7 @@
 #include "../../external/stb/stb_image_resize2.h"
 #include <mutex>
 
-namespace ump {
+namespace qcview {
 
 // Cached broken.png icon — loaded once, reused for all broken sentinels
 static std::once_flag s_broken_png_flag;
@@ -104,4 +104,4 @@ std::shared_ptr<PixelData> MakeBrokenSentinel(int w, int h) {
     return pd;
 }
 
-} // namespace ump
+} // namespace qcview

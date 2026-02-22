@@ -29,7 +29,7 @@ extern int g_timeline_read_behind_frames;
 extern int g_timeline_max_textures;
 extern int g_timeline_io_threads;
 
-namespace ump {
+namespace qcview {
 
 // Helper function to detect the correct pipeline mode for an image sequence
 // EXR sequences always use ULTRA_HIGH_RES (half-float), others use GetImageInfo
@@ -2375,4 +2375,4 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
     return result;
 }
 
-} // namespace ump
+} // namespace qcview

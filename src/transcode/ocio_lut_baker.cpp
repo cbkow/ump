@@ -13,13 +13,13 @@ namespace fs = std::filesystem;
 
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
 
-namespace ump {
+namespace qcview {
 
 std::string OCIOLutBaker::GetLutCacheDir() {
 #ifdef _WIN32
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
-        fs::path lut_dir = fs::path(localappdata) / "ump" / "luts";
+        fs::path lut_dir = fs::path(localappdata) / "qcview" / "luts";
         try {
             fs::create_directories(lut_dir);
             return lut_dir.string();
@@ -29,7 +29,7 @@ std::string OCIOLutBaker::GetLutCacheDir() {
     }
 #endif
     // Fallback to temp directory
-    fs::path fallback = fs::temp_directory_path() / "ump_lut_cache";
+    fs::path fallback = fs::temp_directory_path() / "qcview_lut_cache";
     try {
         fs::create_directories(fallback);
         return fallback.string();
@@ -502,4 +502,4 @@ std::string OCIOLutBaker::BakeTo(
     }
 }
 
-} // namespace ump
+} // namespace qcview

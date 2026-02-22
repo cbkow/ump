@@ -8,7 +8,7 @@ struct AVFormatContext;
 struct AVCodecParameters;
 struct AVStream;
 
-namespace ump {
+namespace qcview {
 
 /**
  * FFmpeg-based metadata extractor
@@ -78,4 +78,4 @@ private:
     static std::string AVColorRangeToString(int av_color_range);
 };
 
-} // namespace ump
+} // namespace qcview

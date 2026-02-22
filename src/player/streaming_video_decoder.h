@@ -6,7 +6,7 @@
 
 #include "video_decoder_interface.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declaration only - no implementation
 // Code using StreamingVideoDecoder should be updated to use D3D11VideoDecoder instead
@@ -76,4 +76,4 @@ public:
     bool IsHWFrame() const { return false; }
 };
 
-} // namespace ump
+} // namespace qcview

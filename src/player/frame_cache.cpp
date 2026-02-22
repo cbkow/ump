@@ -1271,30 +1271,30 @@ void FrameCache::RegisterWithPool(int frame, size_t bytes) {
     if (!config.use_shared_pool) return;
     if (current_video_path.empty()) return;
 
-    auto key = ump::MakeVideoKey(current_video_path, frame);
+    auto key = qcview::MakeVideoKey(current_video_path, frame);
 
     // Create eviction callback that removes from our local cache
     auto eviction_callback = [this, frame]() {
         OnPoolEviction(frame);
     };
 
-    ump::SharedMemoryPool::Instance().RegisterEntry(key, bytes, eviction_callback);
+    qcview::SharedMemoryPool::Instance().RegisterEntry(key, bytes, eviction_callback);
 }
 
 void FrameCache::TouchInPool(int frame) {
     if (!config.use_shared_pool) return;
     if (current_video_path.empty()) return;
 
-    auto key = ump::MakeVideoKey(current_video_path, frame);
-    ump::SharedMemoryPool::Instance().TouchEntry(key);
+    auto key = qcview::MakeVideoKey(current_video_path, frame);
+    qcview::SharedMemoryPool::Instance().TouchEntry(key);
 }
 
 void FrameCache::RemoveFromPool(int frame) {
     if (!config.use_shared_pool) return;
     if (current_video_path.empty()) return;
 
-    auto key = ump::MakeVideoKey(current_video_path, frame);
-    ump::SharedMemoryPool::Instance().RemoveEntry(key);
+    auto key = qcview::MakeVideoKey(current_video_path, frame);
+    qcview::SharedMemoryPool::Instance().RemoveEntry(key);
 }
 
 void FrameCache::OnPoolEviction(int frame) {

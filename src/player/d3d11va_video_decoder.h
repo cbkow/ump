@@ -19,7 +19,7 @@ extern "C" {
 #include <libavutil/pixdesc.h>
 }
 
-namespace ump {
+namespace qcview {
 
 class D3D11YUVRenderer;
 class D3D11VideoInterop;
@@ -250,6 +250,6 @@ private:
     bool DecodeNextFrameToBuffer();
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

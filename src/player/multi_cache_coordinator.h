@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // MultiCacheCoordinator
@@ -167,4 +167,4 @@ private:
     // Cached unified speed (for performance - avoid recalculating every frame)
 };
 
-} // namespace ump
+} // namespace qcview

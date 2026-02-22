@@ -1,6 +1,6 @@
 #pragma once
 
-namespace ump {
+namespace qcview {
 namespace FrameIndexing {
 
 /**
@@ -83,4 +83,4 @@ inline int InternalToSequenceDisplay(int internal_index, int start_number) {
 }
 
 } // namespace FrameIndexing
-} // namespace ump
+} // namespace qcview

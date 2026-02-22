@@ -2,7 +2,7 @@
 #include "../utils/debug_utils.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 FFMPEGVideoEncoder::FFMPEGVideoEncoder() {
 }
@@ -1433,4 +1433,4 @@ bool FFMPEGVideoEncoder::WriteAudioPacket(AVPacket* packet, int source_stream_in
     return true;
 }
 
-} // namespace ump
+} // namespace qcview

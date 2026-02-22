@@ -6,11 +6,11 @@
 #include "../annotations/viewport_annotator.h"
 #include "frameio_client.h"
 
-namespace ump {
+namespace qcview {
 namespace Integrations {
 
 /**
- * Converts Frame.io comments and annotations to ump format.
+ * Converts Frame.io comments and annotations to QCView format.
  */
 class FrameioConverter {
 public:
@@ -23,7 +23,7 @@ public:
     };
 
     /**
-     * Convert Frame.io comments to ump annotation notes.
+     * Convert Frame.io comments to QCView annotation notes.
      *
      * @param comments Frame.io comments from API
      * @param video_framerate Framerate of the video for timecode conversion
@@ -36,7 +36,7 @@ public:
 
 private:
     /**
-     * Convert Frame.io annotation JSON to ump format.
+     * Convert Frame.io annotation JSON to QCView format.
      * Returns empty string if conversion fails.
      */
     static std::string ConvertAnnotationJson(const std::string& frameio_annotation);
@@ -47,12 +47,12 @@ private:
     static ImVec4 HexToRgba(const std::string& hex);
 
     /**
-     * Map Frame.io tool type to ump tool type.
+     * Map Frame.io tool type to QCView tool type.
      */
     static Annotations::DrawingTool MapToolType(const std::string& frameio_tool);
 
     /**
-     * Convert Frame.io shape to ump points array.
+     * Convert Frame.io shape to QCView points array.
      */
     static std::vector<ImVec2> ConvertShapeToPoints(
         const std::string& tool,
@@ -69,4 +69,4 @@ private:
 };
 
 } // namespace Integrations
-} // namespace ump
+} // namespace qcview

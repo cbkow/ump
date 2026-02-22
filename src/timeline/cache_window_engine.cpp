@@ -3,7 +3,7 @@
 #include <cmath>
 #include <set>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor
@@ -243,4 +243,4 @@ void CacheWindowEngine::UpdateBoundaryLength() const {
     boundary_length_dirty_ = false;
 }
 
-} // namespace ump
+} // namespace qcview

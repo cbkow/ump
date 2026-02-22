@@ -9,7 +9,7 @@
 #include <windows.h>
 #endif
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Helper: Create appropriate loader for file extension
@@ -687,4 +687,4 @@ void ImageSequenceDecoder::EvictOutsideWindow() {
     }
 }
 
-} // namespace ump
+} // namespace qcview

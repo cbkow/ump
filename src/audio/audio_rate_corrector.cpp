@@ -11,7 +11,7 @@ extern "C" {
 #include <algorithm>
 #include <cstring>
 
-namespace ump {
+namespace qcview {
 
 AudioRateCorrector::AudioRateCorrector() = default;
 
@@ -201,4 +201,4 @@ int AudioRateCorrector::Process(const float* input, float* output,
     return out_samples;
 }
 
-} // namespace ump
+} // namespace qcview

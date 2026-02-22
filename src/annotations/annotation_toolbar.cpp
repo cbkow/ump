@@ -1,7 +1,7 @@
 #include "annotation_toolbar.h"
 #include "../app/app_ui_macros.h"
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 AnnotationToolbar::AnnotationToolbar() {
@@ -363,4 +363,4 @@ bool AnnotationToolbar::ActionButton(const char* label, bool enabled, const char
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

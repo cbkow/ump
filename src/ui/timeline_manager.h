@@ -6,7 +6,7 @@
 // VideoPlayer is now included via frame_cache.h -> video_player.h
 
 // Forward declaration to avoid circular dependency
-namespace ump {
+namespace qcview {
     class ProjectManager;
 }
 
@@ -16,7 +16,7 @@ public:
     ~TimelineManager();
     
     // Set project manager reference for cache access
-    void SetProjectManager(ump::ProjectManager* project_manager);
+    void SetProjectManager(qcview::ProjectManager* project_manager);
 
     // Core update method - called every frame
     void Update(VideoPlayer* video_player);
@@ -74,7 +74,7 @@ private:
     static constexpr auto SYNC_THROTTLE_MS = std::chrono::milliseconds(100); // Sync UI to decoder
     
     // Project manager reference for cache access
-    ump::ProjectManager* project_manager = nullptr;
+    qcview::ProjectManager* project_manager = nullptr;
 
     // Internal methods
     void SyncFromDecoder(VideoPlayer* video_player);

@@ -6,7 +6,7 @@
 // Forward declarations for FFmpeg types
 struct AVBufferRef;
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Hardware Device Context Manager
@@ -123,4 +123,4 @@ private:
     std::atomic<bool> shutdown_{false};
 };
 
-} // namespace ump
+} // namespace qcview

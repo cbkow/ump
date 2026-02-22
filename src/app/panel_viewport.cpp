@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Video viewport panel (viewport, background selection, background drawing)
 // ============================================================================
 
@@ -77,11 +77,11 @@ struct ViewportDualViewDropState {
 extern ImFont* font_regular;
 extern ImFont* font_bold;
 extern ImFont* font_icons;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
-extern std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;
-extern ump::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
+extern qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
 extern ColorCorrectedTextureCache g_color_corrected_cache;
 extern ViewportDualViewDropState g_viewport_dv_drop;
 extern bool otio_timeline_mode;
@@ -127,7 +127,7 @@ extern bool g_skip_viewport_render_frame;
                     // Hide audio tracks in audio-only mode (VIDEO_FILE with no video tracks)
                     float track_count = 0.0f;
                     if (timeline_view) {
-                        bool is_audio_only = timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE &&
+                        bool is_audio_only = timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE &&
                                              timeline_view->GetVideoTrackCount() == 0;
                         if (!is_audio_only) {
                             track_count = (float)(timeline_view->GetVideoTrackCount() + timeline_view->GetAudioTrackCount());
@@ -162,9 +162,9 @@ extern bool g_skip_viewport_render_frame;
 
             // Set up annotation toolbar callbacks (always when in annotation mode, so modal toolbar can use them too)
             if (viewport_annotator && viewport_annotator->IsAnnotationMode() && annotation_toolbar) {
-                ump::Annotations::AnnotationToolbar::Callbacks callbacks;
+                qcview::Annotations::AnnotationToolbar::Callbacks callbacks;
 
-                callbacks.on_tool_changed = [this](ump::Annotations::DrawingTool tool) {
+                callbacks.on_tool_changed = [this](qcview::Annotations::DrawingTool tool) {
                     if (viewport_annotator) {
                         viewport_annotator->SetActiveTool(tool);
                         Debug::Log("Tool changed");
@@ -201,7 +201,7 @@ extern bool g_skip_viewport_render_frame;
                     }
 
                     // Serialize all strokes to JSON
-                    std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                    std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
 
                     // Save to annotation manager
                     if (annotation_manager && !current_editing_timecode_.empty()) {
@@ -214,7 +214,7 @@ extern bool g_skip_viewport_render_frame;
                     current_editing_timecode_.clear();
 
                     // Exit annotation mode
-                    viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
                     viewport_annotator->SetAllowInputInPopup(false);
                     annotation_toolbar->SetVisible(false);
 
@@ -235,7 +235,7 @@ extern bool g_skip_viewport_render_frame;
                     current_editing_timecode_.clear();
 
                     // Exit annotation mode without saving
-                    viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                    viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
                     viewport_annotator->SetAllowInputInPopup(false);
                     annotation_toolbar->SetVisible(false);
 
@@ -892,7 +892,7 @@ extern bool g_skip_viewport_render_frame;
                                         const auto& notes = annotation_manager->GetNotes();
                                         for (const auto& note : notes) {
                                             if (note.frame == current_frame && !note.annotation_data.empty()) {
-                                                auto strokes = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(note.annotation_data);
+                                                auto strokes = qcview::Annotations::AnnotationSerializer::JsonStringToStrokes(note.annotation_data);
                                                 for (const auto& stroke : strokes) {
                                                     nvg_strokes_to_render_.push_back(stroke);
                                                 }
@@ -1001,15 +1001,15 @@ extern bool g_skip_viewport_render_frame;
 
             if (ImGui::BeginDragDropTarget()) {
                 // Helper lambda to check if item should be loaded normally (Playlist/DualView items always load)
-                auto should_load_normally = [](ump::MediaItem* item, ump::TimelineSourceMode current_mode) {
+                auto should_load_normally = [](qcview::MediaItem* item, qcview::TimelineSourceMode current_mode) {
                     if (!item) return true;
                     // Playlist and DualView items always load normally (replace current view)
-                    if (item->type == ump::MediaType::PLAYLIST || item->type == ump::MediaType::DUAL_VIEW) {
+                    if (item->type == qcview::MediaType::PLAYLIST || item->type == qcview::MediaType::DUAL_VIEW) {
                         return true;
                     }
                     // If not in special mode, load normally
-                    if (current_mode != ump::TimelineSourceMode::PLAYLIST &&
-                        current_mode != ump::TimelineSourceMode::DUAL_VIEW) {
+                    if (current_mode != qcview::TimelineSourceMode::PLAYLIST &&
+                        current_mode != qcview::TimelineSourceMode::DUAL_VIEW) {
                         return true;
                     }
                     return false;
@@ -1017,19 +1017,19 @@ extern bool g_skip_viewport_render_frame;
 
                 // Helper lambda to add item to playlist
                 auto add_to_playlist = [&](const std::string& media_id) {
-                    ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                    qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                     if (!item) return;
                     // Skip non-playable types
-                    if (item->type == ump::MediaType::PLAYLIST ||
-                        item->type == ump::MediaType::DUAL_VIEW ||
-                        item->type == ump::MediaType::IMAGE) return;
+                    if (item->type == qcview::MediaType::PLAYLIST ||
+                        item->type == qcview::MediaType::DUAL_VIEW ||
+                        item->type == qcview::MediaType::IMAGE) return;
 
-                    ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
-                    if (playlist && playlist->type == ump::MediaType::PLAYLIST) {
+                    qcview::MediaItem* playlist = timeline_view->GetSourceMediaItem();
+                    if (playlist && playlist->type == qcview::MediaType::PLAYLIST) {
                         Debug::Log("[VIEWPORT DROP] Before add: playlist '" + playlist->name +
                                    "' has " + std::to_string(playlist->playlist_items.size()) + " items, ptr=" +
                                    std::to_string(reinterpret_cast<uintptr_t>(playlist)));
-                        ump::PlaylistItemEntry entry;
+                        qcview::PlaylistItemEntry entry;
                         entry.media_id = media_id;
                         entry.in_point = -1.0;
                         entry.out_point = -1.0;
@@ -1041,7 +1041,7 @@ extern bool g_skip_viewport_render_frame;
 
                 // Helper lambda to reload playlist after adding items
                 auto reload_playlist = [&]() {
-                    ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
+                    qcview::MediaItem* playlist = timeline_view->GetSourceMediaItem();
                     if (!playlist) return;
                     timeline_view->SetProjectManager(project_manager.get());
                     timeline_view->LoadPlaylistAsTimeline(playlist);
@@ -1057,7 +1057,7 @@ extern bool g_skip_viewport_render_frame;
                 };
 
                 // Get current source mode
-                ump::TimelineSourceMode current_mode = timeline_view ? timeline_view->GetSourceMode() : ump::TimelineSourceMode::VIDEO_FILE;
+                qcview::TimelineSourceMode current_mode = timeline_view ? timeline_view->GetSourceMode() : qcview::TimelineSourceMode::VIDEO_FILE;
 
                 // Accept single media item
                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("MEDIA_ITEM")) {
@@ -1065,22 +1065,22 @@ extern bool g_skip_viewport_render_frame;
                     Debug::Log("[VIEWPORT DROP] Received media: " + media_id);
 
                     if (project_manager) {
-                        ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                        qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                         if (item) {
                             if (should_load_normally(item, current_mode)) {
                                 // Load based on type (same as double-click behavior)
-                                if (item->type == ump::MediaType::DUAL_VIEW) {
+                                if (item->type == qcview::MediaType::DUAL_VIEW) {
                                     project_manager->OpenDualViewInEditor(item->timeline_id);
-                                } else if (item->type == ump::MediaType::PLAYLIST) {
+                                } else if (item->type == qcview::MediaType::PLAYLIST) {
                                     project_manager->OpenPlaylistInPanel(item->id);
                                 } else {
                                     project_manager->LoadSingleMediaItem(*item);
                                 }
-                            } else if (current_mode == ump::TimelineSourceMode::PLAYLIST) {
+                            } else if (current_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                 // Add to current playlist
                                 add_to_playlist(media_id);
                                 reload_playlist();
-                            } else if (current_mode == ump::TimelineSourceMode::DUAL_VIEW) {
+                            } else if (current_mode == qcview::TimelineSourceMode::DUAL_VIEW) {
                                 // Open popup to choose LEFT or RIGHT track
                                 g_viewport_dv_drop.pending_media_id = media_id;
                                 g_viewport_dv_drop.pending_media_ids.clear();
@@ -1106,24 +1106,24 @@ extern bool g_skip_viewport_render_frame;
 
                     if (project_manager && !media_ids.empty()) {
                         // Check first item to determine behavior
-                        ump::MediaItem* first_item = project_manager->GetMediaItem(media_ids[0]);
+                        qcview::MediaItem* first_item = project_manager->GetMediaItem(media_ids[0]);
                         if (first_item) {
                             if (should_load_normally(first_item, current_mode)) {
                                 // Load first item (same as double-click behavior)
-                                if (first_item->type == ump::MediaType::DUAL_VIEW) {
+                                if (first_item->type == qcview::MediaType::DUAL_VIEW) {
                                     project_manager->OpenDualViewInEditor(first_item->timeline_id);
-                                } else if (first_item->type == ump::MediaType::PLAYLIST) {
+                                } else if (first_item->type == qcview::MediaType::PLAYLIST) {
                                     project_manager->OpenPlaylistInPanel(first_item->id);
                                 } else {
                                     project_manager->LoadSingleMediaItem(*first_item);
                                 }
-                            } else if (current_mode == ump::TimelineSourceMode::PLAYLIST) {
+                            } else if (current_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                 // Add all items to playlist
                                 for (const auto& mid : media_ids) {
                                     add_to_playlist(mid);
                                 }
                                 reload_playlist();
-                            } else if (current_mode == ump::TimelineSourceMode::DUAL_VIEW) {
+                            } else if (current_mode == qcview::TimelineSourceMode::DUAL_VIEW) {
                                 // For dual view, only use first item (can't add multiple)
                                 g_viewport_dv_drop.pending_media_id = media_ids[0];
                                 g_viewport_dv_drop.pending_media_ids.clear();
@@ -1157,7 +1157,7 @@ extern bool g_skip_viewport_render_frame;
                 // Get media item name for display
                 std::string item_name = "Media";
                 if (project_manager && !g_viewport_dv_drop.pending_media_id.empty()) {
-                    ump::MediaItem* item = project_manager->GetMediaItem(g_viewport_dv_drop.pending_media_id);
+                    qcview::MediaItem* item = project_manager->GetMediaItem(g_viewport_dv_drop.pending_media_id);
                     if (item) item_name = item->name;
                 }
 
@@ -1182,25 +1182,25 @@ extern bool g_skip_viewport_render_frame;
 
                     if (project_manager && timeline_view && timeline_command_manager &&
                         !g_viewport_dv_drop.pending_media_id.empty()) {
-                        ump::MediaItem* item = project_manager->GetMediaItem(g_viewport_dv_drop.pending_media_id);
-                        if (item && item->type != ump::MediaType::PLAYLIST &&
-                            item->type != ump::MediaType::DUAL_VIEW &&
-                            item->type != ump::MediaType::IMAGE) {
+                        qcview::MediaItem* item = project_manager->GetMediaItem(g_viewport_dv_drop.pending_media_id);
+                        if (item && item->type != qcview::MediaType::PLAYLIST &&
+                            item->type != qcview::MediaType::DUAL_VIEW &&
+                            item->type != qcview::MediaType::IMAGE) {
 
                             // Create OTIOClip from MediaItem
-                            ump::OTIOClip clip;
+                            qcview::OTIOClip clip;
                             clip.id = "";
                             clip.name = item->name;
 
                             // Determine file path based on media type
-                            if (item->type == ump::MediaType::IMAGE_SEQUENCE || item->type == ump::MediaType::EXR_SEQUENCE) {
+                            if (item->type == qcview::MediaType::IMAGE_SEQUENCE || item->type == qcview::MediaType::EXR_SEQUENCE) {
                                 clip.file_path = item->ffmpeg_pattern;
                                 clip.is_sequence = true;
                                 clip.sequence_directory = item->image_seq.directory;
                                 clip.sequence_pattern = item->image_seq.pattern;
                                 clip.sequence_start_frame = item->image_seq.start_frame;
                                 clip.sequence_end_frame = item->image_seq.end_frame;
-                                if (item->type == ump::MediaType::EXR_SEQUENCE) {
+                                if (item->type == qcview::MediaType::EXR_SEQUENCE) {
                                     clip.sequence_exr_layer = item->image_seq.layer;
                                 }
                             } else {
@@ -1224,7 +1224,7 @@ extern bool g_skip_viewport_render_frame;
                             if (clip.is_sequence) {
                                 auto* ctrl = timeline_view->GetEffectivePlaybackController();
                                 if (ctrl && ctrl->GetCache()) {
-                                    ump::SequenceMetadata seq_meta;
+                                    qcview::SequenceMetadata seq_meta;
                                     seq_meta.directory = clip.sequence_directory;
                                     seq_meta.pattern = clip.sequence_pattern;
                                     seq_meta.start_frame = clip.sequence_start_frame;
@@ -1237,8 +1237,8 @@ extern bool g_skip_viewport_render_frame;
                             }
 
                             // Probe for audio
-                            if (!clip.is_sequence && ump::MediaLinker::IsVideoFile(clip.file_path)) {
-                                ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
+                            if (!clip.is_sequence && qcview::MediaLinker::IsVideoFile(clip.file_path)) {
+                                qcview::VideoProbeResult probe = qcview::MediaLinker::ProbeVideoFile(clip.file_path);
                                 if (probe.valid) clip.has_audio = probe.has_audio;
                             }
 
@@ -1252,7 +1252,7 @@ extern bool g_skip_viewport_render_frame;
                             }
 
                             // Execute via command for undo/redo
-                            auto cmd = std::make_unique<ump::OverwriteEditCommand>(
+                            auto cmd = std::make_unique<qcview::OverwriteEditCommand>(
                                 timeline_view.get(), target_track, clip);
                             timeline_command_manager->Execute(std::move(cmd));
                             timeline_view->RecalculateDuration();

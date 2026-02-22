@@ -5,7 +5,7 @@
 #include "../player/pipeline_mode.h"
 #include "../timeline/timeline_types.h"
 
-namespace ump {
+namespace qcview {
     enum class MediaType {
         VIDEO,
         AUDIO,

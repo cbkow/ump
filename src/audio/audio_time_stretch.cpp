@@ -1,7 +1,7 @@
 #include "audio_time_stretch.h"
 #include "../utils/debug_utils.h"
 
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
 #include <SoundTouch.h>
 #endif
 
@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cstring>
 
-namespace ump {
+namespace qcview {
 
 AudioTimeStretch::AudioTimeStretch() = default;
 
@@ -22,7 +22,7 @@ bool AudioTimeStretch::Initialize(int sample_rate, int channels) {
         Shutdown();
     }
 
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     st_ = new soundtouch::SoundTouch();
 
     st_->setSampleRate(sample_rate);
@@ -70,7 +70,7 @@ bool AudioTimeStretch::Initialize(int sample_rate, int channels) {
 }
 
 void AudioTimeStretch::Shutdown() {
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     if (st_) {
         delete st_;
         st_ = nullptr;
@@ -89,7 +89,7 @@ void AudioTimeStretch::SetTempo(double tempo) {
 }
 
 void AudioTimeStretch::Reset() {
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     if (st_) {
         st_->clear();
     }
@@ -99,7 +99,7 @@ void AudioTimeStretch::Reset() {
 }
 
 void AudioTimeStretch::Flush() {
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     if (st_) {
         st_->flush();
     }
@@ -107,7 +107,7 @@ void AudioTimeStretch::Flush() {
 }
 
 int AudioTimeStretch::GetLatencySamples() const {
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     if (st_) {
         // SoundTouch doesn't expose latency directly, but it's roughly:
         // sequence_ms * sample_rate / 1000
@@ -120,7 +120,7 @@ int AudioTimeStretch::GetLatencySamples() const {
 
 int AudioTimeStretch::Process(const float* input, float* output,
                                int input_frames, int max_output_frames) {
-#ifdef UMP_HAS_SOUNDTOUCH
+#ifdef QCVIEW_HAS_SOUNDTOUCH
     if (!st_ || !initialized_) {
         // Fallback: direct copy (passthrough)
         int copy_frames = std::min(input_frames, max_output_frames);
@@ -166,4 +166,4 @@ int AudioTimeStretch::Process(const float* input, float* output,
 #endif
 }
 
-} // namespace ump
+} // namespace qcview

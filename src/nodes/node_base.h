@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include "../imnodes/imnodes.h"
 
-namespace ump {
+namespace qcview {
 
     enum class NodeType {
         INPUT_COLORSPACE,

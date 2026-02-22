@@ -14,7 +14,7 @@
 
 using json = nlohmann::json;
 
-namespace ump {
+namespace qcview {
 
 TranscodeQueue::TranscodeQueue() {
 }
@@ -494,4 +494,4 @@ int TranscodeQueue::FindJobIndex(const std::string& job_id) const {
     return -1;
 }
 
-} // namespace ump
+} // namespace qcview

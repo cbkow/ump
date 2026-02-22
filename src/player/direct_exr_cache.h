@@ -26,7 +26,7 @@
     #include <windows.h>
 #endif
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Memory-Mapped IStream (tlRender pattern) - Shared utility
@@ -598,4 +598,4 @@ private:
     void OnPoolEviction(int frame);
 };
 
-} // namespace ump
+} // namespace qcview

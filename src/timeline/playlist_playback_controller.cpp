@@ -12,7 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 
 PlaylistPlaybackController::PlaylistPlaybackController() = default;
 
@@ -743,4 +743,4 @@ GLuint PlaylistPlaybackController::GetCurrentFrame(int& width, int& height) {
     return cache_->GetFrame(frame, width, height);
 }
 
-} // namespace ump
+} // namespace qcview

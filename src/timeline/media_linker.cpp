@@ -18,7 +18,7 @@ namespace fs = std::filesystem;
 // Video Probing Helper
 // ============================================================================
 
-ump::VideoProbeResult ump::MediaLinker::ProbeVideoFile(const std::string& path) {
+qcview::VideoProbeResult qcview::MediaLinker::ProbeVideoFile(const std::string& path) {
     VideoProbeResult result;
 
     AVFormatContext* fmt_ctx = nullptr;
@@ -68,7 +68,7 @@ ump::VideoProbeResult ump::MediaLinker::ProbeVideoFile(const std::string& path) 
 }
 
 // Check if file is a video format (not image sequence)
-bool ump::MediaLinker::IsVideoFile(const std::string& path) {
+bool qcview::MediaLinker::IsVideoFile(const std::string& path) {
     std::string ext = fs::path(path).extension().string();
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
@@ -81,7 +81,7 @@ bool ump::MediaLinker::IsVideoFile(const std::string& path) {
     return video_extensions.count(ext) > 0;
 }
 
-namespace ump {
+namespace qcview {
 
 // ============================================================================
 // Static Helper Functions
@@ -638,4 +638,4 @@ LinkSummary MediaLinker::GetLinkStatus(const std::vector<OTIOTrack>& tracks) {
     return summary;
 }
 
-} // namespace ump
+} // namespace qcview

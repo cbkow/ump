@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Timeline panel (OTIO timeline, snap helpers, transport content)
 // ============================================================================
 
@@ -38,9 +38,9 @@ extern ImFont* font_regular;
 extern ImFont* font_bold;
 extern ImFont* font_icons;
 extern ImFont* font_mono;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
 extern bool otio_timeline_mode;
 extern bool otio_dual_view_mode;
 extern bool otio_dual_view_split_mode;
@@ -49,20 +49,20 @@ extern CacheSettings cache_settings;
 extern float g_font_scale;
 
 // Timeline interaction state (defined in main.cpp)
-extern ump::TimelineClipDragState timeline_clip_drag;
-extern ump::TimelineTrimState timeline_trim_state;
-extern ump::TimelineMediaDropState timeline_media_drop;
+extern qcview::TimelineClipDragState timeline_clip_drag;
+extern qcview::TimelineTrimState timeline_trim_state;
+extern qcview::TimelineMediaDropState timeline_media_drop;
 
 // Timeline editing state
-extern std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;
+extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
 extern bool timeline_thumbnail_cache_clear_deferred;
-extern ump::TimelineSlipState timeline_slip_state;
-extern ump::TimelineReorderState timeline_reorder_state;
+extern qcview::TimelineSlipState timeline_slip_state;
+extern qcview::TimelineReorderState timeline_reorder_state;
 
 // Helper to ensure command manager exists
-inline ump::TimelineCommandManager* GetCommandManager(ump::TimelineView* view) {
+inline qcview::TimelineCommandManager* GetCommandManager(qcview::TimelineView* view) {
     if (!timeline_command_manager) {
-        timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+        timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
     }
     timeline_command_manager->SetTimelineView(view);
     return timeline_command_manager.get();
@@ -80,10 +80,10 @@ extern double playlist_pending_drag_source_duration;
 extern double playlist_pending_drag_clip_duration;
 
 // Media linker state
-extern std::unique_ptr<ump::MediaLinker> media_linker;
+extern std::unique_ptr<qcview::MediaLinker> media_linker;
 extern bool show_link_media_popup;
 extern std::string link_media_search_path;
-extern ump::LinkSummary last_link_summary;
+extern qcview::LinkSummary last_link_summary;
 extern bool show_link_results_popup;
 extern bool show_auto_relink_results;
 extern std::string auto_relink_timeline_id;
@@ -180,7 +180,7 @@ static bool show_empty_area_context_menu = false;
     // Collect all snap points from timeline (clip edges, playhead, boundaries)
     // exclude_clip_ids: clips being dragged (don't snap to self)
     std::vector<double> Application::CollectSnapPoints(
-        const std::vector<ump::OTIOTrack>& tracks,
+        const std::vector<qcview::OTIOTrack>& tracks,
         const std::set<std::string>& exclude_clip_ids,
         double playhead_time,
         double timeline_duration
@@ -246,7 +246,7 @@ static bool show_empty_area_context_menu = false;
 
     // Collect snap points for dual view mode (right track snaps to left track edges + playhead)
     std::vector<double> Application::CollectDualViewSnapPoints(
-        const ump::DualViewClip& left_clip,
+        const qcview::DualViewClip& left_clip,
         double playhead_time
     ) {
         std::vector<double> points;
@@ -306,8 +306,8 @@ static bool show_empty_area_context_menu = false;
 
     // Check if proposed multi-clip move would cause overlap with non-moving clips
     bool Application::WouldCauseOverlap(
-        const std::vector<ump::OTIOTrack>& tracks,
-        const std::vector<ump::TimelineClipDragState::DraggedClipInfo>& moving_clips,
+        const std::vector<qcview::OTIOTrack>& tracks,
+        const std::vector<qcview::TimelineClipDragState::DraggedClipInfo>& moving_clips,
         double primary_new_start
     ) {
         // Build set of moving clip IDs
@@ -437,7 +437,7 @@ static bool show_empty_area_context_menu = false;
         // Calculate visible track count (hide audio tracks in audio-only mode)
         float track_count = 0.0f;
         if (timeline_view) {
-            bool is_audio_only = timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE &&
+            bool is_audio_only = timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE &&
                                  timeline_view->GetVideoTrackCount() == 0;
             if (is_audio_only) {
                 track_count = 0.0f;  // Hide all tracks in audio-only mode
@@ -480,7 +480,7 @@ static bool show_empty_area_context_menu = false;
         // Calculate total width for centering
         // Playback box: 7 buttons + padding (+ 2 for prev/next clip in PLAYLIST mode)
         bool is_playlist_mode = timeline_view &&
-            timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST;
+            timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST;
         int playback_button_count = is_playlist_mode ? 9 : 7;
         float playback_box_padding = 5.0f;
         float playback_box_width = (playback_button_count * small_button) + ((playback_button_count - 1) * item_spacing) + (playback_box_padding * 2 + 12);
@@ -1268,13 +1268,13 @@ static bool show_empty_area_context_menu = false;
                 if (timeline_view && !timeline_view->GetTimelineName().empty()) {
                     auto mode = timeline_view->GetSourceMode();
                     std::string prefix;
-                    if (mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                    if (mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                         prefix = "Image Sequence: ";
-                    } else if (mode == ump::TimelineSourceMode::DUAL_VIEW) {
+                    } else if (mode == qcview::TimelineSourceMode::DUAL_VIEW) {
                         prefix = "Comparison: ";
-                    } else if (mode == ump::TimelineSourceMode::PLAYLIST) {
+                    } else if (mode == qcview::TimelineSourceMode::PLAYLIST) {
                         prefix = "Playlist: ";
-                    } else if (mode == ump::TimelineSourceMode::VIDEO_FILE) {
+                    } else if (mode == qcview::TimelineSourceMode::VIDEO_FILE) {
                         // Check if this is actually an audio-only file (no video tracks)
                         bool has_video_track = false;
                         for (const auto& track : timeline_view->GetTracks()) {
@@ -1539,7 +1539,7 @@ static bool show_empty_area_context_menu = false;
         float overview_offset = OTIOTimeline::OVERVIEW_TRACK_HEIGHT + OTIOTimeline::TRACK_SEPARATOR_HEIGHT;
 
         // Get actual tracks from timeline_view (if available)
-        std::vector<ump::OTIOTrack>* tracks_ptr = nullptr;
+        std::vector<qcview::OTIOTrack>* tracks_ptr = nullptr;
         if (timeline_view) {
             tracks_ptr = &timeline_view->GetTracks();
         }
@@ -1585,12 +1585,12 @@ static bool show_empty_area_context_menu = false;
         // Empty state - no message needed, just show empty tracks area
 
         for (int i = 0; i < num_tracks; i++) {
-            ump::OTIOTrack& track = (*tracks_ptr)[i];
+            qcview::OTIOTrack& track = (*tracks_ptr)[i];
 
             // Hide audio tracks in Audio-only mode (no video tracks, just audio file)
             // The A1 track is not needed since video track handles everything
             if (timeline_view &&
-                timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE &&
+                timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE &&
                 timeline_view->GetVideoTrackCount() == 0 &&
                 !track.is_video) {
                 continue;  // Skip this audio track
@@ -1655,8 +1655,8 @@ static bool show_empty_area_context_menu = false;
 
                 // Hide speaker icon in Video, Audio, and Image Sequence modes
                 bool show_track_mute = timeline_view &&
-                    timeline_view->GetSourceMode() != ump::TimelineSourceMode::VIDEO_FILE &&
-                    timeline_view->GetSourceMode() != ump::TimelineSourceMode::IMAGE_SEQUENCE;
+                    timeline_view->GetSourceMode() != qcview::TimelineSourceMode::VIDEO_FILE &&
+                    timeline_view->GetSourceMode() != qcview::TimelineSourceMode::IMAGE_SEQUENCE;
 
                 if (show_track_mute) {
                     // VIDEO TRACK: Speaker icon for audio mute toggle (second icon)
@@ -1694,7 +1694,7 @@ static bool show_empty_area_context_menu = false;
                 // Hide speaker icon in Video/Audio modes 
                 // Keep speaker for Image Sequence mode (audio tracks are user-added)
                 bool show_track_mute = timeline_view &&
-                    timeline_view->GetSourceMode() != ump::TimelineSourceMode::VIDEO_FILE;
+                    timeline_view->GetSourceMode() != qcview::TimelineSourceMode::VIDEO_FILE;
 
                 if (show_track_mute) {
                     // AUDIO TRACK: Speaker icon for mute toggle
@@ -1735,12 +1735,12 @@ static bool show_empty_area_context_menu = false;
             float name_h_offset;
             if (track.is_video) {
                 bool video_icons_hidden = timeline_view &&
-                    (timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE ||
-                     timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE);
+                    (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE ||
+                     timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
                 name_h_offset = video_icons_hidden ? (32.0f * hdr_scale_factor) : (56.0f * hdr_scale_factor);
             } else {
                 bool audio_icons_hidden = timeline_view &&
-                    timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE;
+                    timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE;
                 name_h_offset = audio_icons_hidden ? (8.0f * hdr_scale_factor) : (32.0f * hdr_scale_factor);
             }
             const float text_v_offset = (OTIOTimeline::TRACK_LANE_HEIGHT - ImGui::GetTextLineHeight()) * 0.5f;
@@ -1887,8 +1887,8 @@ static bool show_empty_area_context_menu = false;
                                 auto source_mode = timeline_view->GetSourceMode();
                                 // Enable thumbnails only for single-file modes (not DUAL_VIEW or PLAYLIST)
                                 // Complex timelines with mixed clips would make thumbnails confusing/expensive
-                                bool show_clip_thumbnails = (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                                            source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE);
+                                bool show_clip_thumbnails = (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                                            source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
 
                                 if (show_clip_thumbnails) {
                                     // Calculate thumbnail dimensions to fit track height
@@ -2009,9 +2009,9 @@ static bool show_empty_area_context_menu = false;
                             bool skip_clip_name = false;
                             if (timeline_view) {
                                 auto source_mode = timeline_view->GetSourceMode();
-                                if (source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
+                                if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE) {
                                     skip_clip_name = true;
-                                } else if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                                } else if (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                                     // Only skip names on video track; show names on audio track
                                     skip_clip_name = track.is_video;
                                 }
@@ -2077,7 +2077,7 @@ static bool show_empty_area_context_menu = false;
 
                                 // IMAGE_SEQUENCE mode: video track is locked (no drag, no trim)
                                 bool track_is_locked = false;
-                                if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                                if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                                     track_is_locked = track.is_video;
                                 }
 
@@ -2153,7 +2153,7 @@ static bool show_empty_area_context_menu = false;
                                     } else {
                                         // PLAYLIST mode: Shift+drag = slip, regular drag = reorder
                                         // But require drag threshold before starting edit
-                                        bool is_playlist_mode = timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST;
+                                        bool is_playlist_mode = timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST;
                                         bool shift_held = ImGui::GetIO().KeyShift;
 
                                         if (is_playlist_mode && !clip.is_gap) {
@@ -2211,7 +2211,7 @@ static bool show_empty_area_context_menu = false;
                                                     for (int ti = 0; ti < static_cast<int>(all_tracks.size()); ++ti) {
                                                         for (const auto& c : all_tracks[ti].clips) {
                                                             if (c.id == sel_id) {
-                                                                ump::TimelineClipDragState::DraggedClipInfo info;
+                                                                qcview::TimelineClipDragState::DraggedClipInfo info;
                                                                 info.clip_id = c.id;
                                                                 info.track_index = ti;
                                                                 info.original_start_time = c.start_time;
@@ -2570,13 +2570,13 @@ static bool show_empty_area_context_menu = false;
             auto* controller = timeline_view->GetEffectivePlaybackController();
             if (controller && controller->IsInitialized()) {
                 // Check LEFT cache for image content
-                ump::TimelineCache* cache = controller->GetCache();
+                qcview::TimelineCache* cache = controller->GetCache();
                 if (cache && cache->HasImageContent()) {
                     show_cache_bar = true;
                 }
                 // Also check RIGHT cache in dual view mode
                 if (!show_cache_bar) {
-                    ump::TimelineCache* right_cache = controller->GetRightCache();
+                    qcview::TimelineCache* right_cache = controller->GetRightCache();
                     if (right_cache && right_cache->HasImageContent()) {
                         show_cache_bar = true;
                     }
@@ -2678,7 +2678,7 @@ static bool show_empty_area_context_menu = false;
                 int current_frame = static_cast<int>(position * controller->GetFPS());
 
                 // Helper lambda to render segments for a cache
-                auto RenderCacheSegments = [&](ump::TimelineCache* cache, float bar_y, float bar_height,
+                auto RenderCacheSegments = [&](qcview::TimelineCache* cache, float bar_y, float bar_height,
                                                ImU32 cache_color, ImU32 target_color) {
                     if (!cache || !cache->IsInitialized()) return;
 
@@ -2737,12 +2737,12 @@ static bool show_empty_area_context_menu = false;
                 };
 
                 // LEFT cache (or single cache in non-dual mode)
-                ump::TimelineCache* left_cache = controller->GetCache();
+                qcview::TimelineCache* left_cache = controller->GetCache();
                 RenderCacheSegments(left_cache, cache_bar_y, single_bar_height, left_cache_color, left_target_color);
 
                 // RIGHT cache (dual view mode only)
                 if (is_dual_view_cache) {
-                    ump::TimelineCache* right_cache = controller->GetRightCache();
+                    qcview::TimelineCache* right_cache = controller->GetRightCache();
                     float right_bar_y = cache_bar_y + single_bar_height;
                     RenderCacheSegments(right_cache, right_bar_y, single_bar_height, right_cache_color, right_target_color);
                 }
@@ -2853,7 +2853,7 @@ static bool show_empty_area_context_menu = false;
         // Ghost rectangle during clip drag
         if (timeline_clip_drag.active && timeline_view) {
             // Find the clip being dragged to get its duration
-            ump::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
+            qcview::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
             if (drag_clip) {
                 // Calculate ghost position with snapping
                 double proposed_start = preview_mouse_time - timeline_clip_drag.drag_offset;
@@ -3271,7 +3271,7 @@ static bool show_empty_area_context_menu = false;
 
         // Ghost edges during trim
         if (timeline_trim_state.active && timeline_view) {
-            ump::OTIOClip* trim_clip = timeline_view->FindClipById(timeline_trim_state.clip_id);
+            qcview::OTIOClip* trim_clip = timeline_view->FindClipById(timeline_trim_state.clip_id);
             if (trim_clip) {
                 // Calculate original clip bounds
                 float orig_clip_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
@@ -3698,8 +3698,8 @@ static bool show_empty_area_context_menu = false;
             if (cache_settings.enable_thumbnails &&
                 timeline_view && timeline_thumbnail_cache && !ImGui::IsMouseDown(0)) {
                 auto source_mode = timeline_view->GetSourceMode();
-                bool show_hover_thumbnail = (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                             source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE);
+                bool show_hover_thumbnail = (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                             source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
 
                 if (show_hover_thumbnail && duration > 0) {
                     // Get the linked path and sequence info from the first video clip
@@ -3710,7 +3710,7 @@ static bool show_empty_area_context_menu = false;
                     int seq_start_frame = 0;
                     double source_fps = 24.0;
                     int sequence_start_frame = 0;
-                    bool is_sequence = (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE);
+                    bool is_sequence = (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
                     bool clip_is_sequence = false;
 
                     const auto& tracks_ref = timeline_view->GetTracks();
@@ -3787,8 +3787,8 @@ static bool show_empty_area_context_menu = false;
 
                         // Prepare frame label
                         int display_frame = is_sequence
-                            ? ump::FrameIndexing::InternalToSequenceDisplay(hover_frame, sequence_start_frame)
-                            : ump::FrameIndexing::InternalToDisplay(hover_frame);
+                            ? qcview::FrameIndexing::InternalToSequenceDisplay(hover_frame, sequence_start_frame)
+                            : qcview::FrameIndexing::InternalToDisplay(hover_frame);
 
                         double frame_time = hover_frame / source_fps;
                         int total_secs = static_cast<int>(frame_time);
@@ -3932,11 +3932,11 @@ static bool show_empty_area_context_menu = false;
                     }
 
                     if (project_manager) {
-                        ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                        qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                         if (item) {
                             // IMAGE_SEQUENCE mode: show not-allowed cursor for locked video track
                             bool drop_target_locked = false;
-                            if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                            if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                                 if (hover_track_index >= 0) {
                                     auto& tracks = timeline_view->GetTracks();
                                     if (hover_track_index < static_cast<int>(tracks.size()) && tracks[hover_track_index].is_video) {
@@ -3968,23 +3968,23 @@ static bool show_empty_area_context_menu = false;
                            ", media_id=" + media_id);
 
                 // PLAYLIST mode: use simplified drop handling via callback
-                if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST) {
+                if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST) {
                     Debug::Log("[DROP] PLAYLIST mode - using callback for single item");
                     // The drop callback was set up when playlist was loaded
                     // It will handle adding the item and reloading the timeline
                     // Trigger it by calling the timeline view's internal callback mechanism
                     if (project_manager) {
-                        ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                        qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                         // Skip non-playable types
-                        if (item && item->type != ump::MediaType::PLAYLIST &&
-                            item->type != ump::MediaType::DUAL_VIEW &&
-                            item->type != ump::MediaType::IMAGE) {
+                        if (item && item->type != qcview::MediaType::PLAYLIST &&
+                            item->type != qcview::MediaType::DUAL_VIEW &&
+                            item->type != qcview::MediaType::IMAGE) {
 
                             // Get the source playlist
-                            ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
-                            if (playlist && playlist->type == ump::MediaType::PLAYLIST) {
+                            qcview::MediaItem* playlist = timeline_view->GetSourceMediaItem();
+                            if (playlist && playlist->type == qcview::MediaType::PLAYLIST) {
                                 // Add entry to playlist
-                                ump::PlaylistItemEntry entry;
+                                qcview::PlaylistItemEntry entry;
                                 entry.media_id = media_id;
                                 entry.in_point = -1.0;
                                 entry.out_point = -1.0;
@@ -4016,7 +4016,7 @@ static bool show_empty_area_context_menu = false;
                 else if (project_manager && timeline_view && timeline_command_manager && hover_track_index >= 0) {
                     // IMAGE_SEQUENCE mode: block drops onto video track (it's locked)
                     bool drop_blocked_by_lock = false;
-                    if (timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                    if (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                         auto& tracks = timeline_view->GetTracks();
                         if (hover_track_index < static_cast<int>(tracks.size()) && tracks[hover_track_index].is_video) {
                             drop_blocked_by_lock = true;
@@ -4024,15 +4024,15 @@ static bool show_empty_area_context_menu = false;
                         }
                     }
 
-                    ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                    qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                     if (!drop_blocked_by_lock && item) {
                         // Create OTIOClip from MediaItem
-                        ump::OTIOClip clip;
+                        qcview::OTIOClip clip;
                         clip.id = "";  // Will be generated by InsertClipCommand
                         clip.name = item->name;
 
                         // Determine file path based on media type
-                        if (item->type == ump::MediaType::IMAGE_SEQUENCE || item->type == ump::MediaType::EXR_SEQUENCE) {
+                        if (item->type == qcview::MediaType::IMAGE_SEQUENCE || item->type == qcview::MediaType::EXR_SEQUENCE) {
                             clip.file_path = item->ffmpeg_pattern;  // Use FFmpeg pattern for sequences
 
                             // Mark as sequence and populate sequence metadata
@@ -4042,7 +4042,7 @@ static bool show_empty_area_context_menu = false;
                             clip.sequence_start_frame = item->image_seq.start_frame;
                             clip.sequence_end_frame = item->image_seq.end_frame;
 
-                            if (item->type == ump::MediaType::EXR_SEQUENCE) {
+                            if (item->type == qcview::MediaType::EXR_SEQUENCE) {
                                 clip.sequence_exr_layer = item->image_seq.layer;
                             }
                         } else {
@@ -4072,7 +4072,7 @@ static bool show_empty_area_context_menu = false;
                             // (which use external_playback_controller_ instead of playback_controller_)
                             auto* ctrl = timeline_view->GetEffectivePlaybackController();
                             if (ctrl && ctrl->GetCache()) {
-                                ump::SequenceMetadata seq_meta;
+                                qcview::SequenceMetadata seq_meta;
                                 seq_meta.directory = clip.sequence_directory;
                                 seq_meta.pattern = clip.sequence_pattern;
                                 seq_meta.start_frame = clip.sequence_start_frame;
@@ -4093,8 +4093,8 @@ static bool show_empty_area_context_menu = false;
                         }
 
                         // Probe for audio presence (for UI indicator on video clips)
-                        if (!clip.is_sequence && ump::MediaLinker::IsVideoFile(clip.file_path)) {
-                            ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
+                        if (!clip.is_sequence && qcview::MediaLinker::IsVideoFile(clip.file_path)) {
+                            qcview::VideoProbeResult probe = qcview::MediaLinker::ProbeVideoFile(clip.file_path);
                             if (probe.valid) {
                                 clip.has_audio = probe.has_audio;
                             }
@@ -4115,7 +4115,7 @@ static bool show_empty_area_context_menu = false;
                         }
 
                         // Execute via command for undo/redo (overwrite overlapping clips)
-                        auto cmd = std::make_unique<ump::OverwriteEditCommand>(
+                        auto cmd = std::make_unique<qcview::OverwriteEditCommand>(
                             timeline_view.get(), hover_track_index, clip);
                         timeline_command_manager->Execute(std::move(cmd));
 
@@ -4149,11 +4149,11 @@ static bool show_empty_area_context_menu = false;
                 std::string payload_str(static_cast<const char*>(payload->Data), payload->DataSize - 1);
 
                 // PLAYLIST mode: use simplified drop handling
-                if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST && project_manager) {
+                if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST && project_manager) {
                     Debug::Log("[DROP] PLAYLIST mode - using callback for multiple items");
 
-                    ump::MediaItem* playlist = timeline_view->GetSourceMediaItem();
-                    if (playlist && playlist->type == ump::MediaType::PLAYLIST) {
+                    qcview::MediaItem* playlist = timeline_view->GetSourceMediaItem();
+                    if (playlist && playlist->type == qcview::MediaType::PLAYLIST) {
                         std::istringstream ss(payload_str);
                         std::string media_id;
                         int added_count = 0;
@@ -4161,13 +4161,13 @@ static bool show_empty_area_context_menu = false;
                         while (std::getline(ss, media_id, ';')) {
                             if (media_id.empty()) continue;
 
-                            ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                            qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                             // Skip non-playable types
-                            if (item && item->type != ump::MediaType::PLAYLIST &&
-                                item->type != ump::MediaType::DUAL_VIEW &&
-                                item->type != ump::MediaType::IMAGE) {
+                            if (item && item->type != qcview::MediaType::PLAYLIST &&
+                                item->type != qcview::MediaType::DUAL_VIEW &&
+                                item->type != qcview::MediaType::IMAGE) {
 
-                                ump::PlaylistItemEntry entry;
+                                qcview::PlaylistItemEntry entry;
                                 entry.media_id = media_id;
                                 entry.in_point = -1.0;
                                 entry.out_point = -1.0;
@@ -4202,7 +4202,7 @@ static bool show_empty_area_context_menu = false;
                 else if (project_manager && timeline_view && timeline_command_manager && hover_track_index >= 0) {
                     // IMAGE_SEQUENCE mode: block drops onto video track (it's locked)
                     bool drop_blocked_by_lock = false;
-                    if (timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                    if (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                         auto& tracks = timeline_view->GetTracks();
                         if (hover_track_index < static_cast<int>(tracks.size()) && tracks[hover_track_index].is_video) {
                             drop_blocked_by_lock = true;
@@ -4219,13 +4219,13 @@ static bool show_empty_area_context_menu = false;
                         while (std::getline(ss, media_id, ';')) {
                         if (media_id.empty()) continue;
 
-                        ump::MediaItem* item = project_manager->GetMediaItem(media_id);
+                        qcview::MediaItem* item = project_manager->GetMediaItem(media_id);
                         if (item) {
-                            ump::OTIOClip clip;
+                            qcview::OTIOClip clip;
                             clip.id = "";
                             clip.name = item->name;
 
-                            if (item->type == ump::MediaType::IMAGE_SEQUENCE || item->type == ump::MediaType::EXR_SEQUENCE) {
+                            if (item->type == qcview::MediaType::IMAGE_SEQUENCE || item->type == qcview::MediaType::EXR_SEQUENCE) {
                                 clip.file_path = item->ffmpeg_pattern;
 
                                 // Mark as sequence and populate sequence metadata
@@ -4235,7 +4235,7 @@ static bool show_empty_area_context_menu = false;
                                 clip.sequence_start_frame = item->image_seq.start_frame;
                                 clip.sequence_end_frame = item->image_seq.end_frame;
 
-                                if (item->type == ump::MediaType::EXR_SEQUENCE) {
+                                if (item->type == qcview::MediaType::EXR_SEQUENCE) {
                                     clip.sequence_exr_layer = item->image_seq.layer;
                                 }
                             } else {
@@ -4260,7 +4260,7 @@ static bool show_empty_area_context_menu = false;
                                 // Use GetEffectivePlaybackController for scratch timelines
                                 auto* ctrl = timeline_view->GetEffectivePlaybackController();
                                 if (ctrl && ctrl->GetCache()) {
-                                    ump::SequenceMetadata seq_meta;
+                                    qcview::SequenceMetadata seq_meta;
                                     seq_meta.directory = clip.sequence_directory;
                                     seq_meta.pattern = clip.sequence_pattern;
                                     seq_meta.start_frame = clip.sequence_start_frame;
@@ -4280,15 +4280,15 @@ static bool show_empty_area_context_menu = false;
                             }
 
                             // Probe for audio presence (for UI indicator on video clips)
-                            if (!clip.is_sequence && ump::MediaLinker::IsVideoFile(clip.file_path)) {
-                                ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.file_path);
+                            if (!clip.is_sequence && qcview::MediaLinker::IsVideoFile(clip.file_path)) {
+                                qcview::VideoProbeResult probe = qcview::MediaLinker::ProbeVideoFile(clip.file_path);
                                 if (probe.valid) {
                                     clip.has_audio = probe.has_audio;
                                 }
                             }
 
                             // Execute via command for undo/redo (overwrite overlapping clips)
-                            auto cmd = std::make_unique<ump::OverwriteEditCommand>(
+                            auto cmd = std::make_unique<qcview::OverwriteEditCommand>(
                                 timeline_view.get(), hover_track_index, clip);
                             timeline_command_manager->Execute(std::move(cmd));
 
@@ -4330,7 +4330,7 @@ static bool show_empty_area_context_menu = false;
             // (The actual clip move happens on mouse release)
 
             // IMAGE_SEQUENCE mode: show not-allowed cursor when hovering over locked video track
-            if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+            if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                 if (hover_track_index >= 0 && hover_track_index != timeline_clip_drag.original_track_index) {
                     auto& tracks = timeline_view->GetTracks();
                     if (hover_track_index < static_cast<int>(tracks.size()) && tracks[hover_track_index].is_video) {
@@ -4343,7 +4343,7 @@ static bool show_empty_area_context_menu = false;
                 // Mouse released - commit the move
                 if (timeline_view && timeline_command_manager) {
                     // Find the clip to get its duration for snapping
-                    ump::OTIOClip* drop_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
+                    qcview::OTIOClip* drop_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
                     double clip_duration = drop_clip ? drop_clip->duration : 1.0;
 
                     // Collect snap points (exclude dragged clip)
@@ -4385,9 +4385,9 @@ static bool show_empty_area_context_menu = false;
 
                         if (!would_overlap) {
                             // Build move list for all clips
-                            std::vector<ump::MoveMultipleClipsCommand::ClipMoveInfo> moves;
+                            std::vector<qcview::MoveMultipleClipsCommand::ClipMoveInfo> moves;
                             for (const auto& dc : timeline_clip_drag.dragged_clips) {
-                                ump::MoveMultipleClipsCommand::ClipMoveInfo info;
+                                qcview::MoveMultipleClipsCommand::ClipMoveInfo info;
                                 info.clip_id = dc.clip_id;
                                 info.track_index = dc.track_index;
                                 info.old_start_time = dc.original_start_time;
@@ -4395,7 +4395,7 @@ static bool show_empty_area_context_menu = false;
                                 moves.push_back(info);
                             }
 
-                            auto cmd = std::make_unique<ump::MoveMultipleClipsCommand>(
+                            auto cmd = std::make_unique<qcview::MoveMultipleClipsCommand>(
                                 timeline_view.get(), std::move(moves));
                             timeline_command_manager->Execute(std::move(cmd));
                             Debug::Log("Moved " + std::to_string(timeline_clip_drag.dragged_clips.size()) +
@@ -4406,7 +4406,7 @@ static bool show_empty_area_context_menu = false;
                     } else if (hover_track_index >= 0 && hover_track_index != timeline_clip_drag.original_track_index) {
                         // IMAGE_SEQUENCE mode: block moves to video track (it's locked)
                         bool target_track_locked = false;
-                        if (timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
+                        if (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
                             auto& tracks = timeline_view->GetTracks();
                             if (hover_track_index < static_cast<int>(tracks.size()) && tracks[hover_track_index].is_video) {
                                 target_track_locked = true;
@@ -4415,30 +4415,30 @@ static bool show_empty_area_context_menu = false;
                         }
 
                         // Single clip: move to different track with overwrite on destination
-                        ump::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
+                        qcview::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
                         if (!target_track_locked && drag_clip) {
                             // Create clip data for insertion into new track
-                            ump::OTIOClip moved_clip = *drag_clip;
+                            qcview::OTIOClip moved_clip = *drag_clip;
                             moved_clip.start_time = final_start;
 
                             // Composite: delete from old track, then overwrite-insert into new track
-                            auto composite = std::make_unique<ump::CompositeCommand>("Move Clip to Track (Overwrite)");
-                            composite->AddCommand(std::make_unique<ump::DeleteClipCommand>(
+                            auto composite = std::make_unique<qcview::CompositeCommand>("Move Clip to Track (Overwrite)");
+                            composite->AddCommand(std::make_unique<qcview::DeleteClipCommand>(
                                 timeline_view.get(), timeline_clip_drag.clip_id, timeline_clip_drag.original_track_index));
-                            composite->AddCommand(std::make_unique<ump::OverwriteEditCommand>(
+                            composite->AddCommand(std::make_unique<qcview::OverwriteEditCommand>(
                                 timeline_view.get(), hover_track_index, moved_clip));
                             timeline_command_manager->Execute(std::move(composite));
                             Debug::Log("Moved clip to track " + std::to_string(hover_track_index) + " (with overwrite)");
                         }
                     } else if (std::abs(final_start - timeline_clip_drag.original_start_time) > 0.001) {
                         // Single clip: move within same track (horizontal) with overwrite
-                        ump::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
+                        qcview::OTIOClip* drag_clip = timeline_view->FindClipById(timeline_clip_drag.clip_id);
                         if (drag_clip) {
                             // Create clip data with new position for overwrite calculation
-                            ump::OTIOClip moved_clip = *drag_clip;
+                            qcview::OTIOClip moved_clip = *drag_clip;
                             moved_clip.start_time = final_start;
 
-                            auto cmd = std::make_unique<ump::OverwriteEditCommand>(
+                            auto cmd = std::make_unique<qcview::OverwriteEditCommand>(
                                 timeline_view.get(),
                                 timeline_clip_drag.original_track_index,
                                 moved_clip,
@@ -4486,11 +4486,11 @@ static bool show_empty_area_context_menu = false;
                 bool trim_handled = false;
 
                 // PLAYLIST mode: Direct trim with ripple (no command manager)
-                if (timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST) {
+                if (timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST) {
                     auto& tracks = timeline_view->GetTracks();
                     if (!tracks.empty()) {
                         // Find the clip being trimmed
-                        ump::OTIOClip* clip = nullptr;
+                        qcview::OTIOClip* clip = nullptr;
                         int clip_index = -1;
                         for (size_t i = 0; i < tracks[0].clips.size(); i++) {
                             if (tracks[0].clips[i].id == timeline_trim_state.clip_id) {
@@ -4536,7 +4536,7 @@ static bool show_empty_area_context_menu = false;
                             timeline_view->SyncFlattenerAndInvalidate();
 
                             // Save trim edits to MediaItem for persistence
-                            ump::MediaItem* playlist_item = timeline_view->GetSourceMediaItem();
+                            qcview::MediaItem* playlist_item = timeline_view->GetSourceMediaItem();
                             if (playlist_item && project_manager) {
                                 // Update the playlist item's in/out points to match the edited clips
                                 int playlist_index = 0;
@@ -4561,7 +4561,7 @@ static bool show_empty_area_context_menu = false;
                                 old_source_out = clip->source_in + timeline_trim_state.original_duration;
                             }
 
-                            auto cmd = std::make_unique<ump::TrimPlaylistClipCommand>(
+                            auto cmd = std::make_unique<qcview::TrimPlaylistClipCommand>(
                                 timeline_view.get(),
                                 timeline_trim_state.clip_id,
                                 old_source_in, old_source_out, timeline_trim_state.original_duration,
@@ -4583,7 +4583,7 @@ static bool show_empty_area_context_menu = false;
                 // Standard multi-track mode: use command manager
                 if (!trim_handled && timeline_view && timeline_command_manager) {
                     if (timeline_trim_state.is_left_edge) {
-                        auto cmd = std::make_unique<ump::TrimClipStartCommand>(
+                        auto cmd = std::make_unique<qcview::TrimClipStartCommand>(
                             timeline_view.get(),
                             timeline_trim_state.clip_id,
                             timeline_trim_state.track_index,
@@ -4591,7 +4591,7 @@ static bool show_empty_area_context_menu = false;
                         timeline_command_manager->Execute(std::move(cmd));
                         Debug::Log("Trimmed clip start to " + std::to_string(mouse_time));
                     } else {
-                        auto cmd = std::make_unique<ump::TrimClipEndCommand>(
+                        auto cmd = std::make_unique<qcview::TrimClipEndCommand>(
                             timeline_view.get(),
                             timeline_trim_state.clip_id,
                             timeline_trim_state.track_index,
@@ -4749,7 +4749,7 @@ static bool show_empty_area_context_menu = false;
                     clip.source_out = timeline_slip_state.original_source_out;
 
                     // Create and execute slip command (captures old values, applies new)
-                    auto cmd = std::make_unique<ump::SlipClipCommand>(
+                    auto cmd = std::make_unique<qcview::SlipClipCommand>(
                         timeline_view.get(),
                         timeline_slip_state.clip_id,
                         0,  // track_index (PLAYLIST mode only has one track)
@@ -4828,7 +4828,7 @@ static bool show_empty_area_context_menu = false;
                                std::to_string(source_idx) + " to " + std::to_string(target_idx));
 
                     // Create and execute reorder command
-                    auto cmd = std::make_unique<ump::ReorderPlaylistCommand>(
+                    auto cmd = std::make_unique<qcview::ReorderPlaylistCommand>(
                         timeline_view.get(),
                         source_idx,
                         target_idx
@@ -4940,14 +4940,14 @@ static bool show_empty_area_context_menu = false;
 
                 if (!selection.selected_clip_ids.empty()) {
                     // Cut only selected clips
-                    auto composite = std::make_unique<ump::CompositeCommand>("Cut Selected Clips at Playhead");
+                    auto composite = std::make_unique<qcview::CompositeCommand>("Cut Selected Clips at Playhead");
                     for (const auto& clip_id : selection.selected_clip_ids) {
                         int track_idx = timeline_view->GetTrackIndexForClip(clip_id);
-                        ump::OTIOClip* clip = timeline_view->FindClipById(clip_id);
+                        qcview::OTIOClip* clip = timeline_view->FindClipById(clip_id);
                         if (clip && track_idx >= 0) {
                             double clip_end = clip->start_time + clip->duration;
                             if (playhead_time > clip->start_time && playhead_time < clip_end) {
-                                composite->AddCommand(std::make_unique<ump::CutClipCommand>(
+                                composite->AddCommand(std::make_unique<qcview::CutClipCommand>(
                                     timeline_view.get(), clip_id, track_idx, playhead_time));
                             }
                         }
@@ -4961,11 +4961,11 @@ static bool show_empty_area_context_menu = false;
                     auto clips_at_time = timeline_view->GetClipsAtTime(playhead_time);
 
                     if (!clips_at_time.empty()) {
-                        auto composite = std::make_unique<ump::CompositeCommand>("Cut Clips at Playhead");
+                        auto composite = std::make_unique<qcview::CompositeCommand>("Cut Clips at Playhead");
                         for (auto* clip : clips_at_time) {
                             int track_idx = timeline_view->GetTrackIndexForClip(clip->id);
                             if (track_idx >= 0) {
-                                composite->AddCommand(std::make_unique<ump::CutClipCommand>(
+                                composite->AddCommand(std::make_unique<qcview::CutClipCommand>(
                                     timeline_view.get(), clip->id, track_idx, playhead_time));
                             }
                         }
@@ -4981,9 +4981,9 @@ static bool show_empty_area_context_menu = false;
             if (IsShortcutPressed("tl_delete_clips") || ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
                 auto& selection = timeline_view->GetSelection();
                 if (selection.HasSelection()) {
-                    ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                    qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
 
-                    if (source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                    if (source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                         // PLAYLIST mode: use direct deletion (modifies source MediaItem)
                         std::vector<std::string> clips_to_delete(selection.selected_clip_ids.begin(),
                                                                   selection.selected_clip_ids.end());
@@ -4994,11 +4994,11 @@ static bool show_empty_area_context_menu = false;
                         Debug::Log("Deleted " + std::to_string(clips_to_delete.size()) + " clips from playlist");
                     } else {
                         // OTIO/DUAL_VIEW mode: use command system for undo support
-                        auto composite = std::make_unique<ump::CompositeCommand>("Delete Selected Clips");
+                        auto composite = std::make_unique<qcview::CompositeCommand>("Delete Selected Clips");
                         for (const auto& clip_id : selection.selected_clip_ids) {
                             int track_idx = timeline_view->GetTrackIndexForClip(clip_id);
                             if (track_idx >= 0) {
-                                composite->AddCommand(std::make_unique<ump::DeleteClipCommand>(
+                                composite->AddCommand(std::make_unique<qcview::DeleteClipCommand>(
                                     timeline_view.get(), clip_id, track_idx));
                             }
                         }
@@ -5350,7 +5350,7 @@ static bool show_empty_area_context_menu = false;
                     auto* right_cache = ctrl->GetRightCache();
                     is_image_seq = (cache && cache->IsDirectEXRCacheMode()) ||
                                    (right_cache && right_cache->IsDirectEXRCacheMode()) ||
-                                   (timeline_view->GetSourceMode() == ump::TimelineSourceMode::PLAYLIST);
+                                   (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST);
                     current_stride = ctrl->GetPlaybackStride();
                 }
             }
@@ -5520,7 +5520,7 @@ static bool show_empty_area_context_menu = false;
             }
 
             // Refresh section: only show for IMAGE_SEQUENCE mode (useful for reloading changed frames)
-            bool is_image_sequence_mode = timeline_view && timeline_view->GetSourceMode() == ump::TimelineSourceMode::IMAGE_SEQUENCE;
+            bool is_image_sequence_mode = timeline_view && timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE;
             if (is_image_sequence_mode) {
                 ImGui::SameLine();
 
@@ -5601,7 +5601,7 @@ static bool show_empty_area_context_menu = false;
             float button_width = 25.0f;
             // Check if this is a video file (only videos can have embedded timecode)
             bool is_video_source = timeline_view &&
-                timeline_view->GetSourceMode() == ump::TimelineSourceMode::VIDEO_FILE;
+                timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE;
             // Account for Go To button, plus Timecode Mode button if video
             float total_width = text_size.x + button_width + (is_video_source ? button_width : 0.0f) + 5.0f;
             float vertical_padding = 1.1f;
@@ -5800,7 +5800,7 @@ static bool show_empty_area_context_menu = false;
             // Linking options
             ImGui::Text("Options:");
             ImGui::Spacing();
-            static ump::LinkOptions link_options;
+            static qcview::LinkOptions link_options;
             ImGui::Checkbox("Recursive search (include subdirectories)", &link_options.recursive);
             ImGui::Checkbox("Fuzzy matching (ignore .new.##, _v001, etc.)", &link_options.fuzzy_match);
 
@@ -5822,7 +5822,7 @@ static bool show_empty_area_context_menu = false;
             if (ImGui::Button("Link Media")) {
                 // Create media linker if needed
                 if (!media_linker) {
-                    media_linker = std::make_unique<ump::MediaLinker>();
+                    media_linker = std::make_unique<qcview::MediaLinker>();
                 }
 
                 // Perform linking
@@ -5933,9 +5933,9 @@ static bool show_empty_area_context_menu = false;
                                 mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                                 // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                                ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                                if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                    source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                                qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                                if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                    source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                     mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                                 } else {
                                     mixer->SetPipelineLatency(0.0);
@@ -6037,9 +6037,9 @@ static bool show_empty_area_context_menu = false;
                                 mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                                 // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                                ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                                if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                    source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                                qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                                if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                    source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                     mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                                 } else {
                                     mixer->SetPipelineLatency(0.0);
@@ -6073,7 +6073,7 @@ static bool show_empty_area_context_menu = false;
 
         if (ImGui::BeginPopup("ClipContextMenu##popup")) {
             // Find the clicked clip
-            ump::OTIOClip* clicked_clip = nullptr;
+            qcview::OTIOClip* clicked_clip = nullptr;
             if (tracks_ptr && right_clicked_track_index >= 0 &&
                 right_clicked_track_index < static_cast<int>(tracks_ptr->size())) {
                 auto& track = (*tracks_ptr)[right_clicked_track_index];
@@ -6095,9 +6095,9 @@ static bool show_empty_area_context_menu = false;
                 ImGui::Separator();
 
                 // Check if we're in PLAYLIST or DUAL_VIEW mode (simplified menu)
-                ump::TimelineSourceMode source_mode = timeline_view ? timeline_view->GetSourceMode() : ump::TimelineSourceMode::VIDEO_FILE;
-                bool is_playlist_or_dual = (source_mode == ump::TimelineSourceMode::PLAYLIST) ||
-                                           (source_mode == ump::TimelineSourceMode::DUAL_VIEW);
+                qcview::TimelineSourceMode source_mode = timeline_view ? timeline_view->GetSourceMode() : qcview::TimelineSourceMode::VIDEO_FILE;
+                bool is_playlist_or_dual = (source_mode == qcview::TimelineSourceMode::PLAYLIST) ||
+                                           (source_mode == qcview::TimelineSourceMode::DUAL_VIEW);
 
                 if (is_playlist_or_dual) {
                     // === SIMPLIFIED MENU FOR PLAYLIST/DUAL_VIEW ===
@@ -6159,7 +6159,7 @@ static bool show_empty_area_context_menu = false;
                     if (ImGui::MenuItem("Reveal in Project")) {
                         if (project_manager && !clicked_clip->linked_path.empty()) {
                             // Find the MediaItem by path and select it
-                            ump::MediaItem* media_item = project_manager->FindMediaItemByPath(clicked_clip->linked_path);
+                            qcview::MediaItem* media_item = project_manager->FindMediaItemByPath(clicked_clip->linked_path);
                             if (media_item) {
                                 project_manager->SelectMediaItem(media_item->id, false, false);
                                 Debug::Log("Revealed clip in project: " + media_item->name);
@@ -6175,13 +6175,13 @@ static bool show_empty_area_context_menu = false;
                     if (ImGui::MenuItem("Delete")) {
                         if (timeline_view && right_clicked_track_index >= 0) {
                             // For PLAYLIST mode, use the playlist-specific delete
-                            if (source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                            if (source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                 timeline_view->DeleteClipFromPlaylist(right_clicked_clip_id);
                                 Debug::Log("Deleted clip from playlist");
                             } else {
                                 // For DUAL_VIEW, use the command system
                                 if (timeline_command_manager) {
-                                    auto cmd = std::make_unique<ump::DeleteClipCommand>(
+                                    auto cmd = std::make_unique<qcview::DeleteClipCommand>(
                                         timeline_view.get(), right_clicked_clip_id, right_clicked_track_index);
                                     timeline_command_manager->Execute(std::move(cmd));
                                 }
@@ -6210,7 +6210,7 @@ static bool show_empty_area_context_menu = false;
                         nfdresult_t result = NFD_OpenDialogU8(&out_path, filters, 2, nullptr);
                         if (result == NFD_OKAY && out_path) {
                             if (!media_linker) {
-                                media_linker = std::make_unique<ump::MediaLinker>();
+                                media_linker = std::make_unique<qcview::MediaLinker>();
                             }
                             if (media_linker->LinkClip(*clicked_clip, out_path)) {
                                 Debug::Log("Manually linked clip '" + clicked_clip->name + "' to " + std::string(out_path));
@@ -6226,7 +6226,7 @@ static bool show_empty_area_context_menu = false;
                     if (clicked_clip->is_linked) {
                         if (ImGui::MenuItem("Unlink Media")) {
                             if (!media_linker) {
-                                media_linker = std::make_unique<ump::MediaLinker>();
+                                media_linker = std::make_unique<qcview::MediaLinker>();
                             }
                             media_linker->UnlinkClip(*clicked_clip);
                             Debug::Log("Unlinked clip '" + clicked_clip->name + "'");
@@ -6324,7 +6324,7 @@ static bool show_empty_area_context_menu = false;
                     ImGui::Separator();
                     if (ImGui::MenuItem("Delete")) {
                         if (timeline_view && timeline_command_manager && right_clicked_track_index >= 0) {
-                            auto cmd = std::make_unique<ump::DeleteClipCommand>(
+                            auto cmd = std::make_unique<qcview::DeleteClipCommand>(
                                 timeline_view.get(), right_clicked_clip_id, right_clicked_track_index);
                             timeline_command_manager->Execute(std::move(cmd));
 
@@ -6362,7 +6362,7 @@ static bool show_empty_area_context_menu = false;
         if (ImGui::BeginPopup("TrackContextMenu##popup")) {
             if (tracks_ptr && right_clicked_track_header_index >= 0 &&
                 right_clicked_track_header_index < static_cast<int>(tracks_ptr->size())) {
-                ump::OTIOTrack& clicked_track = (*tracks_ptr)[right_clicked_track_header_index];
+                qcview::OTIOTrack& clicked_track = (*tracks_ptr)[right_clicked_track_header_index];
                 bool is_video_track = clicked_track.is_video;
 
                 // Header showing track name

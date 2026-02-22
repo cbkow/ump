@@ -6,7 +6,7 @@
 #include <functional>
 #include "timeline_view.h"
 
-namespace ump {
+namespace qcview {
 
 // Result of probing a video file for metadata
 struct VideoProbeResult {
@@ -105,4 +105,4 @@ private:
     );
 };
 
-} // namespace ump
+} // namespace qcview

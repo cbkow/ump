@@ -9,7 +9,7 @@
 #include <Windows.h>
 #endif
 
-namespace ump {
+namespace qcview {
 
 TimelineThumbnailCache::TimelineThumbnailCache() {
     Debug::Log("TimelineThumbnailCache: Created");
@@ -636,4 +636,4 @@ int TimelineThumbnailCache::FindNearestCachedFrame(const std::string& source_pat
     return nearest_frame;
 }
 
-} // namespace ump
+} // namespace qcview

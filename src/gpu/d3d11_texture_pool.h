@@ -9,7 +9,7 @@
 #include <unordered_map>
 #include <chrono>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11TexturePool
@@ -171,6 +171,6 @@ private:
     mutable std::mutex mutex_;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

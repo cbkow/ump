@@ -69,7 +69,7 @@
 #define GL_LAYOUT_TRANSFER_SRC_EXT 0x9592
 #define GL_LAYOUT_TRANSFER_DST_EXT 0x9593
 
-namespace ump {
+namespace qcview {
 
 D3D11HDRSwapchain::D3D11HDRSwapchain() = default;
 
@@ -1303,6 +1303,6 @@ bool D3D11HDRSwapchain::CopyFromOpenGLAndPresent(GLuint gl_texture, int tex_widt
     return SUCCEEDED(hr);
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

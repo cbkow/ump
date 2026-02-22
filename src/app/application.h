@@ -30,7 +30,7 @@
 struct GLFWwindow;
 class TimelineManager;
 class OCIOConfigManager;
-namespace ump {
+namespace qcview {
     class ProjectManager;
     class AnnotationManager;
     class AnnotationPanel;
@@ -45,7 +45,7 @@ namespace ump {
 }
 // Need full definitions for nested types used in method signatures
 #include "timeline/timeline_selection.h"  // TimelineClipDragState::DraggedClipInfo
-#include "project/media_item.h"           // ump::MediaType
+#include "project/media_item.h"           // qcview::MediaType
 // ExifToolHelper is a class with nested Metadata struct - must include
 #include "utils/exiftool_helper.h"
 
@@ -89,17 +89,17 @@ private:
     // ------------------------------------------------------------------------
     GLFWwindow* window;
     std::unique_ptr<VideoPlayer> video_player;
-    std::unique_ptr<ump::ProjectManager> project_manager;
+    std::unique_ptr<qcview::ProjectManager> project_manager;
     std::unique_ptr<TimelineManager> timeline_manager;
-    std::unique_ptr<ump::AnnotationManager> annotation_manager;
-    std::unique_ptr<ump::AnnotationPanel> annotation_panel;
-    std::unique_ptr<ump::Annotations::AnnotationExporter> annotation_exporter;
-    std::unique_ptr<ump::Annotations::ViewportAnnotator> viewport_annotator;
-    std::unique_ptr<ump::Annotations::AnnotationToolbar> annotation_toolbar;
-    std::unique_ptr<ump::Annotations::AnnotationRenderer> annotation_renderer;
+    std::unique_ptr<qcview::AnnotationManager> annotation_manager;
+    std::unique_ptr<qcview::AnnotationPanel> annotation_panel;
+    std::unique_ptr<qcview::Annotations::AnnotationExporter> annotation_exporter;
+    std::unique_ptr<qcview::Annotations::ViewportAnnotator> viewport_annotator;
+    std::unique_ptr<qcview::Annotations::AnnotationToolbar> annotation_toolbar;
+    std::unique_ptr<qcview::Annotations::AnnotationRenderer> annotation_renderer;
 
     // Current annotation editing state
-    std::vector<ump::Annotations::ActiveStroke> current_annotation_strokes_;
+    std::vector<qcview::Annotations::ActiveStroke> current_annotation_strokes_;
     std::string current_editing_timecode_;
 
     // Deferred NanoVG annotation rendering
@@ -108,11 +108,11 @@ private:
     ImVec2 nvg_display_pos_ = ImVec2(0, 0);
     ImVec2 nvg_display_size_ = ImVec2(0, 0);
     int nvg_video_width_ = 0;
-    std::vector<ump::Annotations::ActiveStroke> nvg_strokes_to_render_;
+    std::vector<qcview::Annotations::ActiveStroke> nvg_strokes_to_render_;
 
     // Undo/redo stacks for annotation editing
-    std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_undo_stack_;
-    std::vector<std::vector<ump::Annotations::ActiveStroke>> annotation_redo_stack_;
+    std::vector<std::vector<qcview::Annotations::ActiveStroke>> annotation_undo_stack_;
+    std::vector<std::vector<qcview::Annotations::ActiveStroke>> annotation_redo_stack_;
 
     void AutoSaveAnnotationOnSeek();
 
@@ -161,10 +161,6 @@ private:
     std::string original_video_path_left;
     std::string original_video_path_right;
 
-    // Shutdown state
-    bool is_shutting_down_ = false;
-    float shutdown_animation_time_ = 0.0f;
-
     // Loading modal state
     std::string loading_message_;
     std::function<void()> loading_callback_;
@@ -211,9 +207,9 @@ private:
     // ------------------------------------------------------------------------
     // MEMBER VARIABLES - Nodes
     // ------------------------------------------------------------------------
-    std::unique_ptr<ump::NodeManager> node_manager;
+    std::unique_ptr<qcview::NodeManager> node_manager;
     struct OCIONodeDragPayload {
-        ump::NodeType type;
+        qcview::NodeType type;
         char name[256];
     };
     std::vector<std::string> custom_node_trees;
@@ -226,7 +222,7 @@ private:
     // ------------------------------------------------------------------------
     struct CaptureRequest {
         std::string output_path;
-        std::vector<ump::Annotations::ActiveStroke> strokes;
+        std::vector<qcview::Annotations::ActiveStroke> strokes;
         bool pending = false;
         bool completed = false;
         bool success = false;
@@ -247,9 +243,9 @@ private:
 
     struct ExportState {
         bool active = false;
-        ump::Annotations::AnnotationExporter::ExportFormat format;
-        ump::Annotations::AnnotationExporter::ExportOptions options;
-        std::vector<ump::AnnotationNote> notes;
+        qcview::Annotations::AnnotationExporter::ExportFormat format;
+        qcview::Annotations::AnnotationExporter::ExportOptions options;
+        std::vector<qcview::AnnotationNote> notes;
         size_t current_note_index = 0;
         std::string temp_dir;
         std::vector<std::string> captured_images;
@@ -260,7 +256,7 @@ private:
 
         // Data for pending capture
         std::string pending_output_path;
-        std::vector<ump::Annotations::ActiveStroke> pending_strokes;
+        std::vector<qcview::Annotations::ActiveStroke> pending_strokes;
     };
 
     CaptureRequest pending_capture;
@@ -299,7 +295,7 @@ private:
 
         // Thumbnail generation state
         bool generating_thumbnails = false;
-        std::vector<ump::AnnotationNote> imported_notes;
+        std::vector<qcview::AnnotationNote> imported_notes;
         size_t current_thumbnail_index = 0;
         bool waiting_for_seek = false;
         int frames_to_wait_after_seek = 0;
@@ -359,7 +355,6 @@ private:
     void RenderSidebarPanel();
     void RenderTrimToolbarPanel();
     void RenderFrameioImportDialog();
-    void RenderShutdownModal();
     void RenderSafetyOverlayPanel(bool& show_panel);
     void RenderColorspacePresetsPanel(bool& show_panel);
     void DrawVideoBackground(ImVec2 canvas_pos, ImVec2 canvas_size, float tile_size = 20.0f);
@@ -368,7 +363,7 @@ private:
     // TIMELINE
     // ------------------------------------------------------------------------
     std::vector<double> CollectSnapPoints(
-        const std::vector<ump::OTIOTrack>& tracks,
+        const std::vector<qcview::OTIOTrack>& tracks,
         const std::set<std::string>& exclude_clip_ids,
         double playhead_time,
         double timeline_duration);
@@ -380,7 +375,7 @@ private:
         bool& snapped,
         double& snap_line_time);
     std::vector<double> CollectDualViewSnapPoints(
-        const ump::DualViewClip& left_clip,
+        const qcview::DualViewClip& left_clip,
         double playhead_time);
     double CalculateDualViewSnappedPosition(
         double proposed_offset,
@@ -390,8 +385,8 @@ private:
         bool& snapped,
         double& snap_line_time);
     bool WouldCauseOverlap(
-        const std::vector<ump::OTIOTrack>& tracks,
-        const std::vector<ump::TimelineClipDragState::DraggedClipInfo>& moving_clips,
+        const std::vector<qcview::OTIOTrack>& tracks,
+        const std::vector<qcview::TimelineClipDragState::DraggedClipInfo>& moving_clips,
         double primary_new_start);
     void RenderTimelineContent();
     void RenderOTIOTimelinePanel();
@@ -420,12 +415,12 @@ private:
     void ApplyAliasPreset(const std::string& input_alias, const std::string& display_alias, const std::string& view_name);
     void CreateNodeEditorContent();
     void CreateNodePropertiesContent();
-    void RenderNodeSpecificProperties(ump::NodeBase* node);
-    void RenderOutputDisplayProperties(ump::NodeBase* node);
-    void RenderInputColorSpaceProperties(ump::NodeBase* node);
-    void RenderLookProperties(ump::NodeBase* node);
-    void RenderSceneLUTProperties(ump::NodeBase* node);
-    void RenderDisplayLUTProperties(ump::NodeBase* node);
+    void RenderNodeSpecificProperties(qcview::NodeBase* node);
+    void RenderOutputDisplayProperties(qcview::NodeBase* node);
+    void RenderInputColorSpaceProperties(qcview::NodeBase* node);
+    void RenderLookProperties(qcview::NodeBase* node);
+    void RenderSceneLUTProperties(qcview::NodeBase* node);
+    void RenderDisplayLUTProperties(qcview::NodeBase* node);
     bool CheckPipelineReadiness();
     void GenerateOCIOPipeline();
     void CreateAnnotationPanel();
@@ -439,16 +434,16 @@ private:
     void ClearSavedToken();
     void ProcessFrameioThumbnailGeneration();
     void QueueFrameCapture(const std::string& output_path,
-                          const std::vector<ump::Annotations::ActiveStroke>& strokes,
+                          const std::vector<qcview::Annotations::ActiveStroke>& strokes,
                           int export_width = 0,
                           int export_height = 0);
     void ProcessExportStateMachine();
     void FinalizeExport(bool success);
     bool CaptureRenderedFrame();
     void StartExport(
-        ump::Annotations::AnnotationExporter::ExportFormat format,
-        const ump::Annotations::AnnotationExporter::ExportOptions& options,
-        const std::vector<ump::AnnotationNote>& notes,
+        qcview::Annotations::AnnotationExporter::ExportFormat format,
+        const qcview::Annotations::AnnotationExporter::ExportOptions& options,
+        const std::vector<qcview::AnnotationNote>& notes,
         const std::string& temp_dir);
 
     // ------------------------------------------------------------------------
@@ -479,7 +474,7 @@ private:
     // FILE & WINDOW MANAGEMENT
     // ------------------------------------------------------------------------
     void OpenFileDialog();
-    void TriggerAutoPlay(ump::MediaType media_type = ump::MediaType::VIDEO);
+    void TriggerAutoPlay(qcview::MediaType media_type = qcview::MediaType::VIDEO);
     void TriggerSeekCacheStart();
     void AddToRecentFiles(const std::string& file_path);
     void ResetTimecodeStateForNewVideo();

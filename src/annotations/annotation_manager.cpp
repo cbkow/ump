@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <filesystem>
 
-namespace ump {
+namespace qcview {
 
 AnnotationManager::AnnotationManager() {
 }
@@ -268,4 +268,4 @@ void AnnotationManager::ForceSave() {
     NotifyNotesChanged();
 }
 
-} // namespace ump
+} // namespace qcview

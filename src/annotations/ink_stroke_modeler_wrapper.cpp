@@ -4,7 +4,7 @@
 #include "ink_stroke_modeler/params.h"
 #include "ink_stroke_modeler/types.h"
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 InkStrokeModelerWrapper::InkStrokeModelerWrapper()
@@ -165,4 +165,4 @@ ImVec2 InkStrokeModelerWrapper::FromModelSpace(float x, float y) const {
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

@@ -10,7 +10,7 @@
 
 #include "yuv_textures.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class D3D11VideoInterop;
@@ -110,6 +110,6 @@ private:
     bool EnsureInteropTexture(int width, int height);
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -5,7 +5,7 @@
 #include <random>
 #include <chrono>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 nlohmann::json AnnotationSerializer::StrokeToJson(const ActiveStroke& stroke) {
@@ -247,4 +247,4 @@ std::string AnnotationSerializer::GenerateStrokeId() {
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

@@ -11,7 +11,7 @@
 #include <vector>
 #include <array>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11DeviceManager
@@ -203,6 +203,6 @@ private:
     mutable std::mutex mutex_;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

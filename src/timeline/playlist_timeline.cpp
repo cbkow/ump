@@ -8,7 +8,7 @@
 #include <sstream>
 #include <iomanip>
 
-namespace ump {
+namespace qcview {
 
 PlaylistTimeline::PlaylistTimeline() = default;
 PlaylistTimeline::~PlaylistTimeline() = default;
@@ -540,4 +540,4 @@ void PlaylistTimeline::NotifyEdit() {
     }
 }
 
-} // namespace ump
+} // namespace qcview

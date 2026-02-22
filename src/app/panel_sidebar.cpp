@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Sidebar panels (sidebar, trim toolbar, Frame.io import, safety overlay, colorspace)
 // ============================================================================
 
@@ -26,7 +26,7 @@
 extern ImFont* font_regular;
 extern ImFont* font_bold;
 extern ImFont* font_icons;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 extern bool otio_dual_view_mode;
 extern CacheSettings cache_settings;
 
@@ -179,7 +179,7 @@ extern CacheSettings cache_settings;
 
                 // HDR status indicator
 #ifdef _WIN32
-                bool hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
+                bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
 #else
                 bool hdr_active = false;
 #endif
@@ -206,7 +206,7 @@ extern CacheSettings cache_settings;
                     ImGui::PopFont();
                     ImGui::SetTooltip(hdr_active ?
                         "Windows HDR enabled. Images need color transformation." :
-                        "Windows HDR disabled. Enable in Windows settings and restart u.m.p. for HDR.");
+                        "Windows HDR disabled. Enable in Windows settings and restart QCView for HDR.");
                     ImGui::PushFont(font_icons);
                     ImGui::SetWindowFontScale(1.2f);
                 }
@@ -330,7 +330,7 @@ extern CacheSettings cache_settings;
                 std::string url = frameio_import_state.url_buffer;
 
                 // Parse URL to get asset_id
-                auto parse_result = ump::Integrations::FrameioUrlParser::Parse(url);
+                auto parse_result = qcview::Integrations::FrameioUrlParser::Parse(url);
 
                 if (!parse_result.success) {
                     frameio_import_state.status_message = "Error: " + parse_result.error_message;
@@ -338,7 +338,7 @@ extern CacheSettings cache_settings;
                     frameio_import_state.import_success = false;
                 } else {
                     // Fetch comments from Frame.io
-                    auto fetch_result = ump::Integrations::FrameioClient::GetAssetComments(
+                    auto fetch_result = qcview::Integrations::FrameioClient::GetAssetComments(
                         parse_result.asset_id,
                         token
                     );
@@ -349,9 +349,9 @@ extern CacheSettings cache_settings;
                         frameio_import_state.import_success = false;
                     } else {
                         // Playback controller already exists - reload dummy video and re-enable timeline mode
-                        // Convert Frame.io comments to ump annotations
+                        // Convert Frame.io comments to QCView annotations
                         double framerate = video_player ? video_player->GetFrameRate() : 24.0;
-                        auto convert_result = ump::Integrations::FrameioConverter::ConvertComments(
+                        auto convert_result = qcview::Integrations::FrameioConverter::ConvertComments(
                             fetch_result.comments,
                             framerate
                         );

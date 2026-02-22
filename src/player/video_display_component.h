@@ -35,12 +35,12 @@
 class OCIOPipeline;
 
 #ifdef _WIN32
-namespace ump {
+namespace qcview {
     class D3D11OCIORenderer;
 }
 #endif
 
-namespace ump {
+namespace qcview {
     class ThumbnailCache;
     class TimelinePlaybackController;
     class AudioPlayer;
@@ -175,17 +175,17 @@ public:
     void InitializeEXRCache(const std::vector<std::string>& sequence_files,
                            const std::string& layer_name, double fps,
                            double initial_position = -1.0);
-    ump::DirectEXRCache* GetEXRCache() const { return exr_cache_.get(); }
+    qcview::DirectEXRCache* GetEXRCache() const { return exr_cache_.get(); }
     const std::vector<std::string>& GetEXRSequenceFiles() const { return exr_sequence_files_; }
     double GetEXRFrameRate() const { return exr_frame_rate_; }
     int GetEXRSequenceStartFrame() const { return exr_sequence_start_frame_; }
     void ClearEXRCache();
-    void SetEXRCacheConfig(const ump::DirectEXRCacheConfig& config);
-    std::vector<ump::CacheSegment> GetEXRCacheSegments() const;
+    void SetEXRCacheConfig(const qcview::DirectEXRCacheConfig& config);
+    std::vector<qcview::CacheSegment> GetEXRCacheSegments() const;
     bool HasEXRCache() const;
 
     // Thumbnail cache access
-    ump::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }
+    qcview::ThumbnailCache* GetThumbnailCache() const { return thumbnail_cache_.get(); }
     GLuint GetThumbnailForFrame(int frame, bool allow_fallback = false, int* out_actual_frame = nullptr);
     bool HasThumbnailCache() const;
     void ClearThumbnailCache();
@@ -194,7 +194,7 @@ public:
     // Timeline Integration
     //=========================================================================
 
-    void SetTimelineMode(bool enabled, ump::TimelinePlaybackController* controller = nullptr);
+    void SetTimelineMode(bool enabled, qcview::TimelinePlaybackController* controller = nullptr);
     bool IsInTimelineMode() const { return is_timeline_mode_; }
     void InjectCurrentTimelineFrame();
     void SetContentDimensions(int width, int height);
@@ -211,7 +211,7 @@ public:
     void GoToEnd();
     bool IsPlaying() const;
     bool IsActuallyPlaying() const;  // True only when actually playing
-    ump::TimelinePlaybackController* GetTimelineController() const { return timeline_controller_; }
+    qcview::TimelinePlaybackController* GetTimelineController() const { return timeline_controller_; }
 
     //=========================================================================
     // Media Info (Cached Values)
@@ -276,7 +276,7 @@ public:
 
     // Volume control - now handled by AudioMixer
     void SetVolume(double) {}
-    ump::AudioPlayer* GetDualViewAudio() { return nullptr; }
+    qcview::AudioPlayer* GetDualViewAudio() { return nullptr; }
 
     // File loading - now handled via timeline
     bool LoadFile(const std::string&, bool = false, double = -1.0) { return false; }
@@ -424,15 +424,15 @@ private:
     double exr_frame_rate_ = 24.0;
     int exr_sequence_start_frame_ = 0;
     std::vector<std::string> exr_sequence_files_;
-    std::shared_ptr<ump::DirectEXRCache> exr_cache_;
-    std::unique_ptr<ump::ThumbnailCache> thumbnail_cache_;
+    std::shared_ptr<qcview::DirectEXRCache> exr_cache_;
+    std::unique_ptr<qcview::ThumbnailCache> thumbnail_cache_;
 
     //=========================================================================
     // Timeline Mode
     //=========================================================================
 
     bool is_timeline_mode_ = false;
-    ump::TimelinePlaybackController* timeline_controller_ = nullptr;
+    qcview::TimelinePlaybackController* timeline_controller_ = nullptr;
     GLuint timeline_texture_ = 0;
     int timeline_texture_width_ = 0;
     int timeline_texture_height_ = 0;
@@ -482,7 +482,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11RenderTargetView> color_rtv_d3d_;
 
     // D3D11 OCIO renderer
-    std::unique_ptr<ump::D3D11OCIORenderer> d3d11_ocio_renderer_;
+    std::unique_ptr<qcview::D3D11OCIORenderer> d3d11_ocio_renderer_;
 
     // D3D11 helper methods
     void CreateD3D11VideoTextures(int width, int height);

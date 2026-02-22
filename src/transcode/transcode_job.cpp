@@ -8,7 +8,7 @@
 
 using json = nlohmann::json;
 
-namespace ump {
+namespace qcview {
 
 TranscodeJob::TranscodeJob(const Config& config)
     : config_(config)
@@ -357,4 +357,4 @@ std::unique_ptr<TranscodeJob> TranscodeJob::FromJSON(const json& j) {
     return job;
 }
 
-} // namespace ump
+} // namespace qcview

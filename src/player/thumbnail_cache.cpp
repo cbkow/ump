@@ -18,7 +18,7 @@
 // Note: STB_IMAGE_RESIZE_IMPLEMENTATION is already defined in exr_transcoder.cpp
 #include "../../external/stb/stb_image_resize2.h"
 
-namespace ump {
+namespace qcview {
 
 ThumbnailCache::ThumbnailCache(
     std::vector<std::string> sequence_files,
@@ -554,4 +554,4 @@ bool ThumbnailCache::GetCachedThumbnailSize(int frame, int& width, int& height) 
     return false;
 }
 
-} // namespace ump
+} // namespace qcview

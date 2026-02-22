@@ -59,8 +59,8 @@ extern bool g_clear_cache_on_exit;
 
 // Shared EXRTranscoder instance for all transcode operations
 // This ensures consistent cache paths and proper cancellation support
-static ump::EXRTranscoder& GetSharedTranscoder() {
-    static ump::EXRTranscoder s_transcoder;
+static qcview::EXRTranscoder& GetSharedTranscoder() {
+    static qcview::EXRTranscoder s_transcoder;
     // Always apply current cache config (in case settings changed)
     s_transcoder.SetCacheConfig(g_custom_cache_path, g_cache_retention_days,
                                 g_transcode_cache_max_gb, g_clear_cache_on_exit);
@@ -138,7 +138,7 @@ ImVec4 Bright(const ImVec4& accent) { return TintColor(accent, 2.2f, 0.5f); }
 // External transcode performance settings (defined in main.cpp)
 #include "../transcode/transcode_settings.h"
 
-namespace ump {
+namespace qcview {
 
     // ============================================================================
     // CODEC DETECTION UTILITY
@@ -177,12 +177,12 @@ namespace ump {
             transcode_worker_pool_.get()
         );
 
-        // Set auto-save path (using %LOCALAPPDATA%\ump\ for consistency with other settings)
+        // Set auto-save path (using %LOCALAPPDATA%\qcview\ for consistency with other settings)
         #ifdef _WIN32
         const char* localappdata = std::getenv("LOCALAPPDATA");
         std::string queue_save_path;
         if (localappdata) {
-            std::string base_path = std::string(localappdata) + "\\ump";
+            std::string base_path = std::string(localappdata) + "\\qcview";
             std::filesystem::create_directories(base_path);
             queue_save_path = base_path + "\\transcode_queue.json";
         } else {
@@ -192,7 +192,7 @@ namespace ump {
         const char* home = std::getenv("HOME");
         std::string queue_save_path;
         if (home) {
-            std::string base_path = std::string(home) + "/.config/ump";
+            std::string base_path = std::string(home) + "/.config/qcview";
             std::filesystem::create_directories(base_path);
             queue_save_path = base_path + "/transcode_queue.json";
         } else {
@@ -248,13 +248,13 @@ namespace ump {
             transcode_worker_pool_->Stop();
         }
 
-        // Save queue (using %LOCALAPPDATA%\ump\ for consistency with other settings)
+        // Save queue (using %LOCALAPPDATA%\qcview\ for consistency with other settings)
         if (transcode_queue_) {
             #ifdef _WIN32
             const char* localappdata = std::getenv("LOCALAPPDATA");
             std::string queue_save_path;
             if (localappdata) {
-                std::string base_path = std::string(localappdata) + "\\ump";
+                std::string base_path = std::string(localappdata) + "\\qcview";
                 std::filesystem::create_directories(base_path);
                 queue_save_path = base_path + "\\transcode_queue.json";
             } else {
@@ -264,7 +264,7 @@ namespace ump {
             const char* home = std::getenv("HOME");
             std::string queue_save_path;
             if (home) {
-                std::string base_path = std::string(home) + "/.config/ump";
+                std::string base_path = std::string(home) + "/.config/qcview";
                 std::filesystem::create_directories(base_path);
                 queue_save_path = base_path + "/transcode_queue.json";
             } else {
@@ -311,8 +311,8 @@ namespace ump {
         std::string save_path = current_project_path;
         if (save_path.empty()) {
             nfdu8char_t* out_path = nullptr;
-            nfdfilteritem_t filter[1] = { { "Union Player Project", "umproj" } };
-            nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, "project.umproj");
+            nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
+            nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, "project.qcvproj");
 
             if (result != NFD_OKAY) {
                 if (result == NFD_ERROR) {
@@ -324,9 +324,9 @@ namespace ump {
             save_path = out_path;
             NFD_FreePathU8(out_path);
 
-            // Ensure .umproj extension
-            if (save_path.find(".umproj") == std::string::npos) {
-                save_path += ".umproj";
+            // Ensure .qcvproj extension
+            if (save_path.find(".qcvproj") == std::string::npos) {
+                save_path += ".qcvproj";
             }
         }
 
@@ -693,10 +693,10 @@ namespace ump {
     void ProjectManager::SaveProjectAs() {
         // Always show save dialog (even if project already has a path)
         nfdu8char_t* out_path = nullptr;
-        nfdfilteritem_t filter[1] = { { "Union Player Project", "umproj" } };
+        nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
 
         // Use current project name as default if available
-        std::string default_name = "project.umproj";
+        std::string default_name = "project.qcvproj";
         if (!current_project_path.empty()) {
             std::filesystem::path path(current_project_path);
             default_name = path.filename().string();
@@ -714,9 +714,9 @@ namespace ump {
         std::string save_path = out_path;
         NFD_FreePathU8(out_path);
 
-        // Ensure .umproj extension
-        if (save_path.find(".umproj") == std::string::npos) {
-            save_path += ".umproj";
+        // Ensure .qcvproj extension
+        if (save_path.find(".qcvproj") == std::string::npos) {
+            save_path += ".qcvproj";
         }
 
         // Temporarily clear project path to force SaveProject to use new path
@@ -760,7 +760,7 @@ namespace ump {
         std::string load_path = file_path;
         if (load_path.empty()) {
             nfdu8char_t* out_path = nullptr;
-            nfdfilteritem_t filter[1] = { { "Union Player Project", "umproj" } };
+            nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
             nfdresult_t result = NFD_OpenDialogU8(&out_path, filter, 1, nullptr);
 
             if (result != NFD_OKAY) {
@@ -1445,7 +1445,7 @@ namespace ump {
 
         // Style the collapsing header with accent folder icon
         PushOutlineHeaderStyle();
-        bool node_open = CollapsingHeaderWithIcon(header_id.c_str(), font_icons, ICON_FOLDER, GetWindowsAccentColor(), flags);
+        bool node_open = CollapsingHeaderWithIcon(header_id.c_str(), font_icons, ICON_FOLDER, ImGui::GetStyleColorVec4(ImGuiCol_Text), flags);
         PopOutlineHeaderStyle();
 
         // Right-click context menu for bin headers
@@ -1544,9 +1544,9 @@ namespace ump {
         // Icon before the item label
         if (font_icons) {
             ImGui::PushFont(font_icons);
-            ImVec4 accent = GetWindowsAccentColor();
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(accent.x, accent.y, accent.z, 0.4f));
-            ImGui::Text("%s", ICON_COLOR_PROFILE_ENTRY);
+            ImVec4 text_col = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(text_col.x, text_col.y, text_col.z, 0.4f));
+            ImGui::Text("%s", is_selected ? "\xEE\xA0\xB7" : "\xEE\xA0\xB6");
             ImGui::PopStyleColor();
             ImGui::PopFont();
             ImGui::SameLine();
@@ -2529,7 +2529,7 @@ namespace ump {
 
         // EXTRACT AND CACHE FULL METADATA (not just duration)
         if (item.type == MediaType::VIDEO || item.type == MediaType::AUDIO) {
-            auto metadata = ump::FFmpegMetadataExtractor::Extract(file_path);
+            auto metadata = qcview::FFmpegMetadataExtractor::Extract(file_path);
 
             if (metadata.is_loaded) {
                 // Cache metadata immediately
@@ -2578,7 +2578,7 @@ namespace ump {
             } else {
                 // Fallback: If full extraction fails, try duration probe
                 Debug::Log("AddMediaFileToProject: Full extraction failed, falling back to duration probe");
-                double probed_duration = ump::FFmpegMetadataExtractor::ProbeDuration(file_path);
+                double probed_duration = qcview::FFmpegMetadataExtractor::ProbeDuration(file_path);
                 item.duration = (probed_duration > 0) ? probed_duration : ((item.type == MediaType::VIDEO) ? 30.0 : 180.0);
             }
         }
@@ -2866,7 +2866,7 @@ namespace ump {
         if (!metadata_cached) {
             // Safety fallback: Extract if cache miss (shouldn't happen for normal flow)
             Debug::Log("LoadSingleMediaItem: Cache miss, extracting metadata...");
-            auto metadata = ump::FFmpegMetadataExtractor::Extract(item.path);
+            auto metadata = qcview::FFmpegMetadataExtractor::Extract(item.path);
 
             if (metadata.is_loaded) {
                 // Cache it
@@ -6844,7 +6844,7 @@ namespace ump {
         // NEW: Extract dimensions from first frame for EXR sequences (for instant loading later)
         int exr_width = 0, exr_height = 0;
         if (is_exr && !sequence_files.empty()) {
-            if (ump::DirectEXRCache::GetFrameDimensions(sequence_files[0], exr_width, exr_height)) {
+            if (qcview::DirectEXRCache::GetFrameDimensions(sequence_files[0], exr_width, exr_height)) {
                 Debug::Log("ProcessImageSequence: Cached EXR sequence dimensions: " +
                           std::to_string(exr_width) + "x" + std::to_string(exr_height));
             } else {
@@ -6936,8 +6936,8 @@ namespace ump {
 
         // Auto-detect pipeline mode from first file (for all sequence types)
         if (!sequence_files.empty()) {
-            ump::ImageInfo img_info;
-            if (ump::GetImageInfo(sequence_files[0], img_info)) {
+            qcview::ImageInfo img_info;
+            if (qcview::GetImageInfo(sequence_files[0], img_info)) {
                 pipeline_mode = img_info.recommended_pipeline;
 
                 // Cache dimensions from first frame (for instant loading later)
@@ -6965,8 +6965,8 @@ namespace ump {
 
         // Parse sequence for FFMPEG pattern (for both IMAGE_SEQUENCE and EXR_SEQUENCE)
         // This is needed for transcode functionality
-        ump::ImageSequenceConfig ffmpeg_config =
-            ump::ImageSequencePatternConverter::ParseSequence(sequence_files, frame_rate, pipeline_mode);
+        qcview::ImageSequenceConfig ffmpeg_config =
+            qcview::ImageSequencePatternConverter::ParseSequence(sequence_files, frame_rate, pipeline_mode);
 
         if (ffmpeg_config.is_valid) {
             Debug::Log("ProcessImageSequence: FFMPEG pattern: " + ffmpeg_config.ffmpeg_pattern);
@@ -7052,10 +7052,10 @@ namespace ump {
         Debug::Log("ProcessImageSequenceWithTranscode: Found " + std::to_string(sequence_files.size()) + " source files");
 
         // Use shared transcoder (ensures consistent cache path and cancellation support)
-        ump::EXRTranscoder& transcoder = GetSharedTranscoder();
+        qcview::EXRTranscoder& transcoder = GetSharedTranscoder();
 
         // Build transcode config
-        ump::EXRTranscodeConfig config;
+        qcview::EXRTranscodeConfig config;
         config.max_width = max_width;
         config.compression = static_cast<Imf::Compression>(compression);
         config.threadCount = static_cast<size_t>(g_exr_transcode_threads);
@@ -7122,7 +7122,7 @@ namespace ump {
                     Debug::Log("ProcessImageSequenceWithTranscode: Transcode complete!");
 
                     // Get transcoded files using shared transcoder
-                    ump::EXRTranscoder& transcoder = GetSharedTranscoder();
+                    qcview::EXRTranscoder& transcoder = GetSharedTranscoder();
                     Imf::Compression comp = static_cast<Imf::Compression>(compression);
                     std::vector<std::string> transcoded_files = transcoder.GetTranscodedFiles(
                         sequence_files, exr_layer, part_index, max_width, comp);
@@ -7154,7 +7154,7 @@ namespace ump {
 
     void ProjectManager::CancelTranscode() {
         // Use shared transcoder for cancellation
-        ump::EXRTranscoder& transcoder = GetSharedTranscoder();
+        qcview::EXRTranscoder& transcoder = GetSharedTranscoder();
         transcoder.CancelTranscode();
         Debug::Log("ProjectManager: Transcode cancellation requested");
 

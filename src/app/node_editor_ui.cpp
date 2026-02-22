@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Node editor UI (node graph, properties panels, pipeline generation)
 // ============================================================================
 
@@ -37,7 +37,7 @@ extern std::string lut_export_error_message;
     void Application::CreateNodeEditorContent() {
 
         struct DragPayload {
-            ump::NodeType type;
+            qcview::NodeType type;
             char name[256];
         };
 
@@ -112,7 +112,7 @@ extern std::string lut_export_error_message;
             int selected_id;
             ImNodes::GetSelectedNodes(&selected_id);
             auto* node = node_manager->GetNodeById(selected_id);
-            output_node_selected = (node && node->GetType() == ump::NodeType::OUTPUT_DISPLAY);
+            output_node_selected = (node && node->GetType() == qcview::NodeType::OUTPUT_DISPLAY);
         }
 
         // Reserve space for sticky footer (scale with font, 0.65 dampened)
@@ -252,31 +252,31 @@ extern std::string lut_export_error_message;
 
                     for (auto* node : pipeline_nodes) {
                         switch (node->GetType()) {
-                            case ump::NodeType::INPUT_COLORSPACE: {
-                                auto* csNode = dynamic_cast<ump::InputColorSpaceNode*>(node);
+                            case qcview::NodeType::INPUT_COLORSPACE: {
+                                auto* csNode = dynamic_cast<qcview::InputColorSpaceNode*>(node);
                                 if (csNode) src_colorspace = csNode->GetColorSpace();
                                 break;
                             }
-                            case ump::NodeType::LOOK: {
-                                auto* lookNode = dynamic_cast<ump::LookNode*>(node);
+                            case qcview::NodeType::LOOK: {
+                                auto* lookNode = dynamic_cast<qcview::LookNode*>(node);
                                 if (lookNode && !lookNode->GetLook().empty())
                                     look_chain.push_back(lookNode->GetLook());
                                 break;
                             }
-                            case ump::NodeType::SCENE_LUT: {
-                                auto* lutNode = dynamic_cast<ump::SceneLUTNode*>(node);
+                            case qcview::NodeType::SCENE_LUT: {
+                                auto* lutNode = dynamic_cast<qcview::SceneLUTNode*>(node);
                                 if (lutNode && !lutNode->GetLUTPath().empty())
                                     scene_luts.push_back(lutNode->GetLUTPath());
                                 break;
                             }
-                            case ump::NodeType::DISPLAY_LUT: {
-                                auto* lutNode = dynamic_cast<ump::DisplayLUTNode*>(node);
+                            case qcview::NodeType::DISPLAY_LUT: {
+                                auto* lutNode = dynamic_cast<qcview::DisplayLUTNode*>(node);
                                 if (lutNode && !lutNode->GetLUTPath().empty())
                                     display_luts.push_back(lutNode->GetLUTPath());
                                 break;
                             }
-                            case ump::NodeType::OUTPUT_DISPLAY: {
-                                auto* displayNode = dynamic_cast<ump::OutputDisplayNode*>(node);
+                            case qcview::NodeType::OUTPUT_DISPLAY: {
+                                auto* displayNode = dynamic_cast<qcview::OutputDisplayNode*>(node);
                                 if (displayNode) {
                                     display = displayNode->GetDisplay();
                                     view = displayNode->GetView();
@@ -296,7 +296,7 @@ extern std::string lut_export_error_message;
                     // Start export in background thread
                     std::string export_path = lut_export_path;
                     std::thread([=]() {
-                        ump::OCIOLutBaker::BakeConfig config;
+                        qcview::OCIOLutBaker::BakeConfig config;
                         config.src_colorspace = src_colorspace;
                         config.display = display;
                         config.view = view;
@@ -306,7 +306,7 @@ extern std::string lut_export_error_message;
                         config.cube_size = 65;
 
                         // Write directly to user-specified path (not cache)
-                        std::string result = ump::OCIOLutBaker::BakeTo(
+                        std::string result = qcview::OCIOLutBaker::BakeTo(
                             config, export_path,
                             [](float p) { lut_export_progress = p; },
                             &lut_export_cancel
@@ -347,7 +347,7 @@ extern std::string lut_export_error_message;
         ImGui::PopStyleVar(2);
     }
 
-    void Application::RenderNodeSpecificProperties(ump::NodeBase* node) {
+    void Application::RenderNodeSpecificProperties(qcview::NodeBase* node) {
         if (!node) return;
 
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 6));
@@ -358,23 +358,23 @@ extern std::string lut_export_error_message;
         ImGui::Spacing();
 
         switch (node->GetType()) {
-        case ump::NodeType::OUTPUT_DISPLAY:
+        case qcview::NodeType::OUTPUT_DISPLAY:
             RenderOutputDisplayProperties(node);
             break;
 
-        case ump::NodeType::INPUT_COLORSPACE:
+        case qcview::NodeType::INPUT_COLORSPACE:
             RenderInputColorSpaceProperties(node);
             break;
 
-        case ump::NodeType::LOOK:
+        case qcview::NodeType::LOOK:
             RenderLookProperties(node);
             break;
 
-        case ump::NodeType::SCENE_LUT:
+        case qcview::NodeType::SCENE_LUT:
             RenderSceneLUTProperties(node);
             break;
 
-        case ump::NodeType::DISPLAY_LUT:
+        case qcview::NodeType::DISPLAY_LUT:
             RenderDisplayLUTProperties(node);
             break;
 
@@ -386,8 +386,8 @@ extern std::string lut_export_error_message;
         ImGui::PopStyleVar();
     }
 
-    void Application::RenderOutputDisplayProperties(ump::NodeBase* node) {
-        auto* display_node = dynamic_cast<ump::OutputDisplayNode*>(node);
+    void Application::RenderOutputDisplayProperties(qcview::NodeBase* node) {
+        auto* display_node = dynamic_cast<qcview::OutputDisplayNode*>(node);
         if (!display_node) return;
 
         if (font_bold) ImGui::PushFont(font_bold);
@@ -429,8 +429,8 @@ extern std::string lut_export_error_message;
                                 for (const auto& out_pin : source_node->GetOutputPins()) {
                                     if (out_pin.id == conn.from_pin) {
                                         // Found the source node, check if it's an input colorspace
-                                        if (source_node->GetType() == ump::NodeType::INPUT_COLORSPACE) {
-                                            auto* cs_node = dynamic_cast<ump::InputColorSpaceNode*>(source_node);
+                                        if (source_node->GetType() == qcview::NodeType::INPUT_COLORSPACE) {
+                                            auto* cs_node = dynamic_cast<qcview::InputColorSpaceNode*>(source_node);
                                             if (cs_node) {
                                                 src_colorspace = cs_node->GetColorSpace();
                                             }
@@ -492,8 +492,8 @@ extern std::string lut_export_error_message;
             "Current: %s -> %s", current_display.c_str(), current_view.c_str());
     }
 
-    void Application::RenderInputColorSpaceProperties(ump::NodeBase* node) {
-        auto* cs_node = dynamic_cast<ump::InputColorSpaceNode*>(node);
+    void Application::RenderInputColorSpaceProperties(qcview::NodeBase* node) {
+        auto* cs_node = dynamic_cast<qcview::InputColorSpaceNode*>(node);
         if (!cs_node) return;
 
         if (font_bold) ImGui::PushFont(font_bold);
@@ -523,8 +523,8 @@ extern std::string lut_export_error_message;
             "Type: Input Source");
     }
 
-    void Application::RenderLookProperties(ump::NodeBase* node) {
-        auto* look_node = dynamic_cast<ump::LookNode*>(node);
+    void Application::RenderLookProperties(qcview::NodeBase* node) {
+        auto* look_node = dynamic_cast<qcview::LookNode*>(node);
         if (!look_node) return;
 
         if (font_bold) ImGui::PushFont(font_bold);
@@ -540,8 +540,8 @@ extern std::string lut_export_error_message;
             "Type: Creative Look/LUT");
     }
 
-    void Application::RenderSceneLUTProperties(ump::NodeBase* node) {
-        auto* lut_node = dynamic_cast<ump::SceneLUTNode*>(node);
+    void Application::RenderSceneLUTProperties(qcview::NodeBase* node) {
+        auto* lut_node = dynamic_cast<qcview::SceneLUTNode*>(node);
         if (!lut_node) return;
 
         if (font_bold) ImGui::PushFont(font_bold);
@@ -617,8 +617,8 @@ extern std::string lut_export_error_message;
             "Applied before display transform");
     }
 
-    void Application::RenderDisplayLUTProperties(ump::NodeBase* node) {
-        auto* lut_node = dynamic_cast<ump::DisplayLUTNode*>(node);
+    void Application::RenderDisplayLUTProperties(qcview::NodeBase* node) {
+        auto* lut_node = dynamic_cast<qcview::DisplayLUTNode*>(node);
         if (!lut_node) return;
 
         if (font_bold) ImGui::PushFont(font_bold);
@@ -701,11 +701,11 @@ extern std::string lut_export_error_message;
         bool has_valid_output = false;
 
         for (auto* node : nodes) {
-            if (node->GetType() == ump::NodeType::INPUT_COLORSPACE) {
+            if (node->GetType() == qcview::NodeType::INPUT_COLORSPACE) {
                 has_input = true;
             }
-            else if (node->GetType() == ump::NodeType::OUTPUT_DISPLAY) {
-                auto* display_node = dynamic_cast<ump::OutputDisplayNode*>(node);
+            else if (node->GetType() == qcview::NodeType::OUTPUT_DISPLAY) {
+                auto* display_node = dynamic_cast<qcview::OutputDisplayNode*>(node);
                 // Check that view is set and not empty
                 if (display_node && !display_node->GetView().empty()) {
                     has_valid_output = true;
@@ -741,8 +741,8 @@ extern std::string lut_export_error_message;
             Debug::Log("Processing node " + std::to_string(i) + ": " + std::to_string((int)node->GetType()));
 
             switch (node->GetType()) {
-            case ump::NodeType::INPUT_COLORSPACE: {
-                auto* csNode = dynamic_cast<ump::InputColorSpaceNode*>(node);
+            case qcview::NodeType::INPUT_COLORSPACE: {
+                auto* csNode = dynamic_cast<qcview::InputColorSpaceNode*>(node);
                 if (csNode) {
                     src_colorspace = csNode->GetColorSpace();
                     Debug::Log("  Input ColorSpace: " + src_colorspace);
@@ -750,8 +750,8 @@ extern std::string lut_export_error_message;
                 break;
             }
 
-            case ump::NodeType::LOOK: {
-                auto* lookNode = dynamic_cast<ump::LookNode*>(node);
+            case qcview::NodeType::LOOK: {
+                auto* lookNode = dynamic_cast<qcview::LookNode*>(node);
                 if (lookNode && !lookNode->GetLook().empty()) {
                     look_chain.push_back(lookNode->GetLook());
                     Debug::Log("  Look #" + std::to_string(look_chain.size()) + ": " + lookNode->GetLook());
@@ -759,8 +759,8 @@ extern std::string lut_export_error_message;
                 break;
             }
 
-            case ump::NodeType::SCENE_LUT: {
-                auto* lutNode = dynamic_cast<ump::SceneLUTNode*>(node);
+            case qcview::NodeType::SCENE_LUT: {
+                auto* lutNode = dynamic_cast<qcview::SceneLUTNode*>(node);
                 if (lutNode && !lutNode->GetLUTPath().empty()) {
                     scene_lut_files.push_back(lutNode->GetLUTPath());
                     Debug::Log("  Scene LUT: " + lutNode->GetLUTFileName());
@@ -768,8 +768,8 @@ extern std::string lut_export_error_message;
                 break;
             }
 
-            case ump::NodeType::DISPLAY_LUT: {
-                auto* lutNode = dynamic_cast<ump::DisplayLUTNode*>(node);
+            case qcview::NodeType::DISPLAY_LUT: {
+                auto* lutNode = dynamic_cast<qcview::DisplayLUTNode*>(node);
                 if (lutNode && !lutNode->GetLUTPath().empty()) {
                     display_lut_files.push_back(lutNode->GetLUTPath());
                     Debug::Log("  Display LUT: " + lutNode->GetLUTFileName());
@@ -777,8 +777,8 @@ extern std::string lut_export_error_message;
                 break;
             }
 
-            case ump::NodeType::OUTPUT_DISPLAY: {
-                auto* displayNode = dynamic_cast<ump::OutputDisplayNode*>(node);
+            case qcview::NodeType::OUTPUT_DISPLAY: {
+                auto* displayNode = dynamic_cast<qcview::OutputDisplayNode*>(node);
                 if (displayNode) {
                     display = displayNode->GetDisplay();
                     view = displayNode->GetView();

@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Color presets, component palette, node tree save/load
 // ============================================================================
 
@@ -21,14 +21,20 @@ extern ImFont* font_bold;
 extern ImFont* font_icons;
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
 
-ImVec4 GetWindowsAccentColor();
+// Icons for Config tab sections
+#define ICON_INPUT_CS      "\xEF\xA0\x96"   // U+F816
+#define ICON_LOOKS         "\xEE\xAB\xB5"   // U+EAF5
+#define ICON_LUT           "\xEE\x8F\xB5"   // U+E3F5
+#define ICON_OUTPUT_DISP   "\xEF\xA0\x9B"   // U+F81B
+// Icon for Presets tab headers and sub-items
+#define ICON_COLOR_ITEM    "\xEF\x94\x80"   // U+F500
 
-// Helper: draw a transparent accent-colored icon inline before a Selectable
+// Helper: draw a transparent text-colored icon inline before a Selectable
 static void DrawItemIcon(const char* icon) {
     if (font_icons) {
         ImGui::PushFont(font_icons);
-        ImVec4 accent = GetWindowsAccentColor();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(accent.x, accent.y, accent.z, 0.4f));
+        ImVec4 text_col = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(text_col.x, text_col.y, text_col.z, 0.4f));
         ImGui::Text("%s", icon);
         ImGui::PopStyleColor();
         ImGui::PopFont();
@@ -106,14 +112,14 @@ static void DrawItemIcon(const char* icon) {
 
         // Input colorspaces
         PushOutlineHeaderStyle();
-        if (CollapsingHeaderWithIcon("    Input Colorspaces##ConfigTab", font_icons, ICON_COLOR_PROFILES, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    Input Colorspaces##ConfigTab", font_icons, ICON_INPUT_CS, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("InputCS");  // Unique scope for input colorspaces
             ImGui::Indent(8.0f);
             auto colorspaces = ocio_manager->GetInputColorSpaces();
             int cs_idx = 0;
             for (const auto& cs : colorspaces) {
                 ImGui::PushID(cs_idx++);
-                DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+                DrawItemIcon(ICON_INPUT_CS);
                 if (font_regular) ImGui::PushFont(font_regular);
                 ImGui::Selectable(cs.c_str());
                 if (font_regular) ImGui::PopFont();
@@ -122,7 +128,7 @@ static void DrawItemIcon(const char* icon) {
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (node_manager) {
                         node_manager->SetPendingNodeCreation(
-                            ump::NodeType::INPUT_COLORSPACE, cs);
+                            qcview::NodeType::INPUT_COLORSPACE, cs);
                         Debug::Log("Double-clicked to create: " + cs);
                         UpdateColorPipeline();
                     }
@@ -131,12 +137,12 @@ static void DrawItemIcon(const char* icon) {
                 // Drag source - use SourceAllowNullID flag
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                     struct DragPayload {
-                        ump::NodeType type;
+                        qcview::NodeType type;
                         char name[256];
                     };
 
                     DragPayload payload;
-                    payload.type = ump::NodeType::INPUT_COLORSPACE;
+                    payload.type = qcview::NodeType::INPUT_COLORSPACE;
                     strncpy_s(payload.name, sizeof(payload.name), cs.c_str(), _TRUNCATE);
 
                     ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
@@ -155,13 +161,13 @@ static void DrawItemIcon(const char* icon) {
         auto looks = ocio_manager->GetLooks();
         if (!looks.empty()) {
             PushOutlineHeaderStyle();
-            if (CollapsingHeaderWithIcon("    Looks##ConfigTab", font_icons, ICON_COLOR_PROFILES, GetWindowsAccentColor())) {
+            if (CollapsingHeaderWithIcon("    Looks##ConfigTab", font_icons, ICON_LOOKS, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
                 ImGui::PushID("Looks");  // Unique scope for looks
                 ImGui::Indent(8.0f);
                 int look_idx = 0;
                 for (const auto& look : looks) {
                     ImGui::PushID(look_idx++);
-                    DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+                    DrawItemIcon(ICON_LOOKS);
                     if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::Selectable(look.c_str());
                     if (font_regular) ImGui::PopFont();
@@ -170,7 +176,7 @@ static void DrawItemIcon(const char* icon) {
                     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         if (node_manager) {
                             node_manager->SetPendingNodeCreation(
-                                ump::NodeType::LOOK, look);
+                                qcview::NodeType::LOOK, look);
                             Debug::Log("Double-clicked to create: " + look);
                             UpdateColorPipeline();
                         }
@@ -179,12 +185,12 @@ static void DrawItemIcon(const char* icon) {
                     // Drag source
                     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                         struct DragPayload {
-                            ump::NodeType type;
+                            qcview::NodeType type;
                             char name[256];
                         };
 
                         DragPayload payload;
-                        payload.type = ump::NodeType::LOOK;
+                        payload.type = qcview::NodeType::LOOK;
                         strncpy_s(payload.name, sizeof(payload.name), look.c_str(), _TRUNCATE);
 
                         ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
@@ -202,11 +208,11 @@ static void DrawItemIcon(const char* icon) {
 
         // LUT
         PushOutlineHeaderStyle();
-        if (CollapsingHeaderWithIcon("    LUT##ConfigTab", font_icons, ICON_COLOR_PROFILES, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    LUT##ConfigTab", font_icons, ICON_LUT, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::Indent(8.0f);
             // Scene-Referred LUT (applied before display transform)
             ImGui::PushID("SceneLUT##ConfigTab");
-            DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+            DrawItemIcon(ICON_LUT);
             if (font_regular) ImGui::PushFont(font_regular);
             ImGui::Selectable("Scene-Referred LUT");
             if (font_regular) ImGui::PopFont();
@@ -214,7 +220,7 @@ static void DrawItemIcon(const char* icon) {
             // Double-click to create node
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 if (node_manager) {
-                    node_manager->SetPendingNodeCreation(ump::NodeType::SCENE_LUT, "");
+                    node_manager->SetPendingNodeCreation(qcview::NodeType::SCENE_LUT, "");
                     Debug::Log("Double-clicked to create Scene LUT node");
                 }
             }
@@ -222,11 +228,11 @@ static void DrawItemIcon(const char* icon) {
             // Drag source
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 struct DragPayload {
-                    ump::NodeType type;
+                    qcview::NodeType type;
                     char path[512];
                 };
                 DragPayload payload;
-                payload.type = ump::NodeType::SCENE_LUT;
+                payload.type = qcview::NodeType::SCENE_LUT;
                 payload.path[0] = '\0';  // Empty path
 
                 ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
@@ -237,7 +243,7 @@ static void DrawItemIcon(const char* icon) {
 
             // Display-Referred LUT (applied after display transform)
             ImGui::PushID("DisplayLUT##ConfigTab");
-            DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+            DrawItemIcon(ICON_LUT);
             if (font_regular) ImGui::PushFont(font_regular);
             ImGui::Selectable("Display-Referred LUT");
             if (font_regular) ImGui::PopFont();
@@ -245,7 +251,7 @@ static void DrawItemIcon(const char* icon) {
             // Double-click to create node
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                 if (node_manager) {
-                    node_manager->SetPendingNodeCreation(ump::NodeType::DISPLAY_LUT, "");
+                    node_manager->SetPendingNodeCreation(qcview::NodeType::DISPLAY_LUT, "");
                     Debug::Log("Double-clicked to create Display LUT node");
                 }
             }
@@ -253,11 +259,11 @@ static void DrawItemIcon(const char* icon) {
             // Drag source
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 struct DragPayload {
-                    ump::NodeType type;
+                    qcview::NodeType type;
                     char path[512];
                 };
                 DragPayload payload;
-                payload.type = ump::NodeType::DISPLAY_LUT;
+                payload.type = qcview::NodeType::DISPLAY_LUT;
                 payload.path[0] = '\0';  // Empty path
 
                 ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
@@ -273,13 +279,13 @@ static void DrawItemIcon(const char* icon) {
         auto displays = ocio_manager->GetDisplays();
         if (!displays.empty()) {
             PushOutlineHeaderStyle();
-            if (CollapsingHeaderWithIcon("    Output Displays##ConfigTab", font_icons, ICON_COLOR_PROFILES, GetWindowsAccentColor())) {
+            if (CollapsingHeaderWithIcon("    Output Displays##ConfigTab", font_icons, ICON_OUTPUT_DISP, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
                 ImGui::PushID("OutputDisp");  // Unique scope for output displays
                 ImGui::Indent(8.0f);
                 int display_idx = 0;
                 for (const auto& display : displays) {
                     ImGui::PushID(display_idx++);
-                    DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+                    DrawItemIcon(ICON_OUTPUT_DISP);
                     if (font_regular) ImGui::PushFont(font_regular);
                     ImGui::Selectable(display.c_str());
                     if (font_regular) ImGui::PopFont();
@@ -288,7 +294,7 @@ static void DrawItemIcon(const char* icon) {
                     if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         if (node_manager) {
                             node_manager->SetPendingNodeCreation(
-                                ump::NodeType::OUTPUT_DISPLAY, display);
+                                qcview::NodeType::OUTPUT_DISPLAY, display);
                             Debug::Log("Double-clicked to create: " + display);
                             UpdateColorPipeline();
                         }
@@ -297,12 +303,12 @@ static void DrawItemIcon(const char* icon) {
                     // Drag source
                     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                         struct DragPayload {
-                            ump::NodeType type;
+                            qcview::NodeType type;
                             char name[256];
                         };
 
                         DragPayload payload;
-                        payload.type = ump::NodeType::OUTPUT_DISPLAY;
+                        payload.type = qcview::NodeType::OUTPUT_DISPLAY;
                         strncpy_s(payload.name, sizeof(payload.name), display.c_str(), _TRUNCATE);
 
                         ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
@@ -337,7 +343,7 @@ static void DrawItemIcon(const char* icon) {
         PushOutlineHeaderStyle();
 
         // Standard Presets (Top priority - using Blender config)
-        if (CollapsingHeaderWithIcon("    Standard##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    Standard##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("StandardPresets##Tab");
             ImGui::Indent(8.0f);
             CreateStandardPresets();
@@ -346,7 +352,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // ACES 1.3 Presets
-        if (CollapsingHeaderWithIcon("    ACES 1.3##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    ACES 1.3##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("ACES13Presets##Tab");
             ImGui::Indent(8.0f);
             CreateACESPresets();
@@ -355,7 +361,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // ACES 2.0 Presets
-        if (CollapsingHeaderWithIcon("    ACES 2.0##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    ACES 2.0##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("ACES20Presets##Tab");
             ImGui::Indent(8.0f);
             CreateACES20Presets();
@@ -364,7 +370,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // Blender 4.5 Presets
-        if (CollapsingHeaderWithIcon("    Blender 4.5##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    Blender 4.5##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("Blender45Presets##Tab");
             ImGui::Indent(8.0f);
             CreateBlenderPresets();
@@ -373,7 +379,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // Blender 5.0 Presets
-        if (CollapsingHeaderWithIcon("    Blender 5.0##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    Blender 5.0##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("Blender50Presets##Tab");
             ImGui::Indent(8.0f);
             CreateBlender5Presets();
@@ -382,7 +388,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // Custom Presets
-        if (CollapsingHeaderWithIcon("    Custom##PresetsTab", font_icons, ICON_COLOR_PRESETS, GetWindowsAccentColor())) {
+        if (CollapsingHeaderWithIcon("    Custom##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("CustomPresets##Tab");
             ImGui::Indent(8.0f);
             CreateCustomPresets();
@@ -403,12 +409,12 @@ static void DrawItemIcon(const char* icon) {
         // ACES presets using alias resolver
 
         if (font_regular) ImGui::PushFont(font_regular);
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB")) {
             ApplyAliasPreset("lin_ap1", "srgb_display", "ACES 1.0 - SDR Video");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACES2065-1 -> sRGB")) {
             ApplyAliasPreset("aces2065_1", "srgb_display", "ACES 1.0 - SDR Video");
         }
@@ -424,7 +430,7 @@ static void DrawItemIcon(const char* icon) {
         if (font_regular) ImGui::PushFont(font_regular);
 
         // SDR preset: Rec.709 -> sRGB
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Rec.709 -> sRGB")) {
             // Uses Rec.1886 input (gamma corrected) to sRGB Standard output
             ApplyPreset(R"({
@@ -442,7 +448,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // HDR presets: SDR to Windows HDR (Rec.2100-PQ)
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("sRGB to Windows HDR")) {
             ApplyPreset(R"JSON({
                 "name": "sRGB to Windows HDR",
@@ -458,7 +464,7 @@ static void DrawItemIcon(const char* icon) {
             ImGui::SetTooltip("sRGB to Rec.2100-PQ (HDR10) colorimetric transform\nFor Windows HDR output");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Rec.709 to Windows HDR")) {
             ApplyPreset(R"JSON({
                 "name": "Rec.709 to Windows HDR",
@@ -480,7 +486,7 @@ static void DrawItemIcon(const char* icon) {
     void Application::CreateBlenderPresets() {
         if (font_regular) ImGui::PushFont(font_regular);
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB Standard",
@@ -493,7 +499,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB AgX",
@@ -513,7 +519,7 @@ static void DrawItemIcon(const char* icon) {
         if (font_regular) ImGui::PushFont(font_regular);
 
         // Use ## to add unique IDs to prevent ImGui ID collisions with Blender 4.5 presets
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard##B5")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB Standard",
@@ -526,7 +532,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX##B5")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB AgX",
@@ -539,7 +545,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB ACES 2.0##B5")) {
             ApplyPreset(R"({
                 "name": "ACEScg to sRGB ACES 2.0",
@@ -552,7 +558,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB AgX##B5")) {
             ApplyPreset(R"({
                 "name": "ACEScg to sRGB AgX",
@@ -565,7 +571,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB ACES 1.3##B5")) {
             ApplyPreset(R"({
                 "name": "ACEScg to sRGB ACES 1.3",
@@ -578,7 +584,7 @@ static void DrawItemIcon(const char* icon) {
             })");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.2020 -> Rec.2100-PQ HDR 1000 nits##B5")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.2020 to Rec.2100-PQ HDR 1000 nits",
@@ -598,7 +604,7 @@ static void DrawItemIcon(const char* icon) {
         if (font_regular) ImGui::PushFont(font_regular);
 
         // Use ##A20 to add unique IDs for ACES 2.0 presets
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 1000 nits##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACEScg to Rec.2100-PQ HDR 1000 nits",
@@ -612,7 +618,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // Video (colorimetric) presets
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACES2065-1 -> sRGB Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACES2065-1 to sRGB Video (colorimetric)",
@@ -625,7 +631,7 @@ static void DrawItemIcon(const char* icon) {
             })JSON");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACEScg to sRGB Video (colorimetric)",
@@ -638,7 +644,7 @@ static void DrawItemIcon(const char* icon) {
             })JSON");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACES2065-1 -> P3-D65 Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACES2065-1 to P3-D65 Video (colorimetric)",
@@ -651,7 +657,7 @@ static void DrawItemIcon(const char* icon) {
             })JSON");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> P3-D65 Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACEScg to P3-D65 Video (colorimetric)",
@@ -665,7 +671,7 @@ static void DrawItemIcon(const char* icon) {
         }
 
         // HDR 500 nits presets
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACES2065-1 -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACES2065-1 to Rec.2100-PQ HDR 500 nits (Rec.2020)",
@@ -678,7 +684,7 @@ static void DrawItemIcon(const char* icon) {
             })JSON");
         }
 
-        DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+        DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
             ApplyPreset(R"JSON({
                 "name": "ACEScg to Rec.2100-PQ HDR 500 nits (Rec.2020)",
@@ -697,7 +703,7 @@ static void DrawItemIcon(const char* icon) {
     std::string Application::GetNodeTreesFolder() {
         const char* localappdata = std::getenv("LOCALAPPDATA");
         if (localappdata) {
-            std::filesystem::path nodes_path = std::filesystem::path(localappdata) / "ump" / "nodes";
+            std::filesystem::path nodes_path = std::filesystem::path(localappdata) / "qcview" / "nodes";
 
             // Create directory if it doesn't exist
             if (!std::filesystem::exists(nodes_path)) {
@@ -763,8 +769,8 @@ static void DrawItemIcon(const char* icon) {
 
                 // Store type-specific data
                 switch (node->GetType()) {
-                    case ump::NodeType::INPUT_COLORSPACE: {
-                        auto* cs_node = dynamic_cast<ump::InputColorSpaceNode*>(node);
+                    case qcview::NodeType::INPUT_COLORSPACE: {
+                        auto* cs_node = dynamic_cast<qcview::InputColorSpaceNode*>(node);
                         if (cs_node) {
                             node_obj["type"] = "INPUT_COLORSPACE";
                             node_obj["data"] = cs_node->GetColorSpace();
@@ -772,8 +778,8 @@ static void DrawItemIcon(const char* icon) {
                         }
                         break;
                     }
-                    case ump::NodeType::LOOK: {
-                        auto* look_node = dynamic_cast<ump::LookNode*>(node);
+                    case qcview::NodeType::LOOK: {
+                        auto* look_node = dynamic_cast<qcview::LookNode*>(node);
                         if (look_node) {
                             node_obj["type"] = "LOOK";
                             node_obj["data"] = look_node->GetLook();
@@ -781,8 +787,8 @@ static void DrawItemIcon(const char* icon) {
                         }
                         break;
                     }
-                    case ump::NodeType::SCENE_LUT: {
-                        auto* lut_node = dynamic_cast<ump::SceneLUTNode*>(node);
+                    case qcview::NodeType::SCENE_LUT: {
+                        auto* lut_node = dynamic_cast<qcview::SceneLUTNode*>(node);
                         if (lut_node) {
                             node_obj["type"] = "SCENE_LUT";
                             node_obj["data"] = lut_node->GetLUTPath();
@@ -790,8 +796,8 @@ static void DrawItemIcon(const char* icon) {
                         }
                         break;
                     }
-                    case ump::NodeType::DISPLAY_LUT: {
-                        auto* lut_node = dynamic_cast<ump::DisplayLUTNode*>(node);
+                    case qcview::NodeType::DISPLAY_LUT: {
+                        auto* lut_node = dynamic_cast<qcview::DisplayLUTNode*>(node);
                         if (lut_node) {
                             node_obj["type"] = "DISPLAY_LUT";
                             node_obj["data"] = lut_node->GetLUTPath();
@@ -799,8 +805,8 @@ static void DrawItemIcon(const char* icon) {
                         }
                         break;
                     }
-                    case ump::NodeType::OUTPUT_DISPLAY: {
-                        auto* output_node = dynamic_cast<ump::OutputDisplayNode*>(node);
+                    case qcview::NodeType::OUTPUT_DISPLAY: {
+                        auto* output_node = dynamic_cast<qcview::OutputDisplayNode*>(node);
                         if (output_node) {
                             node_obj["type"] = "OUTPUT_DISPLAY";
                             node_obj["display"] = output_node->GetDisplay();
@@ -884,7 +890,7 @@ static void DrawItemIcon(const char* icon) {
 
             // Write to file
             std::string folder = GetNodeTreesFolder();
-            std::string file_path = folder + "/" + name + ".umpnode";
+            std::string file_path = folder + "/" + name + ".qcvnode";
 
             std::ofstream file(file_path);
             if (!file.is_open()) {
@@ -913,7 +919,7 @@ static void DrawItemIcon(const char* icon) {
 
         try {
             for (const auto& entry : std::filesystem::directory_iterator(folder)) {
-                if (entry.is_regular_file() && entry.path().extension() == ".umpnode") {
+                if (entry.is_regular_file() && entry.path().extension() == ".qcvnode") {
                     std::string name = entry.path().stem().string();
                     custom_node_trees.push_back(name);
                 }
@@ -929,7 +935,7 @@ static void DrawItemIcon(const char* icon) {
     void Application::LoadNodeTreeFromFile(const std::string& name) {
         try {
             std::string folder = GetNodeTreesFolder();
-            std::string file_path = folder + "/" + name + ".umpnode";
+            std::string file_path = folder + "/" + name + ".qcvnode";
 
             std::ifstream file(file_path);
             if (!file.is_open()) {
@@ -955,7 +961,7 @@ static void DrawItemIcon(const char* icon) {
     void Application::DeleteNodeTree(const std::string& name) {
         try {
             std::string folder = GetNodeTreesFolder();
-            std::string file_path = folder + "/" + name + ".umpnode";
+            std::string file_path = folder + "/" + name + ".qcvnode";
 
             if (std::filesystem::exists(file_path)) {
                 std::filesystem::remove(file_path);
@@ -980,7 +986,7 @@ static void DrawItemIcon(const char* icon) {
         for (const auto& tree_name : custom_node_trees) {
             ImGui::PushID(tree_name.c_str());
 
-            DrawItemIcon(ICON_COLOR_PROFILE_ENTRY);
+            DrawItemIcon(ICON_COLOR_ITEM);
             if (ImGui::Selectable(tree_name.c_str())) {
                 LoadNodeTreeFromFile(tree_name);
             }
@@ -1157,7 +1163,7 @@ static void DrawItemIcon(const char* icon) {
                 node_id = node_manager->CreateOutputDisplayNode(node_data.display, node_data.position);
 
                 // CRITICAL: Set both display and view with aliases for config portability
-                auto* display_node = dynamic_cast<ump::OutputDisplayNode*>(node_manager->GetNode(node_id));
+                auto* display_node = dynamic_cast<qcview::OutputDisplayNode*>(node_manager->GetNode(node_id));
                 if (display_node) {
                     if (!node_data.display_alias.empty()) {
                         display_node->SetDisplayWithAlias(node_data.display, node_data.display_alias);
@@ -1295,7 +1301,7 @@ static void DrawItemIcon(const char* icon) {
             return;
         }
 
-        auto* display_node = dynamic_cast<ump::OutputDisplayNode*>(base_node);
+        auto* display_node = dynamic_cast<qcview::OutputDisplayNode*>(base_node);
         if (!display_node) {
             Debug::Log("ERROR: Failed to cast to OutputDisplayNode");
             return;

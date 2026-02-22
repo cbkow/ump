@@ -17,7 +17,7 @@ extern "C" {
 #include <libavfilter/buffersink.h>
 }
 
-namespace ump {
+namespace qcview {
 
 /**
  * FFMPEGVideoEncoder
@@ -228,4 +228,4 @@ private:
     bool use_filter_graph_ = false;
 };
 
-} // namespace ump
+} // namespace qcview

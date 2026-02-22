@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Menu bar (File, Edit, View, Timeline, Playback, Color, Tools, Help menus)
 // ============================================================================
 
@@ -44,9 +44,9 @@ extern bool otio_timeline_mode;
 extern bool otio_dual_view_mode;
 extern bool otio_dual_view_split_mode;
 extern bool show_delete_prefs_confirm;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
 
 // Screenshot flash state
 struct ScreenshotFlashState {
@@ -427,9 +427,9 @@ extern bool show_notification_permanent;
                 if (has_selected && project_manager) {
                     auto selected_items = project_manager->GetSelectedItems();
                     for (const auto& item : selected_items) {
-                        if (item.type == ump::MediaType::IMAGE_SEQUENCE ||
-                            item.type == ump::MediaType::EXR_SEQUENCE ||
-                            item.type == ump::MediaType::VIDEO) {
+                        if (item.type == qcview::MediaType::IMAGE_SEQUENCE ||
+                            item.type == qcview::MediaType::EXR_SEQUENCE ||
+                            item.type == qcview::MediaType::VIDEO) {
                             can_transcode = true;
                             break;
                         }
@@ -596,10 +596,10 @@ extern bool show_notification_permanent;
 
                 // Check OTIO timeline mode first
                 if (otio_timeline_mode && timeline_view) {
-                    ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                    qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
                     auto* controller = timeline_view->GetEffectivePlaybackController();
 
-                    if (source_mode == ump::TimelineSourceMode::AUDIO_FILE) {
+                    if (source_mode == qcview::TimelineSourceMode::AUDIO_FILE) {
                         is_audio_only = true;
                     } else {
                         has_media = true;
@@ -619,7 +619,7 @@ extern bool show_notification_permanent;
                             bool is_png = (ext == ".png");
 
                             // Check if it's an image sequence
-                            is_image_sequence = (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) ||
+                            is_image_sequence = (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE) ||
                                                 (ext == ".exr") || is_tiff || is_png || (ext == ".jpg" || ext == ".jpeg");
 
                             // Use pipeline mode to determine format (more reliable than extension)
@@ -749,7 +749,7 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Auto (Detect)", nullptr, cache_settings.video_range_mode == 0)) {
                     if (cache_settings.video_range_mode != 0) {
                         cache_settings.video_range_mode = 0;
-                        ump::g_video_range_override = VideoRangeMode::AUTO;
+                        qcview::g_video_range_override = VideoRangeMode::AUTO;
                         SaveSettings();
                         Debug::Log("Video range mode set to AUTO - deferring reload");
                         g_force_reload_pending = true;  // Defer to next frame start
@@ -761,7 +761,7 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Full Range", nullptr, cache_settings.video_range_mode == 1)) {
                     if (cache_settings.video_range_mode != 1) {
                         cache_settings.video_range_mode = 1;
-                        ump::g_video_range_override = VideoRangeMode::FULL;
+                        qcview::g_video_range_override = VideoRangeMode::FULL;
                         SaveSettings();
                         Debug::Log("Video range mode set to FULL - deferring reload");
                         g_force_reload_pending = true;  // Defer to next frame start
@@ -773,7 +773,7 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Limited Range", nullptr, cache_settings.video_range_mode == 2)) {
                     if (cache_settings.video_range_mode != 2) {
                         cache_settings.video_range_mode = 2;
-                        ump::g_video_range_override = VideoRangeMode::LIMITED;
+                        qcview::g_video_range_override = VideoRangeMode::LIMITED;
                         SaveSettings();
                         Debug::Log("Video range mode set to LIMITED - deferring reload");
                         g_force_reload_pending = true;  // Defer to next frame start
@@ -815,7 +815,7 @@ extern bool show_notification_permanent;
                 ImGui::TextDisabled("Auto:");
 
 #ifdef _WIN32
-                bool hdr_active = ump::HDROutputManager::Instance().IsHDRActive();
+                bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
 #else
                 bool hdr_active = false;
 #endif
@@ -852,7 +852,7 @@ extern bool show_notification_permanent;
                 ImGui::Separator();
                 ImGui::TextDisabled("Advanced:");
 
-                if (ImGui::MenuItem("u.m.p. Settings...")) {
+                if (ImGui::MenuItem("QCView Settings...")) {
                     show_cache_settings = true;
                 }
 
@@ -870,18 +870,18 @@ extern bool show_notification_permanent;
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About u.m.p. v0.9.9");
+                ImGui::TextDisabled("About QCView v1.0.0");
 
                 if (ImGui::MenuItem("Manual")) {
-                    ShellExecuteA(NULL, "open", "https://cbkow.github.io/ump/", NULL, NULL, SW_SHOWNORMAL);
+                    ShellExecuteA(NULL, "open", "https://qcview.app/", NULL, NULL, SW_SHOWNORMAL);
                 }
 
                 if (ImGui::MenuItem("License")) {
-                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/blob/main/LICENSE", NULL, NULL, SW_SHOWNORMAL);
+                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/blob/main/LICENSE", NULL, NULL, SW_SHOWNORMAL);
                 }
 
                 if (ImGui::MenuItem("Check for Updates")) {
-                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/ump/releases/", NULL, NULL, SW_SHOWNORMAL);
+                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/releases", NULL, NULL, SW_SHOWNORMAL);
                 }
 
                 ImGui::EndMenu();

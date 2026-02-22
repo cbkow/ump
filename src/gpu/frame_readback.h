@@ -12,7 +12,7 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 }
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // FrameReadback
@@ -135,6 +135,6 @@ private:
     bool initialized_ = false;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

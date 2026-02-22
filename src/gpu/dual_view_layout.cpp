@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // ComputeAspectFitRect
@@ -217,4 +217,4 @@ DualViewLayout ComputeDualViewLayout(int left_width, int left_height,
     return layout;
 }
 
-} // namespace ump
+} // namespace qcview

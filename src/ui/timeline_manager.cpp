@@ -43,7 +43,7 @@ TimelineManager::TimelineManager()
 TimelineManager::~TimelineManager() {
 }
 
-void TimelineManager::SetProjectManager(ump::ProjectManager* pm) {
+void TimelineManager::SetProjectManager(qcview::ProjectManager* pm) {
     project_manager = pm;
     TimelineDebugLog("ProjectManager reference set");
 }

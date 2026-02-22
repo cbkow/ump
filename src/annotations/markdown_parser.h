@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 // Convert basic markdown to HTML.
@@ -44,4 +44,4 @@ struct InlineSegment {
 std::vector<InlineSegment> ParseInlineCodeSegments(const std::string& text);
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

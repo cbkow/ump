@@ -7,7 +7,7 @@
 #include <cmath>
 #include <chrono>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor / Destructor
@@ -356,4 +356,4 @@ void AudioPlayer::ProcessAudio(float* output, unsigned int frame_count) {
     }
 }
 
-} // namespace ump
+} // namespace qcview

@@ -7,7 +7,7 @@
 #include <functional>
 #include <atomic>
 
-namespace ump {
+namespace qcview {
 
 // Global cache key for identifying entries across all cache types
 struct GlobalCacheKey {
@@ -153,4 +153,4 @@ inline GlobalCacheKey MakeVideoKey(const std::string& path, int frame) {
     return {GlobalCacheKey::Source::STANDALONE_VIDEO, path, frame};
 }
 
-} // namespace ump
+} // namespace qcview

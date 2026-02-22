@@ -18,7 +18,7 @@ extern "C" {
 #include <libavutil/pixfmt.h>
 }
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // EXR Transcode Configuration
@@ -106,7 +106,7 @@ public:
     size_t ClearAllTranscodes();
 
 private:
-    // Setup default cache directory (%LOCALAPPDATA%/ump/EXRtranscodes/)
+    // Setup default cache directory (%LOCALAPPDATA%/qcview/EXRtranscodes/)
     void SetupDefaultCacheDirectory();
 
     // Transcode worker thread
@@ -174,4 +174,4 @@ private:
     std::atomic<int> failed_count_{0};
 };
 
-} // namespace ump
+} // namespace qcview

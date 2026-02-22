@@ -10,7 +10,7 @@
 // Forward declaration - OCIOPipeline is in global namespace
 class OCIOPipeline;
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11OCIORenderer
@@ -165,6 +165,6 @@ float4 PSMain(PSInput input) : SV_TARGET {
 }
 )";
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

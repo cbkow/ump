@@ -26,7 +26,7 @@ extern std::unique_ptr<OCIOConfigManager> ocio_manager;
 // External transcode performance settings (defined in main.cpp)
 #include "../transcode/transcode_settings.h"
 
-namespace ump {
+namespace qcview {
 
 // ============================================================================
 // INITIALIZATION (Add to ProjectManager constructor)
@@ -554,7 +554,7 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
             tc.fps = item.frame_rate > 0 ? item.frame_rate : 24.0;  // Use video's native FPS
 
             // Use precise FFmpeg duration for transcoder (not rounded through frame count)
-            double precise_duration = ump::FFmpegMetadataExtractor::ProbeDuration(item.path);
+            double precise_duration = qcview::FFmpegMetadataExtractor::ProbeDuration(item.path);
             tc.video_duration = (precise_duration > 0) ? precise_duration : item.duration;
             Debug::Log("Transcode: Using precise duration = " + std::to_string(tc.video_duration) + "s (item.duration was " + std::to_string(item.duration) + "s)");
 
@@ -911,4 +911,4 @@ void ProjectManager::ProcessAddToTranscodeQueue() {
     ShowTranscodeQueueWindow();
 }
 
-} // namespace ump
+} // namespace qcview

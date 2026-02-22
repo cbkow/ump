@@ -6,7 +6,7 @@
 // NanoVG GL3 implementation (NANOVG_GL3_IMPLEMENTATION is defined in CMakeLists.txt)
 #include <nanovg_gl.h>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 NanoVGContext& NanoVGContext::Instance() {
@@ -79,4 +79,4 @@ void NanoVGContext::EndFrame() {
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

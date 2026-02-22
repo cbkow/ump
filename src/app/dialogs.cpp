@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Dialog windows (cache stats, audio diagnostics, transcode, settings, etc.)
 // ============================================================================
 
@@ -46,7 +46,7 @@ extern std::string stats_bar_notification_message;
 extern std::chrono::steady_clock::time_point notification_start_time;
 extern float notification_timeout_seconds;
 extern bool show_notification_permanent;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 
 // Transcode globals
 extern bool show_transcode_progress;
@@ -75,7 +75,7 @@ extern int g_video_decode_threads;
 // Pressure monitoring globals
 extern bool show_pressure_critical_dialog;
 extern bool in_emergency_mode;
-extern ump::SystemPressureStatus last_pressure_status;
+extern qcview::SystemPressureStatus last_pressure_status;
 extern bool exr_cache_was_active;
 extern std::string exr_video_path_before_shutdown;
 
@@ -98,7 +98,7 @@ constexpr float FONT_SCALE_LARGE = 1.25f;
 constexpr float FONT_SCALE_XLARGE = 1.5f;
 
 // Free functions defined in main.cpp
-ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
+qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
 void AutoConfigureEXRThreading(CacheSettings& settings);
 
     void Application::CreateCacheStatsWindow() {
@@ -215,7 +215,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             // Dual View Audio (AudioPlayer)
             PushOutlineHeaderStyle();
             if (ImGui::CollapsingHeader("Dual View Audio (AudioPlayer)", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ump::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
+                qcview::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
                 if (audio) {
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "AudioPlayer: ACTIVE");
                     ImGui::Text("  Initialized: %s", audio->IsInitialized() ? "Yes" : "No");
@@ -250,8 +250,8 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
             // Timeline Audio (AudioMixer)
             if (ImGui::CollapsingHeader("Timeline Audio (AudioMixer)", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ump::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
-                ump::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
+                qcview::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
+                qcview::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
 
                 if (mixer) {
                     ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "AudioMixer: ACTIVE");
@@ -284,11 +284,11 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::Text("Quick Controls:");
             PushOutlineButtonStyle();
             if (ImGui::Button("Test: Play Audio")) {
-                ump::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
+                qcview::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
                 if (audio && audio->IsInitialized()) audio->Play();
 
-                ump::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
-                ump::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
+                qcview::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
+                qcview::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
                 if (mixer && mixer->IsInitialized()) mixer->Play();
             }
             PopOutlineButtonStyle();
@@ -297,11 +297,11 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
             PushOutlineButtonStyle();
             if (ImGui::Button("Test: Pause Audio")) {
-                ump::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
+                qcview::AudioPlayer* audio = video_player ? video_player->GetDualViewAudio() : nullptr;
                 if (audio) audio->Pause();
 
-                ump::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
-                ump::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
+                qcview::TimelinePlaybackController* ctrl = timeline_view ? timeline_view->GetEffectivePlaybackController() : nullptr;
+                qcview::AudioMixer* mixer = ctrl ? ctrl->GetAudioMixer() : nullptr;
                 if (mixer) mixer->Pause();
             }
             PopOutlineButtonStyle();
@@ -629,7 +629,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::SameLine();
 
             PushOutlineButtonStyle();
-            if (ImGui::Button("Close ump", ImVec2(120, 0))) {
+            if (ImGui::Button("Close QCView", ImVec2(120, 0))) {
                 Debug::Log("User requested app shutdown from critical dialog");
                 exit(0);
             }
@@ -642,7 +642,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
     void Application::CreateCacheSettingsWindow() {
         // Open modal popup when flag is set
         if (show_cache_settings) {
-            ImGui::OpenPopup("u.m.p. Settings");
+            ImGui::OpenPopup("QCView Settings");
             show_cache_settings = false; // Reset flag, modal will handle its own state
         }
 
@@ -662,9 +662,9 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
         bool open = true;
 
         ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-        if (ImGui::BeginPopupModal("u.m.p. Settings", &open, modal_flags)) {
+        if (ImGui::BeginPopupModal("QCView Settings", &open, modal_flags)) {
 
-            ImGui::Text("u.m.p. Settings");
+            ImGui::Text("QCView Settings");
             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Configure video processing, cache, and memory settings");
             ImGui::Separator();
 
@@ -871,7 +871,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                     ImGui::PushItemWidth(-1);
                     if (font_regular) ImGui::PushFont(font_regular);
                     if (g_custom_cache_path.empty()) {
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\ump\\");
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\qcview\\");
                     } else {
                         ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", g_custom_cache_path.c_str());
                     }
@@ -1100,6 +1100,75 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                         ImGui::EndTabItem();
                     } // End Audio Sync tab
 
+                    // ── File Associations tab ──
+                    if (ImGui::BeginTabItem("File Associations")) {
+                        ImGui::Spacing();
+
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            "File associations are managed by Windows.\n"
+                            "Use the button below to open Windows Settings where you can set\n"
+                            "QCView as the default app for supported file types.");
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+
+                        PushOutlineButtonStyle();
+                        if (ImGui::Button("Open Default Apps Settings")) {
+                            ShellExecuteA(NULL, "open", "ms-settings:defaultapps", NULL, NULL, SW_SHOWNORMAL);
+                        }
+                        PopOutlineButtonStyle();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Project Files");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), ".qcv  .qcvproj  .qcvexr");
+                        if (font_regular) ImGui::PopFont();
+                        ImGui::Spacing();
+
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            ".mp4  .mkv  .avi  .mov  .wmv  .flv  .webm  .m4v\n"
+                            ".m2ts  .mts  .ts  .mxf  .ogv  .3gp");
+                        if (font_regular) ImGui::PopFont();
+                        ImGui::Spacing();
+
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            ".exr  .gif  .hdr  .tif  .tiff  .png  .jpg  .jpeg");
+                        if (font_regular) ImGui::PopFont();
+                        ImGui::Spacing();
+
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                            ".wav  .mp3  .aac  .flac  .ogg  .m4a  .wma");
+                        if (font_regular) ImGui::PopFont();
+                        ImGui::Spacing();
+
+                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Protocol");
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "qcview://");
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::Spacing();
+                        ImGui::Separator();
+                        ImGui::Spacing();
+
+                        if (font_regular) ImGui::PushFont(font_regular);
+                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                            "Tip: In Default Apps, search for \"QCView\" to find all\n"
+                            "file types that can be associated with this application.");
+                        if (font_regular) ImGui::PopFont();
+
+                        ImGui::EndTabItem();
+                    } // End File Associations tab
+
                     ImGui::EndTabBar();
                 } // End tab bar
                 ImGui::PopStyleColor();  // Border
@@ -1173,7 +1242,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
                 // Apply EXR-specific settings (NEW: DirectEXRCacheConfig)
                 if (video_player) {
-                    ump::DirectEXRCacheConfig exr_config = GetCurrentEXRCacheConfig();
+                    qcview::DirectEXRCacheConfig exr_config = GetCurrentEXRCacheConfig();
 
                     // Apply config through VideoPlayer
                     if (video_player->HasEXRCache()) {
@@ -1858,77 +1927,3 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
         }
     }
 
-    void Application::RenderShutdownModal() {
-        if (!is_shutting_down_) return;
-
-        // Update animation time (increment for smooth animation)
-        shutdown_animation_time_ += 0.016f; // ~60fps increment
-
-        // Get main viewport for fullscreen overlay and centering
-        ImGuiViewport* viewport = ImGui::GetMainViewport();
-        ImVec2 center = viewport->GetCenter();
-        ImVec2 display_size = viewport->Size;
-
-        // Scale with font size
-        const float ui_scale = ImGui::GetIO().FontGlobalScale;
-
-        // Use FOREGROUND draw list for EVERYTHING - this ensures it appears on top of all windows
-        // The foreground draw list is rendered AFTER all ImGui windows
-        ImDrawList* draw_list = ImGui::GetForegroundDrawList(viewport);
-
-        // Draw fullscreen dimmed overlay
-        draw_list->AddRectFilled(
-            viewport->Pos,
-            ImVec2(viewport->Pos.x + display_size.x, viewport->Pos.y + display_size.y),
-            IM_COL32(0, 0, 0, 185)  // Semi-transparent black (~72% opacity)
-        );
-
-        // Modal box dimensions and position (scaled with font)
-        const float modal_width = 350.0f * ui_scale;
-        const float modal_height = 160.0f * ui_scale;
-        const float corner_rounding = 4.0f * ui_scale;
-        ImVec2 modal_pos = ImVec2(center.x - modal_width * 0.5f, center.y - modal_height * 0.5f);
-        ImVec2 modal_end = ImVec2(modal_pos.x + modal_width, modal_pos.y + modal_height);
-
-        // Draw modal background with rounded corners
-        draw_list->AddRectFilled(
-            modal_pos, modal_end,
-            IM_COL32(33, 33, 33, 217),  // Dark gray, ~85% opacity
-            corner_rounding
-        );
-
-        // Draw modal border
-        draw_list->AddRect(
-            modal_pos, modal_end,
-            IM_COL32(77, 77, 89, 255),  // Subtle border
-            corner_rounding,
-            0,     // Flags
-            1.0f   // Thickness
-        );
-
-        // Text vertical positions (scaled)
-        const float title_y_offset = 35.0f * ui_scale;
-        const float status_y_offset = 70.0f * ui_scale;
-        const float wait_y_offset = 105.0f * ui_scale;
-
-        // Draw title text (centered)
-        const char* title = "Shutting Down ump...";
-        ImVec2 title_size = ImGui::CalcTextSize(title);
-        float title_x = modal_pos.x + (modal_width - title_size.x) * 0.5f;
-        float title_y = modal_pos.y + title_y_offset;
-        draw_list->AddText(ImVec2(title_x, title_y), UI_WHITE, title);
-
-        // Draw status text (centered)
-        const char* status = "Cleaning up GPU resources";
-        ImVec2 status_size = ImGui::CalcTextSize(status);
-        float status_x = modal_pos.x + (modal_width - status_size.x) * 0.5f;
-        float status_y = modal_pos.y + status_y_offset;
-        draw_list->AddText(ImVec2(status_x, status_y), IM_COL32(179, 179, 179, 255), status);
-
-        // Draw "Please wait..." text (centered)
-        const char* wait_text = "Please wait...";
-        ImVec2 wait_size = ImGui::CalcTextSize(wait_text);
-        float wait_x = modal_pos.x + (modal_width - wait_size.x) * 0.5f;
-        float wait_y = modal_pos.y + wait_y_offset;
-        draw_list->AddText(ImVec2(wait_x, wait_y), IM_COL32(153, 153, 153, 255), wait_text);
-    }

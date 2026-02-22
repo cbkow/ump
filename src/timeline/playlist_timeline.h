@@ -7,7 +7,7 @@
 
 #include "playlist_clip.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 struct MediaItem;
@@ -200,4 +200,4 @@ private:
     mutable int next_clip_id_ = 1;
 };
 
-} // namespace ump
+} // namespace qcview

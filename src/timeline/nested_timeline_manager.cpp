@@ -1,7 +1,7 @@
 #include "nested_timeline_manager.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 bool NestedTimelineManager::EnterNest(OTIOClip& clip,
                                        const std::vector<OTIOTrack>& current_tracks,
@@ -123,4 +123,4 @@ std::string NestedTimelineManager::GetCurrentNestedClipId() const {
     return current_nested_clip_id_;
 }
 
-} // namespace ump
+} // namespace qcview

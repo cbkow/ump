@@ -7,7 +7,7 @@
 
 #pragma comment(lib, "d3dcompiler.lib")
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // HLSL Shaders (embedded as strings)
@@ -587,6 +587,6 @@ void D3D11DualCompositor::RenderQuad(ID3D11ShaderResourceView* left_srv,
     context_->OMSetRenderTargets(1, &nullRTV, nullptr);
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -1,7 +1,7 @@
 #include "video_range_converter.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 // Simple vertex shader for fullscreen quad
 static const char* vertex_shader_source = R"(
@@ -269,4 +269,4 @@ GLuint VideoRangeConverter::Convert(GLuint input_texture, int width, int height,
     return output_texture_;
 }
 
-} // namespace ump
+} // namespace qcview

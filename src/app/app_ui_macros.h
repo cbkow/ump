@@ -6,13 +6,13 @@
 // These convert SDR colors to PQ-encoded values when HDR is active
 #ifdef _WIN32
 #include "hdr/hdr_output_manager.h"
-#define UI_WHITE ump::GetUIWhite(120.0f)
-#define UI_WHITE_A(a) ump::GetUIColor(IM_COL32(255, 255, 255, a), 120.0f)
-#define UI_COLOR(r,g,b,a) ump::GetUIColor(IM_COL32(r, g, b, a), 120.0f)
-#define UI_WHITE_VEC4 ump::GetUIColorVec4(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 120.0f)
-#define UI_GRAY_VEC4 ump::GetUIColorVec4(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), 120.0f)
-#define UI_LIGHT_GRAY ump::GetUIColor(IM_COL32(220, 220, 220, 255), 120.0f)
-#define UI_LIGHT_GRAY_A(a) ump::GetUIColor(IM_COL32(220, 220, 220, a), 120.0f)
+#define UI_WHITE qcview::GetUIWhite(120.0f)
+#define UI_WHITE_A(a) qcview::GetUIColor(IM_COL32(255, 255, 255, a), 120.0f)
+#define UI_COLOR(r,g,b,a) qcview::GetUIColor(IM_COL32(r, g, b, a), 120.0f)
+#define UI_WHITE_VEC4 qcview::GetUIColorVec4(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 120.0f)
+#define UI_GRAY_VEC4 qcview::GetUIColorVec4(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), 120.0f)
+#define UI_LIGHT_GRAY qcview::GetUIColor(IM_COL32(220, 220, 220, 255), 120.0f)
+#define UI_LIGHT_GRAY_A(a) qcview::GetUIColor(IM_COL32(220, 220, 220, a), 120.0f)
 #else
 // SDR fallback - no conversion needed
 #define UI_WHITE IM_COL32(255, 255, 255, 255)

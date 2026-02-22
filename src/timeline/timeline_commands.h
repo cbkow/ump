@@ -6,7 +6,7 @@
 #include <functional>
 #include "timeline_view.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class TimelineView;
@@ -337,4 +337,4 @@ private:
     bool executed_ = false;
 };
 
-} // namespace ump
+} // namespace qcview

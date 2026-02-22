@@ -7,7 +7,7 @@
 
 #pragma comment(lib, "d3dcompiler.lib")
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // HLSL Shaders (embedded as strings)
@@ -871,6 +871,6 @@ bool D3D11YUVRenderer::Render(ID3D11ShaderResourceView* srv_plane0,
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

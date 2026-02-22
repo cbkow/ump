@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ump VERSION 0.1.0 LANGUAGES CXX C)
+project(qcview VERSION 1.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -58,7 +58,7 @@ file(GLOB_RECURSE SOURCES
 
 # Create executable
 add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
-    "src/ump.manifest"
+    "src/qcview.manifest"
     "src/utils/exiftool_helper.h"
     "src/utils/exiftool_helper.cpp"
     "src/project/media_item.h"
@@ -190,7 +190,7 @@ add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
     "src/timeline/playlist_single_decoder.h"
     "src/timeline/playlist_single_decoder.cpp"
     # Windows application icon
-    "resources/ump.rc"
+    "resources/qcview.rc"
 )
 
 # Include directories
@@ -294,7 +294,7 @@ if(WIN32)
     find_package(SoundTouch QUIET)
     if(SoundTouch_FOUND)
         target_link_libraries(${PROJECT_NAME} SoundTouch::SoundTouch)
-        target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_SOUNDTOUCH)
         message(STATUS "SoundTouch: Found via CMake package")
     else()
         # Manual path fallback - user should place SoundTouch in external/soundtouch
@@ -302,7 +302,7 @@ if(WIN32)
         if(EXISTS "${SOUNDTOUCH_DIR}/include/SoundTouch.h")
             target_include_directories(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/include)
             target_link_libraries(${PROJECT_NAME} ${SOUNDTOUCH_DIR}/lib/SoundTouch.lib)
-            target_compile_definitions(${PROJECT_NAME} PRIVATE UMP_HAS_SOUNDTOUCH)
+            target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_SOUNDTOUCH)
             message(STATUS "SoundTouch: Found in external/soundtouch")
         else()
             message(STATUS "SoundTouch: NOT FOUND - tempo control will be disabled (audio will pause during throttle)")

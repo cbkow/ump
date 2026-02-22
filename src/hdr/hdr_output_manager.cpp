@@ -5,7 +5,7 @@
 #include "d3d11_hdr_swapchain.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 HDROutputManager& HDROutputManager::Instance() {
     static HDROutputManager instance;
@@ -263,6 +263,6 @@ HDROutputManager::Stats HDROutputManager::GetStats() const {
     return stats;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

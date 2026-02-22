@@ -6,7 +6,7 @@
 #include <mutex>
 #include <functional>
 
-namespace ump {
+namespace qcview {
 
 /**
  * AnnotationManager - Manages annotations for video/image sequences
@@ -72,4 +72,4 @@ private:
     void NotifyNotesChanged();
 };
 
-} // namespace ump
+} // namespace qcview

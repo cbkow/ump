@@ -15,7 +15,7 @@
 #define GL_HANDLE_TYPE_D3D11_IMAGE_KMT_EXT 0x958C
 #define GL_DEDICATED_MEMORY_OBJECT_EXT 0x9581
 
-namespace ump {
+namespace qcview {
 
 // Static member definitions for thread-safe GL deletion queue
 std::mutex D3D11VideoInterop::s_deletion_mutex_;
@@ -884,6 +884,6 @@ const char* D3D11VideoInterop::GetInteropMethodName() const {
     }
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

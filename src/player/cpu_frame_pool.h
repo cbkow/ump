@@ -10,7 +10,7 @@ extern "C" {
 #include <libavutil/frame.h>
 }
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // CPUFramePool
@@ -153,4 +153,4 @@ private:
     std::atomic<size_t> current_memory_bytes_{0};
 };
 
-} // namespace ump
+} // namespace qcview

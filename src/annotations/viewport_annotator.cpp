@@ -2,7 +2,7 @@
 #include "ink_stroke_modeler_wrapper.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 ViewportAnnotator::ViewportAnnotator()
@@ -408,4 +408,4 @@ void ViewportAnnotator::ProcessLineInput(const ImVec2& display_pos, const ImVec2
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

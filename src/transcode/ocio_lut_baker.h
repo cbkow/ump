@@ -8,7 +8,7 @@
 
 namespace OCIO = OCIO_NAMESPACE;
 
-namespace ump {
+namespace qcview {
 
 /**
  * OCIOLutBaker
@@ -17,7 +17,7 @@ namespace ump {
  * This allows video file transcoding to use FFmpeg's native LUT application
  * instead of per-frame OCIO CPU transforms.
  *
- * LUTs are cached in %LOCALAPPDATA%\ump\LUT\ with readable filenames based
+ * LUTs are cached in %LOCALAPPDATA%\qcview\LUT\ with readable filenames based
  * on the transform parameters.
  */
 class OCIOLutBaker {
@@ -37,7 +37,7 @@ public:
     };
 
     /**
-     * Get LUT cache directory (%LOCALAPPDATA%\ump\LUT\)
+     * Get LUT cache directory (%LOCALAPPDATA%\qcview\LUT\)
      * Creates directory if it doesn't exist.
      *
      * @return Path to LUT cache directory, or empty string on failure
@@ -165,4 +165,4 @@ private:
     );
 };
 
-} // namespace ump
+} // namespace qcview

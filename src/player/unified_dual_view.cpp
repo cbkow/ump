@@ -9,7 +9,7 @@
 
 #include <chrono>
 
-namespace ump {
+namespace qcview {
 
 UnifiedDualView::UnifiedDualView() = default;
 
@@ -415,6 +415,6 @@ bool UnifiedDualView::EnsureGLTextures() {
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

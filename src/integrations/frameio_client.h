@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 namespace Integrations {
 
 /**
@@ -59,4 +59,4 @@ private:
 };
 
 } // namespace Integrations
-} // namespace ump
+} // namespace qcview

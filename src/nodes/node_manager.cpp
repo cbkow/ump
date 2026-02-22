@@ -9,7 +9,7 @@
 #include "../imnodes/imnodes.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
     NodeManager::NodeManager()
         : next_node_id(1), next_connection_id(1), has_pending_node(false) {

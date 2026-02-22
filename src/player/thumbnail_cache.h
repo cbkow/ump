@@ -13,7 +13,7 @@
 #include <glad/gl.h>
 #include "image_loader_interface.h"
 
-namespace ump {
+namespace qcview {
 
 // Configuration for thumbnail generation
 struct ThumbnailConfig {
@@ -213,4 +213,4 @@ private:
     std::atomic<int> generation_failures_{0};
 };
 
-} // namespace ump
+} // namespace qcview

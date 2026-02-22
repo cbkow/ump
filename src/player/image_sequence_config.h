@@ -4,7 +4,7 @@
 #include <vector>
 #include "pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 struct ImageSequenceConfig {
     // Pattern information
@@ -79,4 +79,4 @@ private:
     static std::string NormalizePath(const std::string& path);
 };
 
-} // namespace ump
+} // namespace qcview

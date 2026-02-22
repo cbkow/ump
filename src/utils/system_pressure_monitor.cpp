@@ -2,7 +2,7 @@
 #include "debug_utils.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 SystemPressureMonitor::SystemPressureMonitor() {
 #ifdef _WIN32

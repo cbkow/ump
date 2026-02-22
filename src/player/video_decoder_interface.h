@@ -8,7 +8,7 @@
 #include "image_loader_interface.h"
 #include "pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Hardware Acceleration Type
@@ -274,4 +274,4 @@ public:
     virtual VideoDecoderBackend GetBackendType() const = 0;
 };
 
-} // namespace ump
+} // namespace qcview

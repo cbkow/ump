@@ -2,7 +2,7 @@
 #include "../utils/debug_utils.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 // Singleton instance
 SharedMemoryPool& SharedMemoryPool::Instance() {
@@ -218,4 +218,4 @@ void SharedMemoryPool::RemoveFromLRU(const GlobalCacheKey& key) {
     lru_list_.remove(key);
 }
 
-} // namespace ump
+} // namespace qcview

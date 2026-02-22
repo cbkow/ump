@@ -4,7 +4,7 @@
 
 #include <d3d11_1.h>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // YUVTextures
@@ -94,6 +94,6 @@ struct YUVTextures {
     }
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

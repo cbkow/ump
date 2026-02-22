@@ -9,7 +9,7 @@
 #include <d3d11_1.h>
 #include <glad/gl.h>
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class D3D11VideoDecoder;
@@ -191,6 +191,6 @@ private:
     bool InitializeImageSequence(const std::string& source_path);
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

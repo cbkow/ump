@@ -10,7 +10,7 @@
 #include <nlohmann/json.hpp>
 #include "video_transcoder.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * TranscodeJob
@@ -138,4 +138,4 @@ private:
     std::atomic<bool> pause_requested_{false};
 };
 
-} // namespace ump
+} // namespace qcview

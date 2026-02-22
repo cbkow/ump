@@ -100,7 +100,7 @@ static ImVec4 MutedDark(const ImVec4& accent) { return TintColor(accent, 0.7f, 0
 static ImVec4 MutedLight(const ImVec4& accent) { return TintColor(accent, 1.5f, 0.8f); }
 static ImVec4 Bright(const ImVec4& accent) { return TintColor(accent, 2.2f, 0.5f); }
 
-namespace ump {
+namespace qcview {
 
 TranscodeQueueWindow::TranscodeQueueWindow(TranscodeQueue* queue, TranscodeWorkerPool* worker_pool)
     : queue_(queue)
@@ -1310,4 +1310,4 @@ void TranscodeQueueWindow::ProcessKeyboard() {
     // This is just a placeholder showing the structure
 }
 
-} // namespace ump
+} // namespace qcview

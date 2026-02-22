@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // DualViewLayout
@@ -119,4 +119,4 @@ FitRect ComputeAspectFitRect(int source_w, int source_h,
                               int target_x, int target_y,
                               int target_w, int target_h);
 
-} // namespace ump
+} // namespace qcview

@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // PLATFORM AND SYSTEM INCLUDES
 // ============================================================================
 #ifdef _WIN32
@@ -248,10 +248,10 @@ bool g_force_reload_pending = false;                // Deferred reload - process
 float otio_dual_view_split_pos = 0.5f;              // Split position (0.0-1.0, default center)
 bool otio_dual_view_left_audio = true;              // LEFT track audio enabled (default ON)
 bool otio_dual_view_right_audio = false;            // RIGHT track audio enabled (default OFF)
-std::unique_ptr<ump::TimelineView> timeline_view;   // OTIO timeline viewer instance
-std::unique_ptr<ump::MediaLinker> media_linker;     // Media linking system for timeline clips
-std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;  // For new/scratch timelines without EDL/OTIO file
-ump::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;  // Pre-rendered dual view textures (updated before ImGui)
+std::unique_ptr<qcview::TimelineView> timeline_view;   // OTIO timeline viewer instance
+std::unique_ptr<qcview::MediaLinker> media_linker;     // Media linking system for timeline clips
+std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;  // For new/scratch timelines without EDL/OTIO file
+qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;  // Pre-rendered dual view textures (updated before ImGui)
 std::vector<GLuint> g_pending_texture_deletions;  // Textures to delete BEFORE ImGui::NewFrame() (avoid GL ops during render)
 
 // Pre-rendered color-corrected textures (updated BEFORE ImGui::NewFrame to avoid GL ops during render)
@@ -301,24 +301,24 @@ struct ColorCorrectedTextureCache {
 ColorCorrectedTextureCache g_color_corrected_cache;
 
 // Timeline editing system
-std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;  // Undo/redo command manager
-std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;  // Separate LRU cache for trim/slip preview
+std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;  // Undo/redo command manager
+std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;  // Separate LRU cache for trim/slip preview
 
 // Helper to ensure command manager exists and has the timeline view set for thread safety
-inline ump::TimelineCommandManager* GetCommandManager(ump::TimelineView* view) {
+inline qcview::TimelineCommandManager* GetCommandManager(qcview::TimelineView* view) {
     if (!timeline_command_manager) {
-        timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+        timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
     }
     // Always update the view in case it changed (e.g., new timeline loaded)
     timeline_command_manager->SetTimelineView(view);
     return timeline_command_manager.get();
 }
 bool timeline_thumbnail_cache_clear_deferred = false;  // Deferred clear to avoid deleting textures mid-frame
-ump::TimelineClipDragState timeline_clip_drag;      // State for clip dragging
-ump::TimelineTrimState timeline_trim_state;         // State for clip edge trimming
-ump::TimelineSlipState timeline_slip_state;         // State for slip editing (PLAYLIST mode)
-ump::TimelineReorderState timeline_reorder_state;   // State for reorder/move (PLAYLIST mode)
-ump::TimelineMediaDropState timeline_media_drop;    // State for media drop from project panel
+qcview::TimelineClipDragState timeline_clip_drag;      // State for clip dragging
+qcview::TimelineTrimState timeline_trim_state;         // State for clip edge trimming
+qcview::TimelineSlipState timeline_slip_state;         // State for slip editing (PLAYLIST mode)
+qcview::TimelineReorderState timeline_reorder_state;   // State for reorder/move (PLAYLIST mode)
+qcview::TimelineMediaDropState timeline_media_drop;    // State for media drop from project panel
 
 // Pending drag state for PLAYLIST mode - requires drag threshold before starting edit
 bool playlist_pending_drag_active = false;
@@ -366,7 +366,7 @@ std::string current_timeline_path;  // Track which timeline is currently loaded 
 std::string current_timeline_id;    // Track current timeline by ID (for scratch timelines and lookup)
 
 // Static pointer to project manager for link caching (set during initialization)
-ump::ProjectManager* g_project_manager = nullptr;
+qcview::ProjectManager* g_project_manager = nullptr;
 
 // Helper: Save current timeline's links to cache (both session cache and project)
 void SaveLinksToCache(const std::string& timeline_id = "") {
@@ -442,7 +442,7 @@ int RestoreLinksFromCache(const std::string& timeline_id = "") {
 // Link Media popup state
 bool show_link_media_popup = false;
 std::string link_media_search_path;
-ump::LinkSummary last_link_summary;
+qcview::LinkSummary last_link_summary;
 bool show_link_results_popup = false;
 
 // Auto-relink state (for automatic media linking on timeline load)
@@ -457,10 +457,10 @@ std::string auto_relink_timeline_id;  // Timeline ID for saving links to project
 // ============================================================================
 // SYSTEM PRESSURE MONITOR STATE
 // ============================================================================
-std::unique_ptr<ump::SystemPressureMonitor> pressure_monitor;
+std::unique_ptr<qcview::SystemPressureMonitor> pressure_monitor;
 bool show_pressure_critical_dialog = false;
 bool in_emergency_mode = false;  // Track if we're in critical emergency state
-ump::SystemPressureStatus last_pressure_status;
+qcview::SystemPressureStatus last_pressure_status;
 
 // Menu bar notification system (for RAM warnings)
 std::string stats_bar_notification_message;
@@ -565,8 +565,8 @@ std::string GetAssetPath(const std::string& relative_path) {
     return (g_exe_dir / relative_path).string();
 }
 
-ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
-    ump::DirectEXRCacheConfig config;
+qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
+    qcview::DirectEXRCacheConfig config;
 
     // Use UI-configured values
     config.readAheadFrames = g_exr_read_ahead_frames;
@@ -576,8 +576,8 @@ ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
     return config;
 }
 
-ump::TimelineCacheConfig GetCurrentTimelineCacheConfig() {
-    ump::TimelineCacheConfig config;
+qcview::TimelineCacheConfig GetCurrentTimelineCacheConfig() {
+    qcview::TimelineCacheConfig config;
 
     // Use UI-configured values
     config.readAheadFrames = g_timeline_read_ahead_frames;
@@ -589,8 +589,8 @@ ump::TimelineCacheConfig GetCurrentTimelineCacheConfig() {
     return config;
 }
 
-ump::ThumbnailConfig GetCurrentThumbnailConfig() {
-    ump::ThumbnailConfig config;
+qcview::ThumbnailConfig GetCurrentThumbnailConfig() {
+    qcview::ThumbnailConfig config;
 
     // Use cache_settings values
     config.width = cache_settings.thumbnail_width;
@@ -629,7 +629,7 @@ void ScheduleImport(const std::string& path, const std::string& message) {
 // HELPER FUNCTIONS
 // ============================================================================
 
-// Helper function to find the existing ump instance window
+// Helper function to find the existing QCView instance window
 // Uses window properties instead of class names for reliable identification
 static HWND FindUmpWindow() {
     HWND found_hwnd = NULL;
@@ -637,8 +637,8 @@ static HWND FindUmpWindow() {
     // Enumerate all top-level windows to find ours
     EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL {
         // Check if this window has our unique property
-        HANDLE prop = GetPropW(hwnd, L"ump_SingleInstanceWindow");
-        if (prop == (HANDLE)0x554D50) {  // "UMP" in hex
+        HANDLE prop = GetPropW(hwnd, L"qcview_SingleInstanceWindow");
+        if (prop == (HANDLE)0x514356) {  // "QCV" in hex
             HWND* result = (HWND*)lParam;
             *result = hwnd;
             return FALSE;  // Stop enumeration
@@ -668,7 +668,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     {
         PWSTR localappdata_path = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &localappdata_path))) {
-            std::filesystem::path writable_dir = std::filesystem::path(localappdata_path) / "ump" / "data";
+            std::filesystem::path writable_dir = std::filesystem::path(localappdata_path) / "qcview" / "data";
             CoTaskMemFree(localappdata_path);
 
             try {
@@ -703,7 +703,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 int main(int argc, char* argv[]) {
     // Set AppUserModelID for Windows 11 taskbar/start menu integration
     #ifdef _WIN32
-    SetCurrentProcessExplicitAppUserModelID(L"cbkow.ump");
+    SetCurrentProcessExplicitAppUserModelID(L"cbkow.qcview");
     #endif
 
     // Store executable directory for asset path resolution
@@ -716,13 +716,13 @@ int main(int argc, char* argv[]) {
         Debug::Log("Executable directory: " + g_exe_dir.string());
     }
 
-    // Set working directory to a writable location (%LOCALAPPDATA%\ump\data)
+    // Set working directory to a writable location (%LOCALAPPDATA%\qcview\data)
     // This avoids issues with Program Files permissions affecting relative path operations
     // NOTE: Do NOT change TEMP/TMP - D3D11 drivers depend on the system temp location
     {
         PWSTR localappdata_path = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &localappdata_path))) {
-            std::filesystem::path writable_dir = std::filesystem::path(localappdata_path) / "ump" / "data";
+            std::filesystem::path writable_dir = std::filesystem::path(localappdata_path) / "qcview" / "data";
             CoTaskMemFree(localappdata_path);
 
             try {
@@ -754,7 +754,7 @@ int main(int argc, char* argv[]) {
     // Single instance enforcement using named mutex and window messaging
     // This prevents multiple instances from conflicting with RAM cache
     // AND allows new instances to pass files/URIs to the existing instance
-    static HANDLE single_instance_mutex = CreateMutexW(NULL, TRUE, L"Local\\ump_SingleInstanceMutex");
+    static HANDLE single_instance_mutex = CreateMutexW(NULL, TRUE, L"Local\\qcview_SingleInstanceMutex");
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         Debug::Log("Another instance is already running - attempting to pass command to it");

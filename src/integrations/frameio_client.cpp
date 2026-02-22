@@ -9,7 +9,7 @@
 #pragma comment(lib, "winhttp.lib")
 #endif
 
-namespace ump {
+namespace qcview {
 namespace Integrations {
 
 FrameioClient::FetchResult FrameioClient::GetAssetComments(
@@ -108,7 +108,7 @@ std::string FrameioClient::HttpGet(
 
     // Initialize WinHTTP
     HINTERNET hSession = WinHttpOpen(
-        L"ump/1.0",
+        L"QCView/1.0",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,
@@ -286,4 +286,4 @@ std::vector<FrameioComment> FrameioClient::ParseCommentsJson(const std::string& 
 }
 
 } // namespace Integrations
-} // namespace ump
+} // namespace qcview

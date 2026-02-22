@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Window management, file operations, and utility methods
 // ============================================================================
 
@@ -35,7 +35,7 @@
 // Globals defined in main.cpp
 extern ImFont* font_regular;
 extern ImFont* font_icons;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 extern bool auto_play_buffering;
 extern std::chrono::steady_clock::time_point auto_play_buffer_start;
 extern bool pending_seek_cache_start;
@@ -127,7 +127,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         }
     }
 
-    void Application::TriggerAutoPlay(ump::MediaType media_type) {
+    void Application::TriggerAutoPlay(qcview::MediaType media_type) {
         // Auto-play is buffer-aware: waits for 90% cache fill before starting
         // All media starts PAUSED, then auto-plays once buffer is ready (if enabled)
         (void)media_type;  // Unused now - all types supported
@@ -248,21 +248,21 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             if (timeline_view) {
                 auto source_mode = timeline_view->GetSourceMode();
 
-                if (source_mode == ump::TimelineSourceMode::DUAL_VIEW) {
+                if (source_mode == qcview::TimelineSourceMode::DUAL_VIEW) {
                     // Dual view - disable annotations
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::DUAL_VIEW_DISABLED);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::DUAL_VIEW_DISABLED);
                     annotation_manager->ClearNotes();
                     Debug::Log("Annotations disabled for Dual View mode");
                 }
-                else if (source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                else if (source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                     // Playlist - disable annotations (not supported in playlist mode)
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::PLAYLIST_DISABLED);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::PLAYLIST_DISABLED);
                     annotation_manager->ClearNotes();
                     Debug::Log("Annotations disabled for Playlist mode");
                 }
                 else {
                     // VIDEO_FILE, IMAGE_SEQUENCE, AUDIO_FILE - normal media-relative path
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                     std::string annotation_path = new_file_path;
                     if (project_manager) {
                         annotation_path = project_manager->GetAnnotationPathForMedia(new_file_path);
@@ -273,7 +273,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             }
             else {
                 // No timeline view - use basic annotation loading
-                annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                 std::string annotation_path = new_file_path;
                 if (project_manager) {
                     annotation_path = project_manager->GetAnnotationPathForMedia(new_file_path);
@@ -284,13 +284,13 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         }
 
         // NEW: Detect media type from file path for deliberate autoplay control
-        ump::MediaType media_type = ump::MediaType::VIDEO;  // Default
+        qcview::MediaType media_type = qcview::MediaType::VIDEO;  // Default
         if (new_file_path.substr(0, 5) == "mf://") {
-            media_type = ump::MediaType::IMAGE_SEQUENCE;
+            media_type = qcview::MediaType::IMAGE_SEQUENCE;
         } else if (new_file_path.substr(0, 6) == "exr://") {
-            media_type = ump::MediaType::EXR_SEQUENCE;
+            media_type = qcview::MediaType::EXR_SEQUENCE;
         } else if (is_audio_file) {
-            media_type = ump::MediaType::AUDIO;
+            media_type = qcview::MediaType::AUDIO;
         }
 
         // Trigger auto-play if enabled (with 500ms delay)
@@ -446,9 +446,9 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
                     if (files.size() == 1) {
                         std::string arg = files[0];
 
-                        // Check if it's a ump:// URI
-                        if (arg.substr(0, 7) == "ump:///") {
-                            Debug::Log("Received ump:// URI - parsing and loading project");
+                        // Check if it's a qcview:// URI
+                        if (arg.substr(0, 10) == "qcview:///") {
+                            Debug::Log("Received qcview:// URI - parsing and loading project");
                             std::string project_path = app_instance->ParseProjectURI(arg);
                             if (!project_path.empty()) {
                                 app_instance->project_manager->LoadProject(project_path);
@@ -460,7 +460,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
                             }
                         }
                         // Direct project file
-                        else if (arg.find(".umproj") != std::string::npos) {
+                        else if (arg.find(".qcvproj") != std::string::npos || arg.find(".umproj") != std::string::npos) {
                             Debug::Log("Received project file - loading");
                             app_instance->project_manager->LoadProject(arg);
                         }
@@ -487,7 +487,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     void Application::SetupSingleInstanceMessaging(HWND hwnd) {
         // Store a unique property on the window so other instances can identify it
         // This is a simple, reliable method that doesn't require changing window classes
-        SetPropW(hwnd, L"ump_SingleInstanceWindow", (HANDLE)0x554D50);  // "UMP" in hex
+        SetPropW(hwnd, L"qcview_SingleInstanceWindow", (HANDLE)0x514356);  // "QCV" in hex
 
         // Hook window procedure to handle WM_COPYDATA
         app_instance = this;

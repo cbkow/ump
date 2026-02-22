@@ -16,9 +16,9 @@
 // and video timing is adjusted for sync instead
 
 // Forward declare WASAPI device
-namespace ump { class WasapiAudioDevice; }
+namespace qcview { class WasapiAudioDevice; }
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class TimelineFlattener;
@@ -347,4 +347,4 @@ private:
     std::mutex pending_mutex_;
 };
 
-} // namespace ump
+} // namespace qcview

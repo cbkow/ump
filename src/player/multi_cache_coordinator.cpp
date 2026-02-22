@@ -3,7 +3,7 @@
 #include <chrono>
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Construction / Destruction
@@ -325,4 +325,4 @@ GLuint MultiCacheCoordinator::GetRightFrame(int frame, int& width, int& height, 
     return GetFrame(RIGHT_SOURCE_ID, frame, width, height, exact);
 }
 
-} // namespace ump
+} // namespace qcview

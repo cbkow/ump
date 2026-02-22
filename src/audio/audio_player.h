@@ -8,9 +8,9 @@
 #include "audio_decoder.h"
 
 // Forward declare WASAPI device
-namespace ump { class WasapiAudioDevice; }
+namespace qcview { class WasapiAudioDevice; }
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class PlaybackTimer;
@@ -197,4 +197,4 @@ public:
     std::atomic<uint64_t> diag_frames_read_{0};
 };
 
-} // namespace ump
+} // namespace qcview

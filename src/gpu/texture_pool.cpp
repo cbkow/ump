@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <thread>
 
-namespace ump {
+namespace qcview {
 
     // Static helper for memory calculations
     size_t TextureInfo::GetBytesPerPixel(GLenum internal_format, GLenum type) {
@@ -442,4 +442,4 @@ namespace ump {
         }
     }
 
-} // namespace ump
+} // namespace qcview

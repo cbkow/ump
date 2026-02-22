@@ -3,7 +3,7 @@
 #include "../utils/debug_utils.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 TranscodeWorkerPool::TranscodeWorkerPool(TranscodeQueue* queue, int worker_count)
     : queue_(queue)
@@ -247,4 +247,4 @@ TranscodeWorkerPool::WorkerInfo TranscodeWorkerPool::GetWorkerInfoForID(int work
     return WorkerInfo();
 }
 
-} // namespace ump
+} // namespace qcview

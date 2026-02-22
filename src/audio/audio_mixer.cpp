@@ -11,7 +11,7 @@
 #include <chrono>
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor / Destructor
@@ -1186,4 +1186,4 @@ void AudioMixer::PreparationThreadFunc() {
     Debug::Log("AudioMixer: Background preparation thread exiting");
 }
 
-} // namespace ump
+} // namespace qcview

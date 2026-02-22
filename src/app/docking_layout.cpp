@@ -17,9 +17,9 @@
 extern bool otio_dual_view_mode;
 extern bool otio_dual_view_split_mode;
 extern float otio_dual_view_split_pos;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern ump::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
 extern bool show_delete_prefs_confirm;
 
     void Application::CreateDockingLayout() {
@@ -181,7 +181,7 @@ extern bool show_delete_prefs_confirm;
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
         bool p_open = true;
-        ImGui::Begin("ump Dockspace", &p_open, window_flags);
+        ImGui::Begin("QCView Dockspace", &p_open, window_flags);
         ImGui::PopStyleVar(3);
 
         ImGuiID dockspace_id = ImGui::GetID("MainDockspace");
@@ -338,9 +338,6 @@ extern bool show_delete_prefs_confirm;
         // Share Project popups
         HandleShareProjectPopups();
 
-        // Render shutdown modal if shutting down
-        RenderShutdownModal();
-
         // Render loading overlay if media is loading
         if (IsLoadingMedia()) {
             ImGuiViewport* viewport = ImGui::GetMainViewport();
@@ -382,7 +379,7 @@ extern bool show_delete_prefs_confirm;
             ImGui::Text("Project URI copied to clipboard!");
             ImGui::Separator();
             ImGui::TextWrapped("Share this link with others to open the project.");
-            ImGui::TextWrapped("Format: ump:///path/to/project.umproj");
+            ImGui::TextWrapped("Format: qcview:///path/to/project.qcvproj");
             ImGui::Separator();
             ImGui::Spacing();
 

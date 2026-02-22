@@ -6,7 +6,7 @@
 #include <glad/gl.h>
 #include "pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Universal Pixel Data (Type-Erased)
@@ -100,4 +100,4 @@ public:
     virtual std::string GetLoaderName() const = 0;
 };
 
-} // namespace ump
+} // namespace qcview

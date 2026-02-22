@@ -8,7 +8,7 @@
 #include <mutex>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11VideoInterop
@@ -249,6 +249,6 @@ private:
     static std::vector<GLuint> s_pending_gl_deletions_;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -5,7 +5,7 @@
 #include <cstring>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 
 /**
  * Lock-free SPSC (Single Producer Single Consumer) ring buffer for audio samples
@@ -117,4 +117,4 @@ private:
     std::atomic<size_t> read_pos_;
 };
 
-} // namespace ump
+} // namespace qcview

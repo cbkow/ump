@@ -58,18 +58,18 @@ std::string Application::BuildProjectURI(const std::string& project_path) {
     // Encode the path for URI
     std::string encoded_path = EncodeURIComponent(normalized_path);
 
-    // Build URI: ump:///path
-    return "ump:///" + encoded_path;
+    // Build URI: qcview:///path
+    return "qcview:///" + encoded_path;
 }
 
 std::string Application::ParseProjectURI(const std::string& uri) {
-    // Check if it starts with ump:///
-    if (uri.substr(0, 7) != "ump:///") {
+    // Check if it starts with qcview:///
+    if (uri.substr(0, 10) != "qcview:///") {
         return "";
     }
 
-    // Extract path after ump:///
-    std::string encoded_path = uri.substr(7);
+    // Extract path after qcview:///
+    std::string encoded_path = uri.substr(10);
 
     // Decode the path
     std::string decoded_path = DecodeURIComponent(encoded_path);

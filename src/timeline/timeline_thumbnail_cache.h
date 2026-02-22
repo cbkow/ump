@@ -15,7 +15,7 @@
 #include "../player/image_loader_interface.h"
 #include "../player/shared_memory_pool.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class StreamingVideoDecoder;
@@ -259,4 +259,4 @@ private:
     std::atomic<bool> clear_pending_{false};
 };
 
-} // namespace ump
+} // namespace qcview

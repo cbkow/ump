@@ -7,7 +7,7 @@
 // Forward declare SoundTouch in its namespace
 namespace soundtouch { class SoundTouch; }
 
-namespace ump {
+namespace qcview {
 
 /**
  * AudioTimeStretch - Pitch-preserving time stretch using SoundTouch
@@ -21,7 +21,7 @@ namespace ump {
  *   Decoders -> Mixing -> [TimeStretch] -> RateCorrection -> Volume -> WASAPI
  *
  * Uses SoundTouch library for PSOLA-based time stretching. If SoundTouch
- * is not available (UMP_HAS_SOUNDTOUCH not defined), falls back to
+ * is not available (QCVIEW_HAS_SOUNDTOUCH not defined), falls back to
  * passthrough mode (audio pauses during throttle instead).
  */
 class AudioTimeStretch {
@@ -118,4 +118,4 @@ private:
     std::vector<float> process_buffer_;
 };
 
-} // namespace ump
+} // namespace qcview

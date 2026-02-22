@@ -11,7 +11,7 @@ struct IAudioRenderClient;
 struct IMMDevice;
 struct IMMDeviceEnumerator;
 
-namespace ump {
+namespace qcview {
 
 /**
  * Callback signature for audio data requests.
@@ -199,4 +199,4 @@ private:
     std::atomic<uint64_t> samples_written_{0};  // Total samples written to WASAPI
 };
 
-} // namespace ump
+} // namespace qcview

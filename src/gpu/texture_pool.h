@@ -13,7 +13,7 @@
 #include <GL/gl.h>
 #endif
 
-namespace ump {
+namespace qcview {
 
     // Configuration for texture pool behavior
     struct TexturePoolConfig {
@@ -136,4 +136,4 @@ namespace ump {
         size_t CalculateTextureMemory(int width, int height, GLenum internal_format, GLenum type) const;
     };
 
-} // namespace ump
+} // namespace qcview

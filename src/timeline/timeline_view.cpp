@@ -48,7 +48,7 @@ extern ImVec4 GetWindowsAccentColor();
 namespace otio = opentimelineio::OPENTIMELINEIO_VERSION;
 #endif
 
-namespace ump {
+namespace qcview {
 
 // ============================================================================
 // Helper to normalize file URLs from AAF/XML imports
@@ -2373,7 +2373,7 @@ bool TimelineView::LoadPlaylistAsTimeline(MediaItem* item) {
         return false;
     }
 
-    if (item->type != ump::MediaType::PLAYLIST) {
+    if (item->type != qcview::MediaType::PLAYLIST) {
         Debug::Log("LoadPlaylistAsTimeline: MediaItem is not a playlist");
         return false;
     }
@@ -3113,8 +3113,8 @@ void TimelineView::ParseNestedStack(OTIOClip& nest_clip, otio::Stack* nested_sta
 
     // Link media in the nested clips using MediaLinker
     if (!source_dir.empty()) {
-        ump::MediaLinker linker;
-        ump::LinkOptions options;
+        qcview::MediaLinker linker;
+        qcview::LinkOptions options;
         options.recursive = true;
         options.fuzzy_match = true;
         options.max_depth = 10;
@@ -4031,4 +4031,4 @@ bool TimelineView::DeleteClipFromPlaylist(const std::string& clip_id) {
     return true;
 }
 
-} // namespace ump
+} // namespace qcview

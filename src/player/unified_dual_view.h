@@ -14,7 +14,7 @@ extern "C" {
 #include <libavutil/frame.h>
 }
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class D3D11VideoDecoder;
@@ -218,6 +218,6 @@ private:
     mutable std::atomic<double> last_decode_time_ms_{0.0};
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

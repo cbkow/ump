@@ -42,7 +42,7 @@ bool goto_use_frame_input = false;  // false = timecode, true = frame number
 // Globals defined in main.cpp
 extern ImFont* font_regular;
 extern bool otio_timeline_mode;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 
 // ============================================================================
 // TIMECODE METHODS
@@ -311,19 +311,19 @@ void Application::OpenGotoTimecodeModal() {
     int display_frame = current_frame;
     if (is_otio_mode) {
         // OTIO timelines use 0-based internal frames, convert to 1-based display
-        display_frame = ump::FrameIndexing::InternalToDisplay(current_frame);
+        display_frame = qcview::FrameIndexing::InternalToDisplay(current_frame);
     } else if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
         int start_frame = video_player->IsInEXRMode()
             ? video_player->GetEXRSequenceStartFrame()
             : video_player->GetImageSequenceStartFrame();
-        display_frame = ump::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
+        display_frame = qcview::FrameIndexing::InternalToSequenceDisplay(current_frame, start_frame);
     } else if (is_solo_video_tc_mode) {
         // In timecode mode, show embedded frame number (offset by start timecode)
         double timecode_offset = ParseTimecodeToSeconds(cached_start_timecode, fps);
         int offset_frames = static_cast<int>(std::round(timecode_offset * fps));
         display_frame = current_frame + offset_frames + 1;  // +1 for 0-based to 1-based
     } else {
-        display_frame = ump::FrameIndexing::InternalToDisplay(current_frame);
+        display_frame = qcview::FrameIndexing::InternalToDisplay(current_frame);
     }
     snprintf(goto_frame_buffer, sizeof(goto_frame_buffer), "%d", display_frame);
 
@@ -577,12 +577,12 @@ void Application::RenderGotoTimecodeModal() {
                         int internal_frame = target_frame;
                         if (is_otio_mode) {
                             // OTIO timelines use 0-based internal frames
-                            internal_frame = ump::FrameIndexing::DisplayToInternal(target_frame);
+                            internal_frame = qcview::FrameIndexing::DisplayToInternal(target_frame);
                         } else if (video_player->IsInEXRMode() || video_player->IsImageSequence()) {
                             int start_frame = video_player->IsInEXRMode()
                                 ? video_player->GetEXRSequenceStartFrame()
                                 : video_player->GetImageSequenceStartFrame();
-                            internal_frame = ump::FrameIndexing::FileFrameToInternal(target_frame, start_frame);
+                            internal_frame = qcview::FrameIndexing::FileFrameToInternal(target_frame, start_frame);
                         } else if (is_solo_video_timecode_mode) {
                             // In timecode mode, frame number is embedded frame (offset by start timecode)
                             // Convert to internal frame by subtracting the timecode offset in frames
@@ -590,7 +590,7 @@ void Application::RenderGotoTimecodeModal() {
                             internal_frame = target_frame - offset_frames - 1;  // -1 for 1-based to 0-based
                             if (internal_frame < 0) internal_frame = 0;
                         } else {
-                            internal_frame = ump::FrameIndexing::DisplayToInternal(target_frame);
+                            internal_frame = qcview::FrameIndexing::DisplayToInternal(target_frame);
                         }
 
                         // Convert frame to time position (use center of frame for robust seeking)
@@ -687,7 +687,7 @@ void Application::CheckStartTimecodeAvailability() {
     Debug::Log("Checking metadata for file: " + current_file_path);
 
     // Check if metadata is already cached
-    const ump::ProjectManager::CombinedMetadata* cached_meta =
+    const qcview::ProjectManager::CombinedMetadata* cached_meta =
         project_manager->GetCachedMetadata(current_file_path);
 
     if (cached_meta) {

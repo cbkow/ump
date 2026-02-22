@@ -5,7 +5,7 @@
 #include "d3d11_yuv_renderer.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor/Destructor
@@ -240,6 +240,6 @@ bool TimelineInteropPipeline::EnsureInteropTexture(int width, int height) {
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

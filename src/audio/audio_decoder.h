@@ -16,7 +16,7 @@ struct AVFrame;
 struct AVPacket;
 struct SwrContext;
 
-namespace ump {
+namespace qcview {
 
 /**
  * Audio format info
@@ -212,4 +212,4 @@ public:
     bool IsEOF() const { return eof_reached_.load(); }
 };
 
-} // namespace ump
+} // namespace qcview

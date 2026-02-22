@@ -22,7 +22,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-namespace ump {
+namespace qcview {
 
     EXRLayerDetector::EXRLayerDetector() = default;
     EXRLayerDetector::~EXRLayerDetector() = default;
@@ -479,4 +479,4 @@ namespace ump {
         return (lower_name.find("crypto") != std::string::npos);
     }
 
-} // namespace ump
+} // namespace qcview

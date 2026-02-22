@@ -23,7 +23,7 @@ typedef signed long long GLint64;
 typedef unsigned long long GLuint64;
 #endif
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11 HDR Swapchain
@@ -308,6 +308,6 @@ private:
     std::mutex mutex_;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

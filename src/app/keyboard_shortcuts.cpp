@@ -29,7 +29,7 @@ struct ScreenshotFlashState {
     static constexpr float FLASH_DURATION_MS = 400.0f;
 };
 extern ScreenshotFlashState g_screenshot_flash;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 
     void Application::HandleKeyboardShortcuts() {
         ImGuiIO& io = ImGui::GetIO();
@@ -419,7 +419,7 @@ extern std::unique_ptr<ump::TimelineView> timeline_view;
             viewport_annotator->ClearActiveStroke();
             current_annotation_strokes_.clear();
             current_editing_timecode_.clear();
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
             if (annotation_toolbar) {
                 annotation_toolbar->SetVisible(false);
             }
@@ -438,7 +438,7 @@ extern std::unique_ptr<ump::TimelineView> timeline_view;
             }
 
             // Serialize all strokes to JSON
-            std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+            std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
 
             // Save to annotation manager
             if (annotation_manager && !current_editing_timecode_.empty()) {
@@ -450,7 +450,7 @@ extern std::unique_ptr<ump::TimelineView> timeline_view;
             current_annotation_strokes_.clear();
             current_editing_timecode_.clear();
 
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
             if (annotation_toolbar) {
                 annotation_toolbar->SetVisible(false);
             }

@@ -7,7 +7,7 @@
 #include "d3d11_video_decoder.h"
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 DualViewPipeline::DualViewPipeline() = default;
 
@@ -285,6 +285,6 @@ bool DualViewPipeline::AreBothFramesReady(int64_t frame_left, int64_t frame_righ
     return left_ready && right_ready;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

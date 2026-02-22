@@ -4,7 +4,7 @@
 
 #include <chrono>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Singleton Instance
@@ -178,4 +178,4 @@ void DecoderCleanupQueue::CleanupThread() {
     Debug::Log("DecoderCleanupQueue: Cleanup thread stopped");
 }
 
-} // namespace ump
+} // namespace qcview

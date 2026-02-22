@@ -1,6 +1,6 @@
 # Acknowledgments
 
-This document credits projects that inspired the design and architecture of u.m.p.
+This document credits projects that inspired the design and architecture of QCView
 
 ---
 
@@ -12,7 +12,7 @@ This document credits projects that inspired the design and architecture of u.m.
 **Author:** Darby Johnston
 **License:** BSD 3-Clause
 
-tlRender's architecture influenced several design decisions in u.m.p., including:
+tlRender's architecture influenced several design decisions in QCView, including:
 
 - Frame caching strategies for image sequences
 - Background loading patterns for timeline playback
@@ -27,7 +27,7 @@ I'm grateful to Darby Johnston for creating an excellent open-source reference. 
 **Repository:** https://github.com/mpv-player/mpv
 **License:** GPL v2+
 
-mpv's design philosophy and architecture inspired aspects of u.m.p.'s video playback approach, particularly its clean separation of decoding, rendering, and display concerns. Early versions of u.m.p. embedded libmpv, but it is now decoupled to avoid tone-mapping in video flows and to allow HDR passthrough.
+mpv's design philosophy and architecture inspired aspects of QCView's video playback approach, particularly its clean separation of decoding, rendering, and display concerns. Early versions of QCView embedded libmpv, but it is now decoupled to avoid tone-mapping in video flows and to allow HDR passthrough.
 
 ### thumbfast
 
@@ -35,7 +35,7 @@ mpv's design philosophy and architecture inspired aspects of u.m.p.'s video play
 **Author:** po5
 **License:** MPL-2.0
 
-thumbfast's efficient approach to thumbnail generation for mpv inspired u.m.p.'s timeline scrubbing and hover preview system.
+thumbfast's efficient approach to thumbnail generation for mpv inspired QCView's timeline scrubbing and hover preview system.
 
 ---
 

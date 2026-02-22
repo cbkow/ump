@@ -15,7 +15,7 @@ extern "C" {
 
 namespace fs = std::filesystem;
 
-namespace ump {
+namespace qcview {
 
 // Helper to detect image sequences (which have no audio)
 static bool IsImageSequencePath(const std::string& path) {
@@ -560,4 +560,4 @@ bool AudioDecoder::HasData() const {
     return ring_buffer_->AvailableRead() >= output_format_.SecondsToBytes(0.01);
 }
 
-} // namespace ump
+} // namespace qcview

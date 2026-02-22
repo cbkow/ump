@@ -16,7 +16,7 @@
 #include "../player/video_player.h"
 #include "../player/pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declaration for D3D11VA HDR decoder (old)
 class D3D11VAVideoDecoder;
@@ -390,4 +390,4 @@ private:
     static constexpr int kDebugPostPlayLogCount = 10;
 };
 
-} // namespace ump
+} // namespace qcview

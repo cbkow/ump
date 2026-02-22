@@ -8,7 +8,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-namespace ump {
+namespace qcview {
 
 FrameReadback::FrameReadback() = default;
 
@@ -463,6 +463,6 @@ DXGI_FORMAT FrameReadback::AVPixelFormatToDXGI(AVPixelFormat format) {
     }
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -16,7 +16,7 @@ struct SwsContext;
 // Forward declarations
 struct ConversionStrategy;
 
-namespace ump {
+namespace qcview {
 
 // Image format detection
 enum class ImageFormat {
@@ -234,4 +234,4 @@ private:
     int cached_sws_dst_h_ = 0;
 };
 
-} // namespace ump
+} // namespace qcview

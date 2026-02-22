@@ -14,7 +14,7 @@
 #include "ffmpeg_video_encoder.h"
 #include "../player/pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * VideoTranscoder
@@ -141,4 +141,4 @@ private:
     mutable std::mutex progress_mutex_;
 };
 
-} // namespace ump
+} // namespace qcview

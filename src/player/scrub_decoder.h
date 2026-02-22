@@ -13,7 +13,7 @@ struct AVFrame;
 struct AVPacket;
 struct SwsContext;
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // ScrubDecoder - Single-frame on-demand decoder for responsive scrubbing
@@ -111,4 +111,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-} // namespace ump
+} // namespace qcview

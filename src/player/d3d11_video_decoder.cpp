@@ -12,7 +12,7 @@
 #include <climits>  // For INT_MAX
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // YUVFormatDesc Implementation
@@ -2529,6 +2529,6 @@ D3D11VideoDecoder::BufferedFrame* D3D11VideoDecoder::GetClosestBufferedFrame(int
     return closest;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

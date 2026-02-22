@@ -28,7 +28,7 @@ extern int g_exr_thread_count;        // DirectEXRCache parallel I/O threads
 
 namespace fs = std::filesystem;
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Video File Probing
@@ -3857,4 +3857,4 @@ int TimelineCache::ExitShuttleMode() {
     return snap_frame;
 }
 
-} // namespace ump
+} // namespace qcview

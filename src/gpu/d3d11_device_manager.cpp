@@ -9,7 +9,7 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
 
-namespace ump {
+namespace qcview {
 
 D3D11DeviceManager& D3D11DeviceManager::Instance() {
     static D3D11DeviceManager instance;
@@ -664,6 +664,6 @@ std::string D3D11DeviceManager::GetAdapterDescription() const {
     return adapter_description_;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

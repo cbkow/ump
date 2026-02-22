@@ -4,7 +4,7 @@
 #include <nanovg.h>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 void AnnotationRenderer::BeginFrame(float width, float height, float devicePixelRatio) {
@@ -411,4 +411,4 @@ void AnnotationRenderer::NormalizedToScreen(
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

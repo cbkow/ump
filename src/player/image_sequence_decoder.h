@@ -15,7 +15,7 @@
 #include "pipeline_mode.h"
 #include "video_decoder_interface.h"  // For StreamingDecoderConfig and SeekQuality
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Image Sequence Decoder
@@ -286,4 +286,4 @@ private:
     std::shared_ptr<PixelData> LoadFrameWithFreshLoader(int frame_number);
 };
 
-} // namespace ump
+} // namespace qcview

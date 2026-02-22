@@ -18,7 +18,7 @@
 namespace otio = opentimelineio::OPENTIMELINEIO_VERSION;
 #endif
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class TimelinePlaybackController;
@@ -433,4 +433,4 @@ public:
     bool DeleteClipFromPlaylist(const std::string& clip_id);
 };
 
-} // namespace ump
+} // namespace qcview

@@ -7,7 +7,7 @@
 #include <thread>
 #include <atomic>
 
-namespace ump {
+namespace qcview {
 
 // Forward declaration
 class StreamingVideoDecoder;
@@ -96,4 +96,4 @@ private:
     static constexpr int kCleanupWarningMs = 100;     // Log if cleanup takes longer than this
 };
 
-} // namespace ump
+} // namespace qcview

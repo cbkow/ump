@@ -30,7 +30,7 @@
 // Include VideoPlayer (alias to VideoDisplayComponent)
 #include "../player/video_player.h"
 
-namespace ump {
+namespace qcview {
     class TimelineView;  // Forward declaration for EXR display
     struct CombinedMetadata;
     

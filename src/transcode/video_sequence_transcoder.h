@@ -20,7 +20,7 @@ struct AVFrame;
 
 namespace fs = std::filesystem;
 
-namespace ump {
+namespace qcview {
 
 /**
  * VideoSequenceTranscoder
@@ -30,7 +30,7 @@ namespace ump {
  * to ensure correct colorspace handling for 4444/422/420 formats.
  *
  * Cache Directory Pattern:
- *   %LOCALAPPDATA%\ump\VideoFrameCache\{hash}_1920_bt709_limited\
+ *   %LOCALAPPDATA%\qcview\VideoFrameCache\{hash}_1920_bt709_limited\
  *     ├── frame_00000.png
  *     ├── frame_00001.png
  *     └── ...
@@ -61,7 +61,7 @@ public:
     float GetTranscodeProgress() const { return transcode_progress_.load(); }
 
     // Cache management
-    std::string GetCacheDirectory() const;              // e.g., %LOCALAPPDATA%\ump\VideoFrameCache\{hash}/
+    std::string GetCacheDirectory() const;              // e.g., %LOCALAPPDATA%\qcview\VideoFrameCache\{hash}/
     bool IsCached() const;                              // Check if transcode already exists on disk
     void ClearCache();                                  // Delete cached sequence
 
@@ -131,4 +131,4 @@ private:
     mutable std::mutex state_mutex_;
 };
 
-} // namespace ump
+} // namespace qcview

@@ -8,7 +8,7 @@ extern "C" {
 #include <algorithm>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 
 CPUFramePool::CPUFramePool() = default;
 
@@ -282,4 +282,4 @@ void CPUFramePool::EvictOldestFrame(int stream_id) {
     }
 }
 
-} // namespace ump
+} // namespace qcview

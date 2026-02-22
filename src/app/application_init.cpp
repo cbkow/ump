@@ -1,4 +1,4 @@
-﻿// application_init.cpp - Application::Initialize()
+// application_init.cpp - Application::Initialize()
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -110,12 +110,12 @@ extern TranscodeSettings transcode_settings;
 extern bool cache_enabled;
 extern bool otio_timeline_mode;
 extern bool otio_dual_view_mode;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::MediaLinker> media_linker;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
-extern std::unique_ptr<ump::SystemPressureMonitor> pressure_monitor;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::MediaLinker> media_linker;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::SystemPressureMonitor> pressure_monitor;
 extern int g_exr_read_ahead_frames;
 extern int g_read_behind_frames;
 extern int g_exr_thread_count;
@@ -141,9 +141,9 @@ extern std::mutex transcode_status_mutex;
 
 // Free functions defined in main.cpp
 void AutoConfigureEXRThreading(CacheSettings& settings);
-ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
-ump::TimelineCacheConfig GetCurrentTimelineCacheConfig();
-ump::ThumbnailConfig GetCurrentThumbnailConfig();
+qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
+qcview::TimelineCacheConfig GetCurrentTimelineCacheConfig();
+qcview::ThumbnailConfig GetCurrentThumbnailConfig();
 std::string GetAssetPath(const std::string& relative_path);
 
 // Accent color helpers (declared in app_style.cpp)
@@ -153,14 +153,14 @@ ImVec4 GetDefaultAccentColor();
 // More globals from main.cpp
 extern std::string current_timeline_path;
 extern std::string current_timeline_id;
-extern ump::ProjectManager* g_project_manager;
+extern qcview::ProjectManager* g_project_manager;
 extern bool auto_relink_in_progress;
 extern bool show_auto_relink_progress;
 extern int auto_relink_current;
 extern int auto_relink_total;
 extern std::string auto_relink_status;
 extern std::string auto_relink_timeline_id;
-extern ump::LinkSummary last_link_summary;
+extern qcview::LinkSummary last_link_summary;
 extern bool show_auto_relink_results;
 extern bool show_link_media_popup;
 extern bool timeline_thumbnail_cache_clear_deferred;
@@ -208,7 +208,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "u.m.p. v0.9.9", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.0", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
@@ -224,7 +224,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #ifdef _WIN32
         // Set window icon using Windows API
         HWND hwnd = glfwGetWin32Window(window);
-        std::wstring icon_path = (g_exe_dir / "assets/icons/umpn.ico").wstring();
+        std::wstring icon_path = (g_exe_dir / "assets/icons/qcview.ico").wstring();
         HICON hIcon = (HICON)LoadImageW(NULL, icon_path.c_str(), IMAGE_ICON, 0, 0, LR_LOADFROMFILE | LR_DEFAULTSIZE);
         if (hIcon) {
             SendMessage(hwnd, WM_SETICON, ICON_SMALL, (LPARAM)hIcon);
@@ -256,8 +256,8 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             int fb_width, fb_height;
             glfwGetFramebufferSize(window, &fb_width, &fb_height);
             HWND hwnd = glfwGetWin32Window(window);
-            if (ump::HDROutputManager::Instance().Initialize(hwnd, fb_width, fb_height)) {
-                if (ump::HDROutputManager::Instance().IsHDRActive()) {
+            if (qcview::HDROutputManager::Instance().Initialize(hwnd, fb_width, fb_height)) {
+                if (qcview::HDROutputManager::Instance().IsHDRActive()) {
                     Debug::Log("HDR output enabled via D3D11 swapchain");
                 } else {
                     Debug::Log("D3D11 swapchain initialized (SDR mode)");
@@ -269,7 +269,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #endif
 
         // Initialize NanoVG for annotation rendering
-        if (!ump::Annotations::NanoVGContext::Instance().Initialize()) {
+        if (!qcview::Annotations::NanoVGContext::Instance().Initialize()) {
             Debug::Log("WARNING: Failed to initialize NanoVG context for annotations");
         } else {
             Debug::Log("NanoVG context initialized successfully");
@@ -291,9 +291,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         ocio_manager = std::make_unique<OCIOConfigManager>();
         ImGuiIO& io = ImGui::GetIO();
 
-        // Disable automatic .ini file - we'll save layout manually to settings.ump
+        // Disable automatic .ini file - we'll save layout manually to settings.qcv
         io.IniFilename = nullptr;
-        Debug::Log("ImGui layout will be saved to settings.ump (not imgui.ini)");
+        Debug::Log("ImGui layout will be saved to settings.qcv (not imgui.ini)");
 
         // Load saved ImGui layout if we have one
         if (!saved_imgui_layout.empty()) {
@@ -320,7 +320,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #ifdef _WIN32
         // Enable HDR mode in ImGui shader if HDR output is active
         // This automatically converts all UI colors from sRGB to PQ (ST.2084)
-        if (ump::HDROutputManager::Instance().IsHDRActive()) {
+        if (qcview::HDROutputManager::Instance().IsHDRActive()) {
             ImGui_ImplOpenGL3_SetHDRMode(true, 120.0f);  // 120 nits for comfortable UI brightness
             Debug::Log("ImGui shader HDR mode enabled (sRGB->PQ conversion at 120 nits)");
         }
@@ -346,12 +346,12 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         Debug::Log("Applied initial disk cache settings from config");
 
         // Initialize OTIO timeline view (default view for all media)
-        timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+        timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
         timeline_view->SetProjectManager(project_manager.get());  // Enable playlist media resolution
         Debug::Log("TimelineView created at startup (OTIO timeline is default view)");
 
         // Initialize project manager after video player
-        project_manager = std::make_unique<ump::ProjectManager>(
+        project_manager = std::make_unique<qcview::ProjectManager>(
             video_player.get(),  // VideoPlayer*
             &current_file_path,  // std::string*
             &show_inspector_panel, // bool*
@@ -385,7 +385,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         project_manager->SetColorPresetCallback([this](const std::string& nclc_tag) {
 #ifdef _WIN32
             // Skip auto 1-2-1 in HDR mode - color conversion handled by HDR pipeline
-            if (ump::HDROutputManager::Instance().IsHDRActive()) {
+            if (qcview::HDROutputManager::Instance().IsHDRActive()) {
                 Debug::Log("Auto 1-2-1: Skipped (HDR mode active)");
                 return;
             }
@@ -406,7 +406,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
         // Set up auto-play request callback - respects app-wide auto_play_on_load setting
         project_manager->SetAutoPlayRequestCallback([this]() {
-            TriggerAutoPlay(ump::MediaType::VIDEO);  // Use VIDEO type for playlists (not image sequences)
+            TriggerAutoPlay(qcview::MediaType::VIDEO);  // Use VIDEO type for playlists (not image sequences)
         });
 
         // Set up loading modal callback - shows overlay before blocking operations
@@ -456,7 +456,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 // Try to find current timeline by path first, then by ID (for scratch timelines)
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
-                    ump::MediaItem* current_item = project_manager->GetTimelineItem(lookup_key);
+                    qcview::MediaItem* current_item = project_manager->GetTimelineItem(lookup_key);
                     if (current_item) {
                         current_item->cached_tracks = timeline_view->GetTracks();
                         current_item->has_cached_edits = true;
@@ -473,11 +473,11 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
             // Create/update TimelineView if needed
             if (!timeline_view) {
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
             }
 
             // Check if this is a scratch timeline (by looking up the timeline_id)
-            ump::MediaItem* timeline_item = project_manager->GetTimelineItem(path_or_id);
+            qcview::MediaItem* timeline_item = project_manager->GetTimelineItem(path_or_id);
             bool is_scratch_timeline = (timeline_item && timeline_item->timeline_format == "scratch");
 
             if (is_scratch_timeline) {
@@ -486,7 +486,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Create/reset TimelineView for UI rendering (required even for scratch timelines)
                 if (!timeline_view) {
-                    timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                    timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
                 } else {
                     // Shutdown existing playback from previous timeline (file-based or scratch)
                     timeline_view->ShutdownPlayback();
@@ -517,22 +517,22 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Initialize command manager for editing if needed
                 if (!timeline_command_manager) {
-                    timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+                    timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
                 }
 
                 // Initialize timeline thumbnail cache for trim/slip preview
                 if (!timeline_thumbnail_cache) {
-                    timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                    timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                     timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
                 }
 
                 // Initialize scratch timeline playback using virtual timeline (no dummy video)
                 if (video_player) {
                     // Create new controller (stored in unique_ptr for lifetime management)
-                    scratch_timeline_controller = std::make_unique<ump::TimelinePlaybackController>();
+                    scratch_timeline_controller = std::make_unique<qcview::TimelinePlaybackController>();
 
                     // Set pipeline mode from project settings BEFORE initialization
-                    ump::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
+                    qcview::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
                     config.pipeline_mode = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
                     scratch_timeline_controller->SetConfig(config);
                     Debug::Log("Scratch timeline: Set pipeline mode to " + std::string(PipelineModeToString(config.pipeline_mode)));
@@ -588,7 +588,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 // Update annotation availability for scratch timeline
                 if (annotation_manager && annotation_panel) {
                     if (project_manager && !project_manager->GetProjectPath().empty()) {
-                        annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                        annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                         std::string annotation_path = project_manager->GetAnnotationPathForMedia(timeline_item ? timeline_item->path : "");
                         if (!annotation_path.empty()) {
                             annotation_manager->LoadNotesForMedia(annotation_path);
@@ -597,7 +597,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                             annotation_manager->ClearNotes();
                         }
                     } else {
-                        annotation_panel->SetAvailability(ump::AnnotationAvailability::NO_PROJECT_SAVED);
+                        annotation_panel->SetAvailability(qcview::AnnotationAvailability::NO_PROJECT_SAVED);
                         annotation_manager->ClearNotes();
                         Debug::Log("Annotations disabled for scratch timeline - project not saved");
                     }
@@ -646,8 +646,8 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                         for (auto& clip : track.clips) {
                             if (clip.is_linked && !clip.linked_path.empty() && clip.source_duration <= 0) {
                                 // Re-probe the file
-                                if (ump::MediaLinker::IsVideoFile(clip.linked_path)) {
-                                    ump::VideoProbeResult probe = ump::MediaLinker::ProbeVideoFile(clip.linked_path);
+                                if (qcview::MediaLinker::IsVideoFile(clip.linked_path)) {
+                                    qcview::VideoProbeResult probe = qcview::MediaLinker::ProbeVideoFile(clip.linked_path);
                                     if (probe.valid) {
                                         clip.source_duration = probe.duration;
                                         clip.source_fps = probe.fps;
@@ -716,12 +716,12 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                     // Initialize command manager for editing if needed
                     if (!timeline_command_manager) {
-                        timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+                        timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
                     }
 
                     // Initialize timeline thumbnail cache for trim/slip preview
                     if (!timeline_thumbnail_cache) {
-                        timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                        timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                         timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
                     }
 
@@ -741,7 +741,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                             // Create media linker if needed
                             if (!media_linker) {
-                                media_linker = std::make_unique<ump::MediaLinker>();
+                                media_linker = std::make_unique<qcview::MediaLinker>();
                             }
 
                             // Set up progress callback
@@ -754,7 +754,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                             auto_relink_in_progress = true;
 
                             // Perform linking with depth limit of 6
-                            ump::LinkOptions options;
+                            qcview::LinkOptions options;
                             options.recursive = true;
                             options.max_depth = 6;
                             options.fuzzy_match = true;
@@ -809,9 +809,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                                     mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                                     // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                                    ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                                    if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                        source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                                    qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                                    if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                        source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                         mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                                     } else {
                                         mixer->SetPipelineLatency(0.0);
@@ -863,9 +863,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                                     mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                                     // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                                    ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                                    if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                                        source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                                    qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                                    if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                        source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                                         mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                                     } else {
                                         mixer->SetPipelineLatency(0.0);
@@ -889,7 +889,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     // Update annotation availability for timeline
                     if (annotation_manager && annotation_panel) {
                         if (project_manager && !project_manager->GetProjectPath().empty()) {
-                            annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                            annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                             std::string annotation_path = project_manager->GetAnnotationPathForMedia(timeline_item ? timeline_item->path : file_path);
                             if (!annotation_path.empty()) {
                                 annotation_manager->LoadNotesForMedia(annotation_path);
@@ -898,7 +898,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                                 annotation_manager->ClearNotes();
                             }
                         } else {
-                            annotation_panel->SetAvailability(ump::AnnotationAvailability::NO_PROJECT_SAVED);
+                            annotation_panel->SetAvailability(qcview::AnnotationAvailability::NO_PROJECT_SAVED);
                             annotation_manager->ClearNotes();
                             Debug::Log("Annotations disabled for timeline - project not saved");
                         }
@@ -921,7 +921,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
                     // Try to find as regular timeline first, then as dual view
-                    ump::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
+                    qcview::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
                     if (!timeline_item) {
                         timeline_item = project_manager->GetDualViewItem(lookup_key);
                     }
@@ -1001,8 +1001,8 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 auto source_mode = timeline_view->GetSourceMode();
 
                 // Handle IMAGE_SEQUENCE mode - save audio track edits to the source MediaItem
-                if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE) {
-                    ump::MediaItem* source_item = timeline_view->GetSourceMediaItem();
+                if (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE) {
+                    qcview::MediaItem* source_item = timeline_view->GetSourceMediaItem();
                     if (source_item) {
                         source_item->cached_tracks = timeline_view->GetTracks();
                         source_item->has_cached_edits = true;
@@ -1024,7 +1024,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
                     // Try to find as regular timeline first, then as dual view
-                    ump::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
+                    qcview::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
                     if (!timeline_item) {
                         timeline_item = project_manager->GetDualViewItem(lookup_key);
                     }
@@ -1044,7 +1044,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         });
 
         // Set up image sequence timeline callback - loads image sequences via timeline view
-        project_manager->SetImageSequenceTimelineCallback([this](ump::MediaItem* item) {
+        project_manager->SetImageSequenceTimelineCallback([this](qcview::MediaItem* item) {
             if (!item) {
                 Debug::Log("ImageSequenceTimelineCallback: Invalid item");
                 return;
@@ -1053,7 +1053,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             // Create TimelineView if it doesn't exist (first time entering timeline mode)
             if (!timeline_view) {
                 Debug::Log("ImageSequenceTimelineCallback: Creating TimelineView for first use");
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
             } else {
                 // STOP playback first before any cleanup
                 if (auto* controller = timeline_view->GetPlaybackController()) {
@@ -1083,7 +1083,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
-                ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+                qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
             }
@@ -1117,9 +1117,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                         mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                         // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                        ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                        if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                            source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                        qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                        if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                            source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                             mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                         } else {
                             mixer->SetPipelineLatency(0.0);
@@ -1130,13 +1130,13 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Initialize timeline thumbnail cache for clip thumbnails
                 if (!timeline_thumbnail_cache) {
-                    timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                    timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                     timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
                 }
 
                 // Initialize command manager for editing (enables drag-drop onto audio tracks)
                 if (!timeline_command_manager) {
-                    timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+                    timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
                 }
 
                 // Enter timeline mode with playback controller
@@ -1156,7 +1156,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Enable annotations for IMAGE_SEQUENCE mode (uses media-relative path)
                 if (annotation_manager && annotation_panel) {
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                     std::string annotation_path = item->path;
                     if (project_manager) {
                         annotation_path = project_manager->GetAnnotationPathForMedia(item->path);
@@ -1175,7 +1175,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         });
 
         // Set up video file timeline callback - loads video files via timeline view
-        project_manager->SetVideoFileTimelineCallback([this](ump::MediaItem* item) {
+        project_manager->SetVideoFileTimelineCallback([this](qcview::MediaItem* item) {
             if (!item) {
                 Debug::Log("VideoFileTimelineCallback: Invalid item");
                 return;
@@ -1184,7 +1184,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             // Create TimelineView if it doesn't exist (first time entering timeline mode)
             if (!timeline_view) {
                 Debug::Log("VideoFileTimelineCallback: Creating TimelineView for first use");
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
             } else {
                 // STOP playback first before any cleanup
                 if (auto* controller = timeline_view->GetPlaybackController()) {
@@ -1214,7 +1214,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
-                ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+                qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
             }
@@ -1276,9 +1276,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                         mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                         // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                        ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                        if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                            source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                        qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                        if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                            source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                             mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                         } else {
                             mixer->SetPipelineLatency(0.0);
@@ -1289,7 +1289,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Initialize timeline thumbnail cache for clip thumbnails
                 if (!timeline_thumbnail_cache) {
-                    timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                    timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                     timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
                 }
 
@@ -1310,7 +1310,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Enable annotations for VIDEO_FILE mode (uses media-relative path)
                 if (annotation_manager && annotation_panel) {
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                     std::string annotation_path = item->path;
                     if (project_manager) {
                         annotation_path = project_manager->GetAnnotationPathForMedia(item->path);
@@ -1327,7 +1327,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         });
 
         // Set up audio file timeline callback - loads audio files via timeline view (A1 track only)
-        project_manager->SetAudioFileTimelineCallback([this](ump::MediaItem* item) {
+        project_manager->SetAudioFileTimelineCallback([this](qcview::MediaItem* item) {
             if (!item) {
                 Debug::Log("AudioFileTimelineCallback: Invalid item");
                 return;
@@ -1336,7 +1336,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             // Create TimelineView if it doesn't exist (first time entering timeline mode)
             if (!timeline_view) {
                 Debug::Log("AudioFileTimelineCallback: Creating TimelineView for first use");
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
             } else {
                 // STOP playback first before any cleanup
                 if (auto* controller = timeline_view->GetPlaybackController()) {
@@ -1365,7 +1365,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
-                ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+                qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
             }
@@ -1391,9 +1391,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                         mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                         // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                        ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                        if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                            source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                        qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                        if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                            source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                             mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                         } else {
                             mixer->SetPipelineLatency(0.0);
@@ -1421,7 +1421,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Enable annotations for AUDIO_FILE mode (uses media-relative path)
                 if (annotation_manager && annotation_panel) {
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::AVAILABLE);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::AVAILABLE);
                     std::string annotation_path = item->path;
                     if (project_manager) {
                         annotation_path = project_manager->GetAnnotationPathForMedia(item->path);
@@ -1438,7 +1438,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         });
 
         // Set up playlist timeline callback - loads playlists via unified timeline view
-        project_manager->SetPlaylistTimelineCallback([this](ump::MediaItem* item) {
+        project_manager->SetPlaylistTimelineCallback([this](qcview::MediaItem* item) {
             if (!item) {
                 Debug::Log("PlaylistTimelineCallback: Invalid item");
                 return;
@@ -1450,7 +1450,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             // Create TimelineView if it doesn't exist (first time entering timeline mode)
             if (!timeline_view) {
                 Debug::Log("PlaylistTimelineCallback: Creating TimelineView for first use");
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
                 // Set project manager for media resolution in playlist mode
                 timeline_view->SetProjectManager(project_manager.get());
             } else {
@@ -1481,7 +1481,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
-                ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+                qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
             }
@@ -1517,9 +1517,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                         mixer->SetFineTuneOffset(cache_settings.audio_fine_tune_ms / 1000.0);
 
                         // Set pipeline latency based on source mode (D3D11 video decoding adds ~28ms)
-                        ump::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
-                        if (source_mode == ump::TimelineSourceMode::VIDEO_FILE ||
-                            source_mode == ump::TimelineSourceMode::PLAYLIST) {
+                        qcview::TimelineSourceMode source_mode = timeline_view->GetSourceMode();
+                        if (source_mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                            source_mode == qcview::TimelineSourceMode::PLAYLIST) {
                             mixer->SetPipelineLatency(0.028);  // D3D11 decoder buffering
                         } else {
                             mixer->SetPipelineLatency(0.0);
@@ -1530,7 +1530,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Initialize timeline thumbnail cache for clip thumbnails
                 if (!timeline_thumbnail_cache) {
-                    timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                    timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                     timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
                 }
 
@@ -1549,7 +1549,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Disable annotations for PLAYLIST mode
                 if (annotation_manager && annotation_panel) {
-                    annotation_panel->SetAvailability(ump::AnnotationAvailability::PLAYLIST_DISABLED);
+                    annotation_panel->SetAvailability(qcview::AnnotationAvailability::PLAYLIST_DISABLED);
                     annotation_manager->ClearNotes();
                     Debug::Log("Annotations disabled for Playlist mode");
                 }
@@ -1565,7 +1565,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     Debug::Log("Adding " + std::to_string(media_ids.size()) + " items to playlist");
 
                     // Get the playlist MediaItem fresh (pointer may have changed due to vector reallocation)
-                    ump::MediaItem* playlist = project_manager->GetPlaylistItem(playlist_id);
+                    qcview::MediaItem* playlist = project_manager->GetPlaylistItem(playlist_id);
                     if (!playlist) {
                         Debug::Log("ERROR: Playlist not found for drop");
                         return;
@@ -1573,17 +1573,17 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                     // Add each dropped item as a playlist entry
                     for (const auto& media_id : media_ids) {
-                        ump::MediaItem* media_item = project_manager->GetMediaItem(media_id);
+                        qcview::MediaItem* media_item = project_manager->GetMediaItem(media_id);
                         if (!media_item) continue;
 
                         // Skip non-playable types
-                        if (media_item->type == ump::MediaType::PLAYLIST ||
-                            media_item->type == ump::MediaType::IMAGE ||
-                            media_item->type == ump::MediaType::DUAL_VIEW) {
+                        if (media_item->type == qcview::MediaType::PLAYLIST ||
+                            media_item->type == qcview::MediaType::IMAGE ||
+                            media_item->type == qcview::MediaType::DUAL_VIEW) {
                             continue;
                         }
 
-                        ump::PlaylistItemEntry entry;
+                        qcview::PlaylistItemEntry entry;
                         entry.media_id = media_id;
                         entry.in_point = -1.0;  // Use full duration
                         entry.out_point = -1.0;
@@ -1623,7 +1623,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             Debug::Log("Opening dual view in editor: " + dual_view_id);
 
             // Get the dual view item
-            ump::MediaItem* dual_item = project_manager->GetDualViewItem(dual_view_id);
+            qcview::MediaItem* dual_item = project_manager->GetDualViewItem(dual_view_id);
             if (!dual_item) {
                 Debug::Log("ERROR: Dual view item not found: " + dual_view_id);
                 return;
@@ -1659,7 +1659,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
                     // Try to find as regular timeline first, then as dual view
-                    ump::MediaItem* current_item = project_manager->GetTimelineItem(lookup_key);
+                    qcview::MediaItem* current_item = project_manager->GetTimelineItem(lookup_key);
                     if (!current_item) {
                         current_item = project_manager->GetDualViewItem(lookup_key);
                     }
@@ -1675,7 +1675,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
             // Create TimelineView if needed
             if (!timeline_view) {
-                timeline_view = std::make_unique<ump::TimelineView>(video_player.get());
+                timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
             } else {
                 // STOP playback first before any cleanup
                 if (auto* controller = timeline_view->GetPlaybackController()) {
@@ -1696,7 +1696,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
 #ifdef _WIN32
                 // Process pending GL texture deletions from destroyed decoders before creating new ones
-                ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+                qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
             }
@@ -1708,7 +1708,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             if (dual_item->has_cached_edits && !dual_item->cached_tracks.empty()) {
                 timeline_view->SetTracks(dual_item->cached_tracks);
                 // SetTracks calls ResetSourceMode() which breaks dual view - restore it
-                timeline_view->SetSourceMode(ump::TimelineSourceMode::DUAL_VIEW);
+                timeline_view->SetSourceMode(qcview::TimelineSourceMode::DUAL_VIEW);
                 Debug::Log("Restored " + std::to_string(dual_item->cached_tracks.size()) +
                            " cached tracks for dual view");
             }
@@ -1721,21 +1721,21 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
             // Initialize command manager for editing
             if (!timeline_command_manager) {
-                timeline_command_manager = std::make_unique<ump::TimelineCommandManager>();
+                timeline_command_manager = std::make_unique<qcview::TimelineCommandManager>();
             }
 
             // Initialize timeline thumbnail cache for trim/slip preview
             if (!timeline_thumbnail_cache) {
-                timeline_thumbnail_cache = std::make_unique<ump::TimelineThumbnailCache>();
+                timeline_thumbnail_cache = std::make_unique<qcview::TimelineThumbnailCache>();
                 timeline_thumbnail_cache->Initialize(timeline_view ? timeline_view->GetFrameRate() : 24.0);
             }
 
             // Initialize dual view playback with separate LEFT/RIGHT caches
             if (video_player) {
-                scratch_timeline_controller = std::make_unique<ump::TimelinePlaybackController>();
+                scratch_timeline_controller = std::make_unique<qcview::TimelinePlaybackController>();
 
                 // Set pipeline mode from project settings BEFORE initialization
-                ump::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
+                qcview::TimelinePlaybackConfig config = scratch_timeline_controller->GetConfig();
                 config.pipeline_mode = project_manager ? project_manager->GetProjectPipelineMode() : PipelineMode::NORMAL;
                 scratch_timeline_controller->SetConfig(config);
                 Debug::Log("Dual view: Set pipeline mode to " + std::string(PipelineModeToString(config.pipeline_mode)));
@@ -1768,7 +1768,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
             // Disable annotations for DUAL_VIEW mode
             if (annotation_manager && annotation_panel) {
-                annotation_panel->SetAvailability(ump::AnnotationAvailability::DUAL_VIEW_DISABLED);
+                annotation_panel->SetAvailability(qcview::AnnotationAvailability::DUAL_VIEW_DISABLED);
                 annotation_manager->ClearNotes();
                 Debug::Log("Annotations disabled for Dual View mode");
             }
@@ -1861,7 +1861,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
                 // Save to annotation manager
                 if (annotation_manager) {
-                    std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                    std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                     annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
                     Debug::Log("Auto-saved annotation: " + current_editing_timecode_);
                 }
@@ -1883,17 +1883,17 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             annotation_redo_stack_.clear();
 
             if (!annotation_data.empty()) {
-                current_annotation_strokes_ = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
+                current_annotation_strokes_ = qcview::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
                 Debug::Log("Loaded " + std::to_string(current_annotation_strokes_.size()) + " existing strokes");
             } else {
                 Debug::Log("No existing strokes - starting with blank canvas");
             }
 
             // Enter annotation mode
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::ANNOTATION);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::ANNOTATION);
 
             // Set freehand tool as default
-            viewport_annotator->SetActiveTool(ump::Annotations::DrawingTool::FREEHAND);
+            viewport_annotator->SetActiveTool(qcview::Annotations::DrawingTool::FREEHAND);
 
             // Show the toolbar
             annotation_toolbar->SetVisible(true);
@@ -1918,13 +1918,13 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
             // Save to annotation manager
             if (annotation_manager && !current_editing_timecode_.empty()) {
-                std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                 annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
                 Debug::Log("Saved annotation: " + current_editing_timecode_);
             }
 
             // Exit annotation mode
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
             annotation_toolbar->SetVisible(false);
             current_editing_timecode_.clear();
             current_annotation_strokes_.clear();
@@ -1946,7 +1946,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     current_annotation_strokes_.push_back(*active_stroke);
                 }
                 if (annotation_manager) {
-                    std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                    std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                     annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
                 }
             }
@@ -1961,11 +1961,11 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             annotation_redo_stack_.clear();
 
             if (!annotation_data.empty()) {
-                current_annotation_strokes_ = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
+                current_annotation_strokes_ = qcview::Annotations::AnnotationSerializer::JsonStringToStrokes(annotation_data);
             }
 
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::ANNOTATION);
-            viewport_annotator->SetActiveTool(ump::Annotations::DrawingTool::FREEHAND);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::ANNOTATION);
+            viewport_annotator->SetActiveTool(qcview::Annotations::DrawingTool::FREEHAND);
             viewport_annotator->SetAllowInputInPopup(true);
             annotation_toolbar->SetVisible(true);
 
@@ -1982,11 +1982,11 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             }
 
             if (annotation_manager && !current_editing_timecode_.empty()) {
-                std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                 annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
             }
 
-            viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
             viewport_annotator->SetAllowInputInPopup(false);
             annotation_toolbar->SetVisible(false);
             current_editing_timecode_.clear();
@@ -2000,7 +2000,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         // Callback for deleting a note from modal
         annotation_panel->SetDeleteNoteCallback([this](const std::string& timecode) {
             if (viewport_annotator) {
-                viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+                viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
                 viewport_annotator->SetAllowInputInPopup(false);
             }
             if (annotation_toolbar) {
@@ -2051,20 +2051,20 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             NFD_FreePathU8(out_path);
 
             // Determine export format
-            ump::Annotations::AnnotationExporter::ExportFormat export_format;
+            qcview::Annotations::AnnotationExporter::ExportFormat export_format;
             if (format == "markdown") {
-                export_format = ump::Annotations::AnnotationExporter::ExportFormat::MARKDOWN;
+                export_format = qcview::Annotations::AnnotationExporter::ExportFormat::MARKDOWN;
             } else if (format == "html") {
-                export_format = ump::Annotations::AnnotationExporter::ExportFormat::HTML;
+                export_format = qcview::Annotations::AnnotationExporter::ExportFormat::HTML;
             } else if (format == "pdf") {
-                export_format = ump::Annotations::AnnotationExporter::ExportFormat::PDF;
+                export_format = qcview::Annotations::AnnotationExporter::ExportFormat::PDF;
             } else {
                 Debug::Log("Unknown export format: " + format);
                 return;
             }
 
             // Set up export options
-            ump::Annotations::AnnotationExporter::ExportOptions options;
+            qcview::Annotations::AnnotationExporter::ExportOptions options;
             std::string current_path = current_file_path;
             options.media_name = std::filesystem::path(current_path).filename().string();
             options.media_path = current_path;
@@ -2107,9 +2107,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             if (initial_files.size() == 1) {
                 std::string arg = initial_files[0];
 
-                // Check if it's a ump:// URI
-                if (arg.substr(0, 7) == "ump:///") {
-                    Debug::Log("Detected ump:// URI from command-line");
+                // Check if it's a qcview:// URI
+                if (arg.substr(0, 10) == "qcview:///") {
+                    Debug::Log("Detected qcview:// URI from command-line");
                     std::string project_path = ParseProjectURI(arg);
                     if (!project_path.empty()) {
                         Debug::Log("Parsed project path from URI: " + project_path);
@@ -2125,7 +2125,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     }
                 }
                 // Direct project file
-                else if (arg.find(".umproj") != std::string::npos) {
+                else if (arg.find(".qcvproj") != std::string::npos || arg.find(".umproj") != std::string::npos) {
                     Debug::Log("Loading project file from command-line: " + arg);
                     project_manager->LoadProject(arg);
                 }
@@ -2143,7 +2143,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         }
 
         // Start system pressure monitor (background thread)
-        pressure_monitor = std::make_unique<ump::SystemPressureMonitor>();
+        pressure_monitor = std::make_unique<qcview::SystemPressureMonitor>();
         pressure_monitor->SetRAMCriticalThreshold(0.90f);  // 90% critical
         pressure_monitor->SetRAMWarningThreshold(0.80f);   // 80% warning
         pressure_monitor->SetCPUWarningThreshold(0.85f);   // 85% CPU warning

@@ -266,11 +266,11 @@ std::vector<ShortcutEntry>& GetShortcutRegistry() {
 std::string GetShortcutsPath() {
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
-        std::string base_path = std::string(localappdata) + "\\ump";
+        std::string base_path = std::string(localappdata) + "\\qcview";
         std::filesystem::create_directories(base_path);
-        return base_path + "\\shortcuts.ump";
+        return base_path + "\\shortcuts.qcv";
     }
-    return "shortcuts.ump";
+    return "shortcuts.qcv";
 }
 
 void LoadShortcuts() {

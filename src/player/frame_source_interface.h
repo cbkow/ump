@@ -6,7 +6,7 @@
 #include <glad/gl.h>
 #include "pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Buffer Health - Used for Adaptive Speed Coordination
@@ -106,4 +106,4 @@ public:
     virtual std::string GetSourceType() const = 0;  // "EXR", "TIFF", "Video", etc.
 };
 
-} // namespace ump
+} // namespace qcview

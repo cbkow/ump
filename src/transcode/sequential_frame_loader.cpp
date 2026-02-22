@@ -9,7 +9,7 @@
 #undef min
 #undef max
 
-namespace ump {
+namespace qcview {
 
 SequentialFrameLoader::SequentialFrameLoader(
     std::unique_ptr<IImageLoader> loader,
@@ -308,4 +308,4 @@ void SequentialFrameLoader::IOWorkerThread() {
     Debug::Log("SequentialFrameLoader: I/O worker thread stopped");
 }
 
-} // namespace ump
+} // namespace qcview

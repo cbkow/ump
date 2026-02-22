@@ -16,7 +16,7 @@ extern "C" {
 #include <libavutil/frame.h>
 }
 
-namespace ump {
+namespace qcview {
 
 D3D11HWFrameExtractor::D3D11HWFrameExtractor() = default;
 
@@ -371,6 +371,6 @@ bool D3D11HWFrameExtractor::CreatePlaneSRVs(ID3D11Texture2D* texture,
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

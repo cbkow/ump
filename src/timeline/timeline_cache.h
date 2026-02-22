@@ -37,7 +37,7 @@
 #include "../utils/debug_utils.h"               // For Debug::Log
 #include "playlist_single_decoder.h"            // For PlaylistSingleDecoder (PLAYLIST single-decoder mode)
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 struct OTIOClip;
@@ -1086,4 +1086,4 @@ private:
     std::map<std::string, double> min_source_in_per_file_;
 };
 
-} // namespace ump
+} // namespace qcview

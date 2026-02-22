@@ -4,7 +4,7 @@
 #include "direct_exr_cache.h"
 #include <memory>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // DirectEXRCacheSource
@@ -70,4 +70,4 @@ private:
     std::string source_type_;
 };
 
-} // namespace ump
+} // namespace qcview

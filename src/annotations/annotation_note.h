@@ -3,7 +3,7 @@
 #include <string>
 #include <nlohmann/json.hpp>
 
-namespace ump {
+namespace qcview {
 
 /**
  * AnnotationNote - Single annotation/note data structure
@@ -85,4 +85,4 @@ inline void from_json(const nlohmann::json& j, AnnotationNote& note) {
     }
 }
 
-} // namespace ump
+} // namespace qcview

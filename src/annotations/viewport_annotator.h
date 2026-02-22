@@ -7,13 +7,13 @@
 #include "annotation_note.h"
 
 // Forward declaration
-namespace ump {
+namespace qcview {
 namespace Annotations {
 class InkStrokeModelerWrapper;
 }
 }
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 /**
@@ -236,4 +236,4 @@ private:
 };
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

@@ -1,4 +1,4 @@
-﻿// ============================================================================
+// ============================================================================
 // Inspector panel
 // ============================================================================
 
@@ -17,7 +17,7 @@
 extern ImFont* font_regular;
 extern ImFont* font_bold;
 extern ImFont* font_icons;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
 extern bool otio_dual_view_mode;
 
     void Application::CreateInspectorPanel() {
@@ -35,12 +35,12 @@ extern bool otio_dual_view_mode;
                 // 1. Media loaded into TimelineView (IMAGE_SEQUENCE, PLAYLIST, VIDEO_FILE modes)
                 // 2. Timelines (via GetCurrentTimelineItem)
                 // 3. Videos/other media (via GetMediaItemFromCurrentPath)
-                ump::MediaItem* current_item = nullptr;
+                qcview::MediaItem* current_item = nullptr;
                 if (timeline_view) {
                     auto source_mode = timeline_view->GetSourceMode();
-                    if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE ||
-                        source_mode == ump::TimelineSourceMode::PLAYLIST ||
-                        source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
+                    if (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE ||
+                        source_mode == qcview::TimelineSourceMode::PLAYLIST ||
+                        source_mode == qcview::TimelineSourceMode::VIDEO_FILE) {
                         current_item = timeline_view->GetSourceMediaItem();
                     }
                 }
@@ -53,17 +53,17 @@ extern bool otio_dual_view_mode;
                     current_item = project_manager->GetMediaItemFromCurrentPath();
                 }
 
-                if (otio_dual_view_mode || (current_item && current_item->type == ump::MediaType::DUAL_VIEW)) {
+                if (otio_dual_view_mode || (current_item && current_item->type == qcview::MediaType::DUAL_VIEW)) {
                     inspector_context = "Dual View Comparison";
-                } else if (current_item && current_item->type == ump::MediaType::PLAYLIST) {
+                } else if (current_item && current_item->type == qcview::MediaType::PLAYLIST) {
                     inspector_context = "Playlist";
-                } else if (current_item && current_item->type == ump::MediaType::EXR_SEQUENCE) {
+                } else if (current_item && current_item->type == qcview::MediaType::EXR_SEQUENCE) {
                     inspector_context = "EXR Sequence";
-                } else if (current_item && current_item->type == ump::MediaType::IMAGE_SEQUENCE) {
+                } else if (current_item && current_item->type == qcview::MediaType::IMAGE_SEQUENCE) {
                     inspector_context = "Image Sequence";
-                } else if (current_item && current_item->type == ump::MediaType::VIDEO) {
+                } else if (current_item && current_item->type == qcview::MediaType::VIDEO) {
                     inspector_context = "Video";
-                } else if (current_item && current_item->type == ump::MediaType::AUDIO) {
+                } else if (current_item && current_item->type == qcview::MediaType::AUDIO) {
                     inspector_context = "Audio";
                 }
 
@@ -109,12 +109,12 @@ extern bool otio_dual_view_mode;
             // 1. Media loaded into TimelineView (IMAGE_SEQUENCE, PLAYLIST, VIDEO_FILE, DUAL_VIEW modes)
             // 2. Timelines (via GetCurrentTimelineItem)
             // 3. Videos/other media (via GetMediaItemFromCurrentPath)
-            ump::MediaItem* inspector_item = nullptr;
+            qcview::MediaItem* inspector_item = nullptr;
             if (timeline_view) {
                 auto source_mode = timeline_view->GetSourceMode();
-                if (source_mode == ump::TimelineSourceMode::IMAGE_SEQUENCE ||
-                    source_mode == ump::TimelineSourceMode::PLAYLIST ||
-                    source_mode == ump::TimelineSourceMode::VIDEO_FILE) {
+                if (source_mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE ||
+                    source_mode == qcview::TimelineSourceMode::PLAYLIST ||
+                    source_mode == qcview::TimelineSourceMode::VIDEO_FILE) {
                     inspector_item = timeline_view->GetSourceMediaItem();
                 }
             }
@@ -130,10 +130,10 @@ extern bool otio_dual_view_mode;
                 // Fall back to path-based lookup for videos
                 inspector_item = project_manager->GetMediaItemFromCurrentPath();
             }
-            bool show_dual_view_inspector = inspector_item && inspector_item->type == ump::MediaType::DUAL_VIEW;
-            bool show_playlist_inspector = inspector_item && inspector_item->type == ump::MediaType::PLAYLIST;
-            bool show_sequence_inspector = inspector_item && (inspector_item->type == ump::MediaType::IMAGE_SEQUENCE ||
-                                                               inspector_item->type == ump::MediaType::EXR_SEQUENCE ||
+            bool show_dual_view_inspector = inspector_item && inspector_item->type == qcview::MediaType::DUAL_VIEW;
+            bool show_playlist_inspector = inspector_item && inspector_item->type == qcview::MediaType::PLAYLIST;
+            bool show_sequence_inspector = inspector_item && (inspector_item->type == qcview::MediaType::IMAGE_SEQUENCE ||
+                                                               inspector_item->type == qcview::MediaType::EXR_SEQUENCE ||
                                                                (inspector_item->path.size() > 6 && inspector_item->path.substr(0, 6) == "exr://"));
 
             // Dual View Mode - show basic dual view properties
@@ -212,7 +212,7 @@ extern bool otio_dual_view_mode;
                 // (video_player->HasVideo() is false in timeline mode, so we use MediaItem data)
                 if (inspector_item) {
                     // Check if this is an EXR sequence (by type or path format)
-                    bool is_exr = inspector_item->type == ump::MediaType::EXR_SEQUENCE ||
+                    bool is_exr = inspector_item->type == qcview::MediaType::EXR_SEQUENCE ||
                                   (inspector_item->path.size() > 6 && inspector_item->path.substr(0, 6) == "exr://");
                     if (is_exr) {
                         // EXR sequence - show EXR-specific properties with layer info

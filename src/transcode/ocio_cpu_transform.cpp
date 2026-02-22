@@ -42,7 +42,7 @@ inline float HalfToFloat(uint16_t h) {
 
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
 
-namespace ump {
+namespace qcview {
 
 OCIOCPUTransform::OCIOCPUTransform() {
 }
@@ -396,4 +396,4 @@ std::vector<float> OCIOCPUTransform::ResizeImage(
     return dst;
 }
 
-} // namespace ump
+} // namespace qcview

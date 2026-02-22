@@ -6,7 +6,7 @@
 #include "../utils/debug_utils.h"
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 
 D3D11TexturePool::D3D11TexturePool() = default;
 
@@ -319,6 +319,6 @@ D3D11TexturePool::Stats D3D11TexturePool::GetStats() const {
     return stats;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

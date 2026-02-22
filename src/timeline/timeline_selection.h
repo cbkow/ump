@@ -4,7 +4,7 @@
 #include <set>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 
 // Selection state management for timeline clips
 struct TimelineSelection {
@@ -129,4 +129,4 @@ struct TimelineMediaDropState {
     std::string preview_name;       // Name for ghost label
 };
 
-} // namespace ump
+} // namespace qcview

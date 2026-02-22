@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace ump {
+namespace qcview {
 
 // Timeline source mode - determines editing restrictions and UI behavior
 enum class TimelineSourceMode {
@@ -15,7 +15,7 @@ enum class TimelineSourceMode {
 };
 
 // Represents a single clip segment on a timeline track
-// Named OTIOClip to avoid collision with ump::TimelineClip in media_item.h
+// Named OTIOClip to avoid collision with qcview::TimelineClip in media_item.h
 struct OTIOClip {
     std::string id;
     std::string name;
@@ -77,4 +77,4 @@ struct OTIOTrack {
     int z_index = 0;               // Stacking order (higher = on top)
 };
 
-} // namespace ump
+} // namespace qcview

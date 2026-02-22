@@ -17,7 +17,7 @@ extern "C" {
 // libharu for PDF generation
 #include <hpdf.h>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 // Helper: Render a block of text with inline code highlighting in a PDF.
@@ -290,7 +290,7 @@ std::string AnnotationExporter::ExportMarkdown(
         if (note.addressed) {
             md << "**[Addressed]**<br>";
         }
-        md << ump::Annotations::EscapeForMarkdownTable(note.text) << " |\n";
+        md << qcview::Annotations::EscapeForMarkdownTable(note.text) << " |\n";
     }
 
     md << "\n---\n\n";
@@ -433,7 +433,7 @@ std::string AnnotationExporter::ExportHTML(
         if (note.addressed) {
             html << "            <p><strong>[Addressed]</strong></p>\n";
         }
-        html << "            <div>" << ump::Annotations::MarkdownToHtml(note.text) << "</div>\n";
+        html << "            <div>" << qcview::Annotations::MarkdownToHtml(note.text) << "</div>\n";
         html << "        </div>\n";
         html << "    </div>\n";
     }
@@ -454,7 +454,7 @@ std::string AnnotationExporter::ExportHTML(
         if (note.addressed) {
             html << "        <p><strong>[Addressed]</strong></p>\n";
         }
-        html << "        <div class=\"note-text\">" << ump::Annotations::MarkdownToHtml(note.text) << "</div>\n";
+        html << "        <div class=\"note-text\">" << qcview::Annotations::MarkdownToHtml(note.text) << "</div>\n";
         html << "        <hr>\n";
         html << "    </div>\n";
     }
@@ -551,8 +551,8 @@ std::string AnnotationExporter::ExportPDF(
 
         // Add metadata
         HPDF_SetInfoAttr(pdf, HPDF_INFO_TITLE, (options.media_name + " - Annotations").c_str());
-        HPDF_SetInfoAttr(pdf, HPDF_INFO_CREATOR, "ump");
-        HPDF_SetInfoAttr(pdf, HPDF_INFO_PRODUCER, "ump Annotation Exporter");
+        HPDF_SetInfoAttr(pdf, HPDF_INFO_CREATOR, "QCView");
+        HPDF_SetInfoAttr(pdf, HPDF_INFO_PRODUCER, "QCView Annotation Exporter");
 
         // Get default font
         HPDF_Font font = HPDF_GetFont(pdf, "Helvetica", nullptr);
@@ -720,22 +720,22 @@ std::string AnnotationExporter::ExportPDF(
 
                 // Note text (markdown-aware block rendering with inline code)
                 float text_width = page_width - info_x - margin;
-                auto blocks = ump::Annotations::ParseMarkdownBlocks(note.text);
+                auto blocks = qcview::Annotations::ParseMarkdownBlocks(note.text);
                 int ol_counter = 0;
 
                 for (const auto& block : blocks) {
-                    bool is_heading = block.type == ump::Annotations::MarkdownBlock::Type::Heading;
+                    bool is_heading = block.type == qcview::Annotations::MarkdownBlock::Type::Heading;
                     HPDF_Font block_font = is_heading ? font_bold : font;
                     float block_size = is_heading ? 11.0f : 10.0f;
 
                     // Build display text with prefix for list items
                     std::string display_text = block.raw_text;
                     float indent = 0;
-                    if (block.type == ump::Annotations::MarkdownBlock::Type::UnorderedListItem) {
+                    if (block.type == qcview::Annotations::MarkdownBlock::Type::UnorderedListItem) {
                         ol_counter = 0;
                         indent = 10;
                         display_text = "- " + display_text;
-                    } else if (block.type == ump::Annotations::MarkdownBlock::Type::OrderedListItem) {
+                    } else if (block.type == qcview::Annotations::MarkdownBlock::Type::OrderedListItem) {
                         ol_counter++;
                         indent = 10;
                         display_text = std::to_string(ol_counter) + ". " + display_text;
@@ -749,7 +749,7 @@ std::string AnnotationExporter::ExportPDF(
                                              block_size, draw_x, info_y, wrap_w, 15.0f);
 
                     // Extra spacing after headings and paragraphs
-                    if (is_heading || block.type == ump::Annotations::MarkdownBlock::Type::Paragraph) {
+                    if (is_heading || block.type == qcview::Annotations::MarkdownBlock::Type::Paragraph) {
                         info_y -= 3;
                     }
                 }
@@ -811,22 +811,22 @@ std::string AnnotationExporter::ExportPDF(
 
             // Note text (markdown-aware block rendering with inline code)
             float text_width = page_width - (margin * 2);
-            auto blocks = ump::Annotations::ParseMarkdownBlocks(note.text);
+            auto blocks = qcview::Annotations::ParseMarkdownBlocks(note.text);
             int ol_counter = 0;
 
             for (const auto& block : blocks) {
-                bool is_heading = block.type == ump::Annotations::MarkdownBlock::Type::Heading;
+                bool is_heading = block.type == qcview::Annotations::MarkdownBlock::Type::Heading;
                 HPDF_Font block_font = is_heading ? font_bold : font;
                 float block_size = is_heading ? 14.0f : 12.0f;
 
                 // Build display text with prefix for list items
                 std::string display_text = block.raw_text;
                 float indent = 0;
-                if (block.type == ump::Annotations::MarkdownBlock::Type::UnorderedListItem) {
+                if (block.type == qcview::Annotations::MarkdownBlock::Type::UnorderedListItem) {
                     ol_counter = 0;
                     indent = 15;
                     display_text = "- " + display_text;
-                } else if (block.type == ump::Annotations::MarkdownBlock::Type::OrderedListItem) {
+                } else if (block.type == qcview::Annotations::MarkdownBlock::Type::OrderedListItem) {
                     ol_counter++;
                     indent = 15;
                     display_text = std::to_string(ol_counter) + ". " + display_text;
@@ -840,7 +840,7 @@ std::string AnnotationExporter::ExportPDF(
                                          block_size, draw_x, y_pos, wrap_w, 18.0f);
 
                 // Extra spacing after headings and paragraphs
-                if (is_heading || block.type == ump::Annotations::MarkdownBlock::Type::Paragraph) {
+                if (is_heading || block.type == qcview::Annotations::MarkdownBlock::Type::Paragraph) {
                     y_pos -= 4;
                 }
             }
@@ -1011,4 +1011,4 @@ void AnnotationExporter::RevealInExplorer(const std::string& path, bool is_folde
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

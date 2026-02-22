@@ -5,7 +5,7 @@
 #include <atomic>
 #include <mutex>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // CacheWindowEngine - Central engine for demand-driven circular caching
@@ -153,4 +153,4 @@ private:
     void UpdateBoundaryLength() const;
 };
 
-} // namespace ump
+} // namespace qcview

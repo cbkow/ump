@@ -7,7 +7,7 @@
 #include <condition_variable>
 #include "transcode_queue.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * TranscodeWorkerPool
@@ -81,4 +81,4 @@ private:
     mutable std::mutex info_mutex_;  // Protects worker_info_
 };
 
-} // namespace ump
+} // namespace qcview

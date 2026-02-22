@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // PlaylistClip - Simplified clip structure for unified playlist timeline
@@ -92,4 +92,4 @@ struct PlaylistClip {
     }
 };
 
-} // namespace ump
+} // namespace qcview

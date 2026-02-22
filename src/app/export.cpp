@@ -18,7 +18,7 @@
 
     // Queue a frame capture (called from export flow)
     void Application::QueueFrameCapture(const std::string& output_path,
-                          const std::vector<ump::Annotations::ActiveStroke>& strokes,
+                          const std::vector<qcview::Annotations::ActiveStroke>& strokes,
                           int export_width,
                           int export_height) {
         pending_capture.output_path = output_path;
@@ -127,16 +127,16 @@
                    " (timecode: " + note.timecode + ")");
 
         // Parse annotation strokes for this note
-        std::vector<ump::Annotations::ActiveStroke> strokes;
+        std::vector<qcview::Annotations::ActiveStroke> strokes;
         if (!note.annotation_data.empty()) {
-            strokes = ump::Annotations::AnnotationSerializer::JsonStringToStrokes(note.annotation_data);
+            strokes = qcview::Annotations::AnnotationSerializer::JsonStringToStrokes(note.annotation_data);
         }
 
         // Generate output path (use filesystem::path to ensure correct separators)
         // Include note index to handle multiple notes at same timecode (e.g., Frame.io imports)
         std::filesystem::path output_path = std::filesystem::path(export_state.temp_dir) /
             ("note_" + std::to_string(export_state.current_note_index) + "_" +
-             ump::Annotations::AnnotationExporter::FormatTimecode(note.timestamp_seconds, export_state.options.frame_rate) + ".png");
+             qcview::Annotations::AnnotationExporter::FormatTimecode(note.timestamp_seconds, export_state.options.frame_rate) + ".png");
 
         // Save capture data for after seek completes
         export_state.pending_output_path = output_path.string();
@@ -428,7 +428,7 @@
                                 if (stroke.points.empty()) continue;
 
                                 // Create a scaled copy of the stroke for export resolution
-                                ump::Annotations::ActiveStroke scaled_stroke = stroke;
+                                qcview::Annotations::ActiveStroke scaled_stroke = stroke;
                                 scaled_stroke.stroke_width = stroke.stroke_width * line_width_scale;
 
                                 // Render with smoothing enabled (handles is_modeled flag internally)
@@ -578,9 +578,9 @@
     // Capture video frame with annotations (synchronous)
     // Start export process (initiates state machine)
     void Application::StartExport(
-        ump::Annotations::AnnotationExporter::ExportFormat format,
-        const ump::Annotations::AnnotationExporter::ExportOptions& options,
-        const std::vector<ump::AnnotationNote>& notes,
+        qcview::Annotations::AnnotationExporter::ExportFormat format,
+        const qcview::Annotations::AnnotationExporter::ExportOptions& options,
+        const std::vector<qcview::AnnotationNote>& notes,
         const std::string& temp_dir
     ) {
         export_state.active = true;

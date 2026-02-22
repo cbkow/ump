@@ -7,7 +7,7 @@
 #include "../transcode/transcode_queue.h"
 #include "../transcode/transcode_worker_pool.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * TranscodeQueueWindow
@@ -125,4 +125,4 @@ private:
     int current_tab_ = -1;
 };
 
-} // namespace ump
+} // namespace qcview

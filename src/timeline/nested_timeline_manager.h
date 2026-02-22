@@ -4,7 +4,7 @@
 #include <string>
 #include "timeline_types.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * TimelineContext - Stores state for a timeline level (root or nested)
@@ -135,4 +135,4 @@ private:
     std::string current_timeline_name_;
 };
 
-} // namespace ump
+} // namespace qcview

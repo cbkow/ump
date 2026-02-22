@@ -7,7 +7,7 @@
 #include <sstream>
 #include <iomanip>
 
-namespace ump {
+namespace qcview {
 
 ImageSequenceConfig ImageSequencePatternConverter::ParseSequence(const std::vector<std::string>& sequence_files, double fps, PipelineMode pipeline_mode) {
     ImageSequenceConfig config;
@@ -299,4 +299,4 @@ std::string ImageSequencePatternConverter::NormalizePath(const std::string& path
     return normalized;
 }
 
-} // namespace ump
+} // namespace qcview

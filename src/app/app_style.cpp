@@ -290,7 +290,7 @@ void Application::EnableDarkModeWindow(GLFWwindow* window) {
     hwnd = glfwGetWin32Window(window);
 #else
     OutputDebugStringA("Using FindWindowA fallback...\n");
-    hwnd = FindWindowA(nullptr, "ump - Professional Video Editor");
+    hwnd = FindWindowA(nullptr, "QCView - Professional Video Editor");
 #endif
 
     if (hwnd) {

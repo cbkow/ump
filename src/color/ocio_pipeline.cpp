@@ -869,7 +869,7 @@ void OCIOPipeline::CleanupD3D11Shaders() {
 bool OCIOPipeline::CreatePassthroughPipelineD3D11() {
     Debug::Log("Creating D3D11 passthrough pipeline (identity transform)");
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (!device_mgr.IsInitialized()) {
         Debug::Log("ERROR: D3D11DeviceManager not initialized");
         return false;
@@ -934,7 +934,7 @@ bool OCIOPipeline::GenerateAndCompileShaderD3D11() {
         return CreatePassthroughPipelineD3D11();
     }
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (!device_mgr.IsInitialized()) {
         Debug::Log("ERROR: D3D11DeviceManager not initialized for shader generation");
         return false;

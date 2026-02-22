@@ -49,8 +49,8 @@ void EXRMetadata::DetectAndCacheExtendedProperties() {
         data_height = dataWindow.max.y - dataWindow.min.y + 1;
 
         // Get channel list and detect layers
-        ump::EXRLayerDetector detector;
-        std::vector<ump::EXRLayer> detected_layers;
+        qcview::EXRLayerDetector detector;
+        std::vector<qcview::EXRLayer> detected_layers;
 
         if (detector.DetectLayers(file_path, detected_layers)) {
             // Convert detected layers to our simplified layer info

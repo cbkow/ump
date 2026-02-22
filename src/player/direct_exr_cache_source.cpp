@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <filesystem>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Construction / Destruction
@@ -216,4 +216,4 @@ std::vector<CacheSegment> DirectEXRCacheSource::GetCacheSegments() const {
     return cache_->GetCacheSegments();
 }
 
-} // namespace ump
+} // namespace qcview

@@ -15,7 +15,7 @@
 
 #include "../player/pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class PlaylistTimeline;
@@ -303,4 +303,4 @@ private:
     bool timer_initialized_ = false;
 };
 
-} // namespace ump
+} // namespace qcview

@@ -3,7 +3,7 @@
 #include <vector>
 #include <regex>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 // Apply inline formatting: bold/italic combo, bold, italic, code
@@ -350,4 +350,4 @@ std::string EscapeForMarkdownTable(const std::string& text) {
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

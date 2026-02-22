@@ -14,7 +14,7 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-namespace ump {
+namespace qcview {
 namespace AnnotationIO {
 
 std::string SanitizeMediaName(const std::string& filename) {
@@ -31,22 +31,42 @@ std::string SanitizeMediaName(const std::string& filename) {
     return sanitized;
 }
 
-std::string GetUMPPath(const std::string& media_path) {
+std::string GetQCViewPath(const std::string& media_path) {
     fs::path path(media_path);
     fs::path parent = path.parent_path();
 
-    // Create .ump folder in the same directory as the media file
-    fs::path ump_folder = parent / ".ump";
+    // Create .qcview folder in the same directory as the media file
+    fs::path qcview_folder = parent / ".qcview";
 
-    return ump_folder.string();
+    return qcview_folder.string();
+}
+
+// Returns the sidecar folder, preferring .qcview but falling back to .ump for reading
+static std::string GetSidecarPathWithFallback(const std::string& media_path) {
+    fs::path path(media_path);
+    fs::path parent = path.parent_path();
+
+    fs::path qcview_folder = parent / ".qcview";
+    if (fs::exists(qcview_folder)) {
+        return qcview_folder.string();
+    }
+
+    // Fallback: check for legacy .ump folder
+    fs::path ump_folder = parent / ".ump";
+    if (fs::exists(ump_folder)) {
+        return ump_folder.string();
+    }
+
+    // Neither exists yet - return .qcview (will be created on save)
+    return qcview_folder.string();
 }
 
 std::string GetNotesJSONPath(const std::string& media_path) {
     fs::path path(media_path);
     std::string media_name = SanitizeMediaName(path.filename().string());
 
-    fs::path ump_path(GetUMPPath(media_path));
-    fs::path media_folder = ump_path / media_name;
+    fs::path sidecar_path(GetSidecarPathWithFallback(media_path));
+    fs::path media_folder = sidecar_path / media_name;
     fs::path json_path = media_folder / "notes.json";
 
     return json_path.string();
@@ -60,8 +80,8 @@ std::string GetImagesFolder(const std::string& media_path) {
     fs::path path(media_path);
     std::string media_name = SanitizeMediaName(path.filename().string());
 
-    fs::path ump_path(GetUMPPath(media_path));
-    fs::path media_folder = ump_path / media_name;
+    fs::path sidecar_path(GetSidecarPathWithFallback(media_path));
+    fs::path media_folder = sidecar_path / media_name;
     fs::path images_folder = media_folder / "images";
 
     return images_folder.string();
@@ -81,6 +101,21 @@ std::string GenerateImageFilename(const std::string& timecode) {
     return filename;
 }
 
+// Returns project sidecar folder, preferring .qcview but falling back to .ump
+static fs::path GetProjectSidecarWithFallback(const fs::path& project_dir) {
+    fs::path qcview_folder = project_dir / ".qcview";
+    if (fs::exists(qcview_folder)) {
+        return qcview_folder;
+    }
+
+    fs::path ump_folder = project_dir / ".ump";
+    if (fs::exists(ump_folder)) {
+        return ump_folder;
+    }
+
+    return qcview_folder;
+}
+
 std::string GetProjectAnnotationPath(const std::string& project_path, const std::string& timeline_name) {
     if (project_path.empty() || timeline_name.empty()) {
         return "";
@@ -92,9 +127,9 @@ std::string GetProjectAnnotationPath(const std::string& project_path, const std:
     // Sanitize timeline name for use as folder name
     std::string sanitized_name = SanitizeMediaName(timeline_name);
 
-    // Build path: {project_dir}/.ump/{timeline_name}/notes.json
-    fs::path ump_folder = project_dir / ".ump";
-    fs::path timeline_folder = ump_folder / sanitized_name;
+    // Build path: {project_dir}/.qcview/{timeline_name}/notes.json
+    fs::path sidecar_folder = GetProjectSidecarWithFallback(project_dir);
+    fs::path timeline_folder = sidecar_folder / sanitized_name;
     fs::path json_path = timeline_folder / "notes.json";
 
     return json_path.string();
@@ -111,18 +146,18 @@ std::string GetProjectImagesFolder(const std::string& project_path, const std::s
     // Sanitize timeline name for use as folder name
     std::string sanitized_name = SanitizeMediaName(timeline_name);
 
-    // Build path: {project_dir}/.ump/{timeline_name}/images/
-    fs::path ump_folder = project_dir / ".ump";
-    fs::path timeline_folder = ump_folder / sanitized_name;
+    // Build path: {project_dir}/.qcview/{timeline_name}/images/
+    fs::path sidecar_folder = GetProjectSidecarWithFallback(project_dir);
+    fs::path timeline_folder = sidecar_folder / sanitized_name;
     fs::path images_folder = timeline_folder / "images";
 
     return images_folder.string();
 }
 
-bool CreateProjectUMPFolder(const std::string& project_path, const std::string& timeline_name) {
+bool CreateProjectQCViewFolder(const std::string& project_path, const std::string& timeline_name) {
     try {
         if (project_path.empty() || timeline_name.empty()) {
-            Debug::Log("ERROR: Cannot create project UMP folder - empty project path or timeline name");
+            Debug::Log("ERROR: Cannot create project QCView folder - empty project path or timeline name");
             return false;
         }
 
@@ -132,20 +167,20 @@ bool CreateProjectUMPFolder(const std::string& project_path, const std::string& 
         // Sanitize timeline name for use as folder name
         std::string sanitized_name = SanitizeMediaName(timeline_name);
 
-        // Build path: {project_dir}/.ump/{timeline_name}/
-        fs::path ump_folder = project_dir / ".ump";
-        fs::path timeline_folder = ump_folder / sanitized_name;
+        // Build path: {project_dir}/.qcview/{timeline_name}/
+        fs::path qcview_folder = project_dir / ".qcview";
+        fs::path timeline_folder = qcview_folder / sanitized_name;
 
-        // Create .ump folder
-        if (!fs::exists(ump_folder)) {
-            fs::create_directory(ump_folder);
+        // Create .qcview folder
+        if (!fs::exists(qcview_folder)) {
+            fs::create_directory(qcview_folder);
 
             // On Windows, set hidden attribute
             #ifdef _WIN32
-            SetFileAttributesA(ump_folder.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
+            SetFileAttributesA(qcview_folder.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
             #endif
 
-            Debug::Log("Created project .ump folder: " + ump_folder.string());
+            Debug::Log("Created project .qcview folder: " + qcview_folder.string());
         }
 
         // Create timeline-specific folder
@@ -157,29 +192,29 @@ bool CreateProjectUMPFolder(const std::string& project_path, const std::string& 
         return true;
     }
     catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to create project UMP folder: " + std::string(e.what()));
+        Debug::Log("ERROR: Failed to create project QCView folder: " + std::string(e.what()));
         return false;
     }
 }
 
-bool CreateUMPFolder(const std::string& media_path) {
+bool CreateQCViewFolder(const std::string& media_path) {
     try {
         fs::path path(media_path);
         std::string media_name = SanitizeMediaName(path.filename().string());
 
-        fs::path ump_path(GetUMPPath(media_path));
-        fs::path media_folder = ump_path / media_name;
+        fs::path qcview_path(GetQCViewPath(media_path));
+        fs::path media_folder = qcview_path / media_name;
 
-        // Create .ump folder
-        if (!fs::exists(ump_path)) {
-            fs::create_directory(ump_path);
+        // Create .qcview folder
+        if (!fs::exists(qcview_path)) {
+            fs::create_directory(qcview_path);
 
             // On Windows, set hidden attribute
             #ifdef _WIN32
-            SetFileAttributesA(ump_path.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
+            SetFileAttributesA(qcview_path.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
             #endif
 
-            Debug::Log("Created .ump folder: " + ump_path.string());
+            Debug::Log("Created .qcview folder: " + qcview_path.string());
         }
 
         // Create media-specific folder
@@ -191,7 +226,7 @@ bool CreateUMPFolder(const std::string& media_path) {
         return true;
     }
     catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to create UMP folder: " + std::string(e.what()));
+        Debug::Log("ERROR: Failed to create QCView folder: " + std::string(e.what()));
         return false;
     }
 }
@@ -216,7 +251,7 @@ bool EnsureImagesFolderExists(const std::string& media_path) {
 bool SaveNotes(const std::vector<AnnotationNote>& notes, const std::string& media_path) {
     try {
         // Ensure folder structure exists
-        if (!CreateUMPFolder(media_path)) {
+        if (!CreateQCViewFolder(media_path)) {
             return false;
         }
 
@@ -327,4 +362,4 @@ bool SaveScreenshot(const std::string& image_path, const unsigned char* data, in
 }
 
 } // namespace AnnotationIO
-} // namespace ump
+} // namespace qcview

@@ -45,18 +45,18 @@ extern TranscodeSettings transcode_settings;
 std::string Application::GetSettingsPath() {
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
-        std::string base_path = std::string(localappdata) + "\\ump";
+        std::string base_path = std::string(localappdata) + "\\qcview";
         // Ensure directory exists
         std::filesystem::create_directories(base_path);
-        return base_path + "\\settings.ump";
+        return base_path + "\\settings.qcv";
     }
-    return "settings.ump";  // Fallback to current directory
+    return "settings.qcv";  // Fallback to current directory
 }
 
 std::string Application::GetLayoutIniPath() {
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
-        std::string base_path = std::string(localappdata) + "\\ump";
+        std::string base_path = std::string(localappdata) + "\\qcview";
         // Ensure directory exists
         std::filesystem::create_directories(base_path);
         return base_path + "\\layout.ini";
@@ -300,7 +300,7 @@ void Application::LoadSettings() {
                 if (cache_settings.video_range_mode < 0) cache_settings.video_range_mode = 0;
                 if (cache_settings.video_range_mode > 2) cache_settings.video_range_mode = 2;
                 // Apply to global decoder setting
-                ump::g_video_range_override = static_cast<VideoRangeMode>(cache_settings.video_range_mode);
+                qcview::g_video_range_override = static_cast<VideoRangeMode>(cache_settings.video_range_mode);
             }
         }
 

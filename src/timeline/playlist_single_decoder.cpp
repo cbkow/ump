@@ -17,7 +17,7 @@ extern int g_exr_read_ahead_frames;
 extern int g_read_behind_frames;
 extern int g_exr_thread_count;
 
-namespace ump {
+namespace qcview {
 
 PlaylistSingleDecoder::PlaylistSingleDecoder() = default;
 
@@ -525,6 +525,6 @@ std::vector<CacheSegment> PlaylistSingleDecoder::GetCacheSegments() const {
     return {};
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

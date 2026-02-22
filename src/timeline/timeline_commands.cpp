@@ -5,7 +5,7 @@
 #include <chrono>
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 // Helper to generate unique clip IDs
 static std::string GenerateClipId() {
@@ -1158,4 +1158,4 @@ std::string ReorderPlaylistCommand::GetDescription() const {
     return "Reorder Playlist";
 }
 
-} // namespace ump
+} // namespace qcview

@@ -22,7 +22,7 @@ static const GUID WASAPI_IID_IAudioClient3 = { 0x7ED4EE07, 0x8E67, 0x4CD4, { 0x8
 static const GUID WASAPI_IID_IAudioRenderClient = { 0xF294ACFC, 0x3146, 0x4483, { 0xA7, 0xBF, 0xAD, 0xDC, 0xA7, 0xC2, 0x60, 0xE2 } };
 static const GUID WASAPI_IID_IAudioClock = { 0xCD63314F, 0x3FBA, 0x4a1b, { 0x81, 0x2C, 0xEF, 0x96, 0x35, 0x87, 0x28, 0xE7 } };
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Helper macros for COM
@@ -567,4 +567,4 @@ double WasapiAudioDevice::GetBufferLatencySeconds() const {
     return std::max(0.0, std::min(latency, 0.1));
 }
 
-} // namespace ump
+} // namespace qcview

@@ -99,8 +99,8 @@ const char* PipelineModeToString(PipelineMode mode) {
 }
 
 // Global configuration accessors
-extern ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
-extern ump::ThumbnailConfig GetCurrentThumbnailConfig();
+extern qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
+extern qcview::ThumbnailConfig GetCurrentThumbnailConfig();
 
 //=============================================================================
 // Constructor / Destructor
@@ -112,7 +112,7 @@ VideoDisplayComponent::VideoDisplayComponent() {
     Debug::Log("VideoDisplayComponent: SVG overlay renderer initialized");
 
     // Pre-create DirectEXRCache so I/O threads are always running
-    exr_cache_ = std::make_shared<ump::DirectEXRCache>();
+    exr_cache_ = std::make_shared<qcview::DirectEXRCache>();
     Debug::Log("VideoDisplayComponent: DirectEXRCache pre-created");
 }
 
@@ -957,15 +957,15 @@ void VideoDisplayComponent::InitializeEXRCache(const std::vector<std::string>& s
     exr_frame_rate_ = fps;
 
     if (!exr_cache_) {
-        exr_cache_ = std::make_shared<ump::DirectEXRCache>();
+        exr_cache_ = std::make_shared<qcview::DirectEXRCache>();
     }
 
     double cache_start_position = initial_position >= 0.0 ? initial_position : 0.0;
 
-    auto exr_loader = std::make_unique<ump::EXRImageLoader>();
+    auto exr_loader = std::make_unique<qcview::EXRImageLoader>();
     if (exr_cache_->Initialize(std::move(exr_loader), sequence_files, layer_name, fps,
                                PipelineMode::HDR_RES, exr_sequence_start_frame_, cache_start_position)) {
-        ump::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
+        qcview::DirectEXRCacheConfig config = GetCurrentEXRCacheConfig();
         exr_cache_->SetConfig(config);
         exr_cache_->SetLooping(loop_enabled_);
         exr_cache_->StartBackgroundCaching();
@@ -980,7 +980,7 @@ void VideoDisplayComponent::InitializeEXRCache(const std::vector<std::string>& s
     }
 }
 
-void VideoDisplayComponent::SetEXRCacheConfig(const ump::DirectEXRCacheConfig& config) {
+void VideoDisplayComponent::SetEXRCacheConfig(const qcview::DirectEXRCacheConfig& config) {
     if (exr_cache_) {
         exr_cache_->SetConfig(config);
     }
@@ -994,7 +994,7 @@ void VideoDisplayComponent::ClearEXRCache() {
     is_exr_mode_ = false;
 }
 
-std::vector<ump::CacheSegment> VideoDisplayComponent::GetEXRCacheSegments() const {
+std::vector<qcview::CacheSegment> VideoDisplayComponent::GetEXRCacheSegments() const {
     if (exr_cache_) {
         return exr_cache_->GetCacheSegments();
     }
@@ -1026,7 +1026,7 @@ void VideoDisplayComponent::ClearThumbnailCache() {
 // Timeline Integration
 //=============================================================================
 
-void VideoDisplayComponent::SetTimelineMode(bool enabled, ump::TimelinePlaybackController* controller) {
+void VideoDisplayComponent::SetTimelineMode(bool enabled, qcview::TimelinePlaybackController* controller) {
     is_timeline_mode_ = enabled;
     timeline_controller_ = controller;
 
@@ -1623,8 +1623,8 @@ std::string VideoDisplayComponent::FormatTimecode(double seconds, double fps) {
 //=============================================================================
 
 // Helper function to get shared EXRTranscoder instance
-static ump::EXRTranscoder& GetSharedTranscoder() {
-    static ump::EXRTranscoder s_transcoder;
+static qcview::EXRTranscoder& GetSharedTranscoder() {
+    static qcview::EXRTranscoder s_transcoder;
     return s_transcoder;
 }
 
@@ -1641,7 +1641,7 @@ VideoDisplayComponent::EXRCacheStats VideoDisplayComponent::GetEXRCacheStats() c
 }
 
 size_t VideoDisplayComponent::ClearEXRDiskCache() {
-    ump::EXRTranscoder& transcoder = GetSharedTranscoder();
+    qcview::EXRTranscoder& transcoder = GetSharedTranscoder();
     transcoder.Initialize();  // Ensure initialized
     size_t bytes_cleared = transcoder.ClearAllTranscodes();
     Debug::Log("VideoDisplayComponent::ClearEXRDiskCache - Cleared " +
@@ -1713,7 +1713,7 @@ double VideoDisplayComponent::GetFastSeekSpeed() const {
 void VideoDisplayComponent::SetD3D11RenderingMode(bool enabled) {
     if (use_d3d11_rendering_ == enabled) return;
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (enabled && !device_mgr.IsInitialized()) {
         Debug::Log("VideoDisplayComponent: Cannot enable D3D11 mode - device not initialized");
         return;
@@ -1729,7 +1729,7 @@ void VideoDisplayComponent::SetD3D11RenderingMode(bool enabled) {
     if (enabled) {
         // Initialize D3D11 OCIO renderer
         if (!d3d11_ocio_renderer_) {
-            d3d11_ocio_renderer_ = std::make_unique<ump::D3D11OCIORenderer>();
+            d3d11_ocio_renderer_ = std::make_unique<qcview::D3D11OCIORenderer>();
             if (!d3d11_ocio_renderer_->Initialize()) {
                 Debug::Log("VideoDisplayComponent: Failed to initialize D3D11 OCIO renderer");
                 d3d11_ocio_renderer_.reset();
@@ -1755,7 +1755,7 @@ void VideoDisplayComponent::SetD3D11RenderingMode(bool enabled) {
 void VideoDisplayComponent::CreateD3D11VideoTextures(int width, int height) {
     if (width <= 0 || height <= 0) return;
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (!device_mgr.IsInitialized()) return;
 
     // Determine format based on pipeline mode
@@ -1799,7 +1799,7 @@ void VideoDisplayComponent::CreateD3D11VideoTextures(int width, int height) {
 void VideoDisplayComponent::CreateD3D11ColorTextures(int width, int height) {
     if (width <= 0 || height <= 0) return;
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (!device_mgr.IsInitialized()) return;
 
     // Determine format based on pipeline mode
@@ -1916,7 +1916,7 @@ void VideoDisplayComponent::RenderVideoToHDRTarget(ID3D11RenderTargetView* rtv,
         return;
     }
 
-    auto& device_mgr = ump::D3D11DeviceManager::Instance();
+    auto& device_mgr = qcview::D3D11DeviceManager::Instance();
     if (!device_mgr.IsInitialized()) {
         return;
     }

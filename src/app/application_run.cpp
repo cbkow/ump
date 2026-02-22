@@ -1,4 +1,4 @@
-﻿// application_run.cpp - Application::Run()
+// application_run.cpp - Application::Run()
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -68,15 +68,15 @@ extern bool otio_dual_view_left_audio;
 extern bool otio_dual_view_right_audio;
 extern bool g_skip_viewport_render_frame;
 extern bool g_force_reload_pending;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::MediaLinker> media_linker;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern ump::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::MediaLinker> media_linker;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
 extern std::vector<GLuint> g_pending_texture_deletions;
-extern std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
 extern bool timeline_thumbnail_cache_clear_deferred;
-extern std::unique_ptr<ump::SystemPressureMonitor> pressure_monitor;
+extern std::unique_ptr<qcview::SystemPressureMonitor> pressure_monitor;
 extern bool auto_play_buffering;
 extern std::chrono::steady_clock::time_point auto_play_buffer_start;
 extern bool pending_seek_cache_start;
@@ -87,8 +87,8 @@ extern std::atomic<int> transcode_current_frame;
 extern std::atomic<int> transcode_total_frames;
 
 // Free functions defined in main.cpp
-ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
-ump::TimelineCacheConfig GetCurrentTimelineCacheConfig();
+qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
+qcview::TimelineCacheConfig GetCurrentTimelineCacheConfig();
 
 // Accent color helpers
 ImVec4 GetWindowsAccentColor();
@@ -120,7 +120,7 @@ extern bool mouse_is_idle;
 extern ImVec2 last_mouse_pos;
 extern std::chrono::steady_clock::time_point last_mouse_move_time;
 extern bool in_emergency_mode;
-extern ump::SystemPressureStatus last_pressure_status;
+extern qcview::SystemPressureStatus last_pressure_status;
 extern bool exr_cache_was_active;
 extern std::string exr_video_path_before_shutdown;
 extern std::string stats_bar_notification_message;
@@ -137,8 +137,8 @@ constexpr bool g_limit_imgui_fps = true;
 constexpr double g_target_frame_time = 1.0 / 60.00;
 
 // Free functions
-ump::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
-ump::TimelineCacheConfig GetCurrentTimelineCacheConfig();
+qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig();
+qcview::TimelineCacheConfig GetCurrentTimelineCacheConfig();
 std::string GetAssetPath(const std::string& relative_path);
 
 void Application::Run() {
@@ -568,7 +568,7 @@ void Application::Run() {
 
 #ifdef _WIN32
                 // HDR presentation: render to D3D11-backed FBO, present via DXGI
-                auto& hdr = ump::HDROutputManager::Instance();
+                auto& hdr = qcview::HDROutputManager::Instance();
 
                 // Handle resize BEFORE BeginFrame to avoid invalidating the FBO mid-frame
                 // This prevents crashes when maximizing/restoring the window

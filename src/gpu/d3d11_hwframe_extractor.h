@@ -10,7 +10,7 @@
 struct AVFrame;
 struct AVBufferRef;
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // ExtractedHWFrame
@@ -115,6 +115,6 @@ private:
     DXGI_FORMAT staging_format_ = DXGI_FORMAT_UNKNOWN;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

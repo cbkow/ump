@@ -6,7 +6,7 @@
 #include <iomanip>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 namespace Integrations {
 
 FrameioConverter::ConversionResult FrameioConverter::ConvertComments(
@@ -127,9 +127,9 @@ std::string FrameioConverter::ConvertAnnotationJson(const std::string& frameio_a
             process_shape(frameio_json);
         }
 
-        // Convert to ump JSON format
+        // Convert to QCView JSON format
         if (!strokes.empty()) {
-            Debug::Log("Converted " + std::to_string(strokes.size()) + " Frame.io strokes to ump format");
+            Debug::Log("Converted " + std::to_string(strokes.size()) + " Frame.io strokes to QCView format");
             return Annotations::AnnotationSerializer::StrokesToJsonString(strokes);
         }
 
@@ -204,7 +204,7 @@ std::vector<ImVec2> FrameioConverter::ConvertShapeToPoints(
 
     if (tool == "rect") {
         // Rectangle: x, y = top-left, w, h = width, height
-        // ump expects 4 corners: top-left, top-right, bottom-right, bottom-left
+        // QCView expects 4 corners: top-left, top-right, bottom-right, bottom-left
         float x1 = static_cast<float>(x);
         float y1 = static_cast<float>(y);
         float x2 = static_cast<float>(x + w);
@@ -256,4 +256,4 @@ std::string FrameioConverter::FormatTimecode(double timestamp_seconds, double fr
 }
 
 } // namespace Integrations
-} // namespace ump
+} // namespace qcview

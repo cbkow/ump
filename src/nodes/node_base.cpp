@@ -8,7 +8,7 @@
 
 extern ImFont* font_icons;
 
-namespace ump {
+namespace qcview {
 
     int NodeBase::next_pin_id = 1000;
 

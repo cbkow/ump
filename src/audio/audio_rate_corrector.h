@@ -7,7 +7,7 @@
 // Forward declarations - avoid including FFmpeg headers here
 struct SwrContext;
 
-namespace ump {
+namespace qcview {
 
 /**
  * AudioRateCorrector - Smooth drift correction via sample rate adjustment
@@ -107,4 +107,4 @@ private:
     double last_applied_factor_ = 1.0;     // Last factor applied to resampler
 };
 
-} // namespace ump
+} // namespace qcview

@@ -4,7 +4,7 @@
 #include <functional>
 #include <algorithm>  // for std::max in GetPosition()
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // PlaybackTimer
@@ -145,4 +145,4 @@ private:
     void NotifyPositionChanged();
 };
 
-} // namespace ump
+} // namespace qcview

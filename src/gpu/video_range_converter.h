@@ -2,7 +2,7 @@
 
 #include <glad/gl.h>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // VideoRangeConverter
@@ -65,4 +65,4 @@ private:
     int output_height_ = 0;
 };
 
-} // namespace ump
+} // namespace qcview

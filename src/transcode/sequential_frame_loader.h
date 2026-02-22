@@ -14,7 +14,7 @@
 #include "../player/image_loader_interface.h"
 #include "../player/pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 /**
  * SequentialFrameLoader
@@ -155,4 +155,4 @@ private:
     std::mutex worker_mutex_;
 };
 
-} // namespace ump
+} // namespace qcview

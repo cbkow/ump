@@ -16,7 +16,7 @@
 #include <algorithm>
 #include <filesystem>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // MemoryMappedIStream Implementation (shared utility)
@@ -1944,4 +1944,4 @@ void DirectEXRCache::OnPoolEviction(int frame) {
     segmentsDirty_ = true;
 }
 
-} // namespace ump
+} // namespace qcview

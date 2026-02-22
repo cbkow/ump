@@ -26,7 +26,7 @@ static void stbi_write_png_with_compression(const char* filename, int w, int h, 
     stbi_write_png(filename, w, h, comp, data, stride_in_bytes);
 }
 
-namespace ump {
+namespace qcview {
 
 // ============================================================================
 // Constructor / Destructor
@@ -133,7 +133,7 @@ void VideoSequenceTranscoder::SetupCacheDirectory() {
     // Follow EXRTranscoder pattern for cache directory
     // Priority:
     // 1. Custom cache path if set
-    // 2. %LOCALAPPDATA%\ump\VideoFrameCache\
+    // 2. %LOCALAPPDATA%\qcview\VideoFrameCache\
     // 3. Fallback to temp/video_frame_cache/
 
     fs::path base_cache_dir;
@@ -144,15 +144,15 @@ void VideoSequenceTranscoder::SetupCacheDirectory() {
 #ifdef _WIN32
         const char* localappdata = std::getenv("LOCALAPPDATA");
         if (localappdata) {
-            base_cache_dir = fs::path(localappdata) / "ump" / "VideoFrameCache";
+            base_cache_dir = fs::path(localappdata) / "qcview" / "VideoFrameCache";
         } else {
             base_cache_dir = "temp/video_frame_cache";
         }
 #else
-        // Linux/Mac: use ~/.cache/ump/VideoFrameCache
+        // Linux/Mac: use ~/.cache/qcview/VideoFrameCache
         const char* home = std::getenv("HOME");
         if (home) {
-            base_cache_dir = fs::path(home) / ".cache" / "ump" / "VideoFrameCache";
+            base_cache_dir = fs::path(home) / ".cache" / "qcview" / "VideoFrameCache";
         } else {
             base_cache_dir = "temp/video_frame_cache";
         }
@@ -552,4 +552,4 @@ bool VideoSequenceTranscoder::WorkerContext::Initialize(const std::string& video
     return true;
 }
 
-} // namespace ump
+} // namespace qcview

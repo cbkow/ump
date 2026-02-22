@@ -159,8 +159,8 @@ static bool TryHardwareAccelType(const AVCodec* codec, AVHWDeviceType hw_type,
 
             // Use shared hardware context from HWContextManager
             // This prevents DLL load/unload cycling which causes GPU contention
-            AVBufferRef* shared_ctx = ump::HWContextManager::Instance().GetContext(static_cast<int>(hw_type));
-            int shared_pix_fmt = ump::HWContextManager::Instance().GetPixelFormat(static_cast<int>(hw_type));
+            AVBufferRef* shared_ctx = qcview::HWContextManager::Instance().GetContext(static_cast<int>(hw_type));
+            int shared_pix_fmt = qcview::HWContextManager::Instance().GetPixelFormat(static_cast<int>(hw_type));
 
             if (shared_ctx && shared_pix_fmt >= 0) {
                 // Reference the shared context (increases refcount)
@@ -1705,8 +1705,8 @@ bool MediaBackgroundExtractor::WorkerContext::Initialize(const std::string& vide
                     config->device_type == opt.av_type) {
 
                     // Use shared hardware context from HWContextManager
-                    AVBufferRef* shared_ctx = ump::HWContextManager::Instance().GetContext(static_cast<int>(opt.av_type));
-                    int shared_pix_fmt = ump::HWContextManager::Instance().GetPixelFormat(static_cast<int>(opt.av_type));
+                    AVBufferRef* shared_ctx = qcview::HWContextManager::Instance().GetContext(static_cast<int>(opt.av_type));
+                    int shared_pix_fmt = qcview::HWContextManager::Instance().GetPixelFormat(static_cast<int>(opt.av_type));
 
                     if (shared_ctx && shared_pix_fmt >= 0) {
                         // Reference the shared context

@@ -9,7 +9,7 @@
 #pragma comment(lib, "winhttp.lib")
 #endif
 
-namespace ump {
+namespace qcview {
 namespace Integrations {
 
 FrameioUrlParser::ParseResult FrameioUrlParser::Parse(const std::string& input) {
@@ -113,7 +113,7 @@ std::string FrameioUrlParser::FollowRedirect(const std::string& url) {
 
     // Use WinHTTP to follow redirect
     HINTERNET hSession = WinHttpOpen(
-        L"ump/1.0",
+        L"QCView/1.0",
         WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
         WINHTTP_NO_PROXY_NAME,
         WINHTTP_NO_PROXY_BYPASS,
@@ -240,4 +240,4 @@ std::string FrameioUrlParser::ExtractAssetId(const std::string& url) {
 }
 
 } // namespace Integrations
-} // namespace ump
+} // namespace qcview

@@ -4,7 +4,7 @@
 #include <vector>
 #include <memory>
 
-namespace ump {
+namespace qcview {
 
     struct EXRChannel {
         std::string name;           // e.g., "R", "beauty.R", "diffuse.G"
@@ -65,4 +65,4 @@ namespace ump {
         std::string last_error_;
     };
 
-} // namespace ump
+} // namespace qcview

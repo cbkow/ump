@@ -9,7 +9,7 @@
 #include "video_decoder_interface.h"
 #include "pipeline_mode.h"  // For VideoRangeMode
 
-namespace ump {
+namespace qcview {
 
 // Global video range override (used by HDR pipeline)
 inline VideoRangeMode g_video_range_override = VideoRangeMode::AUTO;
@@ -42,4 +42,4 @@ private:
     VideoDecoderFactory() = default;
 };
 
-} // namespace ump
+} // namespace qcview

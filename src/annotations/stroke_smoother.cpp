@@ -2,7 +2,7 @@
 #include <cmath>
 #include <algorithm>
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 std::vector<ImVec2> StrokeSmoother::SmoothStroke(
@@ -201,4 +201,4 @@ float StrokeSmoother::Distance(const ImVec2& a, const ImVec2& b) {
 }
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

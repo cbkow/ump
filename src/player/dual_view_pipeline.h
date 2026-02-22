@@ -10,7 +10,7 @@
 
 #include "../gpu/dual_view_layout.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations
 class D3D11DualCompositor;
@@ -145,6 +145,6 @@ private:
     GLuint last_composite_texture_ = 0;   // Cached result
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

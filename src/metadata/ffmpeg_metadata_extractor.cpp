@@ -14,7 +14,7 @@ extern "C" {
 
 namespace fs = std::filesystem;
 
-namespace ump {
+namespace qcview {
 
 // ============================================================================
 // PUBLIC API
@@ -388,4 +388,4 @@ std::string FFmpegMetadataExtractor::AVColorRangeToString(int av_color_range) {
     }
 }
 
-} // namespace ump
+} // namespace qcview

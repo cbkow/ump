@@ -6,7 +6,7 @@
 #include <wrl/client.h>
 #include "dual_view_layout.h"
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // D3D11DualCompositor
@@ -142,6 +142,6 @@ private:
     bool initialized_ = false;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

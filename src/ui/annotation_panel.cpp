@@ -11,7 +11,8 @@
 #include <vector>
 
 #define ICON_CLOSE u8"\uE5CD"
-#define ICON_NOTE  u8"\uF1FC"
+#define ICON_NOTE           "\xEE\xA0\xB6"   // U+E836
+#define ICON_NOTE_SELECTED  "\xEE\xA0\xB7"   // U+E837
 
 ImVec4 GetWindowsAccentColor();
 
@@ -175,7 +176,7 @@ static void RenderMarkdownWithCode(const std::string& text, const ImGui::Markdow
     }
 }
 
-namespace ump {
+namespace qcview {
 
 AnnotationPanel::AnnotationPanel()
     : annotation_manager_(nullptr)
@@ -446,14 +447,17 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // === ROW 1: Timecode (top-left) + Frame number (next to it) ===
     {
-        if (font_icons) {
-            ImGui::PushFont(font_icons);
-            ImVec4 accent = GetWindowsAccentColor();
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(accent.x, accent.y, accent.z, 1.0f));
-            ImGui::Text("%s", ICON_NOTE);
-            ImGui::PopStyleColor();
-            ImGui::PopFont();
-            ImGui::SameLine();
+        {
+            bool is_selected = (selected_timecode_ == note.timecode);
+            if (font_icons) {
+                ImGui::PushFont(font_icons);
+                ImVec4 text_col = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(text_col.x, text_col.y, text_col.z, 0.4f));
+                ImGui::Text("%s", is_selected ? ICON_NOTE_SELECTED : ICON_NOTE);
+                ImGui::PopStyleColor();
+                ImGui::PopFont();
+                ImGui::SameLine();
+            }
         }
         if (ImGui::Selectable(note.timecode.c_str(), selected_timecode_ == note.timecode, 0, ImVec2(ImGui::CalcTextSize(note.timecode.c_str()).x, 0))) {
             selected_timecode_ = note.timecode;
@@ -745,6 +749,18 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     float content_width = ImGui::GetContentRegionAvail().x - padding;
 
     // Timecode + frame number
+    {
+        bool is_selected = (selected_timecode_ == note.timecode);
+        if (font_icons) {
+            ImGui::PushFont(font_icons);
+            ImVec4 text_col = ImGui::GetStyleColorVec4(ImGuiCol_Text);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(text_col.x, text_col.y, text_col.z, 0.4f));
+            ImGui::Text("%s", is_selected ? ICON_NOTE_SELECTED : ICON_NOTE);
+            ImGui::PopStyleColor();
+            ImGui::PopFont();
+            ImGui::SameLine();
+        }
+    }
     ImGui::Text("%s", note.timecode.c_str());
     ImGui::SameLine(0.0f, 8.0f);
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -1240,4 +1256,4 @@ void AnnotationPanel::CleanupThumbnails() {
     thumbnail_aspect_cache_.clear();
 }
 
-} // namespace ump
+} // namespace qcview

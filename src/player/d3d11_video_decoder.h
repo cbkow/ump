@@ -29,7 +29,7 @@ extern "C" {
 #include "video_decoder_interface.h"
 #include "pipeline_mode.h"
 
-namespace ump {
+namespace qcview {
 
 class D3D11YUVRenderer;
 class D3D11VideoInterop;
@@ -519,6 +519,6 @@ private:
     int last_requested_frame_ = -1;  // Track requested frame for fallback caching
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -30,7 +30,7 @@
     #include <windows.h>
 #endif
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor / Destructor
@@ -164,7 +164,7 @@ void EXRTranscoder::SetupDefaultCacheDirectory() {
     const char* localappdata = std::getenv("LOCALAPPDATA");
 
     if (localappdata) {
-        std::filesystem::path app_data_path = std::filesystem::path(localappdata) / "ump" / "EXRtranscodes";
+        std::filesystem::path app_data_path = std::filesystem::path(localappdata) / "qcview" / "EXRtranscodes";
         cache_dir_ = app_data_path.string();
 
         Debug::Log("EXRTranscoder: Using %LOCALAPPDATA% for transcode cache: " + cache_dir_);
@@ -232,10 +232,10 @@ size_t EXRTranscoder::ClearAllTranscodes() {
         }
     };
 
-    // 1. Clear default location (%LOCALAPPDATA%\ump\EXRtranscodes\)
+    // 1. Clear default location (%LOCALAPPDATA%\qcview\EXRtranscodes\)
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
-        std::filesystem::path default_path = std::filesystem::path(localappdata) / "ump" / "EXRtranscodes";
+        std::filesystem::path default_path = std::filesystem::path(localappdata) / "qcview" / "EXRtranscodes";
         clear_directory(default_path.string());
     }
 
@@ -1016,4 +1016,4 @@ bool EXRTranscoder::ResizePixels(const std::vector<half>& src_pixels,
     return true;
 }
 
-} // namespace ump
+} // namespace qcview

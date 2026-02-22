@@ -15,7 +15,7 @@
 #undef GetJob
 #endif
 
-namespace ump {
+namespace qcview {
 
 /**
  * TranscodeQueue
@@ -99,4 +99,4 @@ private:
     bool auto_save_enabled_ = true;
 };
 
-} // namespace ump
+} // namespace qcview

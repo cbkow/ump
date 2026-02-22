@@ -19,7 +19,7 @@
 // Include swapchain header for HDRDisplayInfo, InteropMethod, etc.
 #include "d3d11_hdr_swapchain.h"
 
-namespace ump {
+namespace qcview {
 
 // Forward declarations (D3D11HDRSwapchain is fully defined via include above)
 class D3D11HDRSwapchain;
@@ -295,6 +295,6 @@ inline ImVec4 GetUIColorVec4(const ImVec4& sdr_color, float target_nits = 120.0f
     return sdr_color;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

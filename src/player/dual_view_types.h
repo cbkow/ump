@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // DualViewClip - Single video clip in dual view mode
@@ -132,4 +132,4 @@ struct DualViewTimeline {
     }
 };
 
-} // namespace ump
+} // namespace qcview

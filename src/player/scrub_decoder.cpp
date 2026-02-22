@@ -10,7 +10,7 @@ extern "C" {
 #include <libavutil/imgutils.h>
 }
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // ScrubDecoder Implementation - Single-frame on-demand decoder
@@ -374,4 +374,4 @@ bool ScrubDecoderManager::HasDecoders() const {
     return !decoders_.empty();
 }
 
-} // namespace ump
+} // namespace qcview

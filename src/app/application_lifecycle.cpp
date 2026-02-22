@@ -1,4 +1,4 @@
-﻿// application_lifecycle.cpp - Constructor, destructor, Cleanup, ForceReload, etc.
+// application_lifecycle.cpp - Constructor, destructor, Cleanup, ForceReload, etc.
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -79,15 +79,15 @@ struct ColorCorrectedTextureCache {
 
 // Externs for globals defined in main.cpp
 extern std::unique_ptr<OCIOConfigManager> ocio_manager;
-extern std::unique_ptr<ump::TimelineView> timeline_view;
-extern std::unique_ptr<ump::MediaLinker> media_linker;
-extern std::unique_ptr<ump::TimelinePlaybackController> scratch_timeline_controller;
-extern ump::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
+extern std::unique_ptr<qcview::TimelineView> timeline_view;
+extern std::unique_ptr<qcview::MediaLinker> media_linker;
+extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
+extern qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_textures;
 extern std::vector<GLuint> g_pending_texture_deletions;
 extern ColorCorrectedTextureCache g_color_corrected_cache;
-extern std::unique_ptr<ump::TimelineCommandManager> timeline_command_manager;
-extern std::unique_ptr<ump::TimelineThumbnailCache> timeline_thumbnail_cache;
-extern std::unique_ptr<ump::SystemPressureMonitor> pressure_monitor;
+extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
+extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
+extern std::unique_ptr<qcview::SystemPressureMonitor> pressure_monitor;
 extern bool otio_timeline_mode;
 extern bool otio_dual_view_mode;
 extern bool cache_enabled;
@@ -105,14 +105,14 @@ Application::Application() : window(nullptr), video_player(nullptr), first_time_
         show_status_bar(true), show_color_panels(false) {
 
         app_instance = this; // Set static pointer for window procedure
-        node_manager = std::make_unique<ump::NodeManager>();
+        node_manager = std::make_unique<qcview::NodeManager>();
         timeline_manager = std::make_unique<TimelineManager>();
-        annotation_manager = std::make_unique<ump::AnnotationManager>();
-        annotation_panel = std::make_unique<ump::AnnotationPanel>();
-        annotation_exporter = std::make_unique<ump::Annotations::AnnotationExporter>();
-        viewport_annotator = std::make_unique<ump::Annotations::ViewportAnnotator>();
-        annotation_toolbar = std::make_unique<ump::Annotations::AnnotationToolbar>();
-        annotation_renderer = std::make_unique<ump::Annotations::AnnotationRenderer>();
+        annotation_manager = std::make_unique<qcview::AnnotationManager>();
+        annotation_panel = std::make_unique<qcview::AnnotationPanel>();
+        annotation_exporter = std::make_unique<qcview::Annotations::AnnotationExporter>();
+        viewport_annotator = std::make_unique<qcview::Annotations::ViewportAnnotator>();
+        annotation_toolbar = std::make_unique<qcview::Annotations::AnnotationToolbar>();
+        annotation_renderer = std::make_unique<qcview::Annotations::AnnotationRenderer>();
 
         node_manager->on_connections_changed = [this]() {
             Debug::Log("Connections changed - updating color pipeline");
@@ -155,20 +155,20 @@ void Application::UpdateColorPipeline() {
 
         // Iterate through all nodes to find the pipeline components
         for (int node_id = 1; node_id < 100; ++node_id) {
-            ump::NodeBase* node = node_manager->GetNode(node_id);
+            qcview::NodeBase* node = node_manager->GetNode(node_id);
             if (!node) continue;
 
             switch (node->GetType()) {
-            case ump::NodeType::INPUT_COLORSPACE: {
-                auto* csNode = dynamic_cast<ump::InputColorSpaceNode*>(node);
+            case qcview::NodeType::INPUT_COLORSPACE: {
+                auto* csNode = dynamic_cast<qcview::InputColorSpaceNode*>(node);
                 if (csNode) {
                     src_colorspace = csNode->GetColorSpace();
                     Debug::Log("Found Input ColorSpace: " + src_colorspace);
                 }
                 break;
             }
-            case ump::NodeType::LOOK: {
-                auto* lookNode = dynamic_cast<ump::LookNode*>(node);
+            case qcview::NodeType::LOOK: {
+                auto* lookNode = dynamic_cast<qcview::LookNode*>(node);
                 if (lookNode && !lookNode->GetLook().empty()) {  // Note: GetLook() not GetLookName()
                     if (!looks.empty()) looks += ", ";
                     looks += lookNode->GetLook();
@@ -176,8 +176,8 @@ void Application::UpdateColorPipeline() {
                 }
                 break;
             }
-            case ump::NodeType::OUTPUT_DISPLAY: {
-                auto* displayNode = dynamic_cast<ump::OutputDisplayNode*>(node);
+            case qcview::NodeType::OUTPUT_DISPLAY: {
+                auto* displayNode = dynamic_cast<qcview::OutputDisplayNode*>(node);
                 if (displayNode) {
                     // Parse display string - it might be in format "Display - View"
                     std::string display_str = displayNode->GetDisplay();
@@ -254,38 +254,6 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         SaveShortcuts();
         Debug::Log("Cleanup: Settings saved");
 
-        // Set shutdown flag and render one frame showing the modal
-        Debug::Log("Cleanup: Setting shutdown flag and rendering final frame...");
-        is_shutting_down_ = true;
-
-        // Render one frame with the shutdown modal visible
-        ImGui_ImplOpenGL3_NewFrame();
-        ImGui_ImplGlfw_NewFrame();
-        ImGui::NewFrame();
-
-        CreateDockingLayout(); // This will render the shutdown modal
-
-        ImGui::Render();
-        int display_w, display_h;
-        glfwGetFramebufferSize(window, &display_w, &display_h);
-        glViewport(0, 0, display_w, display_h);
-        ApplyBackgroundColor();
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-        ImGuiIO& io = ImGui::GetIO();
-        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
-            GLFWwindow* backup_current_context = glfwGetCurrentContext();
-            ImGui::UpdatePlatformWindows();
-            ImGui::RenderPlatformWindowsDefault();
-            glfwMakeContextCurrent(backup_current_context);
-        }
-
-        glfwSwapBuffers(window);
-        glfwPollEvents(); // Process one last event cycle
-        Debug::Log("Cleanup: Final frame rendered");
-
         // Shutdown audio/playback first for graceful exit
         // This stops WASAPI threads before other resources are destroyed
         Debug::Log("Cleanup: Shutting down playback controllers...");
@@ -301,7 +269,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
 
 #ifdef _WIN32
         // Shutdown HDR output manager
-        ump::HDROutputManager::Instance().Shutdown();
+        qcview::HDROutputManager::Instance().Shutdown();
         Debug::Log("Cleanup: HDR output manager shutdown");
 #endif
 
@@ -337,7 +305,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
 
         // Shutdown hardware context manager (releases shared CUDA/D3D11VA contexts)
         Debug::Log("Cleanup: Shutting down HW Context Manager...");
-        ump::HWContextManager::Instance().Shutdown();
+        qcview::HWContextManager::Instance().Shutdown();
 
         // Shutdown NFD (Native File Dialog)
         Debug::Log("Cleanup: Shutting down NFD...");
@@ -351,7 +319,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         Debug::Log("Cleanup: Destroying ImNodes context...");
         ImNodes::DestroyContext();
         Debug::Log("Cleanup: Shutting down NanoVG context...");
-        ump::Annotations::NanoVGContext::Instance().Shutdown();
+        qcview::Annotations::NanoVGContext::Instance().Shutdown();
         Debug::Log("Cleanup: Destroying ImPlot context...");
         ImPlot::DestroyContext();
         Debug::Log("Cleanup: Destroying ImGui context...");
@@ -378,7 +346,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         Debug::Log("ForceReloadCurrentMedia: Starting comprehensive cleanup and reload");
 
         // Get current media item before cleanup
-        ump::MediaItem* current_item = project_manager ? project_manager->GetCurrentPlayingMediaItem() : nullptr;
+        qcview::MediaItem* current_item = project_manager ? project_manager->GetCurrentPlayingMediaItem() : nullptr;
 
         // If no item found via path, check for playlist using current_timeline_id
         // (playlists don't have a file path, so GetCurrentPlayingMediaItem won't find them)
@@ -395,7 +363,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         }
 
         // Store info we need after cleanup (timeline_id is used after clearing current_timeline_id)
-        ump::MediaType media_type = current_item->type;
+        qcview::MediaType media_type = current_item->type;
         std::string item_name = current_item->name;
         std::string item_timeline_id = current_item->timeline_id;
         Debug::Log("ForceReloadCurrentMedia: Will reload " + item_name + " (type=" + std::to_string(static_cast<int>(media_type)) + ")");
@@ -475,29 +443,29 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         // CRITICAL: Process pending GL texture deletions from destroyed decoders
         // The D3D11 interop queues GL deletions for main thread processing.
         // We MUST process these before creating new textures to avoid ID reuse issues.
-        ump::D3D11VideoInterop::ProcessPendingGLDeletions();
+        qcview::D3D11VideoInterop::ProcessPendingGLDeletions();
 #endif
 
         Debug::Log("ForceReloadCurrentMedia: Cleanup complete, initiating reload");
 
         // === STEP 4: Reload based on media type ===
         // current_item pointer is still valid (MediaItem lives in project_manager's pool)
-        if (media_type == ump::MediaType::VIDEO && project_manager) {
+        if (media_type == qcview::MediaType::VIDEO && project_manager) {
             if (auto callback = project_manager->GetVideoFileTimelineCallback()) {
                 Debug::Log("ForceReloadCurrentMedia: Reloading video via callback");
                 callback(current_item);
             }
-        } else if ((media_type == ump::MediaType::IMAGE_SEQUENCE ||
-                    media_type == ump::MediaType::EXR_SEQUENCE) && project_manager) {
+        } else if ((media_type == qcview::MediaType::IMAGE_SEQUENCE ||
+                    media_type == qcview::MediaType::EXR_SEQUENCE) && project_manager) {
             if (auto callback = project_manager->GetImageSequenceTimelineCallback()) {
                 Debug::Log("ForceReloadCurrentMedia: Reloading image sequence via callback");
                 callback(current_item);
             }
-        } else if (media_type == ump::MediaType::DUAL_VIEW && project_manager) {
+        } else if (media_type == qcview::MediaType::DUAL_VIEW && project_manager) {
             // Use copied timeline_id
             Debug::Log("ForceReloadCurrentMedia: Reloading dual view: " + item_timeline_id);
             project_manager->OpenDualViewInEditor(item_timeline_id);
-        } else if (media_type == ump::MediaType::PLAYLIST && project_manager) {
+        } else if (media_type == qcview::MediaType::PLAYLIST && project_manager) {
             if (auto callback = project_manager->GetPlaylistTimelineCallback()) {
                 Debug::Log("ForceReloadCurrentMedia: Reloading playlist via callback");
                 callback(current_item);
@@ -527,7 +495,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         }
 
         // Serialize and save
-        std::string json_data = ump::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+        std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
         if (annotation_manager && !current_editing_timecode_.empty()) {
             annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
             Debug::Log("Auto-saved " + std::to_string(current_annotation_strokes_.size()) + " strokes");
@@ -540,7 +508,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         annotation_redo_stack_.clear();
 
         // Exit annotation mode
-        viewport_annotator->SetMode(ump::Annotations::ViewportMode::PLAYBACK);
+        viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
         viewport_annotator->SetAllowInputInPopup(false);
         if (annotation_toolbar) annotation_toolbar->SetVisible(false);
 

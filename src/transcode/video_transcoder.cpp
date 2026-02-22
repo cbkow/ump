@@ -17,7 +17,7 @@ extern "C" {
 #undef min
 #undef max
 
-namespace ump {
+namespace qcview {
 
 VideoTranscoder::VideoTranscoder() {
 }
@@ -792,4 +792,4 @@ void VideoTranscoder::TranscodeThread(TranscodeConfig config, ProgressCallback c
     Debug::Log("VideoTranscoder: Thread finished");
 }
 
-} // namespace ump
+} // namespace qcview

@@ -12,7 +12,7 @@
 #include <dxgi1_4.h>  // For QueryVideoMemoryInfo (Windows 10+)
 #endif
 
-namespace ump {
+namespace qcview {
 
     struct SystemPressureStatus {
         // RAM metrics
@@ -104,4 +104,4 @@ namespace ump {
 #endif
     };
 
-} // namespace ump
+} // namespace qcview

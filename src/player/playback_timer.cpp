@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace ump {
+namespace qcview {
 
 PlaybackTimer::PlaybackTimer() {
     last_update_time_ = Clock::now();
@@ -237,4 +237,4 @@ void PlaybackTimer::NotifyPositionChanged() {
     }
 }
 
-} // namespace ump
+} // namespace qcview

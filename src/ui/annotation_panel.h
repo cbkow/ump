@@ -7,7 +7,7 @@
 #include <glad/gl.h>
 #include <imgui.h>
 
-namespace ump {
+namespace qcview {
 namespace Annotations { class AnnotationToolbar; class ViewportAnnotator; }
 
 // Annotation availability states for different modes
@@ -182,4 +182,4 @@ private:
     std::map<std::string, float> thumbnail_aspect_cache_;
 };
 
-} // namespace ump
+} // namespace qcview

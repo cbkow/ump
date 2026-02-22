@@ -7,7 +7,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 }
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Singleton Instance
@@ -272,4 +272,4 @@ void HWContextManager::Shutdown() {
     Debug::Log("HWContextManager: Shutdown complete");
 }
 
-} // namespace ump
+} // namespace qcview

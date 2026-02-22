@@ -5,7 +5,7 @@
 #include <d3d11_1.h>
 #include <wrl/client.h>
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // YUV Color Space
@@ -166,6 +166,6 @@ private:
     bool initialized_ = false;
 };
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

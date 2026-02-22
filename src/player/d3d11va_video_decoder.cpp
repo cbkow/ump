@@ -10,7 +10,7 @@
 #include <cstdlib>  // For std::abs
 #include <climits>  // For INT_MAX
 
-namespace ump {
+namespace qcview {
 
 //=============================================================================
 // Constructor / Destructor
@@ -1019,6 +1019,6 @@ bool D3D11VAVideoDecoder::DecodeNextFrameToBuffer() {
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

@@ -4,7 +4,7 @@
 #include <functional>
 #include "viewport_annotator.h"
 
-namespace ump {
+namespace qcview {
 namespace Annotations {
 
 /**
@@ -106,4 +106,4 @@ private:
 };
 
 } // namespace Annotations
-} // namespace ump
+} // namespace qcview

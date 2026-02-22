@@ -9,7 +9,7 @@
 
 namespace OCIO = OCIO_NAMESPACE;
 
-namespace ump {
+namespace qcview {
 
 /**
  * OCIOCPUTransform
@@ -105,4 +105,4 @@ private:
     bool is_valid_ = false;
 };
 
-} // namespace ump
+} // namespace qcview

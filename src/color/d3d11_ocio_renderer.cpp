@@ -6,7 +6,7 @@
 
 #include "../utils/debug_utils.h"
 
-namespace ump {
+namespace qcview {
 
 D3D11OCIORenderer::D3D11OCIORenderer() = default;
 
@@ -391,6 +391,6 @@ bool D3D11OCIORenderer::ApplyPassthrough(
     return true;
 }
 
-} // namespace ump
+} // namespace qcview
 
 #endif // _WIN32

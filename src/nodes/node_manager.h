@@ -6,7 +6,7 @@
 #include <vector>
 #include <functional>
 
-namespace ump {
+namespace qcview {
 
     struct NodeConnection {
         int from_pin;
