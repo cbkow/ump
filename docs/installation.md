@@ -14,5 +14,3 @@ To install the unsigned version of this QCView, download the latest `.exe` insta
 >  - Registry entries for common media files
 >  - Adds a `qcview:///XXX` custom URI scheme to share file paths with colleagues.
 >  - Registry entries and icons for `.qcvproj` files.
-
----
