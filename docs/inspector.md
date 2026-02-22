@@ -4,23 +4,20 @@ permalink: /inspector/
 nav_order: 7
 ---
 
-# The Inspector Panel
+# Inspector
 
+## Video and Audio
 
-## Videos
+The Inspector shows the file path of the currently loaded media. Click **Open** to reveal the file in Explorer.
 
+The **Adobe Projects** section scans the file's metadata for linked source projects. If QCView finds After Effects or Premiere project references, it displays them with an **Open** button to jump directly to the source project.
 
-When video and audio files are loaded, we provide a file path to the media up top. Clicking `Open` will open the file's location in Windows Explorer.
-
-In the Adobe Projects tree, we are searching the file's metadata for source projects. If u.m.p. finds the metadata, it will provide the option to open the source project in Windows Explorer. Click `Open` to open the After Effects or Premiere file. 
-
-![Window](images/explorer_0Q9Kxcxqge.png)
-
+![Inspector panel for video](images/explorer_0Q9Kxcxqge.png)
 
 ---
 
 ## Image Sequences
 
-If an image sequence is loaded, we provide basic file information. If an EXR is loaded, additional compression, and channel information is available. The layer field is a dropdown that you can use to change the EXR layer loaded in the viewport.
+For image sequences, the Inspector displays file information such as resolution, frame count, and format. EXR files show additional details including compression type and channel layout. Use the **Layer** dropdown to switch between EXR layers in the Viewer.
 
-![Window](images/explorer_mDoh3yiMPl.png)
+![Inspector panel for EXR](images/explorer_mDoh3yiMPl.png)
