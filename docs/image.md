@@ -6,51 +6,52 @@ nav_order: 10
 
 # Image Sequences
 
-## The Flow
+## Loading a Sequence
 
-Basic image sequence usage is straightforward: Open or drag in a single image from a sequence, and u.m.p. will detect the sequence. Select a framerate, and if a multi-layer EXR, select the layer you want to load.
+Open or drag a single image from a sequence and QCView detects the rest automatically. Choose a frame rate, and for multi-layer EXR files, select which layer to load.
 
-![Window](images/ump_TbUN5duXWb.png)
+![Loading an image sequence](images/ump_TbUN5duXWb.png)
 
-There are some considerations to smooth playback, though:
-
-- Decompression and i/o on large multi-layer EXRs and TIFF sequences (think 4k+), with specific compression schemes, is too heavy for the CPU-bound Open-EXR or LibTIFF extraction. The math won't add up, no matter how many threads you throw at it (see the Cache Settings page for more info).
-- Because of this, u.m.p. provides the option to transcode sequences into a more memory-friendly format.
+> **Performance note:** Large multi-layer EXRs and high-resolution TIFF sequences (4K+) can exceed what CPU-bound decompression can deliver in real time, regardless of thread count. QCView offers transcoding to work around this — see below.
 
 ---
 
 ## Transcoding
 
-![Window](images/ump_PAPtPjhrZG.png)
+For smoother playback of heavy sequences, transcode them into a lighter format before reviewing. Choose a resolution and compression scheme.
 
-With pre-transcoding, you have the option to pick a resolution and compression scheme. I would recommend sticking with `B44A` vs. `DWAA/DWAB` because it decompresses faster. It has a noticeable hit on quality, but it's fine for a quick review.
+![Transcode options](images/ump_PAPtPjhrZG.png)
 
-![Window](images/ump_ViWXgTsGNZ.png)
+**Recommended compression:** `B44A` decompresses significantly faster than `DWAA`/`DWAB`. It trades some quality for speed, but is well suited for review playback.
 
-## Playback Cache
-
-Image sequences use a custom OTIO-based timeline to playback. Behind the hood, they are extracting textures to RAM and uploading them to the GPU as you traverse the timeline. This is the cache progress bar, which shows how much read-ahead and read-behind you have cached at any given time.
-
-![Window](images/explorer_KpRzEIuIx7.png)
-
-### Cache Settings
-
-You can adjust these values in the Pipeline & Cache Settings panel.
-
-### Disk Cache for Transcodes
-
-If you choose to transcode a sequence for better playback, this is where the temp cache file will be stored. I would recommend changing this setting to a fast NVME drive, not your system drive. 
-
-![Window](images/ump_XAi7OscCdL.png)
-
-*Note: Because the playback cache is RAM-based, it is affected by our Memory Safety system. If the Memory Safety system has detected full system RAM, Images will not play back. See the Memory Safety page for details.*
-
-*Another Note: See the Inspector page to see you can swith EXR layers after loading.*
+![Transcode settings](images/ump_ViWXgTsGNZ.png)
 
 ---
 
-## Flash Frames
+## Playback Cache
 
-u.m.p will detect an incomplete image sequence and fill in the gaps with a transparent texture so that you can review in-progress renders. Additionally, it's sensitive to files under 15 KB and assumes they are busted frames. If it detects a file under 15 KB, it will flash this image and won't bother trying to decode it.
+Image sequences are cached to RAM and uploaded to the GPU as you traverse the timeline. The cache progress bar shows how much read-ahead and read-behind is available at the current position.
 
-![Window](images/broken.png)
+![Cache progress bar](images/explorer_KpRzEIuIx7.png)
+
+### Cache Settings
+
+Adjust cache size and behavior in the **Pipeline & Cache Settings** panel. See the [Settings](settings) page for details.
+
+### Disk Cache for Transcodes
+
+Transcoded sequences are stored in a temporary disk cache. For best performance, set this to a fast NVMe drive rather than your system drive.
+
+![Disk cache settings](images/ump_XAi7OscCdL.png)
+
+> The playback cache is RAM-based and subject to the Memory Safety system. If system RAM is full, image playback will pause. See the [Memory](memory) page for details.
+
+> You can switch EXR layers after loading — see the [Inspector](inspector) page.
+
+---
+
+## Broken and Missing Frames
+
+QCView detects incomplete sequences and fills gaps with a transparent texture so you can review in-progress renders. Files under 15 KB are flagged as corrupt and replaced with a placeholder frame rather than attempting to decode them.
+
+![Broken frame indicator](images/broken.png)
