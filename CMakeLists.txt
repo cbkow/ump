@@ -406,11 +406,11 @@ if(WIN32)
     endforeach()
 
     # Copy openjph DLL from vcpkg (JPEG 2000 HTJ2K support)
-    set(VCPKG_BIN_DIR "C:/vcpkg/vcpkg/installed/x64-windows/bin")
-    if(EXISTS "${VCPKG_BIN_DIR}/openjph.0.25.dll")
+    set(VCPKG_BIN_DIR "C:/Users/chris/vcpkg/installed/x64-windows/bin")
+    if(EXISTS "${VCPKG_BIN_DIR}/openjph.0.26.dll")
         add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${VCPKG_BIN_DIR}/openjph.0.25.dll"
+            "${VCPKG_BIN_DIR}/openjph.0.26.dll"
             "$<TARGET_FILE_DIR:${PROJECT_NAME}>/"
             COMMENT "Copying openjph DLL"
         )
