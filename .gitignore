@@ -24,5 +24,8 @@ out/
 .DS_Store
 Thumbs.db
 
+# Claude Code
+.claude/
+
 # Logs and temp
 *.log
