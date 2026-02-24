@@ -10,7 +10,7 @@ QCView includes a node-based [OpenColorIO](https://opencolorio.org/) pipeline fo
 
 **Bundled configs:** ACES 1.3, ACES 2.0, Blender 4.5, Blender 5.0
 
-![Inspector panel for video](images/QCView_v027.png)
+![Inspector panel for video](images/QCView_v027.webp)
 
 ---
 
@@ -22,25 +22,25 @@ A color transform requires at minimum an **Input** node and an **Output** node. 
 
 Choose a config that matches your color pipeline.
 
-![Config selection](images/QCView_v028.png)
+![Config selection](images/QCView_v028.webp)
 
 ### 2. Add an Input Node
 
 Drag an **Input** node into the Node Graph panel.
 
-![Input node](images/QCView_v029.png)
+![Input node](images/QCView_v029.webp)
 
 ### 3. Add an Output Node
 
 Drag an **Output** node into the graph.
 
-![Output node](images/QCView_v030.png)
+![Output node](images/QCView_v030.webp)
 
 ### 4. Connect and Apply
 
 Connect the nodes, then click the Output node to open its settings. Select a **View** if required, then click **Apply** to see the transform in the Viewer. Click **Remove** to clear it.
 
-![Applied color transform](images/QCView_v031.png)
+![Applied color transform](images/QCView_v031.webp)
 
 ---
 
@@ -48,7 +48,7 @@ Connect the nodes, then click the Output node to open its settings. Select a **V
 
 Select any node or connection and press `X` or `Delete` to remove it.
 
-![Deleting a node](images/QCView_v032.png)
+![Deleting a node](images/QCView_v032.webp)
 
 ---
 
@@ -63,7 +63,7 @@ Add custom LUT files (.cube) to the transform chain:
 
 Click **Select LUT File** on the node to assign a .cube file.
 
-![LUT node](images/QCView_v033.png)
+![LUT node](images/QCView_v033.webp)
 
 ---
 
@@ -71,7 +71,7 @@ Click **Select LUT File** on the node to assign a .cube file.
 
 **Look** nodes go between Input and Output. All Blender looks are supported — Contrast, AgX, Greyscale, Punchy, and more.
 
-![Look node](images/QCView_v035.png)
+![Look node](images/QCView_v035.webp)
 
 ---
 
@@ -79,13 +79,13 @@ Click **Select LUT File** on the node to assign a .cube file.
 
 Each bundled config includes ready-made presets. Click a preset to apply it instantly.
 
-![Built-in presets](images/QCView_v036.png)
+![Built-in presets](images/QCView_v036.webp)
 
 ### Custom Presets
 
 Save your own node tree configurations as presets for quick recall.
 
-![Saving a custom preset](images/QCView_v038.png)
+![Saving a custom preset](images/QCView_v038.webp)
 
 ---
 
@@ -93,4 +93,4 @@ Save your own node tree configurations as presets for quick recall.
 
 Click here to export a Cube LUT for other software/pipelines.
 
-![Saving a custom preset](images/QCView_v039.png)
+![Saving a custom preset](images/QCView_v039.webp)

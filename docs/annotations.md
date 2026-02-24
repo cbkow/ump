@@ -8,7 +8,7 @@ nav_order: 9
 
 The Annotations panel manages notes and drawn annotations for loaded media. Annotations are saved in a `.qcview` folder alongside the media file, so they're accessible to anyone on the same file system and load automatically with the media.
 
-![Annotations panel](images/QCView_v040.png)
+![Annotations panel](images/QCView_v040.webp)
 
 ---
 
@@ -27,13 +27,13 @@ The annotation toolbar provides shapes (freehand, box, circle, arrow), a line-wi
 
 Save your drawing when finished.
 
-![Drawing annotations](images/QCView_v041.png)
+![Drawing annotations](images/QCView_v041.webp)
 
 ### Hiding Annotations
 
 Toggle the **Annotations** button at the bottom of the panel to show or hide annotations over the video.
 
-![Annotation visibility toggle](images/QCView_v042.png)
+![Annotation visibility toggle](images/QCView_v042.webp)
 
 ---
 
@@ -41,7 +41,7 @@ Toggle the **Annotations** button at the bottom of the panel to show or hide ann
 
 Click the **Edit** button to open a larger annotation interface with more room for detailed notes and drawings.
 
-![Expanded edit view](images/QCView_v043.png)
+![Expanded edit view](images/QCView_v043.webp)
 
 ---
 
@@ -49,7 +49,7 @@ Click the **Edit** button to open a larger annotation interface with more room f
 
 The **Preview** tab renders your notes with Markdown formatting. Right-click a note to toggle its *addressed* state, which mutes it for tracking purposes.
 
-![Note preview](images/QCView_v044.png)
+![Note preview](images/QCView_v044.webp)
 
 ---
 
@@ -77,6 +77,6 @@ Import review comments from [Frame.io](https://frame.io) into QCView's annotatio
 3. Paste the full URL of the Frame.io video page (not a shortened link)
 4. Click **Import**
 
-![Frame.io import](images/QCView_v045.png)
+![Frame.io import](images/QCView_v045.webp)
 
 > **Note:** This uses the Frame.io v2 API. Functionality may change as Frame.io transitions to Adobe's API.

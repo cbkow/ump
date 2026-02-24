@@ -86,19 +86,19 @@ QCView provides four background options for reviewing alpha-channel media: grey 
 | Open background panel | `Ctrl + Shift + B` |
 | Cycle backgrounds | `B` |
 
-![QCView main interface](images/QCView_v007.png)
+![QCView main interface](images/QCView_v007.webp)
 
 ### Title Safety Guides
 
 Open the **Title Safety** panel with `Ctrl + /` to overlay broadcast and social-media safety guides on the Viewer. Choose a guide color with the color picker — your selection is saved in settings. Toggle the button again to remove the overlay.
 
-![QCView main interface](images/QCView_v008.png)
+![QCView main interface](images/QCView_v008.webp)
 
 ### OCIO Presets
 
 Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction preset to the Viewer. Presets use OCIO node trees — see the [Color](color) page for details.
 
-![QCView main interface](images/QCView_v009.png)
+![QCView main interface](images/QCView_v009.webp)
 
 ---
 
@@ -106,4 +106,4 @@ Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction
 
 QCView can use your **Windows Accent Color** for UI highlights, or you can choose from several built-in color themes.
 
-![QCView main interface](images/QCView_v010.png)
+![QCView main interface](images/QCView_v010.webp)

@@ -10,13 +10,13 @@ nav_order: 5
 
 The top of the sidebar has buttons to toggle each panel: Project Manager, Inspector, Timeline, Color, and Annotations.
 
-![Sidebar panel toggles](images/QCView_v011.png)
+![Sidebar panel toggles](images/QCView_v011.webp)
 
 ## Open / Save Shortcuts
 
 Below the panel toggles are quick-access buttons for opening media, opening projects, and saving projects.
 
-![Open and save shortcuts](images/QCView_v012.png)
+![Open and save shortcuts](images/QCView_v012.webp)
 
 ---
 
@@ -36,7 +36,7 @@ The bottom of the Viewport contains playback controls and app state shortcuts. T
 | Fast Forward | Press and hold — accelerates over time |
 | End | Jump to end of media |
 
-![Transport controls](images/QCView_v013.png)
+![Transport controls](images/QCView_v013.webp)
 
 ---
 
@@ -45,7 +45,7 @@ The bottom of the Viewport contains playback controls and app state shortcuts. T
 When playing back high-resolution image sequences or dense timelines, QCView can skip frames to maintain real-time playback speed. If decoding can't keep up with the target frame rate, the playhead advances at the correct tempo and displays the nearest available frame rather than stalling or slowing down. This keeps audio in sync and gives an accurate sense of timing during review, even when every frame can't be decoded in time.
 
 
-![Follow playhead](images/QCView_v020.png)
+![Follow playhead](images/QCView_v020.webp)
 
 ---
 
@@ -58,7 +58,7 @@ Two screenshot buttons capture the current Viewer contents:
 | Clipboard | Copies the screenshot to the Windows clipboard for pasting into other apps |
 | Desktop | Saves a screenshot file to your Desktop |
 
-![Screenshot buttons](images/QCView_v014.png)
+![Screenshot buttons](images/QCView_v014.webp)
 
 ---
 
@@ -66,7 +66,7 @@ Two screenshot buttons capture the current Viewer contents:
 
 The bottom-right corner displays the current timecode and frame count. Click the seek button next to the counter to jump to a specific time or frame.
 
-![Timecode display](images/QCView_v015.png)
+![Timecode display](images/QCView_v015.webp)
 
 For video files with embedded timecode, a clock icon appears at the far right to switch between file timecode and elapsed time.
 
@@ -84,7 +84,7 @@ Navigate the timeline with these controls:
 
 You can also drag the edges of the zoom region indicator to adjust the visible range.
 
-![Timeline zoom](images/QCView_v016.png)
+![Timeline zoom](images/QCView_v016.webp)
 
 ---
 
@@ -92,7 +92,7 @@ You can also drag the edges of the zoom region indicator to adjust the visible r
 
 Adjust the volume slider or click the speaker icon to toggle mute. Located in the bottom-left of the Viewport.
 
-![Volume control](images/QCView_v017.png)
+![Volume control](images/QCView_v017.webp)
 
 ---
 
@@ -100,7 +100,7 @@ Adjust the volume slider or click the speaker icon to toggle mute. Located in th
 
 Loop mode is on by default — media restarts automatically after reaching the end. Disable it to stop at the last frame.
 
-![Loop toggle](images/QCView_v018.png)
+![Loop toggle](images/QCView_v018.webp)
 
 ### In/Out Range
 
@@ -114,5 +114,5 @@ Set a loop range with `I` (in point) and `O` (out point), or use the **Set Range
 
 When enabled and the timeline is zoomed in, the view automatically scrolls to keep the playhead visible during playback.
 
-![Follow playhead](images/QCView_v021.png)
+![Follow playhead](images/QCView_v021.webp)
 
