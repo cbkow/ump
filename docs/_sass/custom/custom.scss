@@ -37,10 +37,11 @@
     background-image: none;
 }
 
-/* Hamburger menu hover - match sidebar hover */
+/* Hamburger menu - keep background transparent */
+.site-button,
 .site-button:hover,
 .site-button:focus {
-    background-color: rgba(255,255,255, 1);
+    background-color: transparent;
     background-image: none;
 }
 
