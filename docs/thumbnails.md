@@ -10,7 +10,7 @@ nav_order: 14
 
 Both videos and image sequences will generate thumbnails in the background on a low-priority thread. Thumbnails will populate the clip as markers. They will also be available, with more precision, when hovering over the timeline.
 
-![Window](images/ump_gQ75Mk7Uyi.png)
+![Window](images/QCView_v062.webp)
 
 ---
 
@@ -18,4 +18,4 @@ Both videos and image sequences will generate thumbnails in the background on a 
 
 You can disable thumbnail generation in the Settings menu, or by using the `Thumbnails` toggle button.
 
-![Window](images/explorer_OpQHMVOYpn.png)
+![Window](images/QCView_v061.webp)
