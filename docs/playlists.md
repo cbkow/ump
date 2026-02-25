@@ -6,11 +6,11 @@ nav_order: 13
 
 # Playlists
 
-To create a playlist right-click on the playlist bin or navigate to `File > New Playlist`.
+To create a playlist, right-click the playlist bin or select `File > New Playlist`.
 
-To build a playlist, drag in any video or image sequence sources from the `Project Manager`.
+To build a playlist, drag any video or image sequence sources from the `Project Manager` into the timeline.
 
-![Window](images/ump_w6V2YoQ8vO.jpg)
+![Window](images/QCView_v057.webp)
 
 ---
 
@@ -18,11 +18,11 @@ To build a playlist, drag in any video or image sequence sources from the `Proje
 
 Drag to rearrange clip order.
 
-![Window](images/explorer_uHg0IJYRrU.png)
+![Window](images/QCView_v058.webp)
 ---
 
 ## Playback
 
 In addition to the usual transport controls, you also have buttons to skip to previous/next clips.
 
-![Window](images/explorer_dlDvaPBVsy.png)
+![Window](images/QCView_v059.webp)
