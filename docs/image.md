@@ -8,7 +8,7 @@ nav_order: 10
 
 ## Loading a Sequence
 
-Open or drag a single image from a sequence and QCView detects the rest automatically. Choose a frame rate, and for multi-layer EXR files, select which layer to load.
+Open or drag a single image from a sequence, and QCView automatically detects the rest. Choose a frame rate, and for multi-layer EXR files, select which layer to load.
 
 ![Loading an image sequence](images/QCView_v046.webp)
 
@@ -22,7 +22,7 @@ For smoother playback of heavy sequences, transcode them into a lighter format b
 
 ![Transcode options](images/QCView_v047.webp)
 
-**Recommended compression:** `B44A` decompresses significantly faster than `DWAA`/`DWAB`. It trades some quality for speed, but is well suited for review playback.
+**Recommended compression:** `B44A` decompresses significantly faster than `DWAA`/`DWAB`. It trades some quality for speed, but is well-suited for review playback.
 
 ![Transcode settings](images/QCView_v048.webp)
 
