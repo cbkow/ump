@@ -44,9 +44,13 @@
     color: #dcdcdc;
 }
 .site-button:hover,
-.site-button:focus,
-.site-button.nav-open {
+.site-button:focus {
     background-color: #2d2d2d;
+    background-image: none;
+    color: #f0f0f0;
+}
+.site-button.nav-open {
+    background-color: #3d3d3d;
     background-image: none;
     color: #f0f0f0;
 }
