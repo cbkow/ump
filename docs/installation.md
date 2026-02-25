@@ -6,11 +6,12 @@ nav_order: 2
 
 # Installation
 
+The latest version of QCView is in the Microsoft Store:
+
+<a href="https://apps.microsoft.com/detail/9p4z15p5g805?hl=en-us&gl=US&ocid=pdpshare" target="_blank"  rel="noopener noreferrer">
+	<img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
+</a>
+
+---
+
 To install the unsigned version of this QCView, download the latest `.exe` installer from [releases.](https://github.com/cbkow/QCView-Player/releases)
-
-![install unsigned app](images/chrome_gOWOSsS7cL.webp)
-
-> Note: The installer has a few extras:
->  - Registry entries for common media files
->  - Adds a `qcview:///XXX` custom URI scheme to share file paths with colleagues.
->  - Registry entries and icons for `.qcvproj` files.
