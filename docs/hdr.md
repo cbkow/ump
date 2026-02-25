@@ -20,7 +20,7 @@ How to correctly display media in Windows SDR/HDR modes:
 
 SDR works the way you would expect: You generally want an `sRGB` output node, but if you're going to review what it will look like as `~rec.709/Gamma 2.4` (let's face it, most people will see it this way because of the sorry state of video colorspace on computers today), any `Rec.1886` option will work.
 
-![Window](images/explorer_KsCYCBxDxG.png)
+![Window](images/QCView_v064.webp)
 
 ---
 
@@ -30,4 +30,4 @@ SDR works the way you would expect: You generally want an `sRGB` output node, bu
 
 If you toggle HDR mode in Windows, you can then present video in `Rec.2100 PQ`. If you need to view an SDR video in HDR mode, you will need to transform it to this space with the appropriate Display node.
 
-![Window](images/explorer_bCQ1ZiZC18.png)
+![Window](images/QCView_v065.webp)

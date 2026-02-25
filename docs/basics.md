@@ -12,7 +12,7 @@ nav_order: 4
 
 Use the **File** menu to load media into QCView:
 
-![QCView main interface](images/QCView_v004.png)
+![QCView main interface](images/QCView_v004.webp)
 
 | Action | Shortcut |
 |---|---|
@@ -28,7 +28,7 @@ You can also drag files directly into the app. The Viewer border highlights when
 
 To load files already in your project, double-click them in the Project Manager or drag them into the Viewer.
 
-![QCView main interface](images/QCView_v002.png)
+![QCView main interface](images/QCView_v002.webp)
 
 ---
 
@@ -56,20 +56,20 @@ Toggle panels from the **View** menu or with keyboard shortcuts:
 | Minimal View | `Ctrl + -` | Viewport and timeline only (toggle) |
 | Full Screen | `F` | Viewer only, no UI. Press `F` or `Esc` to exit |
 
-![QCView main interface](images/QCView_v005.png)
+![QCView main interface](images/QCView_v005.webp)
 
 ### Panel Shortcuts
 
 Right-clicking the **Show All Panels** button also reveals panel toggles.
 
-![QCView main interface](images/QCView_v003.png)
+![QCView main interface](images/QCView_v003.webp)
 
 
 ### Resizing and Closing Panels
 
 Drag the dividers between panels to resize them. Click the **X** in a panel's top-right corner to close it.
 
-![QCView main interface](images/QCView_v006.png)
+![QCView main interface](images/QCView_v006.webp)
 
 Use `Ctrl + R` or **View > Reset Layout** to restore default proportions.
 
