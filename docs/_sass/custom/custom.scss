@@ -44,7 +44,8 @@
     color: #dcdcdc;
 }
 .site-button:hover,
-.site-button:focus {
+.site-button:focus,
+.site-button.nav-open {
     background-color: transparent;
     background-image: none;
     color: #f0f0f0;

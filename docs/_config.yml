@@ -2,7 +2,7 @@ title: QCView
 description: Docs and manual
 remote_theme: just-the-docs/just-the-docs
 
-logo: "/images/ump512.png"
+logo: "/images/qcview_logo.png"
 
 # Enable color scheme switching
 color_scheme: dark
