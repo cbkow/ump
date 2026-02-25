@@ -5,13 +5,13 @@
 }
 
 .nav-list-link:hover {
-  background-color: rgba(255,255,255, 1);  /* subtle highlight */
-  color: #171717;                               /* optional hover text color */
+  background-color: #2d2d2d;
+  color: #f0f0f0;
 }
 .nav-list-link.active {
-  background-color: #ffffff;  /* selected page bg */
-  color: #171717;             /* selected text */
-  font-weight: 500;           /* optional emphasis */
+  background-color: #3d3d3d;
+  color: #f0f0f0;
+  font-weight: 500;
 }
 
 /* Nested child links */
@@ -37,12 +37,17 @@
     background-image: none;
 }
 
-/* Hamburger menu - keep background transparent */
-.site-button,
+/* Hamburger menu - keep background transparent, text color on hover */
+.site-button {
+    background-color: transparent;
+    background-image: none;
+    color: #dcdcdc;
+}
 .site-button:hover,
 .site-button:focus {
     background-color: transparent;
     background-image: none;
+    color: #f0f0f0;
 }
 
 /* Code blocks - single line-height for ASCII diagrams */
