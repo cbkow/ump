@@ -12,8 +12,8 @@ To compare two media items (videos or image sequences), you first need a `Dual V
 
 The setup has tracks for `LEFT` and `RIGHT`. Drag your media into each track or drop them into the viewport to load them together. The default view is side-by-side. If image sequences are loaded, each will have their own cache progress bar.
 
-> [!Note]
-> QCView uniquely handles dual view compared to other image viewers. To keep frames in sync, we are decoding media in parallel and applying them to the same extra-large, memory-mapped texture. We then UV-map 1/2 of that texture back to each side of the viewer. By doing this, we ensure accurate frame sync between the two sides. Our mapping between LEFT and RIGHT is time-based, so media with different fps will be mapped by time rather than by frames.
+
+> Note: QCView uniquely handles dual view compared to other image viewers. To keep frames in sync, we are decoding media in parallel and applying them to the same extra-large, memory-mapped texture. We then UV-map 1/2 of that texture back to each side of the viewer. By doing this, we ensure accurate frame sync between the two sides. Our mapping between LEFT and RIGHT is time-based, so media with different fps will be mapped by time rather than by frames.
 
 ![Window](images/QCView_v053.webp)
 
