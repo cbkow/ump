@@ -30,6 +30,6 @@ Toggle both sources together to mix all audio, or solo one side. The right side 
 
 ## Aligning Clips
 
-You can drag clips or trim their ends to sync them up. Use `Ctrl + K` or the **Edit** button to trim slates.
+You can drag clips or trim their ends to sync them up. Use `Ctrl + K` to cut the clip trim slates or unwanted content, then `Del.`
 
 ![Timeline alignment](images/QCView_v056.webp)
