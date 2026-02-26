@@ -208,7 +208,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         glfwWindowHint(GLFW_STENCIL_BITS, 8);
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.0", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.1", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
