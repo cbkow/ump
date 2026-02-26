@@ -378,19 +378,3 @@ u.m.p. supports multiple pipeline modes that control texture formats, bit depth,
                     │  └────────────────────────────────┘  │
                     └──────────────────────────────────────┘
 ```
-
----
-
-## Key Source Files
-
-| Component | Location |
-|-----------|----------|
-| D3D11 Device | `src/gpu/d3d11_device_manager.h` |
-| Swapchain/HDR | `src/hdr/d3d11_hdr_swapchain.h` |
-| Video Decode | `src/player/d3d11_video_decoder.h` |
-| YUV Renderer | `src/gpu/d3d11_yuv_renderer.h` |
-| D3D11↔GL Interop | `src/gpu/d3d11_video_interop.h` |
-| Image Sequences | `src/player/image_sequence_decoder.h` |
-| Cache Engine | `src/timeline/cache_window_engine.h` |
-| OCIO Pipeline | `src/color/ocio_pipeline.h` |
-| Pipeline Modes | `src/player/pipeline_mode.h` |
