@@ -44,7 +44,7 @@ Transcoded sequences are stored in a temporary disk cache. For best performance,
 
 ![Disk cache settings](images/QCView_v051.webp)
 
-> The playback cache is RAM-based and subject to the Memory Safety system. If system RAM is full, image playback will pause. See the [Memory](../memory) page for details.
+> The playback cache is RAM-based and subject to the Memory Safety system. If system RAM is full, image playback will pause. See the [Memory](../memory.md) page for details.
 
 > You can switch EXR layers after loading — see the [Inspector](../inspector.md) page.
 

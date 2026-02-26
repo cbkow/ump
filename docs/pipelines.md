@@ -12,6 +12,6 @@ For image sequences, QCView selects the appropriate pipeline automatically. For 
 
 - **Normal** — suitable for all SDR video.
 - **High-Res** — enables 12-bit processing, useful for high-fidelity formats like ProRes 4444. Worth using if the source warrants it.
-- **Ultra-High-Res** — required for HDR video. See the [HDR](../hdr) page for display setup.
+- **Ultra-High-Res** — required for HDR video. See the [HDR](../hdr.md) page for display setup.
 
 ![Pipeline menu](images/QCView_v063.webp)
