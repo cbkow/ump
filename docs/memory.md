@@ -1,6 +1,6 @@
 ---
 title: Memory Safety
-permalink: /memory-safety/
+permalink: /memory/
 nav_order: 15
 ---
 
