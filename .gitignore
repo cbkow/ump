@@ -17,6 +17,9 @@ out/
 *.pdb
 *.obj
 
+# Allow third-party prebuilt libraries in external/
+!external/**/*.lib
+
 # Visual Studio resource cache
 *.aps
 

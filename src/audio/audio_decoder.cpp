@@ -386,6 +386,10 @@ void AudioDecoder::FlushAndSeek(double position) {
     decode_position_ = position;
     read_position_ = position;
 
+    // Stamp seek time for cooldown logic
+    last_seek_time_ = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+
     Debug::Log("AudioDecoder: Seeked to " + std::to_string(position) + "s");
 }
 
@@ -476,10 +480,12 @@ bool AudioDecoder::DecodeNextPacket() {
             codec_ctx_->sample_rate,
             AV_ROUND_UP));
 
-        // Allocate output buffer
+        // Reuse member buffer (avoids per-frame heap allocation)
         size_t output_size = dst_nb_samples * output_format_.channels * sizeof(float);
-        std::vector<uint8_t> output_buffer(output_size);
-        uint8_t* output_ptr = output_buffer.data();
+        if (resample_buffer_.size() < output_size) {
+            resample_buffer_.resize(output_size);
+        }
+        uint8_t* output_ptr = resample_buffer_.data();
 
         // Resample
         int samples_converted = swr_convert(swr_ctx_,
@@ -493,7 +499,7 @@ bool AudioDecoder::DecodeNextPacket() {
             // Write to ring buffer - wait if buffer is full to avoid dropping samples
             // This is critical for WAV files which decode very fast
             size_t total_written = 0;
-            const uint8_t* write_ptr = output_buffer.data();
+            const uint8_t* write_ptr = resample_buffer_.data();
 
             while (total_written < bytes_to_write && running_ && !seek_requested_) {
                 size_t remaining = bytes_to_write - total_written;

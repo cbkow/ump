@@ -825,8 +825,11 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
     std::fill(mix_buffer_.begin(),
               mix_buffer_.begin() + input_frames * 2, 0.0f);
 
-    // Temporary buffer for each source (sized for input frames)
-    std::vector<float> source_buf(input_frames * 2);
+    // Reuse member buffer for per-source reads (avoids per-callback heap allocation)
+    size_t source_buf_size = static_cast<size_t>(input_frames) * 2;
+    if (source_buffer_.size() < source_buf_size) {
+        source_buffer_.resize(source_buf_size);
+    }
 
     // Mix all active sources together
     int sources_mixed = 0;
@@ -844,18 +847,20 @@ void AudioMixer::ProcessAudio(float* output, unsigned int frame_count) {
         double actual_pos = source.decoder->GetReadPosition();
         double pos_drift_ms = (expected_source_pos - actual_pos) * 1000.0;
 
-        // Skip sources with major desync (>100ms) - let sync thread fix it
-        if (std::abs(pos_drift_ms) > 100.0) {
+        // Skip sources with major desync - let sync thread fix it
+        // Must be wider than sync_threshold_ms_ to avoid silencing sources
+        // that the sync thread hasn't had a chance to correct yet
+        if (std::abs(pos_drift_ms) > 500.0) {
             continue;
         }
 
         // Read audio from this source (tempo-adjusted frame count)
-        std::memset(source_buf.data(), 0, input_frames * 2 * sizeof(float));
-        source.decoder->Read(source_buf.data(), input_frames);
+        std::memset(source_buffer_.data(), 0, input_frames * 2 * sizeof(float));
+        source.decoder->Read(source_buffer_.data(), input_frames);
 
         // Mix into buffer (additive mixing)
         for (int i = 0; i < input_frames * 2; ++i) {
-            mix_buffer_[i] += source_buf[i];
+            mix_buffer_[i] += source_buffer_[i];
         }
         sources_mixed++;
     }
@@ -1168,7 +1173,14 @@ void AudioMixer::PreparationThreadFunc() {
                     double actual_pos = source.decoder->GetReadPosition();
                     double drift_ms = std::abs(actual_pos - expected_source) * 1000.0;
 
-                    if (drift_ms > sync_threshold_ms_) {
+                    if (drift_ms > sync_threshold_ms_ &&
+                        source.decoder->GetBufferedDuration() > 0.1 &&
+                        source.decoder->SecondsSinceLastSeek() > 0.3) {
+                        // Only seek if:
+                        // 1. Buffer has data (not still filling from a recent seek)
+                        // 2. Enough time has passed since last seek (cooldown)
+                        // Without cooldown, compressed codecs like AAC enter a
+                        // seek storm: seek → flush → refill → drift detected → seek
                         corrections.push_back({source.decoder, expected_source});
                     }
                 }

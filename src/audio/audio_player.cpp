@@ -235,7 +235,14 @@ void AudioPlayer::CheckAndCorrectSync() {
     // Calculate drift
     double drift_ms = std::abs(audio_pos - expected_source_pos) * 1000.0;
 
-    if (drift_ms > sync_threshold_ms_) {
+    if (drift_ms > sync_threshold_ms_ &&
+        decoder_->GetBufferedDuration() > 0.1 &&
+        decoder_->SecondsSinceLastSeek() > 0.3) {
+        // Only seek if:
+        // 1. Buffer has data (not still filling from a recent seek)
+        // 2. Enough time has passed since last seek (cooldown)
+        // Without cooldown, compressed codecs like AAC enter a
+        // seek storm: seek → flush → refill → drift detected → seek
         Debug::Log("AudioPlayer: Sync correction - drift: " + std::to_string(drift_ms) +
                    "ms, seeking to " + std::to_string(expected_source_pos) + "s");
         decoder_->Seek(expected_source_pos);

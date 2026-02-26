@@ -3,6 +3,7 @@
 #include <string>
 #include <memory>
 #include <atomic>
+#include <chrono>
 #include <thread>
 #include <mutex>
 #include <condition_variable>
@@ -207,9 +208,23 @@ private:
     // EOF tracking
     std::atomic<bool> eof_reached_{false};
 
+    // Seek timing - tracks when last seek completed for cooldown logic
+    std::atomic<double> last_seek_time_{0.0};
+
+    // Reusable decode output buffer (avoids per-frame heap allocation)
+    std::vector<uint8_t> resample_buffer_;
+
 public:
     // Check if decoder has reached end of file
     bool IsEOF() const { return eof_reached_.load(); }
+
+    // Get seconds since last seek (for cooldown logic in sync correction)
+    double SecondsSinceLastSeek() const {
+        double now = std::chrono::duration<double>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        double last = last_seek_time_.load();
+        return (last > 0.0) ? (now - last) : 999.0;
+    }
 };
 
 } // namespace qcview

@@ -282,9 +282,13 @@ private:
     // Flag to force refresh on next background thread iteration
     std::atomic<bool> force_refresh_{false};
 
-    // Sync configuration (Phase 1: Tighter Sync Loop)
-    double sync_check_interval_ms_ = 50.0;   // Was 200ms, now 50ms
-    double sync_threshold_ms_ = 20.0;        // Was 50ms, now 20ms
+    // Sync configuration
+    // Threshold must be high enough that normal clock drift and timer update
+    // jitter don't trigger seeks. Seeking is destructive for compressed codecs
+    // (AAC, MP3) - flushes decoder state and ring buffer. Human A/V desync
+    // perception threshold is ~40-80ms, so 150ms is safe and avoids false triggers.
+    double sync_check_interval_ms_ = 200.0;
+    double sync_threshold_ms_ = 150.0;
     double last_sync_check_time_ = 0.0;
 
     //=========================================================================
@@ -296,8 +300,9 @@ private:
     std::atomic<double> pipeline_latency_{0.0};      // Video pipeline latency (D3D11: ~28ms)
     std::atomic<double> fine_tune_offset_{0.0};      // User fine-tune (±50ms range)
 
-    // Mixing buffer (holds mixed audio before time stretch)
+    // Mixing buffers (holds mixed audio before time stretch)
     std::vector<float> mix_buffer_;
+    std::vector<float> source_buffer_;  // Reusable per-source read buffer
 
     // Time stretch for adaptive speed control (pitch-preserving tempo change)
     AudioTimeStretch time_stretch_;
