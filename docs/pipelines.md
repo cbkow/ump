@@ -1,6 +1,6 @@
 ---
 title: Pipelines
-permalink: /piplines/
+permalink: /pipelines/
 nav_order: 16
 ---
 
@@ -8,6 +8,10 @@ nav_order: 16
 
 ## The Menu
 
-If viewing an image sequence, the pipeline mode is automatically selected, but QCView doesn't assume anything for videos. Video metadata is too unreliable to count on. You can pick the pipeline that best fits the media. General rule of thumb: `Normal` is fine for all SDR video. The `High-Res` setting will present 12-bit video (think ProRes 4444), which is better, but it's not mandatory. In a review process, one might not even notice the difference. `Ultra-High-Res` is only needed for HDR videos.
+For image sequences, QCView selects the appropriate pipeline automatically. For video, it doesn't — video metadata is too unreliable to infer from — so you choose manually.
 
-![Window](images/QCView_v063.webp)
+- **Normal** — suitable for all SDR video.
+- **High-Res** — enables 12-bit processing, useful for high-fidelity formats like ProRes 4444. Worth using if the source warrants it.
+- **Ultra-High-Res** — required for HDR video. See the [HDR](hdr) page for display setup.
+
+![Pipeline menu](images/QCView_v063.webp)
