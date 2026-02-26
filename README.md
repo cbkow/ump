@@ -2,6 +2,10 @@
 
 **QCView** is a professional media player and reviewer for Windows, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
+<a href="https://apps.microsoft.com/detail/9p4z15p5g805?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer">
+  <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
+</a>
+
 ---
 
 ## Key Features
@@ -41,9 +45,5 @@
 - [Acknowledgments](https://github.com/cbkow/QCView-Player/blob/main/Acknowledgments.md)
 - [Third-Party Notices](https://github.com/cbkow/QCView-Player/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
 - [Privacy Policy](https://github.com/cbkow/QCView-Player/blob/main/PRIVACY_POLICY.md)
-
-<a href="https://apps.microsoft.com/detail/9p4z15p5g805?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer">
-  <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
-</a>
 
 QCView is open source under the GPL v3 license.
