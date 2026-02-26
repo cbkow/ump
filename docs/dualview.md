@@ -6,35 +6,30 @@ nav_order: 12
 
 # Dual View
 
-## Comparison views for two videos or image sequences
+To compare two media items side by side, create a Dual View setup via right-click in the Dual View bin or **File > New Dual View**.
 
-To compare two media items (videos or image sequences), you first need a `Dual View` setup. Right click on the Dual View bin or navigate to `File > New Dual View` to create one.
+The setup has **LEFT** and **RIGHT** tracks. Drag media into each track, or drop it directly into the viewport. If image sequences are loaded, each will have its own cache progress bar.
 
-The setup has tracks for `LEFT` and `RIGHT`. Drag your media into each track or drop them into the viewport to load them together. The default view is side-by-side. If image sequences are loaded, each will have their own cache progress bar.
+> **How frame sync works:** Both media items are decoded in parallel and written to a shared memory-mapped texture. Each side of the viewer UV-maps to its half of that texture, which guarantees accurate frame alignment. Sync is time-based rather than frame-based, so media with different frame rates will align by timestamp.
 
+![Dual view layout](images/QCView_v053.webp)
 
-> Note: QCView uniquely handles dual view compared to other image viewers. To keep frames in sync, we are decoding media in parallel and applying them to the same extra-large, memory-mapped texture. We then UV-map 1/2 of that texture back to each side of the viewer. By doing this, we ensure accurate frame sync between the two sides. Our mapping between LEFT and RIGHT is time-based, so media with different fps will be mapped by time rather than by frames.
+The **Split Screen** button switches to a draggable divider view you can move freely during playback.
 
-![Window](images/QCView_v053.webp)
-
-This button will change to a split-screen view where you can drag the divider as you play.
-
-![Window](images/QCView_v054.webp)
+![Split screen view](images/QCView_v054.webp)
 
 ---
 
 ## Audio
 
-You can toggle both sources at once to mix down all audio, or solo only one side for review. By default, the right side is muted.
+Toggle both sources together to mix all audio, or solo one side. The right side is muted by default.
 
-![Window](images/QCView_v055.webp)
+![Audio controls](images/QCView_v055.webp)
 
 ---
 
-## Lineing Up Both Videos
+## Aligning Clips
 
-### Drag & Trim
+As in the [Timeline](timeline) view, you can drag clips or trim their ends to sync them up. Use `Ctrl + K` or the **Edit** button to trim slates.
 
-Like the **Timeline** view, you can drag clips on the timeline or trim their ends to line them up. You can trim off slates with the same `Ctrl + K` or `Edit` button click.
-
-![Window](images/QCView_v056.webp)
+![Timeline alignment](images/QCView_v056.webp)

@@ -6,27 +6,18 @@ nav_order: 11
 
 # Settings
 
-## The Cache Panel
+## Image Sequence Cache
 
-In QCview's **Settings** panel, you can adjust various settings to boost your system's performance.
+After installing QCView, the first setting worth configuring is the transcode cache location. Under the **Image Sequence** tab, point the cache folder to a fast NVMe drive with plenty of free space — this is where transcoded sequences will be stored. The eviction settings in the same panel control how aggressively old transcodes are cleaned up.
 
-### Image Sequences Cache
-
-There is one setting you should immediately take a look at after installing the app:
-
-- Under the `Image Sequence` tab, change your cache folder to a fast NVME disk with lots of space. If you plan on using the image-sequence transcoding options, this is where those transcodes will be stored. Some eviction settings will help manage how much data accumulates. 
-
-![Window](images/QCView_v051.webp)
-
+![Cache settings](images/QCView_v051.webp)
 ---
 
 ## Font Settings
 
-Drag the slider to adjust the font size scaling. This setting is persistent and will be remembered the next time you use the app.
+Drag the slider to scale the UI font size. This setting persists between sessions.
 
-> Note:
-> `1.08x` is the setting I use personally for `125%` scaling in Windows.
+> `1.08x` is recommended for Windows systems running at 125% display scaling.
 
-![Window](images/QCView_v052.webp)
-
+![Font settings](images/QCView_v052.webp)
 

@@ -6,19 +6,17 @@ nav_order: 17
 
 # SDR vs HDR
 
-Philosophically, u.m.p. differs from most media players in that it absolutely refuses to tonemap media for you. Everything else out there makes some assumption or another about color space that is partially wrong, or at a minimum, inconvenient for a professional review process.
+Unlike most media players, u.m.p. does not tonemap media. Other players make assumptions about color space that are at least partially wrong — or at minimum, inconvenient for a professional review workflow.
 
-This ethos means video output will be in Windows working color space when initially presented on screen. Since Windows assumes `sRGB` for SDR desktop color, SDR videos display correctly as is. Since Windows assumes `Rec.2100PQ` for HDR, HDR videos (like PQ HVEC) will display correctly when Windows is in HDR mode, but SDR won't. You will need to use OCIO to convert.
+As a result, video output is presented in Windows' working color space. In SDR desktop mode, Windows assumes `sRGB`, so SDR video displays correctly without any adjustment. In HDR mode, Windows assumes `Rec.2100 PQ`, so HDR content (such as PQ HEVC) displays correctly — but SDR content will not. In that case, you'll need to use OCIO to convert.
 
 ---
 
-## The Color Panels (OCIO)
-
-How to correctly display media in Windows SDR/HDR modes:
+## Color Output with OCIO
 
 ### SDR Mode
 
-SDR works the way you would expect: You generally want an `sRGB` output node, but if you're going to review what it will look like as `~rec.709/Gamma 2.4` (let's face it, most people will see it this way because of the sorry state of video colorspace on computers today), any `Rec.1886` option will work.
+In SDR mode, use an `sRGB` output node for a standard display-referred result. If you want to preview how content will look on a typical consumer display — `~Rec.709 / Gamma 2.4` — any `Rec.1886` option will work. (Given the general state of video color management on consumer hardware, this is how most viewers will see your content.)
 
 ![Window](images/QCView_v064.webp)
 
@@ -28,6 +26,6 @@ SDR works the way you would expect: You generally want an `sRGB` output node, bu
 
 ![Window](images/ApplicationFrameHost_54kNfGakT2.png)
 
-If you toggle HDR mode in Windows, you can then present video in `Rec.2100 PQ`. If you need to view an SDR video in HDR mode, you will need to transform it to this space with the appropriate Display node.
+With Windows HDR mode enabled, you can present video in `Rec.2100 PQ`. To view SDR content in this mode, use the appropriate Display node to transform it into that space.
 
 ![Window](images/QCView_v065.webp)
