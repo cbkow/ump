@@ -106,7 +106,7 @@ Loop mode is on by default — media restarts automatically after reaching the e
 
 Set a loop range with `I` (in point) and `O` (out point), or use the **Set Range** buttons. A highlighted loop zone appears on the timeline showing the active range. Press **Clear** to remove the range and play the full clip.
 
-![Loop range](images/QCView_v019.png)
+![Loop range](images/QCView_v019.webp)
 
 ---
 
