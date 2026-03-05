@@ -4,6 +4,7 @@
 
 #include "../utils/debug_utils.h"
 #include <dxgi1_2.h>
+#include <cstring>  // strcmp
 
 // WGL_NV_DX_interop access modes
 #define WGL_ACCESS_READ_ONLY_NV 0x0000
@@ -189,6 +190,25 @@ bool D3D11VideoInterop::InitializeNVInterop() {
 }
 
 bool D3D11VideoInterop::InitializeEXTMemoryInterop() {
+    // Check GL extension string first - wglGetProcAddress can return non-null
+    // function pointers even for unsupported extensions (e.g. Intel Xe uses
+    // the same driver family as Intel Arc but may not support memory sharing)
+    bool ext_supported = false;
+    GLint num_extensions = 0;
+    glGetIntegerv(GL_NUM_EXTENSIONS, &num_extensions);
+    for (GLint i = 0; i < num_extensions; i++) {
+        const char* ext = reinterpret_cast<const char*>(glGetStringi(GL_EXTENSIONS, i));
+        if (ext && strcmp(ext, "GL_EXT_memory_object_win32") == 0) {
+            ext_supported = true;
+            break;
+        }
+    }
+
+    if (!ext_supported) {
+        Debug::Log("D3D11VideoInterop: GL_EXT_memory_object_win32 not in extension string");
+        return false;
+    }
+
     // Load GL_EXT_memory_object function pointers
     glCreateMemoryObjectsEXT_ = reinterpret_cast<PFNGLCREATEMEMORYOBJECTSEXTPROC>(
         wglGetProcAddress("glCreateMemoryObjectsEXT"));
@@ -204,6 +224,7 @@ bool D3D11VideoInterop::InitializeEXTMemoryInterop() {
         return false;
     }
 
+    Debug::Log("D3D11VideoInterop: GL_EXT_memory_object_win32 extension verified");
     return true;
 }
 
@@ -459,6 +480,9 @@ bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMA
         glCreateMemoryObjectsEXT_(1, &ext_memory_objects_[i]);
 
         // Import the shared handle
+        // Clear pending GL errors before checking import result
+        while (glGetError() != GL_NO_ERROR) {}
+
         glImportMemoryWin32HandleEXT_(
             ext_memory_objects_[i],
             memory_size,
@@ -466,10 +490,26 @@ bool D3D11VideoInterop::CreateEXTMemoryTexture(int width, int height, DXGI_FORMA
             shared_handles_[i]
         );
 
+        GLenum import_err = glGetError();
+        if (import_err != GL_NO_ERROR) {
+            Debug::Log("D3D11VideoInterop: glImportMemoryWin32HandleEXT failed, GL error=0x" +
+                       std::to_string(import_err));
+            goto cleanup;
+        }
+
         // Create GL texture with imported memory
         glGenTextures(1, &gl_textures_[i]);
         glBindTexture(GL_TEXTURE_2D, gl_textures_[i]);
         glTexStorageMem2DEXT_(GL_TEXTURE_2D, 1, gl_internal_format, width, height, ext_memory_objects_[i], 0);
+
+        GLenum storage_err = glGetError();
+        if (storage_err != GL_NO_ERROR) {
+            Debug::Log("D3D11VideoInterop: glTexStorageMem2DEXT failed, GL error=0x" +
+                       std::to_string(storage_err));
+            glBindTexture(GL_TEXTURE_2D, 0);
+            goto cleanup;
+        }
+
         glBindTexture(GL_TEXTURE_2D, 0);
 
         if (!gl_textures_[i]) {
@@ -839,20 +879,38 @@ bool D3D11VideoInterop::UnlockForGL() {
 
             GLenum gl_format = GL_RGBA;
             GLenum gl_type = GL_HALF_FLOAT;
+            int bytes_per_pixel = 8;  // RGBA16F default
 
             if (format_ == DXGI_FORMAT_R8G8B8A8_UNORM) {
                 gl_type = GL_UNSIGNED_BYTE;
+                bytes_per_pixel = 4;
             } else if (format_ == DXGI_FORMAT_R10G10B10A2_UNORM) {
                 gl_type = GL_UNSIGNED_INT_2_10_10_10_REV;
+                bytes_per_pixel = 4;
             } else if (format_ == DXGI_FORMAT_R16G16B16A16_UNORM) {
                 gl_type = GL_UNSIGNED_SHORT;  // HIGH_RES mode (16-bit integer)
+                bytes_per_pixel = 8;
+            }
+
+            // D3D11 staging textures may have row padding for alignment.
+            // Tell GL the actual row length so it reads rows at the correct stride.
+            UINT expected_pitch = width_ * bytes_per_pixel;
+            if (mapped.RowPitch != expected_pitch) {
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, mapped.RowPitch / bytes_per_pixel);
             }
 
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width_, height_,
                            gl_format, gl_type, mapped.pData);
 
+            // Reset row length to default
+            if (mapped.RowPitch != expected_pitch) {
+                glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            }
+
             glBindTexture(GL_TEXTURE_2D, 0);
             d3d_context_->Unmap(staging_texture_.Get(), 0);
+        } else {
+            Debug::Log("D3D11VideoInterop: CPU fallback Map failed, hr=0x" + std::to_string(hr));
         }
 
         // Return the buffer we just rendered to

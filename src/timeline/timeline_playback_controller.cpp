@@ -6,6 +6,7 @@
 #include "../player/playback_timer.h"
 #include "../player/image_loaders.h"
 #include "../audio/audio_mixer.h"
+#include "../app/app_config.h"
 #include "../utils/debug_utils.h"
 
 #ifdef _WIN32
@@ -1001,6 +1002,12 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
     // Key: Our D3D11 device is passed TO FFmpeg for texture compatibility
     bool use_d3d11va_hdr = (config_.pipeline_mode == PipelineMode::MF_HDR);
 
+    // Skip D3D11VA when user has forced software decode
+    if (cache_settings.force_software_decode && use_d3d11va_hdr) {
+        Debug::Log("TimelinePlaybackController: Skipping D3D11VA - force software decode enabled");
+        use_d3d11va_hdr = false;
+    }
+
     if (use_d3d11va_hdr && is_video_file_mode && !media_file_path.empty()) {
         Debug::Log("TimelinePlaybackController: D3D11VA HDR mode - using FFmpeg + D3D11VA for: " + media_file_path);
 
@@ -1067,6 +1074,7 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         d3d11_decoder_ = std::make_unique<D3D11VideoDecoder>();
         d3d11_decoder_->SetVideoPath(media_file_path);
         d3d11_decoder_->SetPipelineMode(config_.pipeline_mode);
+        d3d11_decoder_->SetForceSoftwareDecode(cache_settings.force_software_decode);
 
         if (d3d11_decoder_->Initialize()) {
             use_d3d11_decoder_ = true;

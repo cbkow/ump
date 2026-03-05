@@ -205,6 +205,12 @@ bool D3D11VideoDecoder::Initialize() {
     // Determine decode mode based on codec
     decode_mode_ = DetermineDecodeMode(codec_ctx_->codec_id);
 
+    // User override: force software decode (bypasses D3D11VA/NVDEC)
+    if (force_software_ && decode_mode_ == DecodeMode::HARDWARE) {
+        Debug::Log("D3D11VideoDecoder: Force software decode enabled - bypassing hardware acceleration");
+        decode_mode_ = DecodeMode::SOFTWARE;
+    }
+
     // Configure hardware or software context
     if (decode_mode_ == DecodeMode::HARDWARE) {
         if (!ConfigureHardwareContext()) {
@@ -226,9 +232,53 @@ bool D3D11VideoDecoder::Initialize() {
 
     // Open the codec
     if (!OpenCodec()) {
-        Debug::Log("D3D11VideoDecoder: Failed to open codec");
-        Shutdown();
-        return false;
+        // If HW codec open failed (e.g. GetHWFormat returned NONE because the driver
+        // doesn't support D3D11VA for this codec), fall back to software decode
+        if (decode_mode_ == DecodeMode::HARDWARE) {
+            Debug::Log("D3D11VideoDecoder: HW codec open failed, retrying with software decode");
+
+            // Clean up failed HW state
+            if (codec_ctx_) {
+                avcodec_free_context(&codec_ctx_);
+            }
+            if (hw_frames_ctx_) {
+                av_buffer_unref(&hw_frames_ctx_);
+            }
+            if (hw_device_ctx_) {
+                av_buffer_unref(&hw_device_ctx_);
+            }
+            if (format_ctx_) {
+                avformat_close_input(&format_ctx_);
+            }
+
+            // Reinitialize FFmpeg and try software
+            decode_mode_ = DecodeMode::SOFTWARE;
+            hw_accel_type_ = HWAccelType::NONE;
+
+            if (!InitializeFFmpeg()) {
+                Debug::Log("D3D11VideoDecoder: FFmpeg reinit failed for SW fallback");
+                Shutdown();
+                return false;
+            }
+
+            if (!ConfigureSoftwareContext()) {
+                Debug::Log("D3D11VideoDecoder: SW context config failed");
+                Shutdown();
+                return false;
+            }
+
+            if (!OpenCodec()) {
+                Debug::Log("D3D11VideoDecoder: SW codec open also failed");
+                Shutdown();
+                return false;
+            }
+
+            Debug::Log("D3D11VideoDecoder: Fell back to software decode successfully");
+        } else {
+            Debug::Log("D3D11VideoDecoder: Failed to open codec");
+            Shutdown();
+            return false;
+        }
     }
 
     // Initialize YUV renderer
@@ -503,11 +553,41 @@ bool D3D11VideoDecoder::SetupFramesContext() {
 
     int ret = av_hwframe_ctx_init(hw_frames_ctx_);
     if (ret < 0) {
-        char errbuf[256];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        Debug::Log("D3D11VideoDecoder: Failed to init frames context: " + std::string(errbuf));
+        // Some drivers (Intel Xe integrated) don't support BIND_SHADER_RESOURCE
+        // on decoder texture pools. Fall back to BIND_DECODER only.
+        // AddCurrentFrameToBuffer() copies to local textures with BIND_SHADER_RESOURCE
+        // anyway, so this is safe - it just means one extra GPU copy per frame.
+        Debug::Log("D3D11VideoDecoder: BIND_DECODER|BIND_SHADER_RESOURCE failed, "
+                   "retrying with BIND_DECODER only (Intel Xe compatible)");
+
         av_buffer_unref(&hw_frames_ctx_);
-        return false;
+        hw_frames_ctx_ = av_hwframe_ctx_alloc(hw_device_ctx_);
+        if (!hw_frames_ctx_) {
+            return false;
+        }
+
+        frames_ctx = (AVHWFramesContext*)hw_frames_ctx_->data;
+        frames_ctx->format = AV_PIX_FMT_D3D11;
+        frames_ctx->sw_format = is_10bit_ ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
+        frames_ctx->width = codec_ctx_->width;
+        frames_ctx->height = codec_ctx_->height;
+        frames_ctx->initial_pool_size = 20 + 6;
+
+        d3d11_frames = (AVD3D11VAFramesContext*)frames_ctx->hwctx;
+        d3d11_frames->BindFlags = D3D11_BIND_DECODER;
+        d3d11_frames->MiscFlags = 0;
+
+        ret = av_hwframe_ctx_init(hw_frames_ctx_);
+        if (ret < 0) {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("D3D11VideoDecoder: Failed to init frames context even with "
+                       "BIND_DECODER only: " + std::string(errbuf));
+            av_buffer_unref(&hw_frames_ctx_);
+            return false;
+        }
+
+        Debug::Log("D3D11VideoDecoder: Frame pool created with BIND_DECODER only");
     }
 
     codec_ctx_->hw_frames_ctx = av_buffer_ref(hw_frames_ctx_);

@@ -13,6 +13,7 @@ struct CacheSettings {
     bool show_pipeline_info = true;       // Show pipeline impact info
 
     // VIDEO-SPECIFIC SETTINGS
+    bool force_software_decode = false;  // Force software decode (disables D3D11VA/NVDEC)
     bool enable_nvidia_decode = false;    // NVIDIA hardware decode setting
     int max_batch_size = 8;               // Frames per extraction batch
     int max_concurrent_batches = 8;       // Number of parallel extraction threads

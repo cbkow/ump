@@ -707,6 +707,38 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.25f, 0.25f, 0.50f));
                 if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
 
+                    // === TAB 1: Video Decode ===
+                    if (ImGui::BeginTabItem("Video Decode")) {
+                    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Hardware acceleration settings for video decode");
+                    ImGui::Spacing();
+
+                    if (ImGui::Checkbox("Disable hardware acceleration", &cache_settings.force_software_decode)) {
+                        settings_changed = true;
+                    }
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("(?)");
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::SetTooltip(
+                            "Forces software (CPU) video decoding.\n\n"
+                            "When enabled, D3D11VA and NVDEC hardware decode are bypassed\n"
+                            "and FFmpeg software decode is used for all codecs.\n\n"
+                            "Use this if you experience visual artifacts, crashes, or\n"
+                            "black frames — especially on Intel Xe integrated GPUs.\n\n"
+                            "Requires reopening the current file to take effect.");
+                    }
+
+                    ImGui::Spacing();
+                    if (font_regular) ImGui::PushFont(font_regular);
+                    if (cache_settings.force_software_decode) {
+                        ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "Software decode active — hardware acceleration disabled");
+                    } else {
+                        ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f), "Hardware acceleration enabled (auto-selects HW/SW per codec)");
+                    }
+                    if (font_regular) ImGui::PopFont();
+
+                        ImGui::EndTabItem();
+                    } // End Video Decode tab
+
                     // === TAB 2: Image Playback ===
                     if (ImGui::BeginTabItem("Image Playback")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Cache window settings for image sequences (EXR/TIFF/PNG/JPEG)");
@@ -1280,6 +1312,9 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
             PushOutlineButtonStyle();
             if (ImGui::Button("Reset to Defaults")) {
+                // Video decode settings
+                cache_settings.force_software_decode = false;
+
                 // Image Sequence settings - Auto-configure based on CPU
                 AutoConfigureEXRThreading(cache_settings);
                 g_exr_read_ahead_frames = 72;   // ~3s @ 24fps

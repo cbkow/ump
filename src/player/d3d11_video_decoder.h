@@ -212,6 +212,9 @@ public:
     // Initialize with video path (called before Initialize())
     void SetVideoPath(const std::string& path) { video_path_ = path; }
 
+    // Force software decode (bypasses D3D11VA hardware acceleration)
+    void SetForceSoftwareDecode(bool force) { force_software_ = force; }
+
     //=========================================================================
     // HDR Information
     //=========================================================================
@@ -422,6 +425,7 @@ private:
     PipelineMode pipeline_mode_ = PipelineMode::NORMAL;
     DecodeMode decode_mode_ = DecodeMode::SOFTWARE;
     HWAccelType hw_accel_type_ = HWAccelType::NONE;
+    bool force_software_ = false;  // User override to force SW decode
 
     // Playhead tracking
     std::atomic<int> current_playhead_{0};

@@ -163,6 +163,9 @@ void Application::LoadSettings() {
             if (j["video_cache"].contains("enable_nvidia_decode")) {
                 cache_settings.enable_nvidia_decode = j["video_cache"]["enable_nvidia_decode"].get<bool>();
             }
+            if (j["video_cache"].contains("force_software_decode")) {
+                cache_settings.force_software_decode = j["video_cache"]["force_software_decode"].get<bool>();
+            }
             if (j["video_cache"].contains("max_batch_size")) {
                 cache_settings.max_batch_size = j["video_cache"]["max_batch_size"].get<int>();
             }
@@ -465,6 +468,7 @@ void Application::SaveSettings() {
         j["video_cache"]["cache_enabled"] = cache_enabled;
         j["video_cache"]["max_cache_seconds"] = cache_settings.max_cache_seconds;
         j["video_cache"]["enable_nvidia_decode"] = cache_settings.enable_nvidia_decode;
+        j["video_cache"]["force_software_decode"] = cache_settings.force_software_decode;
         j["video_cache"]["max_batch_size"] = cache_settings.max_batch_size;
         j["video_cache"]["max_concurrent_batches"] = cache_settings.max_concurrent_batches;
         j["video_cache"]["pipeline_mode"] = PipelineModeToString(cache_settings.current_pipeline_mode);

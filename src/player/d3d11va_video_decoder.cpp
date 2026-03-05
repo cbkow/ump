@@ -318,18 +318,49 @@ bool D3D11VAVideoDecoder::SetupFramesContext() {
     // Base pool size + extra frames for buffering
     frames_ctx->initial_pool_size = 20 + 6;
 
-    // KEY: Add shader resource binding for direct SRV creation
+    // Try with shader resource binding for direct SRV creation
     AVD3D11VAFramesContext* d3d11_frames = (AVD3D11VAFramesContext*)frames_ctx->hwctx;
     d3d11_frames->BindFlags = D3D11_BIND_DECODER | D3D11_BIND_SHADER_RESOURCE;
     d3d11_frames->MiscFlags = 0;
 
     int ret = av_hwframe_ctx_init(hw_frames_ctx_);
     if (ret < 0) {
-        char errbuf[256];
-        av_strerror(ret, errbuf, sizeof(errbuf));
-        Debug::Log("D3D11VAVideoDecoder: Failed to init frames context: " + std::string(errbuf));
+        // Some drivers (Intel Xe integrated) don't support BIND_SHADER_RESOURCE
+        // on decoder texture pools. Fall back to BIND_DECODER only.
+        // CreatePlaneSRVs() will copy to a staging texture when needed.
+        Debug::Log("D3D11VAVideoDecoder: BIND_DECODER|BIND_SHADER_RESOURCE failed, "
+                   "retrying with BIND_DECODER only (Intel Xe compatible)");
+
         av_buffer_unref(&hw_frames_ctx_);
-        return false;
+        hw_frames_ctx_ = av_hwframe_ctx_alloc(hw_device_ctx_);
+        if (!hw_frames_ctx_) {
+            return false;
+        }
+
+        frames_ctx = (AVHWFramesContext*)hw_frames_ctx_->data;
+        frames_ctx->format = AV_PIX_FMT_D3D11;
+        frames_ctx->sw_format = is_10bit_ ? AV_PIX_FMT_P010 : AV_PIX_FMT_NV12;
+        frames_ctx->width = codec_ctx_->width;
+        frames_ctx->height = codec_ctx_->height;
+        frames_ctx->initial_pool_size = 20 + 6;
+
+        d3d11_frames = (AVD3D11VAFramesContext*)frames_ctx->hwctx;
+        d3d11_frames->BindFlags = D3D11_BIND_DECODER;
+        d3d11_frames->MiscFlags = 0;
+
+        ret = av_hwframe_ctx_init(hw_frames_ctx_);
+        if (ret < 0) {
+            char errbuf[256];
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            Debug::Log("D3D11VAVideoDecoder: Failed to init frames context even with "
+                       "BIND_DECODER only: " + std::string(errbuf));
+            av_buffer_unref(&hw_frames_ctx_);
+            return false;
+        }
+
+        needs_srv_copy_ = true;
+        Debug::Log("D3D11VAVideoDecoder: Frame pool created with BIND_DECODER only "
+                   "(will copy for SRV creation)");
     }
 
     // Assign to codec context
@@ -340,7 +371,7 @@ bool D3D11VAVideoDecoder::SetupFramesContext() {
     Debug::Log("D3D11VAVideoDecoder: Frame pool configured via get_format - " +
                std::string(is_10bit_ ? "P010" : "NV12") + " " +
                std::to_string(codec_ctx_->width) + "x" + std::to_string(codec_ctx_->height) +
-               " BindFlags=DECODER|SHADER_RESOURCE");
+               (needs_srv_copy_ ? " BindFlags=DECODER (copy mode)" : " BindFlags=DECODER|SHADER_RESOURCE"));
 
     return true;
 }
@@ -390,6 +421,11 @@ void D3D11VAVideoDecoder::Shutdown() {
 
     srv_y_.Reset();
     srv_uv_.Reset();
+    srv_staging_texture_.Reset();
+    srv_staging_width_ = 0;
+    srv_staging_height_ = 0;
+    srv_staging_format_ = DXGI_FORMAT_UNKNOWN;
+    needs_srv_copy_ = false;
 
     if (packet_) {
         av_packet_free(&packet_);
@@ -435,20 +471,94 @@ bool D3D11VAVideoDecoder::CreatePlaneSRVs(ID3D11Texture2D* texture, int array_in
     D3D11_TEXTURE2D_DESC desc;
     texture->GetDesc(&desc);
 
-    // Debug: log texture properties
-    Debug::Log("D3D11VAVideoDecoder: Texture desc - " +
-               std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
-               " Format=" + std::to_string(desc.Format) +
-               " ArraySize=" + std::to_string(desc.ArraySize) +
-               " BindFlags=0x" + std::to_string(desc.BindFlags) +
-               " MiscFlags=0x" + std::to_string(desc.MiscFlags) +
-               " array_index=" + std::to_string(array_index));
-
-    // Check if texture has SHADER_RESOURCE bind flag
-    if (!(desc.BindFlags & D3D11_BIND_SHADER_RESOURCE)) {
-        Debug::Log("D3D11VAVideoDecoder: WARNING - Texture missing BIND_SHADER_RESOURCE flag!");
+    // Debug: log texture properties (first time only)
+    static bool first_log = true;
+    if (first_log) {
+        Debug::Log("D3D11VAVideoDecoder: Texture desc - " +
+                   std::to_string(desc.Width) + "x" + std::to_string(desc.Height) +
+                   " Format=" + std::to_string(desc.Format) +
+                   " ArraySize=" + std::to_string(desc.ArraySize) +
+                   " BindFlags=0x" + std::to_string(desc.BindFlags) +
+                   " MiscFlags=0x" + std::to_string(desc.MiscFlags) +
+                   " array_index=" + std::to_string(array_index) +
+                   " needs_srv_copy=" + std::to_string(needs_srv_copy_));
+        first_log = false;
     }
 
+    // If decoder pool textures lack BIND_SHADER_RESOURCE (Intel Xe fallback),
+    // copy the decoded slice to a staging texture that has BIND_SHADER_RESOURCE
+    if (needs_srv_copy_) {
+        // Create or reuse GPU staging texture
+        bool need_new = !srv_staging_texture_ ||
+                        srv_staging_width_ != desc.Width ||
+                        srv_staging_height_ != desc.Height ||
+                        srv_staging_format_ != desc.Format;
+
+        if (need_new) {
+            D3D11_TEXTURE2D_DESC staging_desc = {};
+            staging_desc.Width = desc.Width;
+            staging_desc.Height = desc.Height;
+            staging_desc.MipLevels = 1;
+            staging_desc.ArraySize = 1;
+            staging_desc.Format = desc.Format;  // Keep NV12/P010
+            staging_desc.SampleDesc.Count = 1;
+            staging_desc.Usage = D3D11_USAGE_DEFAULT;
+            staging_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+            HRESULT hr = device_->CreateTexture2D(&staging_desc, nullptr,
+                                                   srv_staging_texture_.ReleaseAndGetAddressOf());
+            if (FAILED(hr)) {
+                Debug::Log("D3D11VAVideoDecoder: Failed to create SRV staging texture, hr=" +
+                           std::to_string(hr));
+                return false;
+            }
+
+            srv_staging_width_ = desc.Width;
+            srv_staging_height_ = desc.Height;
+            srv_staging_format_ = desc.Format;
+
+            Debug::Log("D3D11VAVideoDecoder: Created SRV staging texture " +
+                       std::to_string(desc.Width) + "x" + std::to_string(desc.Height));
+        }
+
+        // GPU-to-GPU copy from decoder pool array slice to our staging texture
+        UINT src_subresource = D3D11CalcSubresource(0, array_index, 1);
+        context_->CopySubresourceRegion(srv_staging_texture_.Get(), 0, 0, 0, 0,
+                                        texture, src_subresource, nullptr);
+
+        // Create SRVs on the staging texture (non-array, Texture2D)
+        DXGI_FORMAT y_format = (surface_format_ == DXGI_FORMAT_P010) ?
+                               DXGI_FORMAT_R16_UNORM : DXGI_FORMAT_R8_UNORM;
+        DXGI_FORMAT uv_format = (surface_format_ == DXGI_FORMAT_P010) ?
+                                DXGI_FORMAT_R16G16_UNORM : DXGI_FORMAT_R8G8_UNORM;
+
+        D3D11_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
+        srv_desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D;
+        srv_desc.Texture2D.MostDetailedMip = 0;
+        srv_desc.Texture2D.MipLevels = 1;
+
+        srv_desc.Format = y_format;
+        HRESULT hr = device_->CreateShaderResourceView(srv_staging_texture_.Get(), &srv_desc, srv_y);
+        if (FAILED(hr)) {
+            Debug::Log("D3D11VAVideoDecoder: Failed to create Y SRV on staging, hr=" +
+                       std::to_string(hr));
+            return false;
+        }
+
+        srv_desc.Format = uv_format;
+        hr = device_->CreateShaderResourceView(srv_staging_texture_.Get(), &srv_desc, srv_uv);
+        if (FAILED(hr)) {
+            (*srv_y)->Release();
+            *srv_y = nullptr;
+            Debug::Log("D3D11VAVideoDecoder: Failed to create UV SRV on staging, hr=" +
+                       std::to_string(hr));
+            return false;
+        }
+
+        return true;
+    }
+
+    // Direct SRV creation path (textures have BIND_SHADER_RESOURCE)
     bool is_array = desc.ArraySize > 1;
 
     // Y plane SRV
@@ -802,7 +912,7 @@ GLuint D3D11VAVideoDecoder::GetFrameAsGLTexture(int frame_number) {
     params.bit_depth = is_10bit_ ? 10 : 8;
     params.is_hdr = is_hdr_;
     params.is_full_range = GetEffectiveFullRange();  // Use override if set
-    params.use_texture_array = true;  // D3D11VA uses texture arrays
+    params.use_texture_array = !needs_srv_copy_;  // Copy path uses non-array staging texture
     params.color_space = is_hdr_ ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
 
     bool render_ok = yuv_renderer_->Render(

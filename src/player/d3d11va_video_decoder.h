@@ -210,6 +210,16 @@ private:
     // Surface format
     DXGI_FORMAT surface_format_ = DXGI_FORMAT_NV12;
 
+    // True when decoder pool lacks BIND_SHADER_RESOURCE (Intel Xe fallback).
+    // CreatePlaneSRVs will copy to a staging texture before creating SRVs.
+    bool needs_srv_copy_ = false;
+
+    // GPU staging texture for SRV copy path (reused across frames)
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> srv_staging_texture_;
+    UINT srv_staging_width_ = 0;
+    UINT srv_staging_height_ = 0;
+    DXGI_FORMAT srv_staging_format_ = DXGI_FORMAT_UNKNOWN;
+
     // Frame caching - avoid re-rendering same frame
     int last_rendered_frame_ = -1;
 
