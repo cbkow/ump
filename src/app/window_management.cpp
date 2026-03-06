@@ -510,17 +510,35 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             glfwGetWindowPos(window, &saved_x, &saved_y);
             glfwGetWindowSize(window, &saved_width, &saved_height);
 
+            // Find the monitor the window is currently on
+            int win_cx = saved_x + saved_width / 2;
+            int win_cy = saved_y + saved_height / 2;
+            int monitor_count = 0;
+            GLFWmonitor** monitors = glfwGetMonitors(&monitor_count);
+            GLFWmonitor* best_monitor = glfwGetPrimaryMonitor();
+            for (int i = 0; i < monitor_count; i++) {
+                int mx, my, mw, mh;
+                glfwGetMonitorWorkarea(monitors[i], &mx, &my, &mw, &mh);
+                if (win_cx >= mx && win_cx < mx + mw && win_cy >= my && win_cy < my + mh) {
+                    best_monitor = monitors[i];
+                    break;
+                }
+            }
+            fullscreen_monitor = best_monitor;
+
             // Remove window decorations (no context rebuild)
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 
-            // Cover entire screen
-            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
-            glfwSetWindowPos(window, 0, 0);
+            // Cover entire monitor
+            int mon_x, mon_y;
+            glfwGetMonitorPos(fullscreen_monitor, &mon_x, &mon_y);
+            const GLFWvidmode* mode = glfwGetVideoMode(fullscreen_monitor);
+            glfwSetWindowPos(window, mon_x, mon_y);
             glfwSetWindowSize(window, mode->width, mode->height);
         }
         else {
             Debug::Log("Exiting borderless fullscreen");
+            fullscreen_monitor = nullptr;
 
             // Restore window decorations
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);

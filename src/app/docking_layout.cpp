@@ -29,11 +29,13 @@ extern bool show_delete_prefs_confirm;
 
         if (is_fullscreen) {
             // Fullscreen ImGui window - use full monitor size (no decorations)
-            GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+            GLFWmonitor* monitor = fullscreen_monitor ? fullscreen_monitor : glfwGetPrimaryMonitor();
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            int mon_x, mon_y;
+            glfwGetMonitorPos(monitor, &mon_x, &mon_y);
 
             // True borderless fullscreen - use entire screen
-            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowPos(ImVec2((float)mon_x, (float)mon_y));
             ImGui::SetNextWindowSize(ImVec2((float)mode->width, (float)mode->height));
             ImGui::SetNextWindowViewport(viewport->ID);
 

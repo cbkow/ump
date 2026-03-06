@@ -28,6 +28,7 @@
 
 // Forward declarations
 struct GLFWwindow;
+struct GLFWmonitor;
 class TimelineManager;
 class OCIOConfigManager;
 namespace qcview {
@@ -149,6 +150,7 @@ private:
     bool minimal_view_mode = false;
     bool is_fullscreen = false;
     bool pending_fullscreen_toggle = false;
+    GLFWmonitor* fullscreen_monitor = nullptr;
     bool saved_show_project_panel = true;
     bool saved_show_inspector_panel = true;
     bool show_sidebar_panel = true;

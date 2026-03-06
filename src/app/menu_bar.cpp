@@ -870,7 +870,7 @@ extern bool show_notification_permanent;
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.0.2");
+                ImGui::TextDisabled("About QCView v1.0.3");
 
                 if (ImGui::MenuItem("Manual")) {
                     ShellExecuteA(NULL, "open", "https://qcview.app/", NULL, NULL, SW_SHOWNORMAL);
