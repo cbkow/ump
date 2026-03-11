@@ -3,6 +3,10 @@
 #include "../player/image_loaders.h"
 #include "../utils/debug_utils.h"
 
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#endif
+
 #ifdef _WIN32
 #include "../gpu/d3d11_device_manager.h"
 #include "../gpu/d3d11_video_interop.h"
@@ -397,16 +401,23 @@ void TimelineCache::Shutdown() {
     // Clear caches (marks textures for deletion)
     ClearCache();
 
-    // CRITICAL: Actually delete the GL textures now!
+    // CRITICAL: Actually delete textures now!
     // ClearCache() only adds them to textures_to_delete_, but ProcessPendingUploads()
     // which normally handles deletion won't be called after shutdown.
-    // We must delete textures here while we still have a valid GL context.
     {
         std::lock_guard<std::mutex> lock(delete_mutex_);
         if (!textures_to_delete_.empty()) {
             int delete_count = static_cast<int>(textures_to_delete_.size());
             Debug::Log("TimelineCache: [SHUTDOWN] Deleting " + std::to_string(delete_count) + " textures");
+#ifdef QCVIEW_USE_VULKAN
+            for (int i = 0; i < delete_count; i++) {
+                qcview::VulkanTexturePool::Instance().QueueDelete(
+                    static_cast<uint64_t>(textures_to_delete_[i]));
+            }
+            qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+#else
             glDeleteTextures(static_cast<GLsizei>(delete_count), textures_to_delete_.data());
+#endif
             textures_to_delete_.clear();
         }
     }
@@ -419,7 +430,11 @@ void TimelineCache::Shutdown() {
 
     // Cleanup aggressive scrub held texture
     if (aggressive_held_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
+#else
         glDeleteTextures(1, &aggressive_held_texture_);
+#endif
         aggressive_held_texture_ = 0;
         aggressive_held_width_ = 0;
         aggressive_held_height_ = 0;
@@ -429,10 +444,12 @@ void TimelineCache::Shutdown() {
     aggressive_scrub_mode_ = AggressiveScrubMode::INACTIVE;
 
     // Cleanup shuttle mode textures
-    // NOTE: shuttle_composited_texture_ may point to letterbox_output_texture_ which is
-    // cleaned up by CleanupLetterboxResources() above, so only delete shuttle_last_texture_
     if (shuttle_last_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#else
         glDeleteTextures(1, &shuttle_last_texture_);
+#endif
         shuttle_last_texture_ = 0;
     }
     shuttle_composited_texture_ = 0;  // Just clear reference, may be letterbox texture
@@ -752,16 +769,26 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                         aggressive_held_width_ == pixels->width &&
                         aggressive_held_height_ == pixels->height) {
                         // Reuse existing texture, just update content
+#ifdef QCVIEW_USE_VULKAN
+                        qcview::VulkanTexturePool::Instance().UpdateTexture(
+                            static_cast<uint64_t>(aggressive_held_texture_),
+                            pixels->pixels.data(), pixels->pixels.size());
+#else
                         glBindTexture(GL_TEXTURE_2D, aggressive_held_texture_);
                         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                                         pixels->width, pixels->height,
                                         pixels->gl_format, pixels->gl_type,
                                         pixels->pixels.data());
                         glBindTexture(GL_TEXTURE_2D, 0);
+#endif
                     } else {
                         // Need new texture
                         if (aggressive_held_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+                            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
+#else
                             glDeleteTextures(1, &aggressive_held_texture_);
+#endif
                         }
                         aggressive_held_texture_ = CreateGLTexture(pixels);
                         aggressive_held_width_ = pixels->width;
@@ -892,6 +919,39 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     }
 #endif
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan video path — all VIDEO modes use VulkanVideoDecoder
+    if (media_type == ClipMediaType::VIDEO) {
+        std::shared_ptr<ClipLoaderInfo> loader_info;
+        {
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            auto it = loaders_.find(coords.source_path);
+            if (it != loaders_.end()) {
+                loader_info = it->second;
+            }
+        }
+
+        if (!loader_info) {
+            loader_info = GetOrCreateLoader(coords.source_path);
+        }
+
+        if (loader_info && loader_info->vulkan_decoder) {
+            loader_info->vulkan_decoder->UpdatePlayhead(coords.source_frame);
+
+            uint64_t pool_id = loader_info->vulkan_decoder->GetFrameAsPoolTexture(coords.source_frame);
+            if (pool_id != 0) {
+                setOutputDimensions(loader_info->width, loader_info->height);
+                if (got_exact_frame) *got_exact_frame = loader_info->vulkan_decoder->HasFrame(coords.source_frame);
+                cache_hits_++;
+                return maybeComposite(static_cast<GLuint>(pool_id), loader_info->width, loader_info->height);
+            }
+
+            cache_misses_++;
+            return 0;
+        }
+    }
+#endif
+
     if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
@@ -929,6 +989,25 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
 
             if (pixels) {
                 // Upload to reusable texture (create if needed, resize if needed)
+#ifdef QCVIEW_USE_VULKAN
+                VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+                switch (pixels->pixel_format) {
+                    case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
+                    case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
+                    case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+                }
+                auto& pool = qcview::VulkanTexturePool::Instance();
+                // Always recreate for simplicity (pool handles cleanup)
+                if (loader_info->video_texture != 0) {
+                    pool.QueueDelete(static_cast<uint64_t>(loader_info->video_texture));
+                }
+                uint64_t pool_id = pool.CreateTextureFromPixels(
+                    pixels->width, pixels->height, vk_format,
+                    pixels->pixels.data(), pixels->pixels.size());
+                loader_info->video_texture = static_cast<GLuint>(pool_id);
+                loader_info->video_texture_width = pixels->width;
+                loader_info->video_texture_height = pixels->height;
+#else
                 // Select internal format based on pixel data type (must match for HDR/High-Res)
                 GLenum internal_format = GL_RGBA8;
                 if (pixels->gl_type == GL_HALF_FLOAT) {
@@ -964,6 +1043,7 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                                     pixels->gl_format, pixels->gl_type, pixels->pixels.data());
                 }
                 glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
                 setOutputDimensions(pixels->width, pixels->height);
                 if (got_exact_frame) *got_exact_frame = is_exact;
@@ -1182,8 +1262,17 @@ void TimelineCache::ProcessPendingUploads() {
             /*Debug::Log("TimelineCache: [GL DELETE] Deleting " + std::to_string(delete_count) +
                        " of " + std::to_string(total_queued) + " queued textures");*/
 
+#ifdef QCVIEW_USE_VULKAN
+            // Vulkan path: Queue deletions via VulkanTexturePool
+            for (int i = 0; i < delete_count; i++) {
+                qcview::VulkanTexturePool::Instance().QueueDelete(
+                    static_cast<uint64_t>(textures_to_delete_[i]));
+            }
+            qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+#else
             glDeleteTextures(static_cast<GLsizei>(delete_count),
                              textures_to_delete_.data());
+#endif
             s_textures_deleted += delete_count;
 
             // Remove deleted entries
@@ -1646,6 +1735,11 @@ void TimelineCache::SetPipelineMode(PipelineMode mode) {
             // Update direct D3D11 decoder
             if (loader->d3d11_decoder) {
                 loader->d3d11_decoder->SetPipelineMode(mode);
+            }
+#endif
+#ifdef QCVIEW_USE_VULKAN
+            if (loader->vulkan_decoder) {
+                loader->vulkan_decoder->SetPipelineMode(mode);
             }
 #endif
             // Note: sequence decoders don't have SetPipelineMode - their bit depth
@@ -2753,12 +2847,52 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                 Debug::Log("TimelineCache: D3D11 device not available for " + source_path);
             }
 
-            // D3D11 is the only video path - fail if not available
+            // D3D11 is the only video path on Windows - fail if not available
             Debug::Log("TimelineCache: Failed to create video decoder for " + source_path +
                        " (D3D11 hardware acceleration required)");
             return nullptr;
+#elif defined(QCVIEW_USE_VULKAN)
+            // Linux/Vulkan: Use VulkanVideoDecoder
+            Debug::Log("TimelineCache: Attempting VulkanVideoDecoder for " + source_path);
+            {
+                auto decoder = std::make_unique<VulkanVideoDecoder>();
+                decoder->SetVideoPath(source_path);
+                decoder->SetPipelineMode(video_pipeline_mode_);
+                decoder->SetForceSoftwareDecode(config_.force_software_decode);
+
+                StreamingDecoderConfig dec_config;
+                dec_config.readAheadFrames = config_.readAheadFrames;
+                dec_config.readBehindFrames = config_.readBehindFrames;
+                decoder->SetConfig(dec_config);
+
+                if (decoder->Initialize()) {
+                    info->vulkan_decoder = std::move(decoder);
+                    info->pipeline_mode = video_pipeline_mode_;
+                    info->width = info->vulkan_decoder->GetWidth();
+                    info->height = info->vulkan_decoder->GetHeight();
+                    info->fps = info->vulkan_decoder->GetFPS();
+                    info->frame_count = info->vulkan_decoder->GetFrameCount();
+
+                    Debug::Log("TimelineCache: VulkanVideoDecoder created for " + source_path +
+                               " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
+                               " @ " + std::to_string(info->fps) + " fps)");
+
+                    if (detected_media_fps_ <= 0 && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+                        detected_media_fps_ = info->fps;
+                        if (std::abs(info->fps - config_.fps) > 0.01) {
+                            Debug::Log("TimelineCache: FPS mismatch - media=" + std::to_string(info->fps) +
+                                       " timeline=" + std::to_string(config_.fps) + " (pending update)");
+                        }
+                    }
+                    break;
+                } else {
+                    Debug::Log("TimelineCache: VulkanVideoDecoder init failed for " + source_path);
+                }
+            }
+            Debug::Log("TimelineCache: Failed to create video decoder for " + source_path);
+            return nullptr;
 #else
-            // Non-Windows: video decoding requires D3D11
+            // No video decoder available on this platform
             Debug::Log("TimelineCache: Video decoding not supported on this platform");
             return nullptr;
 #endif
@@ -2928,6 +3062,19 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
 GLuint TimelineCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels) {
     if (!pixels || pixels->pixels.empty()) return 0;
 
+#ifdef QCVIEW_USE_VULKAN
+    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+    switch (pixels->pixel_format) {
+        case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
+        case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
+        case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+    }
+    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+        pixels->width, pixels->height, vk_format,
+        pixels->pixels.data(), pixels->pixels.size());
+    s_textures_created++;
+    return static_cast<GLuint>(pool_id);
+#else
     // Save current GL state to avoid corrupting ImGui during render
     GLint previous_texture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
@@ -2960,6 +3107,7 @@ GLuint TimelineCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels) 
 
     s_textures_created++;
     return texture;
+#endif
 }
 
 #ifdef _WIN32
@@ -3269,6 +3417,13 @@ void TimelineCache::CreateGapTexture(int width, int height) {
         black_pixels[i] = 255;
     }
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create gap texture via VulkanTexturePool
+    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+        width, height, VK_FORMAT_R8G8B8A8_UNORM,
+        black_pixels.data(), black_pixels.size());
+    gap_texture_ = static_cast<GLuint>(pool_id);
+#else
     // Create OpenGL texture
     glGenTextures(1, &gap_texture_);
     glBindTexture(GL_TEXTURE_2D, gap_texture_);
@@ -3279,6 +3434,7 @@ void TimelineCache::CreateGapTexture(int width, int height) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, black_pixels.data());
     glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
     gap_texture_width_ = width;
     gap_texture_height_ = height;
@@ -3292,7 +3448,12 @@ void TimelineCache::DeleteGapTexture() {
     if (gap_texture_ != 0) {
         Debug::Log("TimelineCache::DeleteGapTexture: Deleting gap texture " +
                    std::to_string(gap_texture_));
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(gap_texture_));
+        qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+#else
         glDeleteTextures(1, &gap_texture_);
+#endif
         gap_texture_ = 0;
         gap_texture_width_ = 0;
         gap_texture_height_ = 0;
@@ -3347,6 +3508,12 @@ void TimelineCache::InitializeLetterboxShader() {
         }
     )";
 
+#ifdef QCVIEW_USE_VULKAN
+    // Letterbox compositing not needed on Vulkan - frames are passed through directly
+    // (compositing will be done via Vulkan compute/graphics pipeline in Phase 2+)
+    Debug::Log("TimelineCache::InitializeLetterboxShader: Skipped on Vulkan");
+    return;
+#else
     // Compile vertex shader
     GLuint vertex_shader = glCreateShader(GL_VERTEX_SHADER);
     glShaderSource(vertex_shader, 1, &vertex_shader_src, nullptr);
@@ -3422,9 +3589,18 @@ void TimelineCache::InitializeLetterboxShader() {
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
     Debug::Log("TimelineCache::InitializeLetterboxShader: Shader initialized successfully");
+#endif
 }
 
 void TimelineCache::CleanupLetterboxResources() {
+#ifdef QCVIEW_USE_VULKAN
+    // On Vulkan, letterbox resources (shader/FBO/VAO/VBO) are never created
+    // Only the output texture needs cleanup if it exists
+    if (letterbox_output_texture_ != 0) {
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(letterbox_output_texture_));
+        letterbox_output_texture_ = 0;
+    }
+#else
     if (letterbox_shader_ != 0) {
         glDeleteProgram(letterbox_shader_);
         letterbox_shader_ = 0;
@@ -3445,6 +3621,7 @@ void TimelineCache::CleanupLetterboxResources() {
         glDeleteTextures(1, &letterbox_output_texture_);
         letterbox_output_texture_ = 0;
     }
+#endif
     letterbox_output_width_ = 0;
     letterbox_output_height_ = 0;
 }
@@ -3453,6 +3630,12 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
     if (source_texture == 0 || canvas_width_ <= 0 || canvas_height_ <= 0) {
         return source_texture;  // Can't composite, return original
     }
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Skip GL compositing for Phase 1, return source directly
+    (void)src_w; (void)src_h;
+    return source_texture;
+#endif
 
     // Initialize shader on first use
     if (letterbox_shader_ == 0) {
@@ -3761,16 +3944,26 @@ GLuint TimelineCache::GetShuttleFrame(int timeline_frame, int& width, int& heigh
             shuttle_last_width_ == pixels->width &&
             shuttle_last_height_ == pixels->height) {
             // Reuse existing texture, just update content
+#ifdef QCVIEW_USE_VULKAN
+            qcview::VulkanTexturePool::Instance().UpdateTexture(
+                static_cast<uint64_t>(shuttle_last_texture_),
+                pixels->pixels.data(), pixels->pixels.size());
+#else
             glBindTexture(GL_TEXTURE_2D, shuttle_last_texture_);
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0,
                             pixels->width, pixels->height,
                             GL_RGBA, GL_UNSIGNED_BYTE,
                             pixels->pixels.data());
             glBindTexture(GL_TEXTURE_2D, 0);
+#endif
         } else {
             // Need new texture
             if (shuttle_last_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#else
                 glDeleteTextures(1, &shuttle_last_texture_);
+#endif
             }
             shuttle_last_texture_ = CreateGLTexture(pixels);
             shuttle_last_width_ = pixels->width;
@@ -3848,7 +4041,11 @@ int TimelineCache::ExitShuttleMode() {
     shuttle_composited_texture_ = 0;
 
     if (shuttle_last_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#else
         glDeleteTextures(1, &shuttle_last_texture_);
+#endif
         shuttle_last_texture_ = 0;
         shuttle_last_width_ = 0;
         shuttle_last_height_ = 0;

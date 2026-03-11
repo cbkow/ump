@@ -10,7 +10,13 @@
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef QCVIEW_USE_VULKAN
+#include <imgui_impl_vulkan.h>
+#include "gpu/vulkan_device.h"
+#include "gpu/vulkan_texture_pool.h"
+#else
 #include <imgui_impl_opengl3.h>
+#endif
 #include <imgui_internal.h>
 #include <implot.h>
 
@@ -29,6 +35,9 @@
 #include "app/timecode.h"
 #include "utils/debug_utils.h"
 #include "utils/system_pressure_monitor.h"
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+#include "utils/single_instance.h"
+#endif
 #include "player/video_player.h"
 #include "project/project_manager.h"
 #include "project/media_item.h"
@@ -144,6 +153,11 @@ std::string GetAssetPath(const std::string& relative_path);
 void Application::Run() {
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
+
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+            // Poll for incoming D-Bus messages (single-instance file opens)
+            if (single_instance_) single_instance_->Poll();
+#endif
 
             // Process deferred fullscreen toggle AFTER all events are processed
             if (pending_fullscreen_toggle) {
@@ -400,7 +414,9 @@ void Application::Run() {
                 }
             }
 
-            // Pre-render color-corrected textures with GPU fence sync
+#ifndef QCVIEW_USE_VULKAN
+            // Pre-render color-corrected textures with GPU fence sync (OpenGL only)
+            // On Vulkan, color correction is done in ApplyColorPipelineVulkan()
             // Double-buffered: keep previous frame as fallback if GPU isn't done with new textures
             if (video_player && video_player->HasColorPipeline()) {
                 // Step 1: Check if previous frame's fence completed (non-blocking)
@@ -525,6 +541,35 @@ void Application::Run() {
                                  g_pending_texture_deletions.data());
                 g_pending_texture_deletions.clear();
             }
+#else
+            // Vulkan OCIO pre-rendering for dual view composite
+            if (video_player && video_player->HasColorPipeline()) {
+                if (scratch_timeline_controller && scratch_timeline_controller->IsDualViewMode()) {
+                    if (cached_dual_view_textures.is_unified &&
+                        cached_dual_view_textures.composite_texture != 0 &&
+                        cached_dual_view_textures.composite_width > 0 &&
+                        cached_dual_view_textures.composite_height > 0) {
+                        // Queue-delete previous OCIO composite pool texture
+                        if (g_color_corrected_cache.composite_texture != 0) {
+                            qcview::VulkanTexturePool::Instance().QueueDelete(
+                                static_cast<uint64_t>(g_color_corrected_cache.composite_texture));
+                        }
+                        // Apply OCIO to the unified composite pool texture
+                        uint64_t color_pool_id = video_player->CreateColorCorrectedPoolTexture(
+                            static_cast<uint64_t>(cached_dual_view_textures.composite_texture),
+                            cached_dual_view_textures.composite_width,
+                            cached_dual_view_textures.composite_height);
+                        if (color_pool_id != 0) {
+                            g_color_corrected_cache.composite_texture = static_cast<GLuint>(color_pool_id);
+                            g_color_corrected_cache.composite_width = cached_dual_view_textures.composite_width;
+                            g_color_corrected_cache.composite_height = cached_dual_view_textures.composite_height;
+                            g_color_corrected_cache.current_ready = true;
+                        }
+                    }
+                }
+                // Single video OCIO is handled in ApplyColorPipelineVulkan()
+            }
+#endif // !QCVIEW_USE_VULKAN
 
             // Frame rate limiter - skip ImGui rendering if not enough time has passed
             // This limits UI updates while video processing continues at full rate
@@ -542,7 +587,11 @@ void Application::Run() {
             if (should_render_frame) {
                 g_last_frame_time = std::chrono::steady_clock::now();
 
+#ifdef QCVIEW_USE_VULKAN
+                ImGui_ImplVulkan_NewFrame();
+#else
                 ImGui_ImplOpenGL3_NewFrame();
+#endif
                 ImGui_ImplGlfw_NewFrame();
                 ImGui::NewFrame();
 
@@ -701,19 +750,113 @@ void Application::Run() {
                     glfwSwapBuffers(window);
                 }
 #else
+#ifdef QCVIEW_USE_VULKAN
+                // ============================================================
+                // Vulkan render path (Linux)
+                // ============================================================
+                {
+                    auto& vk = qcview::VulkanDeviceManager::Instance();
+                    auto& sc = *vulkan_swapchain_;
+                    uint32_t frame_idx = vulkan_current_frame_ % 2;
+
+                    // Wait for previous frame using this sync slot
+                    vk.WaitForFence(sc.GetInFlightFence(frame_idx));
+                    vk.ResetFence(sc.GetInFlightFence(frame_idx));
+
+                    // Check if framebuffer size changed (Wayland doesn't always signal OUT_OF_DATE)
+                    sc.RecreateIfNeeded(window);
+
+                    // Acquire next swapchain image
+                    uint32_t image_index = 0;
+                    VkResult acquire_result = vkAcquireNextImageKHR(
+                        vk.GetDevice(), sc.GetSwapchain(), UINT64_MAX,
+                        sc.GetImageAvailableSemaphore(frame_idx),
+                        VK_NULL_HANDLE, &image_index);
+
+                    if (acquire_result == VK_ERROR_OUT_OF_DATE_KHR || acquire_result == VK_SUBOPTIMAL_KHR) {
+                        sc.Recreate();
+                        continue;
+                    }
+
+                    // Record command buffer
+                    VkCommandBuffer cmd = sc.GetCommandBuffers()[image_index];
+                    vkResetCommandBuffer(cmd, 0);
+
+                    VkCommandBufferBeginInfo begin_info{};
+                    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+                    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                    vkBeginCommandBuffer(cmd, &begin_info);
+
+                    VkRenderPassBeginInfo rp_info{};
+                    rp_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+                    rp_info.renderPass = sc.GetRenderPass();
+                    rp_info.framebuffer = sc.GetFramebuffers()[image_index];
+                    rp_info.renderArea.extent = sc.GetExtent();
+                    VkClearValue clear_color = {{{0.1f, 0.1f, 0.1f, 1.0f}}};
+                    rp_info.clearValueCount = 1;
+                    rp_info.pClearValues = &clear_color;
+
+                    vkCmdBeginRenderPass(cmd, &rp_info, VK_SUBPASS_CONTENTS_INLINE);
+
+                    // Render ImGui draw data
+                    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+                    vkCmdEndRenderPass(cmd);
+                    vkEndCommandBuffer(cmd);
+
+                    // Submit
+                    VkSemaphore wait_semaphores[] = { sc.GetImageAvailableSemaphore(frame_idx) };
+                    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+                    VkSemaphore signal_semaphores[] = { sc.GetRenderFinishedSemaphore(frame_idx) };
+
+                    VkSubmitInfo submit_info{};
+                    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+                    submit_info.waitSemaphoreCount = 1;
+                    submit_info.pWaitSemaphores = wait_semaphores;
+                    submit_info.pWaitDstStageMask = wait_stages;
+                    submit_info.commandBufferCount = 1;
+                    submit_info.pCommandBuffers = &cmd;
+                    submit_info.signalSemaphoreCount = 1;
+                    submit_info.pSignalSemaphores = signal_semaphores;
+
+                    VkSwapchainKHR swapchain = sc.GetSwapchain();
+
+                    vkQueueSubmit(vk.GetGraphicsQueue(), 1, &submit_info,
+                                  sc.GetInFlightFence(frame_idx));
+
+                    // Present
+                    VkPresentInfoKHR present_info{};
+                    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+                    present_info.waitSemaphoreCount = 1;
+                    present_info.pWaitSemaphores = signal_semaphores;
+                    present_info.swapchainCount = 1;
+                    present_info.pSwapchains = &swapchain;
+                    present_info.pImageIndices = &image_index;
+
+                    VkResult present_result = vkQueuePresentKHR(vk.GetGraphicsQueue(), &present_info);
+                    if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR) {
+                        sc.Recreate();
+                    }
+
+                    vulkan_current_frame_++;
+                }
+
+                // Vulkan annotation rendering handled in panel_viewport.cpp
+
+#else
+                // ============================================================
+                // OpenGL render path (non-Windows, non-Vulkan fallback)
+                // ============================================================
                 glViewport(0, 0, display_w, display_h);
                 ApplyBackgroundColor();
                 glClear(GL_COLOR_BUFFER_BIT);
                 ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 
                 // Render NanoVG annotations on top of ImGui (deferred rendering)
-                // Skip when popup is open so color picker renders above annotations
                 if (pending_nvg_render_ && annotation_renderer && !nvg_strokes_to_render_.empty() && !nvg_popup_open_) {
-                    // Convert from screen coordinates to window-relative coordinates
                     int win_x, win_y;
                     glfwGetWindowPos(window, &win_x, &win_y);
 
-                    // Scale to framebuffer physical pixels
                     ImGuiIO& nvg_io = ImGui::GetIO();
                     float dpi_scale = nvg_io.DisplayFramebufferScale.x;
                     float scaled_pos_x = (nvg_display_pos_.x - win_x) * dpi_scale;
@@ -721,10 +864,8 @@ void Application::Run() {
                     float scaled_size_x = nvg_display_size_.x * dpi_scale;
                     float scaled_size_y = nvg_display_size_.y * dpi_scale;
 
-                    // Calculate line width scale: viewport size / video size
                     float line_width_scale = (nvg_video_width_ > 0) ? (scaled_size_x / nvg_video_width_) : 1.0f;
 
-                    // When modal is open, clip strokes to the modal image area
                     bool modal_scissor = annotation_panel && annotation_panel->IsEditModalOpen();
                     if (modal_scissor) {
                         glEnable(GL_SCISSOR_TEST);
@@ -732,7 +873,6 @@ void Application::Run() {
                                   (GLsizei)scaled_size_x, (GLsizei)scaled_size_y);
                     }
 
-                    // Pass DPI scale as devicePixelRatio for proper anti-aliasing
                     annotation_renderer->BeginFrame((float)display_w, (float)display_h, dpi_scale);
                     for (const auto& stroke : nvg_strokes_to_render_) {
                         annotation_renderer->RenderActiveStroke(
@@ -757,7 +897,8 @@ void Application::Run() {
                 }
 
                 glfwSwapBuffers(window);
-#endif
+#endif // QCVIEW_USE_VULKAN
+#endif // _WIN32
             }
 
             // Handle pending loading operation AFTER frame is fully rendered

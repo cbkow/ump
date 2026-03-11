@@ -1,6 +1,7 @@
 #pragma once
 
 #include "annotation_note.h"
+#include <atomic>
 #include <vector>
 #include <string>
 #include <mutex>

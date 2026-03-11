@@ -41,6 +41,7 @@ AVBufferRef* HWContextManager::GetContext(int hw_type) {
         case AV_HWDEVICE_TYPE_D3D11VA: return GetD3D11VAContext();
         case AV_HWDEVICE_TYPE_QSV:     return GetQSVContext();
         case AV_HWDEVICE_TYPE_DXVA2:   return GetDXVA2Context();
+        case AV_HWDEVICE_TYPE_VAAPI:   return GetVAAPIContext();
         default:                        return nullptr;
     }
 }
@@ -52,6 +53,7 @@ int HWContextManager::GetPixelFormat(int hw_type) const {
         case AV_HWDEVICE_TYPE_D3D11VA: return d3d11va_pix_fmt_;
         case AV_HWDEVICE_TYPE_QSV:     return qsv_pix_fmt_;
         case AV_HWDEVICE_TYPE_DXVA2:   return dxva2_pix_fmt_;
+        case AV_HWDEVICE_TYPE_VAAPI:   return vaapi_pix_fmt_;
         default:                        return -1;
     }
 }
@@ -63,6 +65,7 @@ bool HWContextManager::HasContext(int hw_type) const {
         case AV_HWDEVICE_TYPE_D3D11VA: return HasD3D11VA();
         case AV_HWDEVICE_TYPE_QSV:     return HasQSV();
         case AV_HWDEVICE_TYPE_DXVA2:   return HasDXVA2();
+        case AV_HWDEVICE_TYPE_VAAPI:   return HasVAAPI();
         default:                        return false;
     }
 }
@@ -142,6 +145,23 @@ AVBufferRef* HWContextManager::GetDXVA2Context() {
     return dxva2_ctx_;
 }
 
+AVBufferRef* HWContextManager::GetVAAPIContext() {
+    if (shutdown_.load()) return nullptr;
+
+    if (vaapi_initialized_.load()) {
+        return vaapi_ctx_;
+    }
+
+    std::lock_guard<std::mutex> lock(vaapi_mutex_);
+
+    if (vaapi_initialized_.load()) {
+        return vaapi_ctx_;
+    }
+
+    InitializeVAAPI();
+    return vaapi_ctx_;
+}
+
 //=============================================================================
 // Context Initialization
 //=============================================================================
@@ -218,6 +238,24 @@ void HWContextManager::InitializeDXVA2() {
     dxva2_initialized_ = true;
 }
 
+void HWContextManager::InitializeVAAPI() {
+    Debug::Log("HWContextManager: Creating shared VA-API device context...");
+
+    int ret = av_hwdevice_ctx_create(&vaapi_ctx_, AV_HWDEVICE_TYPE_VAAPI, nullptr, nullptr, 0);
+    if (ret < 0) {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("HWContextManager: VA-API not available: " + std::string(errbuf));
+        vaapi_ctx_ = nullptr;
+        vaapi_pix_fmt_ = -1;
+    } else {
+        vaapi_pix_fmt_ = static_cast<int>(AV_PIX_FMT_VAAPI);
+        Debug::Log("HWContextManager: VA-API context created successfully");
+    }
+
+    vaapi_initialized_ = true;
+}
+
 //=============================================================================
 // Lifecycle
 //=============================================================================
@@ -266,6 +304,16 @@ void HWContextManager::Shutdown() {
             av_buffer_unref(&dxva2_ctx_);
             dxva2_ctx_ = nullptr;
             Debug::Log("HWContextManager: DXVA2 context released");
+        }
+    }
+
+    // Free VAAPI context
+    {
+        std::lock_guard<std::mutex> lock(vaapi_mutex_);
+        if (vaapi_ctx_) {
+            av_buffer_unref(&vaapi_ctx_);
+            vaapi_ctx_ = nullptr;
+            Debug::Log("HWContextManager: VA-API context released");
         }
     }
 

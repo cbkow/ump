@@ -7,16 +7,27 @@
 #include "../timeline/timeline_cache.h"
 #include "../color/ocio_pipeline.h"
 #include "../utils/debug_utils.h"
+#ifdef __linux__
+#include "../utils/linux_clipboard.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <map>
 
 #include <GLFW/glfw3.h>
 #include <imgui.h>
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#include "../gpu/vulkan_device.h"
+#include "../color/vulkan_ocio_renderer.h"
+#include <imgui_impl_vulkan.h>
+#else
 #include <backends/imgui_impl_opengl3.h>
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -121,6 +132,31 @@ VideoDisplayComponent::~VideoDisplayComponent() {
 }
 
 //=============================================================================
+// Cross-platform Texture ID
+//=============================================================================
+
+ImTextureID VideoDisplayComponent::GetDisplayTextureID() const {
+#ifdef _WIN32
+    if (use_d3d11_rendering_ && color_srv_d3d_) {
+        return reinterpret_cast<ImTextureID>(color_srv_d3d_.Get());
+    }
+#endif
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: prefer color-processed texture if available
+    if (vulkan_color_tex_.valid && vulkan_color_tex_.descriptor_set != VK_NULL_HANDLE) {
+        return reinterpret_cast<ImTextureID>(vulkan_color_tex_.descriptor_set);
+    }
+    // Fallback: raw video texture from pool
+    GLuint tex = video_texture_;
+    if (tex == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(tex));
+#else
+    return (ImTextureID)(intptr_t)color_texture_;
+#endif
+}
+
+//=============================================================================
 // Core Lifecycle
 //=============================================================================
 
@@ -130,6 +166,16 @@ bool VideoDisplayComponent::Initialize() {
     // Create transition placeholder texture
     CreateTransitionPlaceholder();
 
+#ifdef QCVIEW_USE_VULKAN
+    // Initialize Vulkan OCIO renderer (compiles shaders via shaderc)
+    vulkan_ocio_renderer_ = std::make_unique<qcview::VulkanOCIORenderer>();
+    if (vulkan_ocio_renderer_->Initialize()) {
+        Debug::Log("VideoDisplayComponent: Vulkan OCIO renderer initialized");
+    } else {
+        Debug::Log("VideoDisplayComponent: WARNING - Failed to initialize Vulkan OCIO renderer");
+        vulkan_ocio_renderer_.reset();
+    }
+#else
     // Create default passthrough color pipeline (provides stable buffering during transitions)
     auto passthrough = std::make_unique<OCIOPipeline>();
     if (passthrough->CreatePassthroughPipeline()) {
@@ -170,6 +216,7 @@ bool VideoDisplayComponent::Initialize() {
     } else {
         Debug::Log("VideoDisplayComponent: WARNING - Failed to create default passthrough pipeline");
     }
+#endif
 
     Debug::Log("VideoDisplayComponent::Initialize complete");
     return true;
@@ -196,6 +243,33 @@ void VideoDisplayComponent::Cleanup() {
         Debug::Log("VideoDisplayComponent: Thumbnail cache cleaned up");
     }
 
+#ifdef QCVIEW_USE_VULKAN
+    // Clean up Vulkan OCIO renderer and color textures
+    DestroyVulkanColorTexture();
+    DestroyVulkanDualColorTexture();
+    if (vulkan_ocio_renderer_) {
+        vulkan_ocio_renderer_->Shutdown();
+        vulkan_ocio_renderer_.reset();
+    }
+
+    // Vulkan path: Queue texture deletions via VulkanTexturePool
+    {
+        auto& pool = qcview::VulkanTexturePool::Instance();
+        if (video_texture_ && video_texture_ != transition_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(video_texture_));
+            video_texture_ = 0;
+        }
+        if (transition_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(transition_placeholder_texture_));
+            transition_placeholder_texture_ = 0;
+        }
+        if (gap_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(gap_placeholder_texture_));
+            gap_placeholder_texture_ = 0;
+        }
+        pool.ProcessPendingDeletions();
+    }
+#else
     // Delete OpenGL textures
     if (video_texture_ && video_texture_ != transition_placeholder_texture_) {
         glDeleteTextures(1, &video_texture_);
@@ -237,6 +311,7 @@ void VideoDisplayComponent::Cleanup() {
         glDeleteBuffers(1, &quad_vbo_);
         quad_vbo_ = 0;
     }
+#endif
 
     // Clear color pipeline
     color_pipeline_.reset();
@@ -244,6 +319,10 @@ void VideoDisplayComponent::Cleanup() {
 #ifdef _WIN32
     // Cleanup D3D11 resources
     CleanupD3D11Resources();
+#endif
+
+#ifdef __linux__
+    qcview::CleanupClipboardResources();
 #endif
 
     Debug::Log("VideoDisplayComponent::Cleanup complete");
@@ -270,6 +349,16 @@ void VideoDisplayComponent::CreateVideoTexturesForMode(int width, int height, Pi
 
     const PipelineConfig& config = it->second;
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: VulkanTexturePool manages textures on-demand.
+    // We just track dimensions here. Actual textures are created per-frame
+    // by DirectEXRCache/TimelineCache via VulkanTexturePool::CreateTextureFromPixels().
+    video_width_ = width;
+    video_height_ = height;
+    current_internal_format_ = config.internal_format;
+    Debug::Log("Vulkan: Set video dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+#else
+    // OpenGL path
     // Store old texture to delete AFTER new one is created
     GLuint old_video_texture = video_texture_;
     GLuint old_fbo = fbo_;
@@ -317,9 +406,15 @@ void VideoDisplayComponent::CreateVideoTexturesForMode(int width, int height, Pi
     }
 
     Debug::Log("Created video textures: " + std::to_string(width) + "x" + std::to_string(height));
+#endif
 }
 
 void VideoDisplayComponent::CreateColorProcessingResourcesForMode(int width, int height, PipelineMode mode) {
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan color processing is handled dynamically in ApplyColorPipelineVulkan()
+    (void)width; (void)height; (void)mode;
+    return;
+#else
     if (width <= 0 || height <= 0) {
         return;
     }
@@ -374,9 +469,31 @@ void VideoDisplayComponent::CreateColorProcessingResourcesForMode(int width, int
     }
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
 }
 
 void VideoDisplayComponent::CreateTransitionPlaceholder() {
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create placeholder via VulkanTexturePool
+    if (transition_placeholder_texture_ != 0) {
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(transition_placeholder_texture_));
+        qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+        transition_placeholder_texture_ = 0;
+    }
+
+    const int size = 64;
+    std::vector<unsigned char> pixels(size * size * 4);
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        pixels[i] = 27; pixels[i + 1] = 27; pixels[i + 2] = 27; pixels[i + 3] = 255;
+    }
+
+    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+        size, size, VK_FORMAT_R8G8B8A8_UNORM, pixels.data(), pixels.size());
+    transition_placeholder_texture_ = static_cast<GLuint>(pool_id);
+    transition_placeholder_width_ = size;
+    transition_placeholder_height_ = size;
+    Debug::Log("VideoDisplayComponent: Created Vulkan transition placeholder");
+#else
     // Delete existing if any
     if (transition_placeholder_texture_ != 0) {
         glDeleteTextures(1, &transition_placeholder_texture_);
@@ -406,9 +523,14 @@ void VideoDisplayComponent::CreateTransitionPlaceholder() {
     transition_placeholder_height_ = size;
 
     Debug::Log("VideoDisplayComponent: Created transition placeholder texture");
+#endif
 }
 
 void VideoDisplayComponent::ClearVideoTextureToBackground() {
+#ifdef QCVIEW_USE_VULKAN
+    // No-op on Vulkan — textures are managed by VulkanTexturePool
+    return;
+#else
     if (fbo_ == 0 || video_texture_ == 0) {
         return;
     }
@@ -421,9 +543,14 @@ void VideoDisplayComponent::ClearVideoTextureToBackground() {
     glClear(GL_COLOR_BUFFER_BIT);
 
     glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+#endif
 }
 
 void VideoDisplayComponent::ClearColorTextureToBackground() {
+#ifdef QCVIEW_USE_VULKAN
+    // No-op on Vulkan — color processing not yet implemented (Phase 2)
+    return;
+#else
     if (color_fbo_ == 0 || color_texture_ == 0) {
         return;
     }
@@ -436,6 +563,7 @@ void VideoDisplayComponent::ClearColorTextureToBackground() {
     glClear(GL_COLOR_BUFFER_BIT);
 
     glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+#endif
 }
 
 //=============================================================================
@@ -486,11 +614,18 @@ void VideoDisplayComponent::UpdateVideoTexture() {
         InjectCurrentTimelineFrame();
     }
 
-    // Apply OCIO color pipeline
+#ifdef QCVIEW_USE_VULKAN
+    // Apply OCIO via Vulkan: video_texture_ (pool ID) → vulkan_color_tex_
+    if (vulkan_ocio_renderer_ && video_texture_ != 0) {
+        ApplyColorPipelineVulkan();
+    }
+#else
+    // Apply OCIO color pipeline (GL path)
     // Transforms video_texture_ → color_texture_
     if (color_pipeline_ && color_pipeline_->IsValid() && video_texture_ != 0) {
         ApplyColorPipeline();
     }
+#endif
 }
 
 void VideoDisplayComponent::RenderVideoTexture() {
@@ -526,6 +661,30 @@ void VideoDisplayComponent::RenderVideoTexture() {
     // Choose which texture to display
     GLuint display_texture = video_texture_;
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: prefer color-processed texture, fallback to raw pool texture
+    if (display_texture == 0) {
+        return;
+    }
+
+    ImTextureID im_tex_id;
+    if (vulkan_color_tex_.valid && vulkan_color_tex_.descriptor_set != VK_NULL_HANDLE) {
+        im_tex_id = reinterpret_cast<ImTextureID>(vulkan_color_tex_.descriptor_set);
+    } else {
+        im_tex_id = qcview::VulkanTexturePool::Instance().GetImTextureID(
+            static_cast<uint64_t>(display_texture));
+    }
+    if (im_tex_id == ImTextureID{}) {
+        return;
+    }
+
+    // Mark video texture as HDR passthrough (skip sRGB->PQ conversion in ImGui shader)
+    // Video content is already color-processed by OCIO pipeline
+    ImGui_ImplVulkan_SetTextureHDRPassthrough(im_tex_id, true);
+
+    ImGui::Image(im_tex_id, image_size);
+#else
+    // OpenGL path
     // Use color-corrected texture if OCIO pipeline is active
     if (color_pipeline_ && color_pipeline_->IsValid()) {
         if (color_texture_ > 0 && glIsTexture(color_texture_)) {
@@ -550,6 +709,7 @@ void VideoDisplayComponent::RenderVideoTexture() {
 
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
+#endif
 }
 
 void VideoDisplayComponent::RenderPlaceholder() {
@@ -608,12 +768,19 @@ void VideoDisplayComponent::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipel
     if (color_pipeline_) {
         color_pipeline_.reset();
 
+#ifdef QCVIEW_USE_VULKAN
+        // Invalidate cached Vulkan OCIO pipeline so it rebuilds with new shader
+        if (vulkan_ocio_renderer_) {
+            vulkan_ocio_renderer_->InvalidateOCIOPipeline();
+        }
+#else
         // Force OpenGL state cleanup
         glUseProgram(0);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_3D, 0);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, 0);
+#endif
     }
 
     color_pipeline_ = std::move(pipeline);
@@ -628,13 +795,23 @@ void VideoDisplayComponent::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipel
 void VideoDisplayComponent::ClearColorPipeline() {
     Debug::Log("ClearColorPipeline: Replacing with passthrough pipeline");
 
+#ifdef QCVIEW_USE_VULKAN
+    if (vulkan_ocio_renderer_) {
+        vulkan_ocio_renderer_->InvalidateOCIOPipeline();
+    }
+#else
     // Clean up OpenGL state first
     glUseProgram(0);
     glActiveTexture(GL_TEXTURE1);
     glBindTexture(GL_TEXTURE_3D, 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
+#ifdef QCVIEW_USE_VULKAN
+    // On Vulkan, just clear the pipeline — passthrough is handled by VulkanOCIORenderer
+    color_pipeline_.reset();
+#else
     // Create passthrough pipeline
     auto passthrough = std::make_unique<OCIOPipeline>();
     if (passthrough->CreatePassthroughPipeline()) {
@@ -646,6 +823,7 @@ void VideoDisplayComponent::ClearColorPipeline() {
     } else {
         color_pipeline_.reset();
     }
+#endif
 }
 
 bool VideoDisplayComponent::HasColorPipeline() const {
@@ -657,6 +835,9 @@ bool VideoDisplayComponent::HasActiveColorTransform() const {
 }
 
 void VideoDisplayComponent::SetupColorProcessingResources() {
+#ifdef QCVIEW_USE_VULKAN
+    return;  // Vulkan color processing handled in ApplyColorPipelineVulkan()
+#endif
     int target_width = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : video_width_;
     int target_height = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : video_height_;
 
@@ -695,6 +876,9 @@ void VideoDisplayComponent::SetupColorProcessingResources() {
 }
 
 void VideoDisplayComponent::ApplyColorPipeline() {
+#ifdef QCVIEW_USE_VULKAN
+    return;  // Vulkan uses ApplyColorPipelineVulkan() instead
+#endif
     if (!color_pipeline_ || !color_pipeline_->IsValid()) {
         return;
     }
@@ -810,6 +994,11 @@ void VideoDisplayComponent::ApplyColorPipeline() {
 
 GLuint VideoDisplayComponent::CreateColorCorrectedTexture(GLuint input_texture_id, int tex_width, int tex_height,
                                                           int output_width, int output_height) {
+#ifdef QCVIEW_USE_VULKAN
+    (void)input_texture_id; (void)tex_width; (void)tex_height;
+    (void)output_width; (void)output_height;
+    return 0;  // OCIO deferred to Phase 2
+#endif
     if (!color_pipeline_ || !color_pipeline_->IsValid() || quad_vao_ == 0) {
         return 0;
     }
@@ -1123,7 +1312,7 @@ void VideoDisplayComponent::InjectCurrentTimelineFrame() {
     }
 #endif
 
-    // OpenGL path
+    // OpenGL/Vulkan path — get frame from timeline controller
     int frame_width = 0, frame_height = 0;
     GLuint frame_texture = timeline_controller_->Update(frame_width, frame_height);
 
@@ -1152,6 +1341,34 @@ void VideoDisplayComponent::InjectCurrentTimelineFrame() {
             int placeholder_w = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : 1920;
             int placeholder_h = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : 1080;
 
+#ifdef QCVIEW_USE_VULKAN
+            // Vulkan path: Create gap placeholder via VulkanTexturePool
+            if (gap_placeholder_texture_ == 0 ||
+                gap_placeholder_width_ != placeholder_w ||
+                gap_placeholder_height_ != placeholder_h) {
+                auto& pool = qcview::VulkanTexturePool::Instance();
+                if (gap_placeholder_texture_ != 0) {
+                    pool.QueueDelete(static_cast<uint64_t>(gap_placeholder_texture_));
+                    pool.ProcessPendingDeletions();
+                }
+
+                std::vector<unsigned char> black_pixels(placeholder_w * placeholder_h * 4, 0);
+                for (size_t i = 3; i < black_pixels.size(); i += 4) {
+                    black_pixels[i] = 255;
+                }
+
+                uint64_t pool_id = pool.CreateTextureFromPixels(
+                    placeholder_w, placeholder_h,
+                    VK_FORMAT_R8G8B8A8_UNORM,
+                    black_pixels.data(),
+                    black_pixels.size()
+                );
+                gap_placeholder_texture_ = static_cast<GLuint>(pool_id);
+                gap_placeholder_width_ = placeholder_w;
+                gap_placeholder_height_ = placeholder_h;
+            }
+#else
+            // OpenGL path
             if (gap_placeholder_texture_ == 0 ||
                 gap_placeholder_width_ != placeholder_w ||
                 gap_placeholder_height_ != placeholder_h) {
@@ -1181,6 +1398,7 @@ void VideoDisplayComponent::InjectCurrentTimelineFrame() {
                 gap_placeholder_width_ = placeholder_w;
                 gap_placeholder_height_ = placeholder_h;
             }
+#endif
 
             video_texture_ = gap_placeholder_texture_;
             video_width_ = placeholder_w;
@@ -1325,6 +1543,49 @@ void VideoDisplayComponent::SetLoop(bool enabled) {
 //=============================================================================
 
 bool VideoDisplayComponent::CaptureScreenshotToClipboard() {
+#ifdef QCVIEW_USE_VULKAN
+    if (!HasValidTexture()) {
+        Debug::Log("Screenshot (Vulkan): No valid texture");
+        return false;
+    }
+
+    // Save to temp file (CaptureScreenshotToPath applies OCIO)
+    std::string tmp_name = "qcview_clipboard_" + std::to_string(getpid()) + ".png";
+    std::string tmp_path = "/tmp/" + tmp_name;
+    if (!CaptureScreenshotToPath("/tmp", tmp_name)) {
+        Debug::Log("Screenshot (Vulkan): Failed to save temp PNG for clipboard");
+        return false;
+    }
+
+    // Read the PNG file into memory
+    std::vector<uint8_t> png_data;
+    {
+        std::ifstream file(tmp_path, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+            auto size = file.tellg();
+            file.seekg(0);
+            png_data.resize(static_cast<size_t>(size));
+            file.read(reinterpret_cast<char*>(png_data.data()), size);
+        }
+    }
+    std::remove(tmp_path.c_str());
+
+    if (png_data.empty()) {
+        Debug::Log("Screenshot (Vulkan): Failed to read temp PNG");
+        return false;
+    }
+
+    // Copy to clipboard using native Wayland/X11 protocol
+    bool success = qcview::CopyImageToClipboard(png_data);
+
+    if (success) {
+        Debug::Log("Screenshot copied to clipboard (" +
+                   std::to_string(video_width_) + "x" + std::to_string(video_height_) + ")");
+    } else {
+        Debug::Log("Screenshot (Vulkan): Native clipboard copy failed");
+    }
+    return success;
+#else
     if (!HasValidTexture()) {
         Debug::Log("Screenshot failed: No valid video texture");
         return false;
@@ -1428,6 +1689,7 @@ bool VideoDisplayComponent::CaptureScreenshotToClipboard() {
     }
 
     return success;
+#endif // QCVIEW_USE_VULKAN
 }
 
 bool VideoDisplayComponent::CaptureScreenshotToDesktop(const std::string& filename) {
@@ -1460,7 +1722,25 @@ bool VideoDisplayComponent::CaptureScreenshotToDesktop(const std::string& filena
             output_filename = base_filename + "_" + std::string(timestamp) + ".png";
         }
 #else
-        output_filename = base_filename + "_" + std::string(timestamp) + ".png";
+        // XDG Desktop or ~/Desktop fallback
+        std::string desktop_dir;
+        const char* xdg_desktop = std::getenv("XDG_DESKTOP_DIR");
+        if (xdg_desktop) {
+            desktop_dir = xdg_desktop;
+        } else {
+            const char* home = std::getenv("HOME");
+            if (home) {
+                desktop_dir = std::string(home) + "/Desktop";
+                if (!std::filesystem::exists(desktop_dir)) {
+                    desktop_dir = std::string(home);  // Fall back to home dir
+                }
+            }
+        }
+        if (!desktop_dir.empty()) {
+            output_filename = desktop_dir + "/" + base_filename + "_" + timestamp + ".png";
+        } else {
+            output_filename = base_filename + "_" + std::string(timestamp) + ".png";
+        }
 #endif
     }
 
@@ -1469,6 +1749,163 @@ bool VideoDisplayComponent::CaptureScreenshotToDesktop(const std::string& filena
 }
 
 bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory_path, const std::string& filename) {
+#ifdef QCVIEW_USE_VULKAN
+    if (!HasValidTexture()) {
+        Debug::Log("Screenshot (Vulkan): No valid texture");
+        return false;
+    }
+
+    auto& dev = qcview::VulkanDeviceManager::Instance();
+    auto& pool = qcview::VulkanTexturePool::Instance();
+    VkDevice device = dev.GetDevice();
+
+    uint64_t src_pool_id = static_cast<uint64_t>(video_texture_);
+
+    // Apply OCIO color correction if active
+    uint64_t color_pool_id = 0;
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+        color_pool_id = CreateColorCorrectedPoolTexture(src_pool_id, video_width_, video_height_);
+        if (color_pool_id != 0) {
+            src_pool_id = color_pool_id;
+        }
+    }
+
+    // Get the (possibly color-corrected) texture from pool
+    const auto* src_tex = pool.GetTexture(src_pool_id);
+    if (!src_tex || !src_tex->is_valid) {
+        Debug::Log("Screenshot (Vulkan): Pool texture not found");
+        if (color_pool_id) pool.QueueDelete(color_pool_id);
+        return false;
+    }
+
+    int w = src_tex->width;
+    int h = src_tex->height;
+    size_t buffer_size = static_cast<size_t>(w) * h * 4;
+
+    // Create staging buffer for readback
+    VkBuffer staging_buffer = VK_NULL_HANDLE;
+    VmaAllocation staging_alloc = VK_NULL_HANDLE;
+
+    VkBufferCreateInfo buf_ci{};
+    buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buf_ci.size = buffer_size;
+    buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+    VmaAllocationCreateInfo staging_ai{};
+    staging_ai.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+    staging_ai.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+    VmaAllocationInfo staging_info{};
+    if (vmaCreateBuffer(dev.GetAllocator(), &buf_ci, &staging_ai,
+                        &staging_buffer, &staging_alloc, &staging_info) != VK_SUCCESS) {
+        Debug::Log("Screenshot (Vulkan): Failed to create staging buffer");
+        return false;
+    }
+
+    // Copy image to staging buffer
+    {
+        VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+        // Transition to TRANSFER_SRC
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = src_tex->image;
+        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        barrier.subresourceRange.levelCount = 1;
+        barrier.subresourceRange.layerCount = 1;
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        region.imageSubresource.layerCount = 1;
+        region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+
+        vkCmdCopyImageToBuffer(cmd, src_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               staging_buffer, 1, &region);
+
+        // Transition back to SHADER_READ_ONLY
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        dev.EndSingleTimeCommands(cmd);
+    }
+
+    // Build output path
+    std::string output_filename = directory_path;
+    if (!output_filename.empty() && output_filename.back() != '/') {
+        output_filename += "/";
+    }
+    output_filename += filename;
+
+    // Write PNG
+    bool success = false;
+    if (staging_info.pMappedData) {
+        // Handle format differences: pool textures may be RGBA16F or RGBA8
+        if (src_tex->format == VK_FORMAT_R8G8B8A8_UNORM || src_tex->format == VK_FORMAT_R8G8B8A8_SRGB) {
+            success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                     staging_info.pMappedData, w * 4) != 0;
+        } else if (src_tex->format == VK_FORMAT_R16G16B16A16_SFLOAT) {
+            // Convert float16 to uint8
+            const uint16_t* src = static_cast<const uint16_t*>(staging_info.pMappedData);
+            std::vector<unsigned char> rgba8(buffer_size);
+            // half-float to byte conversion (simplified: clamp [0,1])
+            for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
+                // Decode IEEE 754 half-float
+                uint16_t half = src[i];
+                uint32_t sign = (half >> 15) & 1;
+                uint32_t exp = (half >> 10) & 0x1F;
+                uint32_t mant = half & 0x3FF;
+                float val;
+                if (exp == 0) {
+                    val = (mant / 1024.0f) * (1.0f / 16384.0f);
+                } else if (exp == 31) {
+                    val = 1.0f;
+                } else {
+                    val = (1.0f + mant / 1024.0f) * std::pow(2.0f, (float)exp - 15.0f);
+                }
+                if (sign) val = -val;
+                val = std::max(0.0f, std::min(1.0f, val));
+                rgba8[i] = static_cast<unsigned char>(val * 255.0f + 0.5f);
+            }
+            success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                     rgba8.data(), w * 4) != 0;
+        } else if (src_tex->format == VK_FORMAT_R16G16B16A16_UNORM) {
+            // Convert uint16 to uint8
+            const uint16_t* src = static_cast<const uint16_t*>(staging_info.pMappedData);
+            std::vector<unsigned char> rgba8(buffer_size);
+            for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
+                rgba8[i] = static_cast<unsigned char>(src[i] >> 8);
+            }
+            success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                     rgba8.data(), w * 4) != 0;
+        } else {
+            Debug::Log("Screenshot (Vulkan): Unsupported format " + std::to_string(src_tex->format));
+        }
+    }
+
+    vmaDestroyBuffer(dev.GetAllocator(), staging_buffer, staging_alloc);
+    if (color_pool_id) pool.QueueDelete(color_pool_id);
+
+    if (success) {
+        Debug::Log("Screenshot saved to: " + output_filename);
+    } else {
+        Debug::Log("Screenshot (Vulkan): Failed to write " + output_filename);
+    }
+    return success;
+#else
     if (!HasValidTexture()) {
         return false;
     }
@@ -1525,6 +1962,7 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
     }
 
     return success;
+#endif // QCVIEW_USE_VULKAN else
 }
 
 //=============================================================================
@@ -1703,6 +2141,295 @@ double VideoDisplayComponent::GetFastSeekSpeed() const {
     }
     return 1.0;
 }
+
+
+#ifdef QCVIEW_USE_VULKAN
+//=============================================================================
+// Vulkan OCIO Pipeline (Linux)
+//=============================================================================
+
+void VideoDisplayComponent::CreateVulkanColorTexture(int width, int height) {
+    if (vulkan_color_tex_.valid &&
+        vulkan_color_tex_.width == width &&
+        vulkan_color_tex_.height == height) {
+        return;  // Already correct size
+    }
+
+    DestroyVulkanColorTexture();
+
+    auto& dev = qcview::VulkanDeviceManager::Instance();
+    VkDevice device = dev.GetDevice();
+
+    // Create VkImage with COLOR_ATTACHMENT + SAMPLED usage
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image_info.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    if (vmaCreateImage(dev.GetAllocator(), &image_info, &alloc_info,
+                       &vulkan_color_tex_.image, &vulkan_color_tex_.allocation, nullptr) != VK_SUCCESS) {
+        Debug::Log("VideoDisplayComponent: Failed to create Vulkan color texture");
+        return;
+    }
+
+    // Create VkImageView
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = vulkan_color_tex_.image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &view_info, nullptr, &vulkan_color_tex_.view) != VK_SUCCESS) {
+        Debug::Log("VideoDisplayComponent: Failed to create color texture view");
+        vmaDestroyImage(dev.GetAllocator(), vulkan_color_tex_.image, vulkan_color_tex_.allocation);
+        vulkan_color_tex_.image = VK_NULL_HANDLE;
+        vulkan_color_tex_.allocation = VK_NULL_HANDLE;
+        return;
+    }
+
+    // Create sampler
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_LINEAR;
+    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.maxAnisotropy = 1.0f;
+    sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+
+    if (vkCreateSampler(device, &sampler_info, nullptr, &vulkan_color_tex_.sampler) != VK_SUCCESS) {
+        Debug::Log("VideoDisplayComponent: Failed to create color texture sampler");
+        vkDestroyImageView(device, vulkan_color_tex_.view, nullptr);
+        vmaDestroyImage(dev.GetAllocator(), vulkan_color_tex_.image, vulkan_color_tex_.allocation);
+        vulkan_color_tex_.view = VK_NULL_HANDLE;
+        vulkan_color_tex_.image = VK_NULL_HANDLE;
+        vulkan_color_tex_.allocation = VK_NULL_HANDLE;
+        return;
+    }
+
+    // Register with ImGui for display
+    vulkan_color_tex_.descriptor_set = ImGui_ImplVulkan_AddTexture(
+        vulkan_color_tex_.sampler, vulkan_color_tex_.view,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vulkan_color_tex_.width = width;
+    vulkan_color_tex_.height = height;
+    vulkan_color_tex_.valid = true;
+
+    Debug::Log("VideoDisplayComponent: Created Vulkan color texture " +
+               std::to_string(width) + "x" + std::to_string(height));
+}
+
+void VideoDisplayComponent::DestroyVulkanColorTexture() {
+    if (!vulkan_color_tex_.valid) return;
+
+    auto& dev = qcview::VulkanDeviceManager::Instance();
+    VkDevice device = dev.GetDevice();
+
+    if (device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device);
+
+        if (vulkan_color_tex_.descriptor_set != VK_NULL_HANDLE) {
+            ImGui_ImplVulkan_RemoveTexture(vulkan_color_tex_.descriptor_set);
+        }
+        if (vulkan_color_tex_.sampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, vulkan_color_tex_.sampler, nullptr);
+        }
+        if (vulkan_color_tex_.view != VK_NULL_HANDLE) {
+            vkDestroyImageView(device, vulkan_color_tex_.view, nullptr);
+        }
+        if (vulkan_color_tex_.image != VK_NULL_HANDLE) {
+            vmaDestroyImage(dev.GetAllocator(), vulkan_color_tex_.image, vulkan_color_tex_.allocation);
+        }
+    }
+
+    vulkan_color_tex_ = VulkanColorTexture{};
+}
+
+void VideoDisplayComponent::ApplyColorPipelineVulkan() {
+    if (!vulkan_ocio_renderer_ || video_texture_ == 0) return;
+
+    auto& pool = qcview::VulkanTexturePool::Instance();
+    const auto* src_tex = pool.GetTexture(static_cast<uint64_t>(video_texture_));
+    if (!src_tex || !src_tex->is_valid) return;
+
+    // Ensure color texture matches video dimensions
+    CreateVulkanColorTexture(src_tex->width, src_tex->height);
+    if (!vulkan_color_tex_.valid) return;
+
+    // Use real OCIO pipeline if available, otherwise passthrough
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+        vulkan_ocio_renderer_->Apply(
+            color_pipeline_.get(),
+            src_tex->image_view,
+            vulkan_color_tex_.image,
+            vulkan_color_tex_.view,
+            vulkan_color_tex_.width,
+            vulkan_color_tex_.height);
+    } else {
+        vulkan_ocio_renderer_->ApplyPassthrough(
+            src_tex->image_view,
+            vulkan_color_tex_.image,
+            vulkan_color_tex_.view,
+            vulkan_color_tex_.width,
+            vulkan_color_tex_.height);
+    }
+}
+
+void VideoDisplayComponent::CreateVulkanDualColorTexture(int width, int height) {
+    if (vulkan_dual_color_tex_.valid &&
+        vulkan_dual_color_tex_.width == width &&
+        vulkan_dual_color_tex_.height == height) {
+        return;
+    }
+
+    DestroyVulkanDualColorTexture();
+
+    auto& dev = qcview::VulkanDeviceManager::Instance();
+    VkDevice device = dev.GetDevice();
+
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    image_info.extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height), 1};
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+    if (vmaCreateImage(dev.GetAllocator(), &image_info, &alloc_info,
+                       &vulkan_dual_color_tex_.image, &vulkan_dual_color_tex_.allocation, nullptr) != VK_SUCCESS) {
+        Debug::Log("VideoDisplayComponent: Failed to create Vulkan dual color texture");
+        return;
+    }
+
+    VkImageViewCreateInfo view_info{};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = vulkan_dual_color_tex_.image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+
+    if (vkCreateImageView(device, &view_info, nullptr, &vulkan_dual_color_tex_.view) != VK_SUCCESS) {
+        vmaDestroyImage(dev.GetAllocator(), vulkan_dual_color_tex_.image, vulkan_dual_color_tex_.allocation);
+        vulkan_dual_color_tex_.image = VK_NULL_HANDLE;
+        vulkan_dual_color_tex_.allocation = VK_NULL_HANDLE;
+        return;
+    }
+
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_LINEAR;
+    sampler_info.minFilter = VK_FILTER_LINEAR;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    sampler_info.maxAnisotropy = 1.0f;
+    sampler_info.maxLod = VK_LOD_CLAMP_NONE;
+
+    if (vkCreateSampler(device, &sampler_info, nullptr, &vulkan_dual_color_tex_.sampler) != VK_SUCCESS) {
+        vkDestroyImageView(device, vulkan_dual_color_tex_.view, nullptr);
+        vmaDestroyImage(dev.GetAllocator(), vulkan_dual_color_tex_.image, vulkan_dual_color_tex_.allocation);
+        vulkan_dual_color_tex_.view = VK_NULL_HANDLE;
+        vulkan_dual_color_tex_.image = VK_NULL_HANDLE;
+        vulkan_dual_color_tex_.allocation = VK_NULL_HANDLE;
+        return;
+    }
+
+    vulkan_dual_color_tex_.descriptor_set = ImGui_ImplVulkan_AddTexture(
+        vulkan_dual_color_tex_.sampler, vulkan_dual_color_tex_.view,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vulkan_dual_color_tex_.width = width;
+    vulkan_dual_color_tex_.height = height;
+    vulkan_dual_color_tex_.valid = true;
+}
+
+void VideoDisplayComponent::DestroyVulkanDualColorTexture() {
+    if (!vulkan_dual_color_tex_.valid) return;
+
+    auto& dev = qcview::VulkanDeviceManager::Instance();
+    VkDevice device = dev.GetDevice();
+
+    if (device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(device);
+
+        if (vulkan_dual_color_tex_.descriptor_set != VK_NULL_HANDLE)
+            ImGui_ImplVulkan_RemoveTexture(vulkan_dual_color_tex_.descriptor_set);
+        if (vulkan_dual_color_tex_.sampler != VK_NULL_HANDLE)
+            vkDestroySampler(device, vulkan_dual_color_tex_.sampler, nullptr);
+        if (vulkan_dual_color_tex_.view != VK_NULL_HANDLE)
+            vkDestroyImageView(device, vulkan_dual_color_tex_.view, nullptr);
+        if (vulkan_dual_color_tex_.image != VK_NULL_HANDLE)
+            vmaDestroyImage(dev.GetAllocator(), vulkan_dual_color_tex_.image, vulkan_dual_color_tex_.allocation);
+    }
+
+    vulkan_dual_color_tex_ = VulkanColorTexture{};
+}
+
+uint64_t VideoDisplayComponent::CreateColorCorrectedPoolTexture(uint64_t input_pool_id, int width, int height) {
+    if (!vulkan_ocio_renderer_ || input_pool_id == 0) return 0;
+
+    auto& pool = qcview::VulkanTexturePool::Instance();
+    const auto* src_tex = pool.GetTexture(input_pool_id);
+    if (!src_tex || !src_tex->is_valid) return 0;
+
+    // Ensure dual color texture matches dimensions
+    CreateVulkanDualColorTexture(width, height);
+    if (!vulkan_dual_color_tex_.valid) return 0;
+
+    // Apply OCIO transform: source pool texture → dual color texture
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+        vulkan_ocio_renderer_->Apply(
+            color_pipeline_.get(),
+            src_tex->image_view,
+            vulkan_dual_color_tex_.image,
+            vulkan_dual_color_tex_.view,
+            width, height);
+    } else {
+        vulkan_ocio_renderer_->ApplyPassthrough(
+            src_tex->image_view,
+            vulkan_dual_color_tex_.image,
+            vulkan_dual_color_tex_.view,
+            width, height);
+    }
+
+    // Register the color texture output in the pool so it can be displayed via ImGui
+    // We create a new pool texture from the color output image each time
+    uint64_t color_pool_id = pool.CreateTextureFromImage(
+        vulkan_dual_color_tex_.image, width, height, VK_FORMAT_R8G8B8A8_UNORM);
+
+    return color_pool_id;
+}
+
+#endif // QCVIEW_USE_VULKAN
 
 
 #ifdef _WIN32

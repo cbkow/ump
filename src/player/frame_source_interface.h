@@ -3,10 +3,20 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <cstdint>
 #include <glad/gl.h>
 #include "pipeline_mode.h"
 
 namespace qcview {
+
+// Opaque texture handle: GLuint on OpenGL/Windows, VkDescriptorSet on Vulkan/Linux
+// Both fit in uint64_t. Zero/null means invalid.
+using TextureHandle = uint64_t;
+static constexpr TextureHandle kNullTexture = 0;
+
+// Conversion helpers
+inline TextureHandle GLTextureToHandle(GLuint tex) { return static_cast<TextureHandle>(tex); }
+inline GLuint HandleToGLTexture(TextureHandle h) { return static_cast<GLuint>(h); }
 
 //=============================================================================
 // Buffer Health - Used for Adaptive Speed Coordination

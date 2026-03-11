@@ -43,7 +43,7 @@ public:
      */
     static std::vector<ImVec2> SmoothStroke(
         const std::vector<ImVec2>& input_points,
-        const SmoothingConfig& config = SmoothingConfig()
+        const SmoothingConfig& config
     );
 
 private:

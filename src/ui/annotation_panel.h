@@ -176,6 +176,15 @@ private:
     GLuint LoadThumbnail(const std::string& image_path);
     void CleanupThumbnails();
 
+    // Resolve thumbnail path: prefers _annotated.png if it exists
+    std::string ResolveThumbnailPath(const AnnotationNote& note) const;
+
+public:
+    // Invalidate a cached thumbnail so it reloads on next frame
+    void InvalidateThumbnail(const std::string& image_path);
+
+private:
+
     // Thumbnail cache: image_path -> texture_id
     std::map<std::string, GLuint> thumbnail_cache_;
     // Thumbnail aspect ratio cache: image_path -> aspect_ratio (width/height)

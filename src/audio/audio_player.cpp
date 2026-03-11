@@ -1,5 +1,9 @@
 #include "audio_player.h"
+#ifdef _WIN32
 #include "wasapi_audio_device.h"
+#elif defined(__linux__)
+#include "pipewire_audio_device.h"
+#endif
 #include "../player/playback_timer.h"
 #include "../utils/debug_utils.h"
 
@@ -28,6 +32,7 @@ bool AudioPlayer::Initialize() {
         return true;
     }
 
+#ifdef _WIN32
     Debug::Log("AudioPlayer: Initializing WASAPI...");
 
     // Create WASAPI device
@@ -47,6 +52,29 @@ bool AudioPlayer::Initialize() {
         device_.reset();
         return false;
     }
+#elif defined(__linux__)
+    Debug::Log("AudioPlayer: Initializing PipeWire...");
+
+    device_ = std::make_unique<PipeWireAudioDevice>();
+
+    PipeWireDeviceConfig config;
+    config.dataCallback = [](void* device, float* output, uint32_t frameCount, void* userData) {
+        DataCallback(device, output, frameCount, userData);
+    };
+    config.userData = this;
+    config.sampleRate = 48000;
+    config.channels = 2;
+    config.bufferSizeMs = 10;
+
+    if (!device_->Initialize(config)) {
+        Debug::Log("AudioPlayer: Failed to initialize PipeWire device");
+        device_.reset();
+        return false;
+    }
+#else
+    Debug::Log("AudioPlayer: Audio not supported on this platform");
+    return false;
+#endif
 
     initialized_ = true;
     Debug::Log("AudioPlayer: Initialized successfully");
@@ -145,11 +173,11 @@ bool AudioPlayer::HasAudio() const {
 //=============================================================================
 
 void AudioPlayer::Play() {
-    if (!initialized_ || !device_ || is_playing_) return;
+    if (!initialized_ || is_playing_) return;
+    if (!device_) return;
 
     Debug::Log("AudioPlayer: Play");
 
-    // Start the audio device
     device_->Start();
 
     is_playing_ = true;
@@ -160,7 +188,8 @@ void AudioPlayer::Play() {
 }
 
 void AudioPlayer::Pause() {
-    if (!initialized_ || !device_ || !is_playing_) return;
+    if (!initialized_ || !is_playing_) return;
+    if (!device_) return;
 
     Debug::Log("AudioPlayer: Pause");
 
@@ -169,11 +198,13 @@ void AudioPlayer::Pause() {
 }
 
 void AudioPlayer::Stop() {
-    if (!initialized_ || !device_) return;
+    if (!initialized_) return;
 
     Debug::Log("AudioPlayer: Stop");
 
-    device_->Stop();
+    if (device_) {
+        device_->Stop();
+    }
     is_playing_ = false;
 
     // Reset position to start

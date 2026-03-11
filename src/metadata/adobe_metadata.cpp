@@ -3,13 +3,88 @@
 #include <filesystem>
 #include <sstream>
 #include <unordered_map>
+#include <cstdio>
 
 #ifdef _WIN32
 #include <windows.h>
 #include <vector>
+#else
+#include <sys/wait.h>
 #endif
 
 namespace fs = std::filesystem;
+
+// Helper to run exiftool and capture output (cross-platform)
+static std::string RunExifToolCmd(const std::string& cmdline) {
+    std::string output;
+
+#ifdef _WIN32
+    HANDLE hStdOutRead, hStdOutWrite;
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+    if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+        Debug::Log("ERROR: Failed to create pipe");
+        return output;
+    }
+
+    SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
+    si.hStdError = hStdOutWrite;
+    si.hStdOutput = hStdOutWrite;
+    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi = { 0 };
+
+    std::vector<char> cmdline_buffer(cmdline.begin(), cmdline.end());
+    cmdline_buffer.push_back('\0');
+
+    if (!CreateProcessA(NULL, cmdline_buffer.data(), NULL, NULL, TRUE,
+                        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,
+                        NULL, NULL, &si, &pi)) {
+        Debug::Log("ERROR: Failed to create process. Error: " + std::to_string(GetLastError()));
+        CloseHandle(hStdOutWrite);
+        CloseHandle(hStdOutRead);
+        return output;
+    }
+
+    CloseHandle(hStdOutWrite);
+
+    char buffer[4096];
+    DWORD bytesRead;
+    while (ReadFile(hStdOutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
+        buffer[bytesRead] = '\0';
+        output += buffer;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exitCode;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    Debug::Log("ExifTool exit code: " + std::to_string(exitCode));
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(hStdOutRead);
+#else
+    FILE* pipe = popen(cmdline.c_str(), "r");
+    if (!pipe) {
+        Debug::Log("ERROR: Failed to execute ExifTool via popen");
+        return output;
+    }
+
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+
+    int status = pclose(pipe);
+    Debug::Log("ExifTool exit code: " + std::to_string(WEXITSTATUS(status)));
+#endif
+
+    return output;
+}
 
 std::string AdobeMetadataExtractor::GetExifToolPath() {
     Debug::Log("=== GetExifToolPath START ===");
@@ -27,13 +102,9 @@ std::string AdobeMetadataExtractor::GetExifToolPath() {
         Debug::Log("FOUND in assets/exiftool: " + assets_exiftool_path.string());
         return assets_exiftool_path.string();
     }
-#endif
 
     // Check in current working directory's assets/exiftool
-    fs::path cwd = fs::current_path();
-    Debug::Log("Current working directory: " + cwd.string());
-
-    fs::path cwd_assets_exiftool = cwd / "assets" / "exiftool" / "exiftool.exe";
+    fs::path cwd_assets_exiftool = fs::current_path() / "assets" / "exiftool" / "exiftool.exe";
     Debug::Log("Checking: " + cwd_assets_exiftool.string());
     if (fs::exists(cwd_assets_exiftool)) {
         Debug::Log("FOUND in cwd/assets/exiftool: " + cwd_assets_exiftool.string());
@@ -41,7 +112,27 @@ std::string AdobeMetadataExtractor::GetExifToolPath() {
     }
 
     Debug::Log("WARNING: ExifTool not found in expected locations");
-    return "exiftool.exe";  // Last resort - hope it's in PATH
+    return "exiftool.exe";
+#else
+    // Linux: check bundled Perl exiftool in assets/exiftool/
+    fs::path exe_path = fs::read_symlink("/proc/self/exe");
+    fs::path exe_dir = exe_path.parent_path();
+
+    fs::path bundled_path = exe_dir / "assets" / "exiftool" / "exiftool";
+    if (fs::exists(bundled_path)) {
+        Debug::Log("FOUND bundled exiftool: " + bundled_path.string());
+        return bundled_path.string();
+    }
+
+    fs::path cwd_path = fs::current_path() / "assets" / "exiftool" / "exiftool";
+    if (fs::exists(cwd_path)) {
+        Debug::Log("FOUND exiftool in cwd: " + cwd_path.string());
+        return cwd_path.string();
+    }
+
+    Debug::Log("WARNING: Bundled ExifTool not found, falling back to system PATH");
+    return "exiftool";
+#endif
 }
 
 std::unordered_map<std::string, std::string> AdobeMetadataExtractor::ParseExifOutput(const std::string& output) {
@@ -84,16 +175,18 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
     std::string exiftool_path = GetExifToolPath();
     Debug::Log("ExifTool path: " + exiftool_path);
 
-    if (!fs::exists(exiftool_path)) {
-        Debug::Log("ERROR: ExifTool not found at: " + exiftool_path);
-        return metadata;
+    // Only check fs::exists for absolute paths (system PATH fallback won't exist as a file)
+    if (exiftool_path.find('/') != std::string::npos || exiftool_path.find('\\') != std::string::npos) {
+        if (!fs::exists(exiftool_path)) {
+            Debug::Log("ERROR: ExifTool not found at: " + exiftool_path);
+            return metadata;
+        }
     }
 
-#ifdef _WIN32
-    // CMD
+    // Build command line
     std::stringstream cmdline;
     cmdline << "\"" << exiftool_path << "\" "
-        << "-s "  // Short output format
+        << "-s "
         << "-XMP:AeProjectLinkFullPath "
         << "-XMP:WindowsAtomUncProjectPath "
         << "-XMP:MacAtomPosixProjectPath "
@@ -115,70 +208,12 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
     std::string cmdline_str = cmdline.str();
     Debug::Log("Command line: " + cmdline_str);
 
-    // Stdout
-    HANDLE hStdOutRead, hStdOutWrite;
-    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-
-    if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
-        Debug::Log("ERROR: Failed to create pipe");
-        return metadata;
-    }
-
-    SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0);
-
-    // Startup info - HIDE WINDOW
-    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
-    si.hStdError = hStdOutWrite;
-    si.hStdOutput = hStdOutWrite;
-    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-
-    PROCESS_INFORMATION pi = { 0 };
-
-    std::vector<char> cmdline_buffer(cmdline_str.begin(), cmdline_str.end());
-    cmdline_buffer.push_back('\0');
-
-    if (!CreateProcessA(
-        NULL,
-        cmdline_buffer.data(),
-        NULL, NULL, TRUE,
-        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority to avoid competing with video load
-        NULL, NULL,
-        &si, &pi
-    )) {
-        Debug::Log("ERROR: Failed to create process. Error: " + std::to_string(GetLastError()));
-        CloseHandle(hStdOutWrite);
-        CloseHandle(hStdOutRead);
-        return metadata;
-    }
-
-    CloseHandle(hStdOutWrite);
-
-    // Read output
-    std::string output;
-    char buffer[4096];
-    DWORD bytesRead;
-
-    while (ReadFile(hStdOutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
-        buffer[bytesRead] = '\0';
-        output += buffer;
-    }
-
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    Debug::Log("ExifTool exit code: " + std::to_string(exitCode));
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    CloseHandle(hStdOutRead);
+    std::string output = RunExifToolCmd(cmdline_str);
 
     Debug::Log("Raw output length: " + std::to_string(output.length()));
     if (!output.empty()) {
         Debug::Log("Raw output:\n" + output);
 
-        // Parse the output
         auto fields = ParseExifOutput(output);
 
         // Extract Adobe project paths
@@ -192,34 +227,27 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
             metadata->premiere_mac_path = fields["MacAtomPosixProjectPath"];
         }
 
-        // === EXTRACT TIMECODE FIELDS ===
-        Debug::Log("=== Extracting Timecode Fields ===");
-
         // QuickTime timecodes
         if (fields.find("StartTimecode") != fields.end()) {
             metadata->qt_start_timecode = fields["StartTimecode"];
-            // Trim any extra whitespace/newlines
             metadata->qt_start_timecode.erase(0, metadata->qt_start_timecode.find_first_not_of(" \t\r\n"));
             metadata->qt_start_timecode.erase(metadata->qt_start_timecode.find_last_not_of(" \t\r\n") + 1);
             Debug::Log("Found QT StartTimecode: '" + metadata->qt_start_timecode + "'");
         }
         if (fields.find("TimeCode") != fields.end()) {
             metadata->qt_timecode = fields["TimeCode"];
-            // Trim any extra whitespace/newlines
             metadata->qt_timecode.erase(0, metadata->qt_timecode.find_first_not_of(" \t\r\n"));
             metadata->qt_timecode.erase(metadata->qt_timecode.find_last_not_of(" \t\r\n") + 1);
             Debug::Log("Found QT TimeCode: '" + metadata->qt_timecode + "'");
         }
         if (fields.find("CreationDate") != fields.end()) {
             metadata->qt_creation_date = fields["CreationDate"];
-            // Trim any extra whitespace/newlines
             metadata->qt_creation_date.erase(0, metadata->qt_creation_date.find_first_not_of(" \t\r\n"));
             metadata->qt_creation_date.erase(metadata->qt_creation_date.find_last_not_of(" \t\r\n") + 1);
             Debug::Log("Found QT CreationDate: '" + metadata->qt_creation_date + "'");
         }
         if (fields.find("MediaCreateDate") != fields.end()) {
             metadata->qt_media_create_date = fields["MediaCreateDate"];
-            // Trim any extra whitespace/newlines
             metadata->qt_media_create_date.erase(0, metadata->qt_media_create_date.find_first_not_of(" \t\r\n"));
             metadata->qt_media_create_date.erase(metadata->qt_media_create_date.find_last_not_of(" \t\r\n") + 1);
             Debug::Log("Found QT MediaCreateDate: '" + metadata->qt_media_create_date + "'");
@@ -241,16 +269,11 @@ std::unique_ptr<AdobeMetadata> AdobeMetadataExtractor::ExtractAdobePaths(const s
 
         Debug::Log("Adobe + Timecode metadata extraction completed successfully");
         Debug::Log("Has any timecode: " + std::string(metadata->HasAnyTimecode() ? "YES" : "NO"));
-    }
-    else {
+    } else {
         Debug::Log("ExifTool returned no output (no Adobe metadata in file)");
     }
 
-    // Mark as loaded regardless of whether data was found
-    // This distinguishes "no metadata found" from "still loading"
     metadata->is_loaded = true;
-
-#endif
 
     return metadata;
 }
@@ -404,54 +427,14 @@ bool AdobeMetadataExtractor::WriteMetadata(const std::string& output_file, const
     Debug::Log("ExifTool command: " + cmdline_str);
     Debug::Log("Writing " + std::to_string(field_count) + " metadata fields");
 
-#ifdef _WIN32
-    // Execute ExifTool (hidden window, no console popup)
-    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
-    si.dwFlags = STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
+    std::string output = RunExifToolCmd(cmdline_str);
 
-    PROCESS_INFORMATION pi = { 0 };
-
-    std::vector<char> cmdline_buffer(cmdline_str.begin(), cmdline_str.end());
-    cmdline_buffer.push_back('\0');
-
-    if (!CreateProcessA(
-        NULL,
-        cmdline_buffer.data(),
-        NULL, NULL, FALSE,
-        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority
-        NULL, NULL,
-        &si, &pi
-    )) {
-        Debug::Log("ERROR: Failed to execute ExifTool. Error: " + std::to_string(GetLastError()));
+    // RunExifToolCmd logs exit code; check if output contains error indicators
+    if (output.find("Error") != std::string::npos) {
+        Debug::Log("ERROR: ExifTool write may have failed. Output: " + output);
         return false;
     }
 
-    // Wait for completion
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-
-    if (exitCode == 0) {
-        Debug::Log("Metadata written successfully to " + output_file);
-        return true;
-    } else {
-        Debug::Log("ERROR: ExifTool returned exit code: " + std::to_string(exitCode));
-        return false;
-    }
-#else
-    // Unix/Mac - use system() for simplicity
-    int result = system(cmdline_str.c_str());
-    if (result == 0) {
-        Debug::Log("Metadata written successfully to " + output_file);
-        return true;
-    } else {
-        Debug::Log("ERROR: ExifTool command failed with code: " + std::to_string(result));
-        return false;
-    }
-#endif
+    Debug::Log("Metadata written successfully to " + output_file);
+    return true;
 }

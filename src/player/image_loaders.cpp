@@ -10,10 +10,12 @@
 
 // OpenEXR headers for EXRImageLoader
 #include <OpenEXR/ImfInputFile.h>
+#include <OpenEXR/ImfHeader.h>
 #include <OpenEXR/ImfChannelList.h>
 #include <OpenEXR/ImfFrameBuffer.h>
 #include <OpenEXR/ImfInputPart.h>
 #include <OpenEXR/ImfMultiPartInputFile.h>
+#include <OpenEXR/ImfCompression.h>
 #include <Imath/ImathBox.h>
 #include <Imath/half.h>
 
@@ -645,14 +647,13 @@ std::shared_ptr<PixelData> TIFFImageLoader::LoadFrame(
     if (!TIFFLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-    result->gl_format = GL_RGBA;
     result->pipeline_mode = detected_mode;
     if (detected_mode == PipelineMode::NORMAL) {
-        result->gl_type = GL_UNSIGNED_BYTE;  // RGBA8
+        result->SetFormat(PixelFormat::RGBA8);
     } else if (detected_mode == PipelineMode::HIGH_RES) {
-        result->gl_type = GL_UNSIGNED_SHORT;  // RGBA16
+        result->SetFormat(PixelFormat::RGBA16);
     } else {
-        result->gl_type = GL_HALF_FLOAT;  // RGBA16F
+        result->SetFormat(PixelFormat::RGBA16F);
     }
     return result;
 }
@@ -696,8 +697,7 @@ std::shared_ptr<PixelData> TIFFImageLoader::LoadThumbnail(const std::string& pat
     auto result = std::make_shared<PixelData>();
     result->width = thumb_width;
     result->height = thumb_height;
-    result->gl_format = GL_RGBA;
-    result->gl_type = GL_UNSIGNED_BYTE;
+    result->SetFormat(PixelFormat::RGBA8);
     result->pipeline_mode = PipelineMode::NORMAL;
 
     // Use TIFFReadRGBAImageOriented for ALL bit depths (8-bit and 16-bit)
@@ -753,12 +753,11 @@ std::shared_ptr<PixelData> PNGImageLoader::LoadFrame(
     if (!PNGLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-    result->gl_format = GL_RGBA;
     result->pipeline_mode = detected_mode;
     if (detected_mode == PipelineMode::NORMAL) {
-        result->gl_type = GL_UNSIGNED_BYTE;  // RGBA8
+        result->SetFormat(PixelFormat::RGBA8);
     } else {
-        result->gl_type = GL_UNSIGNED_SHORT;  // RGBA16 (PNG can be 16-bit)
+        result->SetFormat(PixelFormat::RGBA16);
     }
     return result;
 }
@@ -853,8 +852,7 @@ std::shared_ptr<PixelData> PNGImageLoader::LoadThumbnail(const std::string& path
     result->width = thumb_width;
     result->height = thumb_height;
     result->pixels.resize(thumb_width * thumb_height * 4);
-    result->gl_format = GL_RGBA;
-    result->gl_type = GL_UNSIGNED_BYTE;
+    result->SetFormat(PixelFormat::RGBA8);
     result->pipeline_mode = PipelineMode::NORMAL;
 
     if (bitDepth == 8) {
@@ -910,8 +908,7 @@ std::shared_ptr<PixelData> JPEGImageLoader::LoadFrame(
     if (!JPEGLoader::Load(path, result->pixels, result->width, result->height, detected_mode)) {
         return nullptr;
     }
-    result->gl_format = GL_RGBA;
-    result->gl_type = GL_UNSIGNED_BYTE;  // JPEG is always 8-bit
+    result->SetFormat(PixelFormat::RGBA8);
     result->pipeline_mode = PipelineMode::NORMAL;  // JPEG is always NORMAL mode
     return result;
 }
@@ -993,8 +990,7 @@ std::shared_ptr<PixelData> JPEGImageLoader::LoadThumbnail(const std::string& pat
     result->width = width;
     result->height = height;
     result->pixels.resize(width * height * 4);
-    result->gl_format = GL_RGBA;
-    result->gl_type = GL_UNSIGNED_BYTE;
+    result->SetFormat(PixelFormat::RGBA8);
     result->pipeline_mode = PipelineMode::NORMAL;
 
     if (channels == 3) {
@@ -1072,8 +1068,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadFrame(
         auto result = std::make_shared<PixelData>();
         result->width = width;
         result->height = height;
-        result->gl_format = GL_RGBA;
-        result->gl_type = GL_HALF_FLOAT;
+        result->SetFormat(PixelFormat::RGBA16F);
         result->pipeline_mode = PipelineMode::HDR_RES;  // EXR is always HDR
 
         const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
@@ -1278,8 +1273,7 @@ std::shared_ptr<PixelData> EXRImageLoader::LoadThumbnail(const std::string& path
         auto result = std::make_shared<PixelData>();
         result->width = thumb_width;
         result->height = thumb_height;
-        result->gl_format = GL_RGBA;
-        result->gl_type = GL_HALF_FLOAT;  // Keep as half-float for HDR thumbnails
+        result->SetFormat(PixelFormat::RGBA16F);
         result->pipeline_mode = PipelineMode::HDR_RES;
         result->pixels.resize(thumb_width * thumb_height * 4 * sizeof(Imath::half));
 
@@ -1637,8 +1631,7 @@ std::shared_ptr<PixelData> VideoImageLoader::ExtractFrame(int frame_number, Pipe
 
     // Convert to pixel buffer
     auto result = std::make_shared<PixelData>();
-    result->gl_format = GL_RGBA;
-    result->gl_type = GL_UNSIGNED_BYTE;  // Thumbnails are always 8-bit for now
+    result->SetFormat(PixelFormat::RGBA8);
     result->pipeline_mode = PipelineMode::NORMAL;
 
     if (!ConvertFrameToPixels(frame, result->pixels, result->width, result->height, pipeline_mode, max_size)) {

@@ -9,6 +9,10 @@
 #include <Windows.h>
 #endif
 
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#endif
+
 namespace qcview {
 
 TimelineThumbnailCache::TimelineThumbnailCache() {
@@ -64,12 +68,16 @@ void TimelineThumbnailCache::Shutdown() {
     }
     worker_threads_.clear();
 
-    // Clear cache (delete GL textures)
+    // Clear cache (delete textures)
     {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         for (auto& [key, entry] : cache_) {
             if (entry.texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+#else
                 glDeleteTextures(1, &entry.texture_id);
+#endif
             }
         }
         cache_.clear();
@@ -298,7 +306,11 @@ void TimelineThumbnailCache::Clear() {
         std::lock_guard<std::mutex> lock(cache_mutex_);
         for (auto& [key, entry] : cache_) {
             if (entry.texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+#else
                 glDeleteTextures(1, &entry.texture_id);
+#endif
             }
         }
         cache_.clear();
@@ -561,6 +573,18 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
         return 0;
     }
 
+#ifdef QCVIEW_USE_VULKAN
+    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+    switch (pixels->pixel_format) {
+        case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
+        case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
+        case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+    }
+    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+        pixels->width, pixels->height, vk_format,
+        pixels->pixels.data(), pixels->pixels.size());
+    return static_cast<GLuint>(pool_id);
+#else
     // Save current GL state to avoid corrupting ImGui during render
     GLint previous_texture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
@@ -595,6 +619,7 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
     glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texture_id;
+#endif
 }
 
 void TimelineThumbnailCache::EvictLRU() {
@@ -607,7 +632,11 @@ void TimelineThumbnailCache::EvictLRU() {
     auto it = cache_.find(lru_key);
     if (it != cache_.end()) {
         if (it->second.texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
+#else
             glDeleteTextures(1, &it->second.texture_id);
+#endif
         }
         cache_.erase(it);
     }

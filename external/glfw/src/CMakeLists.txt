@@ -54,7 +54,8 @@ endif()
 if (GLFW_BUILD_WAYLAND)
     target_compile_definitions(glfw PRIVATE _GLFW_WAYLAND)
     target_sources(glfw PRIVATE wl_platform.h wl_init.c
-                                wl_monitor.c wl_window.c)
+                                wl_monitor.c wl_window.c
+                                qcview_wl_helpers.c)
 endif()
 
 if (GLFW_BUILD_X11 OR GLFW_BUILD_WAYLAND)

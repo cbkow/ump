@@ -3,12 +3,15 @@
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
+#include <cstdio>
 #include <array>
 #include <memory>
 #include "utils/debug_utils.h"
 
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <sys/wait.h>
 #endif
 
 namespace fs = std::filesystem;
@@ -25,12 +28,9 @@ std::string ExifToolHelper::GetExifToolPath() {
     if (fs::exists(assets_exiftool_path)) {
         return assets_exiftool_path.string();
     }
-#endif
 
     // Check in current working directory's assets/exiftool
-    fs::path cwd = fs::current_path();
-
-    fs::path cwd_assets_exiftool = cwd / "assets" / "exiftool" / "exiftool.exe";
+    fs::path cwd_assets_exiftool = fs::current_path() / "assets" / "exiftool" / "exiftool.exe";
     if (fs::exists(cwd_assets_exiftool)) {
         return cwd_assets_exiftool.string();
     }
@@ -43,11 +43,105 @@ std::string ExifToolHelper::GetExifToolPath() {
 
     Debug::Log("WARNING: ExifTool not found in expected locations");
     return "exiftool.exe";  // Last resort - hope it's in PATH
+#else
+    // Linux: check bundled Perl exiftool in assets/exiftool/
+    // Check relative to executable (via /proc/self/exe)
+    fs::path exe_path = fs::read_symlink("/proc/self/exe");
+    fs::path exe_dir = exe_path.parent_path();
+
+    fs::path bundled_path = exe_dir / "assets" / "exiftool" / "exiftool";
+    if (fs::exists(bundled_path)) {
+        return bundled_path.string();
+    }
+
+    // Check in current working directory
+    fs::path cwd_path = fs::current_path() / "assets" / "exiftool" / "exiftool";
+    if (fs::exists(cwd_path)) {
+        return cwd_path.string();
+    }
+
+    // Fallback to system-installed exiftool
+    Debug::Log("WARNING: Bundled ExifTool not found, falling back to system PATH");
+    return "exiftool";
+#endif
+}
+
+// Helper to run exiftool and capture output (cross-platform)
+static std::string RunExifTool(const std::string& cmdline) {
+    std::string output;
+
+#ifdef _WIN32
+    HANDLE hStdOutRead, hStdOutWrite;
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
+
+    if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
+        Debug::Log("ERROR: Failed to create pipe");
+        return output;
+    }
+
+    SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
+    si.hStdError = hStdOutWrite;
+    si.hStdOutput = hStdOutWrite;
+    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+
+    PROCESS_INFORMATION pi = { 0 };
+
+    std::vector<char> cmdline_buffer(cmdline.begin(), cmdline.end());
+    cmdline_buffer.push_back('\0');
+
+    if (!CreateProcessA(NULL, cmdline_buffer.data(), NULL, NULL, TRUE,
+                        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,
+                        NULL, NULL, &si, &pi)) {
+        Debug::Log("ERROR: Failed to create process. Error: " + std::to_string(GetLastError()));
+        CloseHandle(hStdOutWrite);
+        CloseHandle(hStdOutRead);
+        return output;
+    }
+
+    CloseHandle(hStdOutWrite);
+
+    char buffer[4096];
+    DWORD bytesRead;
+    while (ReadFile(hStdOutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
+        buffer[bytesRead] = '\0';
+        output += buffer;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exitCode;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    Debug::Log("ExifTool exit code: " + std::to_string(exitCode));
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(hStdOutRead);
+#else
+    FILE* pipe = popen(cmdline.c_str(), "r");
+    if (!pipe) {
+        Debug::Log("ERROR: Failed to execute ExifTool via popen");
+        return output;
+    }
+
+    char buffer[4096];
+    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        output += buffer;
+    }
+
+    int status = pclose(pipe);
+    Debug::Log("ExifTool exit code: " + std::to_string(WEXITSTATUS(status)));
+#endif
+
+    return output;
 }
 
 #ifdef _WIN32
 #include <windows.h>
 #include <vector>
+#endif
 
 std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const std::string& file_path) {
     auto metadata = std::make_unique<Metadata>();
@@ -62,12 +156,15 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
     std::string exiftool_path = GetExifToolPath();
     Debug::Log("ExifTool path: " + exiftool_path);
 
-    if (!fs::exists(exiftool_path)) {
-        Debug::Log("ERROR: ExifTool not found at: " + exiftool_path);
-        return metadata;
+    // Only check fs::exists for absolute paths (system PATH fallback won't exist as a file)
+    if (exiftool_path.find('/') != std::string::npos || exiftool_path.find('\\') != std::string::npos) {
+        if (!fs::exists(exiftool_path)) {
+            Debug::Log("ERROR: ExifTool not found at: " + exiftool_path);
+            return metadata;
+        }
     }
 
-    // CMD
+    // Build command line
     std::stringstream cmdline;
     cmdline << "\"" << exiftool_path << "\" "
         << "-s "
@@ -89,80 +186,11 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
         << "-UserData:TimeCode "
         << "\"" << file_path << "\"";
 
-    std::string cmdline_str = cmdline.str();
-
-    // Stdout
-    HANDLE hStdOutRead, hStdOutWrite;
-    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
-
-    if (!CreatePipe(&hStdOutRead, &hStdOutWrite, &sa, 0)) {
-        Debug::Log("ERROR: Failed to create pipe");
-        return metadata;
-    }
-
-    // Ensure read handle is not inherited
-    SetHandleInformation(hStdOutRead, HANDLE_FLAG_INHERIT, 0);
-
-    // Startup info
-    STARTUPINFOA si = { sizeof(STARTUPINFOA) };
-    si.hStdError = hStdOutWrite;
-    si.hStdOutput = hStdOutWrite;
-    si.dwFlags |= STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-    si.wShowWindow = SW_HIDE;
-
-    PROCESS_INFORMATION pi = { 0 };
-
-    // Create the process
-    std::vector<char> cmdline_buffer(cmdline_str.begin(), cmdline_str.end());
-    cmdline_buffer.push_back('\0');
-
-    if (!CreateProcessA(
-        NULL,
-        cmdline_buffer.data(),
-        NULL,
-        NULL,
-        TRUE,
-        CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS,  // Hide window + low priority
-        NULL,
-        NULL,
-        &si,
-        &pi
-    )) {
-        Debug::Log("ERROR: Failed to create process. Error: " + std::to_string(GetLastError()));
-        CloseHandle(hStdOutWrite);
-        CloseHandle(hStdOutRead);
-        return metadata;
-    }
-
-    // Close write end of pipe
-    CloseHandle(hStdOutWrite);
-
-    // Read output
-    std::string output;
-    char buffer[4096];
-    DWORD bytesRead;
-
-    while (ReadFile(hStdOutRead, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
-        buffer[bytesRead] = '\0';
-        output += buffer;
-    }
-
-    // Wait for process to complete
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    DWORD exitCode;
-    GetExitCodeProcess(pi.hProcess, &exitCode);
-    Debug::Log("ExifTool exit code: " + std::to_string(exitCode));
-
-    // Clean up
-    CloseHandle(pi.hProcess);
-    CloseHandle(pi.hThread);
-    CloseHandle(hStdOutRead);
+    std::string output = RunExifTool(cmdline.str());
 
     if (!output.empty()) {
         Debug::Log("Raw output:\n" + output);
-    }
-    else {
+    } else {
         Debug::Log("WARNING: No output from ExifTool");
     }
 
@@ -202,11 +230,7 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
         metadata->qt_media_create_date = fields["MediaCreateDate"];
     }
 
-    // MXF timecodes (will have different key names from ExifTool)
-    if (fields.find("StartTimecode") != fields.end()) {
-        metadata->mxf_start_timecode = fields["StartTimecode"];
-        metadata->has_any_timecode = true;
-    }
+    // MXF timecodes
     if (fields.find("TimecodeAtStart") != fields.end()) {
         metadata->mxf_timecode_at_start = fields["TimecodeAtStart"];
         metadata->has_any_timecode = true;
@@ -216,10 +240,6 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
     }
 
     // XMP timecodes
-    if (fields.find("StartTimecode") != fields.end()) {
-        metadata->xmp_start_timecode = fields["StartTimecode"];
-        metadata->has_any_timecode = true;
-    }
     if (fields.find("AltTimecode") != fields.end()) {
         metadata->xmp_alt_timecode = fields["AltTimecode"];
         metadata->has_any_timecode = true;
@@ -237,7 +257,6 @@ std::unique_ptr<ExifToolHelper::Metadata> ExifToolHelper::ExtractMetadata(const 
 
     return metadata;
 }
-#endif
 
 std::unordered_map<std::string, std::string> ExifToolHelper::ParseExifOutput(const std::string& output) {
     std::unordered_map<std::string, std::string> result;

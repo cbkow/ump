@@ -13,6 +13,18 @@
 #include <imgui_internal.h>
 #include <GLFW/glfw3.h>
 
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#else
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    return (ImTextureID)(intptr_t)id;
+}
+#endif
+
 // Globals defined in main.cpp
 extern bool otio_dual_view_mode;
 extern bool otio_dual_view_split_mode;
@@ -28,15 +40,27 @@ extern bool show_delete_prefs_confirm;
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
         if (is_fullscreen) {
-            // Fullscreen ImGui window - use full monitor size (no decorations)
+            // Fullscreen ImGui window - use full monitor/window size (no decorations)
+#ifdef _WIN32
+            // Windows borderless: use monitor physical size (no content scaling mismatch)
             GLFWmonitor* monitor = fullscreen_monitor ? fullscreen_monitor : glfwGetPrimaryMonitor();
             const GLFWvidmode* mode = glfwGetVideoMode(monitor);
             int mon_x, mon_y;
             glfwGetMonitorPos(monitor, &mon_x, &mon_y);
-
-            // True borderless fullscreen - use entire screen
             ImGui::SetNextWindowPos(ImVec2((float)mon_x, (float)mon_y));
             ImGui::SetNextWindowSize(ImVec2((float)mode->width, (float)mode->height));
+#else
+            // Linux/Wayland: use framebuffer size divided by content scale to get
+            // logical coordinates that match ImGui's coordinate space.
+            int fb_w, fb_h;
+            glfwGetFramebufferSize(window, &fb_w, &fb_h);
+            float x_scale = 1.0f, y_scale = 1.0f;
+            glfwGetWindowContentScale(window, &x_scale, &y_scale);
+            float logical_w = (float)fb_w / x_scale;
+            float logical_h = (float)fb_h / y_scale;
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
+            ImGui::SetNextWindowSize(ImVec2(logical_w, logical_h));
+#endif
             ImGui::SetNextWindowViewport(viewport->ID);
 
             ImGuiWindowFlags fullscreen_flags = ImGuiWindowFlags_NoDecoration |
@@ -92,7 +116,7 @@ extern bool show_delete_prefs_confirm;
                     if (cached_dual_view_textures.left_texture != 0) {
                         draw_list->PushClipRect(canvas_pos, ImVec2(split_x, canvas_pos.y + canvas_size.y), true);
                         draw_list->AddImage(
-                            (void*)(intptr_t)cached_dual_view_textures.left_texture,
+                            PoolIDToImTexture(cached_dual_view_textures.left_texture),
                             display_pos,
                             ImVec2(display_pos.x + fit_size.x, display_pos.y + fit_size.y)
                         );
@@ -103,7 +127,7 @@ extern bool show_delete_prefs_confirm;
                     if (cached_dual_view_textures.right_texture != 0) {
                         draw_list->PushClipRect(ImVec2(split_x, canvas_pos.y), ImVec2(canvas_pos.x + canvas_size.x, canvas_pos.y + canvas_size.y), true);
                         draw_list->AddImage(
-                            (void*)(intptr_t)cached_dual_view_textures.right_texture,
+                            PoolIDToImTexture(cached_dual_view_textures.right_texture),
                             display_pos,
                             ImVec2(display_pos.x + fit_size.x, display_pos.y + fit_size.y)
                         );
@@ -130,7 +154,7 @@ extern bool show_delete_prefs_confirm;
                             canvas_pos.y + (canvas_size.y - left_fit.y) * 0.5f
                         );
                         draw_list->AddImage(
-                            (void*)(intptr_t)cached_dual_view_textures.left_texture,
+                            PoolIDToImTexture(cached_dual_view_textures.left_texture),
                             left_pos,
                             ImVec2(left_pos.x + left_fit.x, left_pos.y + left_fit.y)
                         );
@@ -146,7 +170,7 @@ extern bool show_delete_prefs_confirm;
                             canvas_pos.y + (canvas_size.y - right_fit.y) * 0.5f
                         );
                         draw_list->AddImage(
-                            (void*)(intptr_t)cached_dual_view_textures.right_texture,
+                            PoolIDToImTexture(cached_dual_view_textures.right_texture),
                             right_pos,
                             ImVec2(right_pos.x + right_fit.x, right_pos.y + right_fit.y)
                         );

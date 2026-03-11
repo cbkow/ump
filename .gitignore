@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-linux/
 out/
 
 # Packaging output
@@ -7,6 +8,8 @@ sideloader/
 installer/*.exe
 installer/msix/*.msix
 installer/msix/staging/
+*.deb
+*.rpm
 
 # IDE files
 .vs/

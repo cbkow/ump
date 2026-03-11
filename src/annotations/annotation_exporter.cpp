@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <filesystem>
 #include <ctime>
+#include <thread>
 
 // FFmpeg base64 encoding
 extern "C" {
@@ -876,7 +877,11 @@ std::string AnnotationExporter::GenerateTimestamp() const {
     auto now = std::chrono::system_clock::now();
     auto time_t_now = std::chrono::system_clock::to_time_t(now);
     std::tm tm_now;
+#ifdef _WIN32
     localtime_s(&tm_now, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_now);
+#endif
 
     std::ostringstream oss;
     oss << std::put_time(&tm_now, "%Y%m%d-%H%M%S");
@@ -1005,8 +1010,17 @@ void AnnotationExporter::RevealInExplorer(const std::string& path, bool is_folde
     }
     Debug::Log("Revealed in Explorer: " + path);
 #else
-    // macOS/Linux: Could use xdg-open or open command
-    Debug::Log("RevealInExplorer not implemented for this platform");
+    // Linux: open parent directory (xdg-open can't select a specific file)
+    std::string target = path;
+    if (!is_folder) {
+        std::filesystem::path fs_path(path);
+        target = fs_path.parent_path().string();
+    }
+    std::thread([target]() {
+        std::string cmd = "xdg-open \"" + target + "\"";
+        system(cmd.c_str());
+    }).detach();
+    Debug::Log("Revealed in file manager: " + target);
 #endif
 }
 

@@ -6,10 +6,13 @@
 #include <sstream>
 #include <algorithm>
 #include <chrono>
+#include <future>
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+#include "../../external/glfw/deps/stb_image_write.h"
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
@@ -340,25 +343,39 @@ bool LoadNotes(std::vector<AnnotationNote>& notes, const std::string& media_path
 }
 
 void LoadNotesAsync(const std::string& media_path, LoadCallback callback) {
-    // TODO: Implement async version using std::async
-    // For now, call sync version
-    std::vector<AnnotationNote> notes;
-    bool success = LoadNotes(notes, media_path);
-    callback(success, notes);
+    std::thread([media_path, callback]() {
+        std::vector<AnnotationNote> notes;
+        bool success = LoadNotes(notes, media_path);
+        callback(success, notes);
+    }).detach();
 }
 
 void SaveNotesAsync(const std::vector<AnnotationNote>& notes, const std::string& media_path) {
-    // TODO: Implement async version using std::async
-    // For now, call sync version
-    SaveNotes(notes, media_path);
+    std::thread([notes, media_path]() {
+        SaveNotes(notes, media_path);
+    }).detach();
 }
 
 bool SaveScreenshot(const std::string& image_path, const unsigned char* data, int width, int height) {
-    // TODO: Implement PNG saving using libpng
-    // This is a placeholder - will need actual libpng implementation
-    Debug::Log("SaveScreenshot called for: " + image_path);
-    Debug::Log("  Size: " + std::to_string(width) + "x" + std::to_string(height));
-    return true;
+    if (!data || width <= 0 || height <= 0) {
+        Debug::Log("SaveScreenshot: Invalid parameters");
+        return false;
+    }
+
+    // Ensure parent directory exists
+    std::filesystem::path path(image_path);
+    if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path());
+    }
+
+    int result = stbi_write_png(image_path.c_str(), width, height, 4, data, width * 4);
+    if (result) {
+        Debug::Log("SaveScreenshot: Saved " + std::to_string(width) + "x" +
+                   std::to_string(height) + " to " + image_path);
+    } else {
+        Debug::Log("SaveScreenshot: Failed to write " + image_path);
+    }
+    return result != 0;
 }
 
 } // namespace AnnotationIO

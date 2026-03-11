@@ -14,6 +14,9 @@
 #include "ui/timeline_manager.h"
 #include "nodes/node_manager.h"
 #include "audio/audio_mixer.h"
+#ifdef _WIN32
+#include "hdr/hdr_output_manager.h"
+#endif
 #include "annotations/annotation_manager.h"
 #include "integrations/frameio_url_parser.h"
 #include "integrations/frameio_client.h"
@@ -166,8 +169,7 @@ extern CacheSettings cache_settings;
                 }
             });
 
-            // === BOTTOM SECTION: HDR indicator ===
-            // === BOTTOM SECTION: HDR indicator ===
+            // === BOTTOM SECTION: HDR indicator/toggle ===
             // Calculate space to push HDR to bottom
             float current_y = ImGui::GetCursorPosY();
             float window_height = ImGui::GetWindowHeight();
@@ -177,36 +179,65 @@ extern CacheSettings cache_settings;
             if (hdr_y > current_y + 8.0f) {
                 ImGui::SetCursorPosY(hdr_y);
 
-                // HDR status indicator
+                // HDR status
 #ifdef _WIN32
                 bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
+                bool hdr_supported = hdr_active;  // Windows: follows system state
+                bool hdr_toggleable = false;
+#elif defined(QCVIEW_USE_VULKAN)
+                bool hdr_active = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : false;
+                bool hdr_supported = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRSupported() : false;
+                bool hdr_toggleable = hdr_supported;
 #else
                 bool hdr_active = false;
+                bool hdr_supported = false;
+                bool hdr_toggleable = false;
 #endif
                 const char* hdr_icon = hdr_active ? ICON_HDR_ON : ICON_HDR_OFF;
-                // Use white for active, gray for inactive (matching panel toggles)
-                ImVec4 hdr_color = hdr_active ? ImVec4(1.0f, 1.0f, 1.0f, 1.0f) : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                // Use accent color for active, gray for inactive
+                ImVec4 hdr_color = hdr_active
+                    ? GetWindowsAccentColor()
+                    : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
 
                 ImGui::PushStyleColor(ImGuiCol_Text, hdr_color);
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0, 0, 0, 0));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hdr_toggleable ? ImVec4(0.3f, 0.3f, 0.3f, 0.5f) : ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, hdr_toggleable ? ImVec4(0.2f, 0.2f, 0.2f, 0.5f) : ImVec4(0, 0, 0, 0));
 
                 // Center the HDR button
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + center_offset);
 
-                ImGui::BeginDisabled();
-                ImGui::Button(hdr_icon, ImVec2(button_size, button_size));
-                ImGui::EndDisabled();
+                if (!hdr_toggleable) ImGui::BeginDisabled();
+                if (ImGui::Button(hdr_icon, ImVec2(button_size, button_size))) {
+#ifdef QCVIEW_USE_VULKAN
+                    if (vulkan_swapchain_ && hdr_supported) {
+                        vulkan_swapchain_->SetHDREnabled(!hdr_active);
+                        SaveSettings();
+                    }
+#endif
+                }
+                if (!hdr_toggleable) ImGui::EndDisabled();
                 bool hover_hdr = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
                 ImGui::PopStyleColor(4);
 
                 if (hover_hdr) {
                     ImGui::SetWindowFontScale(1.0f);
                     ImGui::PopFont();
+#ifdef _WIN32
                     ImGui::SetTooltip(hdr_active ?
                         "Windows HDR enabled. Images need color transformation." :
                         "Windows HDR disabled. Enable in Windows settings and restart QCView for HDR.");
+#elif defined(QCVIEW_USE_VULKAN)
+                    if (hdr_supported) {
+                        ImGui::SetTooltip(hdr_active ?
+                            "HDR output active (PQ/ST.2084). Click to disable.\nEnsure HDR is also enabled in your system display settings." :
+                            "Click to enable HDR output.\nEnsure HDR is also enabled in your system display settings.");
+                    } else {
+                        ImGui::SetTooltip("HDR not available on this display.");
+                    }
+#else
+                    ImGui::SetTooltip("HDR not available on this platform.");
+#endif
                     ImGui::PushFont(font_icons);
                     ImGui::SetWindowFontScale(1.2f);
                 }

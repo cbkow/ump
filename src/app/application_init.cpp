@@ -14,6 +14,9 @@
 #endif
 
 #include <glad/gl.h>
+#ifdef QCVIEW_USE_VULKAN
+#define GLFW_INCLUDE_VULKAN
+#endif
 #include <GLFW/glfw3.h>
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -22,7 +25,14 @@
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef QCVIEW_USE_VULKAN
+#include <imgui_impl_vulkan.h>
+#include "gpu/vulkan_device.h"
+#include "gpu/vulkan_texture_pool.h"
+#include "annotations/vulkan_annotation_renderer.h"
+#else
 #include <imgui_impl_opengl3.h>
+#endif
 #include <imgui_internal.h>
 #include <implot.h>
 #include <nfd.h>
@@ -86,11 +96,13 @@
 #include "audio/audio_mixer.h"
 #include "audio/audio_decoder.h"
 #include "transcode/transcode_settings.h"
+#include "hdr/hdr_color_utils.h"
 #ifdef _WIN32
 #include "hdr/hdr_output_manager.h"
 #include "gpu/d3d11_video_interop.h"
 #endif
 #include "annotations/annotation_serializer.h"
+#include "annotations/annotated_thumbnail.h"
 #include "annotations/stroke_smoother.h"
 #include "app/shortcut_manager.h"
 
@@ -193,7 +205,11 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             return false;
         }
 
-        // Configure GLFW
+#ifdef QCVIEW_USE_VULKAN
+        // Vulkan: No OpenGL context - GLFW creates a surface only
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+#else
+        // OpenGL context configuration
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -206,9 +222,17 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
         // Stencil buffer required for NanoVG anti-aliased annotation rendering
         glfwWindowHint(GLFW_STENCIL_BITS, 8);
+#endif
+
+        // Set app ID for Wayland and X11 WM_CLASS so desktop entry matches
+#ifdef __linux__
+        glfwWindowHintString(GLFW_WAYLAND_APP_ID, "app.qcview.QCView");
+        glfwWindowHintString(GLFW_X11_CLASS_NAME, "qcview");
+        glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "qcview");
+#endif
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.3", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.4", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
@@ -233,6 +257,21 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
         // Register window class for single-instance communication
         SetupSingleInstanceMessaging(hwnd);
+#elif defined(__linux__)
+        // Set window icon on Linux using stb_image + GLFW
+        {
+            std::string icon_path = GetAssetPath("assets/icons/qcview_256.png");
+            int w, h, channels;
+            unsigned char* pixels = stbi_load(icon_path.c_str(), &w, &h, &channels, 4);
+            if (pixels) {
+                GLFWimage icon;
+                icon.width = w;
+                icon.height = h;
+                icon.pixels = pixels;
+                glfwSetWindowIcon(window, 1, &icon);
+                stbi_image_free(pixels);
+            }
+        }
 #endif
 
         SetupDragDrop();
@@ -240,6 +279,42 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #ifdef _WIN32
         EnableDarkModeWindow(window);
 #endif
+
+#ifdef QCVIEW_USE_VULKAN
+        // ============================================================
+        // Vulkan initialization path (Linux)
+        // ============================================================
+
+        // Initialize Vulkan device manager
+        if (!qcview::VulkanDeviceManager::Instance().Initialize()) {
+            std::cerr << "Failed to initialize Vulkan device" << std::endl;
+            glfwTerminate();
+            return false;
+        }
+        Debug::Log("Vulkan device initialized: " +
+                   qcview::VulkanDeviceManager::Instance().GetDeviceName());
+
+        // Initialize Vulkan texture pool for frame display
+        if (!qcview::VulkanTexturePool::Instance().Initialize()) {
+            Debug::Log("WARNING: Failed to initialize VulkanTexturePool");
+        } else {
+            Debug::Log("VulkanTexturePool initialized (max " +
+                       std::to_string(qcview::VulkanTexturePool::Instance().GetMaxMemory() / (1024*1024)) + " MB)");
+        }
+
+        // Initialize Vulkan annotation renderer (replaces NanoVG GL3 backend)
+        vulkan_annotation_renderer_ = std::make_unique<qcview::Annotations::VulkanAnnotationRenderer>();
+        if (vulkan_annotation_renderer_->Initialize()) {
+            Debug::Log("VulkanAnnotationRenderer: Initialized");
+        } else {
+            Debug::Log("WARNING: Failed to initialize VulkanAnnotationRenderer");
+            vulkan_annotation_renderer_.reset();
+        }
+
+#else
+        // ============================================================
+        // OpenGL initialization path (Windows)
+        // ============================================================
 
         glfwMakeContextCurrent(window);
         glfwSwapInterval(1); // vsync 0,1,2
@@ -274,6 +349,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         } else {
             Debug::Log("NanoVG context initialized successfully");
         }
+#endif // QCVIEW_USE_VULKAN
 
         // Setup ImGui and OCIO
         IMGUI_CHECKVERSION();
@@ -303,7 +379,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable multi-viewport
+#ifndef QCVIEW_USE_VULKAN
+        io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable multi-viewport (requires GL/D3D11)
+#endif
 
         // Setup ImGui style
         LoadCustomFonts();
@@ -314,17 +392,76 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         Debug::Log("Applied font scale: " + std::to_string(g_font_scale) + "x");
 
         // Setup Platform/Renderer backends
+#ifdef QCVIEW_USE_VULKAN
+        {
+            auto& vk = qcview::VulkanDeviceManager::Instance();
+
+            // Initialize ImGui for Vulkan
+            ImGui_ImplGlfw_InitForVulkan(window, true);
+
+            // Create HDR-capable swapchain (manages surface, images, render pass, sync)
+            vulkan_swapchain_ = std::make_unique<qcview::VulkanHDRSwapchain>();
+            if (!vulkan_swapchain_->Initialize(window)) {
+                std::cerr << "Failed to initialize Vulkan swapchain" << std::endl;
+                return false;
+            }
+
+            // Register the swapchain for cross-platform HDR color queries
+            qcview::SetVulkanHDRSwapchain(vulkan_swapchain_.get());
+
+            // Initialize ImGui Vulkan backend
+            ImGui_ImplVulkan_InitInfo init_info{};
+            init_info.ApiVersion = VK_API_VERSION_1_2;
+            init_info.Instance = vk.GetInstance();
+            init_info.PhysicalDevice = vk.GetPhysicalDevice();
+            init_info.Device = vk.GetDevice();
+            init_info.QueueFamily = vk.GetGraphicsQueueFamily();
+            init_info.Queue = vk.GetGraphicsQueue();
+            init_info.PipelineCache = vk.GetPipelineCache();
+            init_info.DescriptorPool = vk.GetImGuiDescriptorPool();
+            init_info.MinImageCount = 2;
+            init_info.ImageCount = vulkan_swapchain_->GetImageCount();
+            init_info.PipelineInfoMain.RenderPass = vulkan_swapchain_->GetRenderPass();
+            init_info.PipelineInfoMain.Subpass = 0;
+            init_info.PipelineInfoMain.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+            // Use HDR fragment shader (with PQ conversion support via push constants)
+            if (vulkan_swapchain_->HasHDRFragShader()) {
+                const auto& spirv = vulkan_swapchain_->GetHDRFragShaderSPIRV();
+                init_info.CustomShaderFragCreateInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+                init_info.CustomShaderFragCreateInfo.codeSize = spirv.size() * sizeof(uint32_t);
+                init_info.CustomShaderFragCreateInfo.pCode = spirv.data();
+                Debug::Log("ImGui using HDR fragment shader");
+            }
+
+            ImGui_ImplVulkan_Init(&init_info);
+
+            Debug::Log("ImGui Vulkan backend initialized");
+            Debug::Log("Swapchain: " + std::to_string(vulkan_swapchain_->GetExtent().width) + "x" +
+                       std::to_string(vulkan_swapchain_->GetExtent().height) + " (" +
+                       std::to_string(vulkan_swapchain_->GetImageCount()) + " images" +
+                       (vulkan_swapchain_->IsHDRSupported() ? ", HDR supported" : "") + ")");
+
+            // Apply saved HDR UI brightness and preference
+            vulkan_swapchain_->SetUIBrightness(hdr_ui_nits_);
+            if (hdr_preferred_ && vulkan_swapchain_->IsHDRSupported()) {
+                if (vulkan_swapchain_->SetHDREnabled(true)) {
+                    Debug::Log("HDR enabled from saved preference");
+                }
+            }
+        }
+#else
         ImGui_ImplGlfw_InitForOpenGL(window, true);
         ImGui_ImplOpenGL3_Init("#version 450");
 
 #ifdef _WIN32
         // Enable HDR mode in ImGui shader if HDR output is active
-        // This automatically converts all UI colors from sRGB to PQ (ST.2084)
         if (qcview::HDROutputManager::Instance().IsHDRActive()) {
-            ImGui_ImplOpenGL3_SetHDRMode(true, 120.0f);  // 120 nits for comfortable UI brightness
+            ImGui_ImplOpenGL3_SetHDRMode(true, 120.0f);
             Debug::Log("ImGui shader HDR mode enabled (sRGB->PQ conversion at 120 nits)");
         }
 #endif
+#endif // QCVIEW_USE_VULKAN
 
         // Initialize NFD (Native File Dialog) - required for file dialogs to work properly
         if (NFD_Init() != NFD_OKAY) {
@@ -920,10 +1057,13 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             if (timeline_view && !timeline_view->IsViewingNestedTimeline()) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
-                    // Try to find as regular timeline first, then as dual view
+                    // Try to find as regular timeline, dual view, or media item (image/EXR sequences)
                     qcview::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
                     if (!timeline_item) {
                         timeline_item = project_manager->GetDualViewItem(lookup_key);
+                    }
+                    if (!timeline_item) {
+                        timeline_item = project_manager->GetMediaItem(lookup_key);
                     }
                     if (timeline_item) {
                         timeline_item->cached_tracks = timeline_view->GetTracks();
@@ -1023,10 +1163,13 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 // Handle TIMELINE and DUAL_VIEW modes
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
-                    // Try to find as regular timeline first, then as dual view
+                    // Try to find as regular timeline, dual view, or media item (image/EXR sequences)
                     qcview::MediaItem* timeline_item = project_manager->GetTimelineItem(lookup_key);
                     if (!timeline_item) {
                         timeline_item = project_manager->GetDualViewItem(lookup_key);
+                    }
+                    if (!timeline_item) {
+                        timeline_item = project_manager->GetMediaItem(lookup_key);
                     }
                     if (timeline_item) {
                         timeline_item->cached_tracks = timeline_view->GetTracks();
@@ -1658,10 +1801,13 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             if (timeline_view && !timeline_view->IsViewingNestedTimeline()) {
                 std::string lookup_key = !current_timeline_path.empty() ? current_timeline_path : current_timeline_id;
                 if (!lookup_key.empty()) {
-                    // Try to find as regular timeline first, then as dual view
+                    // Try to find as regular timeline, dual view, or media item (image/EXR sequences)
                     qcview::MediaItem* current_item = project_manager->GetTimelineItem(lookup_key);
                     if (!current_item) {
                         current_item = project_manager->GetDualViewItem(lookup_key);
+                    }
+                    if (!current_item) {
+                        current_item = project_manager->GetMediaItem(lookup_key);
                     }
                     if (current_item) {
                         current_item->cached_tracks = timeline_view->GetTracks();
@@ -1921,6 +2067,20 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                 annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
                 Debug::Log("Saved annotation: " + current_editing_timecode_);
+
+                // Generate annotated thumbnail
+                auto* note = annotation_manager->GetNoteAtTimecode(current_editing_timecode_);
+                if (note && !note->annotation_data.empty()) {
+                    std::string images_folder = annotation_manager->GetImagesFolder();
+                    std::string filename = note->image_path.substr(note->image_path.find_last_of('/') + 1);
+                    std::string clean_path = images_folder + "/" + filename;
+                    std::string annotated_path = qcview::Annotations::GetAnnotatedThumbnailPath(clean_path);
+                    qcview::Annotations::GenerateAnnotatedThumbnail(clean_path, annotated_path, note->annotation_data);
+
+                    if (annotation_panel) {
+                        annotation_panel->InvalidateThumbnail(annotated_path);
+                    }
+                }
             }
 
             // Exit annotation mode
@@ -1984,6 +2144,21 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             if (annotation_manager && !current_editing_timecode_.empty()) {
                 std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
                 annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+
+                // Generate annotated thumbnail
+                auto* note = annotation_manager->GetNoteAtTimecode(current_editing_timecode_);
+                if (note && !note->annotation_data.empty()) {
+                    std::string images_folder = annotation_manager->GetImagesFolder();
+                    std::string filename = note->image_path.substr(note->image_path.find_last_of('/') + 1);
+                    std::string clean_path = images_folder + "/" + filename;
+                    std::string annotated_path = qcview::Annotations::GetAnnotatedThumbnailPath(clean_path);
+                    qcview::Annotations::GenerateAnnotatedThumbnail(clean_path, annotated_path, note->annotation_data);
+
+                    // Invalidate cached thumbnail so panel reloads it
+                    if (annotation_panel) {
+                        annotation_panel->InvalidateThumbnail(annotated_path);
+                    }
+                }
             }
 
             viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);

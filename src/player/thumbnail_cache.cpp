@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cmath>
 #include <glad/gl.h>
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#endif
 
 // Prevent Windows min/max macros from conflicting with Imath
 #ifdef min
@@ -341,8 +344,25 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
     return pending;
 }
 
-// Create GL texture from pixels (runs on main thread only)
+// Create texture from pixels (runs on main thread only)
 GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create texture via VulkanTexturePool
+    auto& pool = qcview::VulkanTexturePool::Instance();
+    if (!pool.IsInitialized()) {
+        generation_failures_++;
+        return 0;
+    }
+
+    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+    if (pending.gl_type == GL_HALF_FLOAT) vk_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    uint64_t pool_id = pool.CreateTextureFromPixels(
+        pending.width, pending.height, vk_format,
+        pending.pixels.data(), pending.pixels.size());
+    return static_cast<GLuint>(pool_id);
+#else
+    // OpenGL path
     // Save current GL state to avoid corrupting ImGui during render
     GLint previous_texture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
@@ -372,6 +392,7 @@ GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
     glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texture_id;
+#endif
 }
 
 // Process pending uploads (MUST be called from main/GL thread)

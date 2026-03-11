@@ -49,7 +49,7 @@ public:
     ~VideoSequenceTranscoder();
 
     // Lifecycle
-    bool Initialize(const std::string& video_path, const VideoMetadata& metadata, const TranscodeConfig& config = TranscodeConfig{});
+    bool Initialize(const std::string& video_path, const VideoMetadata& metadata, const TranscodeConfig& config);
     bool StartTranscode();                              // Start async transcode to disk
     void CancelTranscode();                             // Cancel in-progress transcode
     void Cleanup();                                     // Stop transcode and cleanup resources

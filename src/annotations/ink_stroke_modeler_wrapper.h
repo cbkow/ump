@@ -71,7 +71,8 @@ public:
      * Initialize/reset the modeler for a new stroke.
      * Must be called before AddPoint.
      */
-    void BeginStroke(const Config& config = Config());
+    void BeginStroke(const Config& config);
+    inline void BeginStroke();
 
     /**
      * Process a new input point. Returns modeled points generated so far.
@@ -117,6 +118,9 @@ private:
     ImVec2 ToModelSpace(const ImVec2& normalized) const;
     ImVec2 FromModelSpace(float x, float y) const;
 };
+
+// Defined after class is complete to satisfy GCC C++20 aggregate rules
+inline void InkStrokeModelerWrapper::BeginStroke() { BeginStroke(Config{}); }
 
 } // namespace Annotations
 } // namespace qcview

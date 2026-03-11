@@ -24,6 +24,8 @@ class D3D11VAVideoDecoder;
 class D3D11VideoDecoder;
 // Forward declaration for unified dual view pipeline
 class DualViewPipeline;
+// Forward declaration for Vulkan dual view compositor
+class VulkanDualCompositor;
 
 // Forward declarations
 class TimelineView;
@@ -286,6 +288,11 @@ private:
 
     // Initialize unified composite pipeline for dual view (called from InitializeForDualView)
     void InitializeUnifiedDualViewPipeline();
+#endif
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan unified dual view compositor
+    std::unique_ptr<VulkanDualCompositor> vulkan_compositor_;
 #endif
 
     // Virtual timeline mode flag (always true now - dummy video mode removed)

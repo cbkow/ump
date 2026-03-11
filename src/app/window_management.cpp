@@ -9,9 +9,14 @@
 #include "app/timecode.h"
 #include "project/project_manager.h"
 #include "utils/debug_utils.h"
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+#include "utils/single_instance.h"
+#endif
 #include "timeline/timeline_view.h"
 #include "timeline/timeline_playback_controller.h"
 #include "annotations/annotation_manager.h"
+#include "annotations/annotation_serializer.h"
+#include "annotations/annotated_thumbnail.h"
 #include "ui/annotation_panel.h"
 #include "ui/timeline_manager.h"
 #include "player/video_player.h"
@@ -23,8 +28,12 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <filesystem>
 #include <iostream>
 #include <cmath>
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_device.h"
+#endif
 
 #ifdef _WIN32
 #include <windows.h>
@@ -242,6 +251,46 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             last_notified_path = new_file_path; // Still update to avoid redundant checks
         }
 
+        // Save and exit annotation edit mode if active
+        if (viewport_annotator && viewport_annotator->IsAnnotationMode()) {
+            auto active_stroke = viewport_annotator->FinalizeStroke();
+            if (active_stroke) {
+                current_annotation_strokes_.push_back(*active_stroke);
+            }
+
+            // Save current annotation data before switching
+            if (annotation_manager && !current_editing_timecode_.empty()) {
+                std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(current_annotation_strokes_);
+                annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+
+                // Generate annotated thumbnail
+                auto* note = annotation_manager->GetNoteAtTimecode(current_editing_timecode_);
+                if (note && !note->annotation_data.empty()) {
+                    std::string images_folder = annotation_manager->GetImagesFolder();
+                    std::string filename = note->image_path.substr(note->image_path.find_last_of('/') + 1);
+                    std::string clean_path = images_folder + "/" + filename;
+                    std::string annotated_path = qcview::Annotations::GetAnnotatedThumbnailPath(clean_path);
+                    qcview::Annotations::GenerateAnnotatedThumbnail(clean_path, annotated_path, note->annotation_data);
+                    annotation_panel->InvalidateThumbnail(annotated_path);
+                }
+            }
+
+            viewport_annotator->SetMode(qcview::Annotations::ViewportMode::PLAYBACK);
+            viewport_annotator->SetAllowInputInPopup(false);
+            if (annotation_toolbar) annotation_toolbar->SetVisible(false);
+            current_editing_timecode_.clear();
+            current_annotation_strokes_.clear();
+            annotation_undo_stack_.clear();
+            annotation_redo_stack_.clear();
+
+            // Close edit modal if open
+            if (annotation_panel && annotation_panel->IsEditModalOpen()) {
+                annotation_panel->CloseEditModal();
+            }
+
+            Debug::Log("Auto-saved and exited annotation edit mode on file change");
+        }
+
         // Load annotations for the new media file
         // Handle different timeline source modes for annotation availability
         if (annotation_manager && annotation_panel) {
@@ -418,6 +467,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     }
 
 
+#ifdef _WIN32
     // Custom window procedure to intercept close button in fullscreen AND handle WM_COPYDATA
     LRESULT CALLBACK Application::CustomWndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         if (uMsg == WM_SYSCOMMAND && wParam == SC_CLOSE && app_instance && app_instance->is_fullscreen) {
@@ -497,6 +547,59 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
 
         Debug::Log("Single-instance messaging setup complete - window tagged for IPC");
     }
+#endif // _WIN32
+
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+    void Application::SetSingleInstance(qcview::SingleInstance* si) {
+        single_instance_ = si;
+        if (single_instance_) {
+            single_instance_->SetFileCallback([this](const std::vector<std::string>& files) {
+                if (files.empty()) {
+                    // Just raise the window
+                    if (window) {
+                        glfwFocusWindow(window);
+                    }
+                    return;
+                }
+
+                if (!project_manager) return;
+
+                if (files.size() == 1) {
+                    const std::string& arg = files[0];
+
+                    // qcview:// URI
+                    if (arg.substr(0, 10) == "qcview:///") {
+                        std::string project_path = ParseProjectURI(arg);
+                        if (!project_path.empty()) {
+                            project_manager->LoadProject(project_path);
+                            show_project_panel = true;
+                            show_inspector_panel = true;
+                        }
+                    }
+                    // Project file
+                    else if (arg.find(".qcvproj") != std::string::npos ||
+                             arg.find(".umproj") != std::string::npos) {
+                        project_manager->LoadProject(arg);
+                    }
+                    // Regular media file
+                    else {
+                        project_manager->LoadSingleFileFromDrop(arg);
+                    }
+                } else {
+                    show_project_panel = true;
+                    project_manager->LoadMultipleFilesFromDrop(files);
+                }
+
+                // Bring window to front
+                if (window) {
+                    glfwFocusWindow(window);
+                }
+
+                Debug::Log("SingleInstance: Processed " + std::to_string(files.size()) + " file(s)");
+            });
+        }
+    }
+#endif
 
     void Application::ToggleFullscreen() {
         static int saved_x, saved_y, saved_width, saved_height;
@@ -504,7 +607,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         is_fullscreen = !is_fullscreen;
 
         if (is_fullscreen) {
-            Debug::Log("Entering borderless fullscreen");
+            Debug::Log("Entering fullscreen");
 
             // Save current window state
             glfwGetWindowPos(window, &saved_x, &saved_y);
@@ -526,28 +629,52 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             }
             fullscreen_monitor = best_monitor;
 
-            // Remove window decorations (no context rebuild)
+#ifdef _WIN32
+            // Windows: borderless fullscreen (remove decorations, cover monitor)
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
 
-            // Cover entire monitor
             int mon_x, mon_y;
             glfwGetMonitorPos(fullscreen_monitor, &mon_x, &mon_y);
             const GLFWvidmode* mode = glfwGetVideoMode(fullscreen_monitor);
             glfwSetWindowPos(window, mon_x, mon_y);
             glfwSetWindowSize(window, mode->width, mode->height);
+#else
+            // Linux/Wayland: use glfwSetWindowMonitor for proper fullscreen
+            // This handles compositor decorations and DPI scaling correctly
+            const GLFWvidmode* mode = glfwGetVideoMode(fullscreen_monitor);
+            glfwSetWindowMonitor(window, fullscreen_monitor, 0, 0,
+                                 mode->width, mode->height, mode->refreshRate);
+#endif
+
+#ifdef QCVIEW_USE_VULKAN
+            // Swapchain must match the new framebuffer size
+            vulkan_swapchain_->Recreate();
+#endif
         }
         else {
-            Debug::Log("Exiting borderless fullscreen");
+            Debug::Log("Exiting fullscreen");
             fullscreen_monitor = nullptr;
 
-            // Restore window decorations
+#ifdef _WIN32
+            // Windows: restore decorations and position
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
-
-            // Restore size and position
             glfwSetWindowSize(window, saved_width > 0 ? saved_width : 1914, saved_height > 0 ? saved_height : 1060);
             glfwSetWindowPos(window, saved_x, saved_y);
+#else
+            // Linux/Wayland: exit fullscreen by setting monitor to nullptr
+            glfwSetWindowMonitor(window, nullptr, saved_x, saved_y,
+                                 saved_width > 0 ? saved_width : 1914,
+                                 saved_height > 0 ? saved_height : 1060, 0);
+#endif
+
+#ifdef QCVIEW_USE_VULKAN
+            vulkan_swapchain_->Recreate();
+#endif
         }
     }
+
+// RecreateVulkanSwapchain is now handled by VulkanHDRSwapchain::Recreate()
+// Called directly from the render loop via vulkan_swapchain_->Recreate()
 
     void Application::CopyToClipboard(const std::string& text) {
         if (text.empty()) return;
@@ -568,7 +695,10 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             Debug::Log("Copied to clipboard: " + text);
         }
 #else
-        // Other platforms placeholder
+        if (window) {
+            glfwSetClipboardString(window, text.c_str());
+            Debug::Log("Copied to clipboard: " + text);
+        }
 #endif
     }
 
@@ -583,7 +713,13 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         std::wstring params = L"/select,\"" + wide_path + L"\"";
         ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
 #else
-        // Placeholder for other platforms
+        // Linux: open parent directory (xdg-open can't select a specific file)
+        std::filesystem::path fs_path(file_path);
+        std::string folder = fs_path.parent_path().string();
+        std::thread([folder]() {
+            std::string cmd = "xdg-open \"" + folder + "\"";
+            system(cmd.c_str());
+        }).detach();
 #endif
     }
 
@@ -621,7 +757,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             }
             PopOutlineButtonStyle();
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Open in Explorer");
+                ImGui::SetTooltip("Open in File Manager");
             }
         }
 
@@ -658,5 +794,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     }
 
 // Static member definitions
+#ifdef _WIN32
 WNDPROC Application::original_wndproc = nullptr;
+#endif
 Application* Application::app_instance = nullptr;

@@ -301,8 +301,7 @@ std::shared_ptr<PixelData> ScrubDecoder::ConvertFrame(AVFrame* frame) {
     auto pixels = std::make_shared<PixelData>();
     pixels->width = frame->width;
     pixels->height = frame->height;
-    pixels->gl_format = GL_RGBA;
-    pixels->gl_type = GL_UNSIGNED_BYTE;
+    pixels->SetFormat(PixelFormat::RGBA8);
     pixels->pixels.resize(frame->width * frame->height * 4);
 
     // Set up destination

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
+#include <thread>
 #include <cmath>
 #include <set>
 #include <regex>
@@ -137,6 +138,13 @@ ImVec4 Bright(const ImVec4& accent) { return TintColor(accent, 2.2f, 0.5f); }
 
 // External transcode performance settings (defined in main.cpp)
 #include "../transcode/transcode_settings.h"
+
+// Transcode progress globals (defined in main.cpp, global namespace)
+extern bool show_transcode_progress;
+extern std::atomic<int> transcode_current_frame;
+extern std::atomic<int> transcode_total_frames;
+extern std::string transcode_status_message;
+extern std::mutex transcode_status_mutex;
 
 namespace qcview {
 
@@ -3177,7 +3185,12 @@ namespace qcview {
             [&item_id](const MediaItem& item) { return item.id == item_id; });
 
         if (item_it != media_pool.end()) {
+#ifdef _WIN32
             strncpy_s(rename_buffer, item_it->name.c_str(), sizeof(rename_buffer) - 1);
+#else
+            strncpy(rename_buffer, item_it->name.c_str(), sizeof(rename_buffer) - 1);
+            rename_buffer[sizeof(rename_buffer) - 1] = '\0';
+#endif
             show_rename_dialog = true;
         }
     }
@@ -3284,6 +3297,18 @@ namespace qcview {
 
         Debug::Log("ShowInExplorer: Opening: " + windows_path);
         ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
+#else
+        // Linux: open directory (xdg-open can't select a specific file)
+        std::string target = resolved_path;
+        std::filesystem::path fs_path(resolved_path);
+        if (!std::filesystem::is_directory(fs_path)) {
+            target = fs_path.parent_path().string();
+        }
+        std::thread([target]() {
+            std::string cmd = "xdg-open \"" + target + "\"";
+            system(cmd.c_str());
+        }).detach();
+        Debug::Log("ShowInExplorer: Opening: " + target);
 #endif
     }
 
@@ -7079,15 +7104,9 @@ namespace qcview {
         Debug::Log("ProcessImageSequenceWithTranscode: Starting async transcode...");
 
         // Show progress dialog
-        extern bool show_transcode_progress;
-        extern std::atomic<int> transcode_current_frame;
-        extern std::atomic<int> transcode_total_frames;
-        extern std::string transcode_status_message;
-        extern std::mutex transcode_status_mutex;
-
-        show_transcode_progress = true;
-        transcode_current_frame = 0;
-        transcode_total_frames = static_cast<int>(sequence_files.size());
+        ::show_transcode_progress = true;
+        ::transcode_current_frame = 0;
+        ::transcode_total_frames = static_cast<int>(sequence_files.size());
 
         transcoder.TranscodeSequenceAsync(
             sequence_files,
@@ -7099,24 +7118,18 @@ namespace qcview {
                 Debug::Log("Transcode progress: " + std::to_string(current) + "/" + std::to_string(total) + " - " + message);
 
                 // Update UI progress (thread-safe)
-                extern std::atomic<int> transcode_current_frame;
-                extern std::atomic<int> transcode_total_frames;
-                extern std::string transcode_status_message;
-                extern std::mutex transcode_status_mutex;
-
-                transcode_current_frame = current;
-                transcode_total_frames = total;
+                ::transcode_current_frame = current;
+                ::transcode_total_frames = total;
 
                 {
-                    std::lock_guard<std::mutex> lock(transcode_status_mutex);
-                    transcode_status_message = message;
+                    std::lock_guard<std::mutex> lock(::transcode_status_mutex);
+                    ::transcode_status_message = message;
                 }
             },
             // Completion callback
             [this, sequence_files, exr_layer, part_index, max_width, compression, frame_rate](bool success, const std::string& error_message) {
                 // Hide progress dialog
-                extern bool show_transcode_progress;
-                show_transcode_progress = false;
+                ::show_transcode_progress = false;
 
                 if (success) {
                     Debug::Log("ProcessImageSequenceWithTranscode: Transcode complete!");
@@ -7159,8 +7172,7 @@ namespace qcview {
         Debug::Log("ProjectManager: Transcode cancellation requested");
 
         // Hide progress dialog
-        extern bool show_transcode_progress;
-        show_transcode_progress = false;
+        ::show_transcode_progress = false;
     }
 
     bool ProjectManager::IsInImageSequenceMode() const {

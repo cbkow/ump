@@ -1,6 +1,9 @@
 #include "ocio_pipeline.h"
 #include "ocio_config_manager.h"
+#ifndef QCVIEW_USE_VULKAN
 #include <glad/gl.h>
+#endif
+#include <cstring>
 #include <sstream>
 #include <vector>
 
@@ -21,11 +24,13 @@ OCIOPipeline::OCIOPipeline()
 }
 
 OCIOPipeline::~OCIOPipeline() {
+#ifndef QCVIEW_USE_VULKAN
     CleanupShaders();
     if (!lut_texture_ids.empty()) {
         glDeleteTextures(lut_texture_ids.size(), lut_texture_ids.data());
         lut_texture_ids.clear();
     }
+#endif
 #ifdef _WIN32
     CleanupD3D11Shaders();
 #endif
@@ -364,7 +369,15 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
             Debug::Log("  Looks: " + looks);
         }
 
+#ifdef QCVIEW_USE_VULKAN
+        // On Vulkan, shader generation is deferred to VulkanOCIORenderer::Apply()
+        // which calls GenerateVulkanShaderInfo() to get GLSL + LUT data.
+        is_valid = true;
+        is_passthrough = false;
+        return true;
+#else
         return GenerateAndCompileShader();
+#endif
 
     }
     catch (OCIO::Exception& e) {
@@ -378,6 +391,13 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
 bool OCIOPipeline::CreatePassthroughPipeline() {
     Debug::Log("Creating passthrough pipeline (identity color transform)");
 
+#ifdef QCVIEW_USE_VULKAN
+    // On Vulkan, passthrough is handled by VulkanOCIORenderer directly.
+    // Just mark the pipeline as valid + passthrough, no GPU resources needed.
+    is_valid = true;
+    is_passthrough = true;
+    return true;
+#else
     const char* vertex_src = R"(
         #version 330 core
         layout(location = 0) in vec2 aPos;
@@ -427,8 +447,10 @@ bool OCIOPipeline::CreatePassthroughPipeline() {
     is_passthrough = true;
     Debug::Log("Fallback tint pipeline created successfully");
     return true;
+#endif // !QCVIEW_USE_VULKAN
 }
 
+#ifndef QCVIEW_USE_VULKAN
 bool OCIOPipeline::GenerateAndCompileShader() {
     if (!processor) return false;
 
@@ -845,11 +867,149 @@ void OCIOPipeline::CleanupShaders() {
     }
     is_valid = false;
 }
+#endif // !QCVIEW_USE_VULKAN
 
 bool OCIOPipeline::BuildTestPipeline() {
     Debug::Log("Building test pipeline (passthrough with tint)");
     return CreatePassthroughPipeline();  // Calls the private method
 }
+
+#ifdef __linux__
+//=============================================================================
+// Vulkan Shader Info Extraction
+//=============================================================================
+
+bool OCIOPipeline::GenerateVulkanShaderInfo(VulkanShaderInfo& info) {
+    info = VulkanShaderInfo{};
+
+    if (!processor) {
+        Debug::Log("OCIOPipeline::GenerateVulkanShaderInfo: No processor available");
+        return false;
+    }
+
+    try {
+        // Create GPU processor with GLSL 4.0 output (same as GL path)
+        OCIO::GpuShaderDescRcPtr shaderDesc = OCIO::GpuShaderDesc::CreateShaderDesc();
+        shaderDesc->setLanguage(OCIO::GPU_LANGUAGE_GLSL_4_0);
+        shaderDesc->setFunctionName("OCIODisplay");
+        shaderDesc->setResourcePrefix("ocio_");
+
+        OCIO::ConstGPUProcessorRcPtr gpuProc = processor->getDefaultGPUProcessor();
+        gpuProc->extractGpuShaderInfo(shaderDesc);
+
+        const char* shader_src = shaderDesc->getShaderText();
+        info.ocio_function_glsl = shader_src ? shader_src : "";
+
+        Debug::Log("VulkanShaderInfo: OCIO GLSL function length: " +
+                   std::to_string(info.ocio_function_glsl.length()) + " characters");
+
+        // Extract 1D LUT info
+        int num_1d_luts = shaderDesc->getNumTextures();
+        int num_3d_luts = shaderDesc->getNum3DTextures();
+        Debug::Log("VulkanShaderInfo: " + std::to_string(num_1d_luts) + " 1D LUT(s), " +
+                   std::to_string(num_3d_luts) + " 3D LUT(s)");
+
+        for (int i = 0; i < num_1d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned width = 0, height = 0;
+            OCIO::GpuShaderDesc::TextureType channel;
+            OCIO::GpuShaderDesc::TextureDimensions dimensions;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->getTexture(i, textureName, samplerName, width, height,
+                                   channel, dimensions, interp);
+
+            if (width == 0) continue;
+
+            VulkanLUTInfo lut;
+            lut.sampler_name = samplerName ? samplerName : ("ocio_lut1d_" + std::to_string(i));
+            lut.is_3d = false;
+            lut.width = width;
+            lut.height = (dimensions == OCIO::GpuShaderDesc::TEXTURE_1D) ? 1 : height;
+            lut.is_red_channel = (channel == OCIO::GpuShaderDesc::TEXTURE_RED_CHANNEL);
+
+            // Copy LUT data
+            const float* lut_ptr = nullptr;
+            shaderDesc->getTextureValues(i, lut_ptr);
+            unsigned num_components = lut.is_red_channel ? 1 : 3;
+            unsigned total_pixels = lut.width * std::max(lut.height, 1u);
+            lut.data.resize(total_pixels * num_components);
+
+            if (lut_ptr) {
+                std::memcpy(lut.data.data(), lut_ptr, lut.data.size() * sizeof(float));
+            } else {
+                // Identity fallback
+                for (unsigned j = 0; j < total_pixels; ++j) {
+                    float val = float(j) / float(total_pixels - 1);
+                    if (lut.is_red_channel) {
+                        lut.data[j] = val;
+                    } else {
+                        lut.data[j * 3 + 0] = val;
+                        lut.data[j * 3 + 1] = val;
+                        lut.data[j * 3 + 2] = val;
+                    }
+                }
+            }
+
+            Debug::Log("VulkanShaderInfo: 1D LUT '" + lut.sampler_name + "' " +
+                       std::to_string(lut.width) + "x" + std::to_string(lut.height) +
+                       " " + (lut.is_red_channel ? "R32F" : "RGB32F"));
+            info.luts.push_back(std::move(lut));
+        }
+
+        // Extract 3D LUT info
+        for (int i = 0; i < num_3d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned edgelen = 0;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->get3DTexture(i, textureName, samplerName, edgelen, interp);
+
+            if (edgelen == 0) continue;
+
+            VulkanLUTInfo lut;
+            lut.sampler_name = samplerName ? samplerName : ("ocio_lut3d_" + std::to_string(i));
+            lut.is_3d = true;
+            lut.edge_len = edgelen;
+
+            // Copy 3D LUT data (RGB floats)
+            const float* lut_ptr = nullptr;
+            shaderDesc->get3DTextureValues(i, lut_ptr);
+            lut.data.resize(edgelen * edgelen * edgelen * 3);
+
+            if (lut_ptr) {
+                std::memcpy(lut.data.data(), lut_ptr, lut.data.size() * sizeof(float));
+            } else {
+                // Identity 3D LUT
+                for (unsigned z = 0; z < edgelen; ++z) {
+                    for (unsigned y = 0; y < edgelen; ++y) {
+                        for (unsigned x = 0; x < edgelen; ++x) {
+                            unsigned idx = 3 * (x + edgelen * (y + edgelen * z));
+                            lut.data[idx + 0] = float(x) / float(edgelen - 1);
+                            lut.data[idx + 1] = float(y) / float(edgelen - 1);
+                            lut.data[idx + 2] = float(z) / float(edgelen - 1);
+                        }
+                    }
+                }
+            }
+
+            Debug::Log("VulkanShaderInfo: 3D LUT '" + lut.sampler_name + "' " +
+                       std::to_string(edgelen) + "^3");
+            info.luts.push_back(std::move(lut));
+        }
+
+        info.valid = true;
+        return true;
+
+    } catch (OCIO::Exception& e) {
+        Debug::Log("OCIOPipeline::GenerateVulkanShaderInfo exception: " + std::string(e.what()));
+        return false;
+    }
+}
+
+#endif // __linux__
 
 #ifdef _WIN32
 //=============================================================================

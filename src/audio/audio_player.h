@@ -7,8 +7,12 @@
 
 #include "audio_decoder.h"
 
-// Forward declare WASAPI device
+// Forward declare audio device
+#ifdef _WIN32
 namespace qcview { class WasapiAudioDevice; }
+#elif defined(__linux__)
+namespace qcview { class PipeWireAudioDevice; }
+#endif
 
 namespace qcview {
 
@@ -169,8 +173,12 @@ private:
     bool initialized_ = false;
     AudioClipConfig clip_config_;
 
-    // WASAPI audio device
+    // Audio output device
+#ifdef _WIN32
     std::unique_ptr<WasapiAudioDevice> device_;
+#elif defined(__linux__)
+    std::unique_ptr<PipeWireAudioDevice> device_;
+#endif
 
     // Audio decoder
     std::unique_ptr<AudioDecoder> decoder_;

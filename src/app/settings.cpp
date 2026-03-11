@@ -43,24 +43,57 @@ extern TranscodeSettings transcode_settings;
 // ============================================================================
 
 std::string Application::GetSettingsPath() {
+#ifdef _WIN32
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
         std::string base_path = std::string(localappdata) + "\\qcview";
-        // Ensure directory exists
         std::filesystem::create_directories(base_path);
         return base_path + "\\settings.qcv";
     }
+#else
+    // XDG Base Directory: ~/.config/qcview/settings.qcv
+    const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
+    std::string base_path;
+    if (xdg_config) {
+        base_path = std::string(xdg_config) + "/qcview";
+    } else {
+        const char* home = std::getenv("HOME");
+        if (home) {
+            base_path = std::string(home) + "/.config/qcview";
+        }
+    }
+    if (!base_path.empty()) {
+        std::filesystem::create_directories(base_path);
+        return base_path + "/settings.qcv";
+    }
+#endif
     return "settings.qcv";  // Fallback to current directory
 }
 
 std::string Application::GetLayoutIniPath() {
+#ifdef _WIN32
     const char* localappdata = std::getenv("LOCALAPPDATA");
     if (localappdata) {
         std::string base_path = std::string(localappdata) + "\\qcview";
-        // Ensure directory exists
         std::filesystem::create_directories(base_path);
         return base_path + "\\layout.ini";
     }
+#else
+    const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
+    std::string base_path;
+    if (xdg_config) {
+        base_path = std::string(xdg_config) + "/qcview";
+    } else {
+        const char* home = std::getenv("HOME");
+        if (home) {
+            base_path = std::string(home) + "/.config/qcview";
+        }
+    }
+    if (!base_path.empty()) {
+        std::filesystem::create_directories(base_path);
+        return base_path + "/layout.ini";
+    }
+#endif
     return "imgui.ini";  // Fallback to default
 }
 
@@ -119,6 +152,16 @@ void Application::LoadSettings() {
                 if (g_font_scale < 0.5f) g_font_scale = 0.5f;
                 if (g_font_scale > 2.0f) g_font_scale = 2.0f;
             }
+#ifdef QCVIEW_USE_VULKAN
+            if (j["appearance"].contains("hdr_enabled")) {
+                hdr_preferred_ = j["appearance"]["hdr_enabled"].get<bool>();
+            }
+            if (j["appearance"].contains("hdr_ui_nits")) {
+                hdr_ui_nits_ = j["appearance"]["hdr_ui_nits"].get<float>();
+                if (hdr_ui_nits_ < 80.0f) hdr_ui_nits_ = 80.0f;
+                if (hdr_ui_nits_ > 1000.0f) hdr_ui_nits_ = 1000.0f;
+            }
+#endif
         }
 
         // Window position and size (will be applied after window creation)
@@ -144,9 +187,15 @@ void Application::LoadSettings() {
                 std::string encoded_token = j["frameio"]["saved_token"].get<std::string>();
                 std::string decoded_token = DecodeBase64(encoded_token);
                 if (!decoded_token.empty()) {
+#ifdef _WIN32
                     strncpy_s(frameio_import_state.token_buffer,
                               sizeof(frameio_import_state.token_buffer),
                               decoded_token.c_str(), _TRUNCATE);
+#else
+                    strncpy(frameio_import_state.token_buffer, decoded_token.c_str(),
+                            sizeof(frameio_import_state.token_buffer) - 1);
+                    frameio_import_state.token_buffer[sizeof(frameio_import_state.token_buffer) - 1] = '\0';
+#endif
                     Debug::Log("Loaded Frame.io token from settings");
                 }
             }
@@ -439,6 +488,10 @@ void Application::SaveSettings() {
         }
         j["appearance"]["video_background"] = bg_str;
         j["appearance"]["font_scale"] = g_font_scale;
+#ifdef QCVIEW_USE_VULKAN
+        j["appearance"]["hdr_enabled"] = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : hdr_preferred_;
+        j["appearance"]["hdr_ui_nits"] = hdr_ui_nits_;
+#endif
 
         // Window position and size
         if (window) {

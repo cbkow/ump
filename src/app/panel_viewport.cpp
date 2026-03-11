@@ -27,6 +27,19 @@
 #include <GLFW/glfw3.h>
 #include <nanovg.h>
 
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_texture_pool.h"
+#include "annotations/vulkan_annotation_renderer.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#else
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    return (ImTextureID)(intptr_t)id;
+}
+#endif
+
 // OTIO Timeline UI Constants (duplicated from panel_timeline.cpp — shared constants)
 namespace OTIOTimeline {
     constexpr float TRACK_HEADER_WIDTH = 140.0f;
@@ -452,7 +465,7 @@ extern bool g_skip_viewport_render_frame;
 
                     // Render the display texture (either original or color-corrected)
                     ImGui::GetWindowDrawList()->AddImage(
-                        (void*)(intptr_t)display_texture,
+                        PoolIDToImTexture(display_texture),
                         display_pos,
                         ImVec2(display_pos.x + display_size.x, display_pos.y + display_size.y)
                     );
@@ -582,14 +595,14 @@ extern bool g_skip_viewport_render_frame;
                                 ImVec2 uv1(cached_dual_view_textures.left_uv_max_x,
                                            cached_dual_view_textures.left_uv_max_y);
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_left,
+                                    PoolIDToImTexture(display_left),
                                     img_pos,
                                     ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y),
                                     uv0, uv1
                                 );
                             } else {
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_left,
+                                    PoolIDToImTexture(display_left),
                                     img_pos,
                                     ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
                                 );
@@ -630,14 +643,14 @@ extern bool g_skip_viewport_render_frame;
                                 ImVec2 uv1(cached_dual_view_textures.right_uv_max_x,
                                            cached_dual_view_textures.right_uv_max_y);
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_right,
+                                    PoolIDToImTexture(display_right),
                                     img_pos,
                                     ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y),
                                     uv0, uv1
                                 );
                             } else {
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_right,
+                                    PoolIDToImTexture(display_right),
                                     img_pos,
                                     ImVec2(img_pos.x + full_size.x, img_pos.y + full_size.y)
                                 );
@@ -718,14 +731,14 @@ extern bool g_skip_viewport_render_frame;
                                 ImVec2 uv1(cached_dual_view_textures.left_uv_max_x,
                                            cached_dual_view_textures.left_uv_max_y);
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_left,
+                                    PoolIDToImTexture(display_left),
                                     left_pos,
                                     ImVec2(left_pos.x + left_size.x, left_pos.y + left_size.y),
                                     uv0, uv1
                                 );
                             } else {
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_left,
+                                    PoolIDToImTexture(display_left),
                                     left_pos,
                                     ImVec2(left_pos.x + left_size.x, left_pos.y + left_size.y)
                                 );
@@ -765,14 +778,14 @@ extern bool g_skip_viewport_render_frame;
                                 ImVec2 uv1(cached_dual_view_textures.right_uv_max_x,
                                            cached_dual_view_textures.right_uv_max_y);
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_right,
+                                    PoolIDToImTexture(display_right),
                                     right_pos,
                                     ImVec2(right_pos.x + right_size.x, right_pos.y + right_size.y),
                                     uv0, uv1
                                 );
                             } else {
                                 draw_list->AddImage(
-                                    (ImTextureID)(intptr_t)display_right,
+                                    PoolIDToImTexture(display_right),
                                     right_pos,
                                     ImVec2(right_pos.x + right_size.x, right_pos.y + right_size.y)
                                 );
@@ -923,12 +936,46 @@ extern bool g_skip_viewport_render_frame;
                                     }
 
                                     pending_nvg_render_ = !nvg_strokes_to_render_.empty();
+
+#ifdef QCVIEW_USE_VULKAN
+                                    // Render annotations via Vulkan tessellation pipeline
+                                    if (pending_nvg_render_ && vulkan_annotation_renderer_ &&
+                                        vulkan_annotation_renderer_->IsInitialized()) {
+                                        float lws = (video_width > 0) ? (display_size.x / (float)video_width) : 1.0f;
+                                        vulkan_annotation_texture_id_ = vulkan_annotation_renderer_->RenderAnnotations(
+                                            nvg_strokes_to_render_,
+                                            (int)display_size.x, (int)display_size.y,
+                                            0.0f, 0.0f, display_size.x, display_size.y,
+                                            lws, true);
+                                        pending_nvg_render_ = false;  // Vulkan handled it
+                                    } else {
+                                        vulkan_annotation_texture_id_ = 0;
+                                    }
+#endif
                                 } else {
                                     pending_nvg_render_ = false;
+#ifdef QCVIEW_USE_VULKAN
+                                    vulkan_annotation_texture_id_ = 0;
+#endif
                                 }
                             }
                         }
                     }
+
+#ifdef QCVIEW_USE_VULKAN
+                    // Overlay Vulkan annotation texture on top of video
+                    if (vulkan_annotation_texture_id_ != 0) {
+                        auto ann_tex = qcview::VulkanTexturePool::Instance().GetImTextureID(vulkan_annotation_texture_id_);
+                        if (ann_tex) {
+                            ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                            // Use the display area calculated during annotation rendering
+                            ImVec2 ann_pos = nvg_display_pos_;
+                            ImVec2 ann_size = nvg_display_size_;
+                            draw_list->AddImage(ann_tex, ann_pos,
+                                ImVec2(ann_pos.x + ann_size.x, ann_pos.y + ann_size.y));
+                        }
+                    }
+#endif
 
                     // Process export state machine (queues captures as needed)
                     ProcessExportStateMachine();

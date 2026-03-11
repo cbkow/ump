@@ -10,6 +10,7 @@
 
 #include "media_background_extractor.h"
 #include "frame_cache.h"
+#include <cstring>
 #include "video_player.h"  // For PIPELINE_CONFIGS
 #include "hw_context_manager.h"  // Shared hardware decode contexts
 #include "../metadata/video_metadata.h"

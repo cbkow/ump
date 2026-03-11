@@ -32,6 +32,9 @@
 #ifdef _WIN32
 #include "../player/d3d11_video_decoder.h"      // For D3D11VideoDecoder (GPU-native) - VIDEO_FILE mode only
 #endif
+#ifdef QCVIEW_USE_VULKAN
+#include "../player/vulkan_video_decoder.h"      // For VulkanVideoDecoder (Linux) - VIDEO_FILE mode
+#endif
 #include "cache_window_engine.h"                // Central circular cache engine
 #include "timeline_types.h"                     // For TimelineSourceMode
 #include "../utils/debug_utils.h"               // For Debug::Log
@@ -165,6 +168,11 @@ struct ClipLoaderInfo {
     std::unique_ptr<D3D11VideoDecoder> d3d11_decoder;
 #endif
 
+    // Vulkan video decoder for Linux VIDEO_FILE mode
+#ifdef QCVIEW_USE_VULKAN
+    std::unique_ptr<VulkanVideoDecoder> vulkan_decoder;
+#endif
+
     ClipMediaType media_type = ClipMediaType::UNKNOWN;
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
     int width = 0;
@@ -207,6 +215,9 @@ struct ClipLoaderInfo {
         // D3D11VideoDecoder uses GetGLTexture() path, not PixelData
         if (d3d11_decoder) return d3d11_decoder->GetFrame(frame);
 #endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) return vulkan_decoder->GetFrame(frame);
+#endif
         if (video_decoder) return video_decoder->GetFrame(frame);
         if (sequence_decoder) return sequence_decoder->GetFrame(frame);
         return nullptr;
@@ -217,6 +228,9 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) return d3d11_decoder->GetClosestFrame(frame, actual);
 #endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) return vulkan_decoder->GetClosestFrame(frame, actual);
+#endif
         if (video_decoder) return video_decoder->GetClosestFrame(frame, actual);
         if (sequence_decoder) return sequence_decoder->GetClosestFrame(frame, actual);
         return nullptr;
@@ -226,6 +240,9 @@ struct ClipLoaderInfo {
     void UpdatePlayhead(int frame, SeekQuality quality = SeekQuality::NORMAL, bool force = false, bool is_prefetch = false) {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->UpdatePlayhead(frame, quality, force); return; }
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) { vulkan_decoder->UpdatePlayhead(frame, quality, force); return; }
 #endif
         if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
         if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
@@ -241,6 +258,9 @@ struct ClipLoaderInfo {
     bool HasFrame(int frame) const {
 #ifdef _WIN32
         if (d3d11_decoder) return d3d11_decoder->HasFrame(frame);
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) return vulkan_decoder->HasFrame(frame);
 #endif
         if (video_decoder) return video_decoder->HasFrame(frame);
         if (sequence_decoder) return sequence_decoder->HasFrame(frame);
@@ -304,6 +324,9 @@ struct ClipLoaderInfo {
     bool HasBufferedDecoder() const {
 #ifdef _WIN32
         if (d3d11_decoder) return true;
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) return true;
 #endif
         return video_decoder != nullptr || sequence_decoder != nullptr;
     }
@@ -513,6 +536,9 @@ struct TimelineCacheConfig {
     // Eliminates D3D11 contention, adds ~100-200ms pause at clip boundaries
     // Only applies to PLAYLIST mode - VIDEO_FILE and DUAL_VIEW unaffected
     bool use_single_decoder = true;  // Default ON for stability
+
+    // Force software decode (disables hardware acceleration)
+    bool force_software_decode = false;
 
     // Computed helper
     int GetWindowSize() const {

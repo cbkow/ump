@@ -1,12 +1,32 @@
 cmake_minimum_required(VERSION 3.20)
-project(qcview VERSION 1.0.3 LANGUAGES CXX C)
+project(qcview VERSION 1.0.4 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# GCC/Clang compatibility flags for code written targeting MSVC
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    add_compile_options(-fno-char8_t -fpermissive)
+endif()
+
 # Set default build type if not specified
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# ==========================================================================
+# Platform detection and Vulkan option
+# ==========================================================================
+if(UNIX AND NOT APPLE)
+    set(QCVIEW_LINUX TRUE)
+    option(QCVIEW_USE_VULKAN "Use Vulkan rendering backend (Linux)" ON)
+    message(STATUS "Platform: Linux")
+    if(QCVIEW_USE_VULKAN)
+        message(STATUS "Rendering backend: Vulkan")
+        add_compile_definitions(QCVIEW_USE_VULKAN)
+    endif()
+else()
+    set(QCVIEW_LINUX FALSE)
 endif()
 
 # Windows-specific settings
@@ -31,9 +51,35 @@ if(MSVC)
     add_compile_options(/wd4996)  # Disable deprecated warnings
 endif()
 
+# ==========================================================================
 # Find packages
-find_package(OpenGL REQUIRED)
+# ==========================================================================
+if(NOT QCVIEW_LINUX OR NOT QCVIEW_USE_VULKAN)
+    find_package(OpenGL REQUIRED)
+endif()
 find_package(Threads REQUIRED)
+
+# Vulkan on Linux
+if(QCVIEW_LINUX AND QCVIEW_USE_VULKAN)
+    find_package(Vulkan REQUIRED)
+    message(STATUS "Vulkan found: ${Vulkan_LIBRARIES}")
+    message(STATUS "Vulkan include: ${Vulkan_INCLUDE_DIRS}")
+
+    # Find shaderc for runtime GLSL->SPIR-V compilation (ships with Vulkan SDK)
+    # Prefer shared library to avoid static dependency chain (glslang, SPIRV-Tools)
+    find_library(SHADERC_LIB shaderc_shared HINTS ${Vulkan_INCLUDE_DIRS}/../lib)
+    if(NOT SHADERC_LIB)
+        find_library(SHADERC_LIB shaderc HINTS ${Vulkan_INCLUDE_DIRS}/../lib)
+    endif()
+    if(NOT SHADERC_LIB)
+        find_library(SHADERC_LIB shaderc_combined HINTS ${Vulkan_INCLUDE_DIRS}/../lib)
+    endif()
+    if(SHADERC_LIB)
+        message(STATUS "shaderc found: ${SHADERC_LIB}")
+    else()
+        message(STATUS "shaderc not found - runtime shader compilation will not be available")
+    endif()
+endif()
 
 # Set paths for dependencies on Windows
 if(WIN32)
@@ -42,6 +88,82 @@ if(WIN32)
     set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
     set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
 
+endif()
+
+# Linux: Find system packages via pkg-config
+if(QCVIEW_LINUX)
+    find_package(PkgConfig REQUIRED)
+
+    # FFmpeg
+    pkg_check_modules(FFMPEG REQUIRED
+        libavcodec
+        libavformat
+        libavutil
+        libavfilter
+        libswscale
+        libswresample
+    )
+
+    # OpenColorIO 2.5 (vendored, matching Windows build)
+    set(OCIO_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/linux/include")
+    set(OCIO_LIBRARY_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/linux/lib")
+    set(OCIO_LIBRARIES "OpenColorIO")
+
+    # OpenEXR
+    pkg_check_modules(OPENEXR REQUIRED OpenEXR)
+    pkg_check_modules(IMATH REQUIRED Imath)
+
+    # Image format libraries
+    pkg_check_modules(TIFF REQUIRED libtiff-4)
+    pkg_check_modules(PNG REQUIRED libpng)
+    pkg_check_modules(JPEG REQUIRED libjpeg)
+
+    # SoundTouch
+    pkg_check_modules(SOUNDTOUCH soundtouch)
+    if(SOUNDTOUCH_FOUND)
+        message(STATUS "SoundTouch: Found via pkg-config")
+    else()
+        message(STATUS "SoundTouch: NOT FOUND - tempo control will be disabled")
+    endif()
+
+    # PipeWire (Linux audio output)
+    pkg_check_modules(PIPEWIRE REQUIRED libpipewire-0.3)
+    if(PIPEWIRE_FOUND)
+        message(STATUS "PipeWire: Found (${PIPEWIRE_VERSION})")
+    endif()
+
+    # VA-API + DRM (for HW decode DMA-BUF import)
+    pkg_check_modules(VAAPI libva libva-drm)
+    pkg_check_modules(DRM libdrm)
+    if(VAAPI_FOUND AND DRM_FOUND)
+        message(STATUS "VA-API + DRM: Found (DMA-BUF import enabled)")
+    else()
+        message(STATUS "VA-API/DRM: NOT FOUND - HW decode will use CPU fallback")
+    endif()
+
+    # Wayland client (for native clipboard support)
+    pkg_check_modules(WAYLAND_CLIENT wayland-client)
+    if(WAYLAND_CLIENT_FOUND)
+        message(STATUS "wayland-client: Found (native clipboard support)")
+    else()
+        message(STATUS "wayland-client: NOT FOUND - clipboard may not work on Wayland")
+    endif()
+
+    # libcurl (for Frame.io HTTP client)
+    pkg_check_modules(CURL libcurl)
+    if(CURL_FOUND)
+        message(STATUS "libcurl: Found (Frame.io integration enabled)")
+    else()
+        message(STATUS "libcurl: NOT FOUND - Frame.io integration disabled")
+    endif()
+
+    # sd-bus (for XDG Desktop Portal accent color query)
+    pkg_check_modules(SYSTEMD libsystemd)
+    if(SYSTEMD_FOUND)
+        message(STATUS "libsystemd: Found (accent color via D-Bus portal)")
+    else()
+        message(STATUS "libsystemd: NOT FOUND - system accent color unavailable")
+    endif()
 endif()
 
 # Add subdirectory for external dependencies
@@ -56,144 +178,52 @@ file(GLOB_RECURSE SOURCES
     "src/*.h"
 )
 
-# Create executable
-add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
-    "src/qcview.manifest"
-    "src/utils/exiftool_helper.h"
-    "src/utils/exiftool_helper.cpp"
-    "src/project/media_item.h"
-    "src/project/project_manager.h"
-    "src/project/project_manager.cpp"
-    "src/utils/system_pressure_monitor.h"
-    "src/utils/system_pressure_monitor.cpp"
-    "src/metadata/video_metadata.cpp"
-    "src/metadata/exr_metadata.h"
-    "src/metadata/exr_metadata.cpp"
-    "src/metadata/ffmpeg_metadata_extractor.h"
-    "src/metadata/ffmpeg_metadata_extractor.cpp"
-    "src/player/media_background_extractor.h"
-    "src/player/media_background_extractor.cpp"
-    "src/player/conversion_strategy.cpp"
-    "src/player/image_sequence_config.h"
-    "src/player/image_sequence_config.cpp"
-    "src/player/direct_exr_cache.h"
-    "src/player/direct_exr_cache.cpp"
-    "src/player/shared_memory_pool.h"
-    "src/player/shared_memory_pool.cpp"
-    "src/player/exr_transcoder.h"
-    "src/player/exr_transcoder.cpp"
-    "src/gpu/texture_pool.h"
-    "src/gpu/texture_pool.cpp"
-    "src/player/image_loaders.h"
-    "src/player/image_loaders.cpp"
-    "src/player/video_decoder_interface.h"
-    "src/player/video_decoder_factory.h"
-    # video_decoder_factory.cpp removed - now a header-only stub
-    # streaming_video_decoder.cpp removed - now a header-only stub (D3D11VideoDecoder is the primary video path)
-    "src/player/streaming_video_decoder.h"
-    "src/player/image_sequence_decoder.h"
-    "src/player/image_sequence_decoder.cpp"
-    "src/player/hw_context_manager.h"
-    "src/player/hw_context_manager.cpp"
-    "src/player/scrub_decoder.h"
-    "src/player/scrub_decoder.cpp"
-    "src/player/thumbnail_cache.h"
-    "src/player/thumbnail_cache.cpp"
-    "src/player/playback_timer.h"
-    "src/player/playback_timer.cpp"
-    # FFmpeg + D3D11VA HDR video decoder (Windows only)
-    "src/player/d3d11va_video_decoder.h"
-    "src/player/d3d11va_video_decoder.cpp"
-    # D3D11 GPU-native video decoder implementing IVideoDecoder (Windows only)
-    "src/player/d3d11_video_decoder.h"
-    "src/player/d3d11_video_decoder.cpp"
-    "src/annotations/annotation_note.h"
-    "src/annotations/annotation_manager.h"
-    "src/annotations/annotation_manager.cpp"
-    "src/annotations/annotation_io.h"
-    "src/annotations/annotation_io.cpp"
-    "src/annotations/stroke_smoother.h"
-    "src/annotations/stroke_smoother.cpp"
-    "src/annotations/viewport_annotator.h"
-    "src/annotations/viewport_annotator.cpp"
-    "src/annotations/annotation_toolbar.h"
-    "src/annotations/annotation_toolbar.cpp"
-    "src/annotations/annotation_renderer.h"
-    "src/annotations/annotation_renderer.cpp"
-    "src/annotations/annotation_serializer.h"
-    "src/annotations/annotation_serializer.cpp"
-    "src/annotations/annotation_exporter.h"
-    "src/annotations/annotation_exporter.cpp"
-    "src/annotations/markdown_parser.h"
-    "src/annotations/markdown_parser.cpp"
-    "src/annotations/ink_stroke_modeler_wrapper.h"
-    "src/annotations/ink_stroke_modeler_wrapper.cpp"
-    "src/annotations/nanovg_context.h"
-    "src/annotations/nanovg_context.cpp"
-    "src/ui/annotation_panel.h"
-    "src/ui/annotation_panel.cpp"
-    "src/integrations/frameio_url_parser.h"
-    "src/integrations/frameio_url_parser.cpp"
-    "src/integrations/frameio_client.h"
-    "src/integrations/frameio_client.cpp"
-    "src/integrations/frameio_converter.h"
-    "src/integrations/frameio_converter.cpp"
-    # Transcode system
-    "src/transcode/sequential_frame_loader.h"
-    "src/transcode/sequential_frame_loader.cpp"
-    "src/transcode/ocio_cpu_transform.h"
-    "src/transcode/ocio_cpu_transform.cpp"
-    "src/transcode/ocio_lut_baker.h"
-    "src/transcode/ocio_lut_baker.cpp"
-    "src/transcode/ffmpeg_video_encoder.h"
-    "src/transcode/ffmpeg_video_encoder.cpp"
-    "src/transcode/video_transcoder.h"
-    "src/transcode/video_transcoder.cpp"
-    "src/transcode/transcode_job.h"
-    "src/transcode/transcode_job.cpp"
-    "src/transcode/transcode_queue.h"
-    "src/transcode/transcode_queue.cpp"
-    "src/transcode/transcode_worker_pool.h"
-    "src/transcode/transcode_worker_pool.cpp"
-    "src/ui/transcode_queue_window.h"
-    "src/ui/transcode_queue_window.cpp"
-    "src/project/project_manager_transcode.cpp"
-    # HDR output via D3D11 (Windows)
-    "src/hdr/d3d11_hdr_swapchain.h"
-    "src/hdr/d3d11_hdr_swapchain.cpp"
-    "src/hdr/hdr_output_manager.h"
-    "src/hdr/hdr_output_manager.cpp"
-    # D3D11 rendering infrastructure (Windows)
-    "src/gpu/d3d11_device_manager.h"
-    "src/gpu/d3d11_device_manager.cpp"
-    "src/gpu/d3d11_texture_pool.h"
-    "src/gpu/d3d11_texture_pool.cpp"
-    # Unified dual view compositor (Windows)
-    "src/gpu/dual_view_layout.h"
-    "src/gpu/dual_view_layout.cpp"
-    "src/gpu/d3d11_dual_compositor.h"
-    "src/gpu/d3d11_dual_compositor.cpp"
-    "src/player/dual_view_pipeline.h"
-    "src/player/dual_view_pipeline.cpp"
-    # Frame readback and CPU frame pool (for single-decoder dual view)
-    "src/gpu/frame_readback.h"
-    "src/gpu/frame_readback.cpp"
-    "src/player/cpu_frame_pool.h"
-    "src/player/cpu_frame_pool.cpp"
-    # Unified dual view (single decoder)
-    "src/player/unified_dual_view.h"
-    "src/player/unified_dual_view.cpp"
-    # D3D11 OCIO renderer (Windows)
-    "src/color/d3d11_ocio_renderer.h"
-    "src/color/d3d11_ocio_renderer.cpp"
-    # Playlist single decoder (EDL-style, Windows)
-    "src/timeline/playlist_single_decoder.h"
-    "src/timeline/playlist_single_decoder.cpp"
-    # Windows application icon
-    "resources/qcview.rc"
-)
+# ==========================================================================
+# Platform-specific source file filtering
+# ==========================================================================
+if(QCVIEW_LINUX)
+    # Exclude Windows-only D3D11 files on Linux
+    # These are guarded with #ifdef _WIN32 but we exclude them entirely to avoid
+    # pulling in Windows headers during compilation
+    list(FILTER SOURCES EXCLUDE REGEX ".*d3d11.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*d3d11va.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*wasapi.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*d3d11_hdr_swapchain.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*hdr_output_manager.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*qcview\\.manifest$")
+    list(FILTER SOURCES EXCLUDE REGEX ".*qcview\\.rc$")
+    # Exclude disabled CUDA/OpenCL files
+    list(FILTER SOURCES EXCLUDE REGEX ".*\\.disabled$")
+    message(STATUS "Linux build: Excluded D3D11/WASAPI/Windows-only sources")
+elseif(WIN32)
+    # Exclude Vulkan files on Windows
+    list(FILTER SOURCES EXCLUDE REGEX ".*vulkan_.*")
+    list(FILTER SOURCES EXCLUDE REGEX ".*pipewire_.*")
+    # Exclude disabled files
+    list(FILTER SOURCES EXCLUDE REGEX ".*\\.disabled$")
+endif()
 
-# Include directories
+# Create executable
+# Note: GLOB_RECURSE already collects all src/*.cpp/*.h files.
+# The explicit file list below is kept for IDE project file generation compatibility.
+# On Linux, WIN32 subsystem flag and .manifest/.rc are omitted.
+if(WIN32)
+    add_executable(${PROJECT_NAME} WIN32 ${SOURCES}
+        "src/qcview.manifest"
+        "resources/qcview.rc"
+    )
+elseif(QCVIEW_LINUX)
+    add_executable(${PROJECT_NAME} ${SOURCES})
+endif()
+
+# Note: vulkan_device.h/cpp are picked up by GLOB_RECURSE and
+# not filtered out on Linux, so no explicit target_sources needed.
+
+# Note: GLOB_RECURSE already collected all source files above.
+# The platform-specific filtering (list FILTER) handles include/exclude.
+# No additional target_sources needed - GLOB + filtering is the source of truth.
+
+# Include directories (cross-platform)
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/imnodes
@@ -204,14 +234,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/backends
     ${CMAKE_CURRENT_SOURCE_DIR}/external/implot
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
-    ${FFMPEG_INCLUDE_DIR}
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/OpenEXR
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/Imath
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/tiff/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/png/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/nlohmann
     ${CMAKE_BINARY_DIR}/_deps/libharu-src/include
     ${CMAKE_BINARY_DIR}/_deps/libharu-build/include
@@ -222,6 +244,38 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     # imgui_markdown (single-header Markdown rendering for ImGui)
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui_markdown
 )
+
+# Platform-specific include directories
+if(WIN32)
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${FFMPEG_INCLUDE_DIR}
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/OpenEXR
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/openexr/include/Imath
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/tiff/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/png/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/jpeg/include
+    )
+elseif(QCVIEW_LINUX)
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${FFMPEG_INCLUDE_DIRS}
+        ${OCIO_INCLUDE_DIRS}
+        ${OPENEXR_INCLUDE_DIRS}
+        ${IMATH_INCLUDE_DIRS}
+        ${TIFF_INCLUDE_DIRS}
+        ${PNG_INCLUDE_DIRS}
+        ${JPEG_INCLUDE_DIRS}
+        ${PIPEWIRE_INCLUDE_DIRS}
+    )
+    # Vulkan + VMA includes
+    if(QCVIEW_USE_VULKAN)
+        target_include_directories(${PROJECT_NAME} PRIVATE
+            ${Vulkan_INCLUDE_DIRS}
+            ${CMAKE_CURRENT_SOURCE_DIR}/external/vma
+        )
+    endif()
+endif()
 
 # Link directories for Windows
 if(WIN32)
@@ -237,9 +291,10 @@ endif()
 # Enable OpenTimelineIO support
 target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
 
-# Link libraries
+# ==========================================================================
+# Link libraries - Cross-platform core
+# ==========================================================================
 target_link_libraries(${PROJECT_NAME}
-    OpenGL::GL
     glfw
     glad
     imgui
@@ -248,32 +303,36 @@ target_link_libraries(${PROJECT_NAME}
     nfd
     opentimelineio                                                      # OpenTimelineIO
     InkStrokeModeler::stroke_modeler                                    # Google's stroke smoothing library
-    "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/lib/OpenColorIO.lib"    # OpenColorIO 2.5
-    # FFmpeg libraries
-    avcodec
-    avformat
-    avutil
-    avfilter
-    swscale
-    swresample
-    # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
-    Imath-3_2          # Must be first for half-float support
-    Iex-3_4
-    IlmThread-3_4
-    OpenEXRCore-3_4
-    OpenEXRUtil-3_4
-    OpenEXR-3_4        # C++ API for DWAB compression
-    # Image format libraries (native loaders)
-    tiff               # libtiff for TIFF sequences
-    libpng16           # libpng for PNG sequences
-    jpeg               # libjpeg-turbo for JPEG sequences
     # PDF generation
-    hpdf               # libharu for PDF export
+    hpdf                                                                # libharu for PDF export
 )
 
-# Platform-specific libraries
+# ==========================================================================
+# Platform-specific link libraries
+# ==========================================================================
 if(WIN32)
     target_link_libraries(${PROJECT_NAME}
+        OpenGL::GL
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/ocio/lib/OpenColorIO.lib"    # OpenColorIO 2.5
+        # FFmpeg libraries
+        avcodec
+        avformat
+        avutil
+        avfilter
+        swscale
+        swresample
+        # OpenEXR C++ API for direct EXR loading (100% OIIO-free)
+        Imath-3_2          # Must be first for half-float support
+        Iex-3_4
+        IlmThread-3_4
+        OpenEXRCore-3_4
+        OpenEXRUtil-3_4
+        OpenEXR-3_4        # C++ API for DWAB compression
+        # Image format libraries (native loaders)
+        tiff               # libtiff for TIFF sequences
+        libpng16           # libpng for PNG sequences
+        jpeg               # libjpeg-turbo for JPEG sequences
+        # Windows system libraries
         opengl32
         winmm
         dwmapi
@@ -308,6 +367,78 @@ if(WIN32)
             message(STATUS "SoundTouch: NOT FOUND - tempo control will be disabled (audio will pause during throttle)")
         endif()
     endif()
+
+elseif(QCVIEW_LINUX)
+    # System libraries via pkg-config
+    target_link_libraries(${PROJECT_NAME}
+        ${FFMPEG_LIBRARIES}
+        ${OCIO_LIBRARIES}
+        ${OPENEXR_LIBRARIES}
+        ${IMATH_LIBRARIES}
+        ${TIFF_LIBRARIES}
+        ${PNG_LIBRARIES}
+        ${JPEG_LIBRARIES}
+    )
+    target_link_directories(${PROJECT_NAME} PRIVATE
+        ${FFMPEG_LIBRARY_DIRS}
+        ${OCIO_LIBRARY_DIRS}
+        ${OPENEXR_LIBRARY_DIRS}
+        ${IMATH_LIBRARY_DIRS}
+    )
+
+    # GPU backend libraries
+    if(QCVIEW_USE_VULKAN)
+        target_link_libraries(${PROJECT_NAME} Vulkan::Vulkan)
+        if(SHADERC_LIB)
+            target_link_libraries(${PROJECT_NAME} ${SHADERC_LIB})
+        endif()
+    else()
+        find_package(OpenGL REQUIRED)
+        target_link_libraries(${PROJECT_NAME} OpenGL::GL)
+    endif()
+
+    # X11 needed by GLFW/ImGui on Linux (even with Vulkan backend)
+    find_package(X11 REQUIRED)
+    target_link_libraries(${PROJECT_NAME} ${X11_LIBRARIES})
+
+    # SoundTouch
+    if(SOUNDTOUCH_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${SOUNDTOUCH_LIBRARIES})
+        target_include_directories(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_INCLUDE_DIRS})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_SOUNDTOUCH)
+    endif()
+
+    # PipeWire (audio output)
+    if(PIPEWIRE_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${PIPEWIRE_LIBRARIES})
+    endif()
+
+    # VA-API + DRM (DMA-BUF import for HW decode)
+    if(VAAPI_FOUND AND DRM_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${VAAPI_LIBRARIES} ${DRM_LIBRARIES})
+        target_include_directories(${PROJECT_NAME} PRIVATE ${VAAPI_INCLUDE_DIRS} ${DRM_INCLUDE_DIRS})
+    endif()
+
+    # Wayland client (native clipboard)
+    if(WAYLAND_CLIENT_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${WAYLAND_CLIENT_LIBRARIES})
+        target_include_directories(${PROJECT_NAME} PRIVATE ${WAYLAND_CLIENT_INCLUDE_DIRS})
+    endif()
+
+    # libcurl (Frame.io HTTP client)
+    if(CURL_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${CURL_LIBRARIES})
+        target_include_directories(${PROJECT_NAME} PRIVATE ${CURL_INCLUDE_DIRS})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_CURL)
+    endif()
+
+    # libsystemd (sd-bus for XDG portal accent color)
+    if(SYSTEMD_FOUND)
+        target_link_libraries(${PROJECT_NAME} ${SYSTEMD_LIBRARIES})
+        target_include_directories(${PROJECT_NAME} PRIVATE ${SYSTEMD_INCLUDE_DIRS})
+        target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_SDBUS)
+    endif()
+
 elseif(APPLE)
     find_library(COCOA_LIBRARY Cocoa)
     find_library(IOKIT_LIBRARY IOKit)
@@ -418,4 +549,69 @@ if(WIN32)
 
     # OIIO removed - using direct OpenEXR API only
 
+endif()
+
+# ==========================================================================
+# Install rules (Linux packaging)
+# ==========================================================================
+if(QCVIEW_LINUX)
+    include(GNUInstallDirs)
+
+    # Binary
+    install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+    # Assets (OCIO configs, fonts, icons, safety overlays, etc.)
+    install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_DATADIR}/qcview/assets)
+
+    # Shaders
+    install(DIRECTORY shaders/ DESTINATION ${CMAKE_INSTALL_DATADIR}/qcview/shaders)
+
+    # Vendored OCIO library (matches the headers we built against)
+    install(FILES external/ocio/linux/lib/libOpenColorIO.so.2.5.0
+            DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
+        libOpenColorIO.so.2.5.0 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libOpenColorIO.so.2.5)")
+
+    # Desktop entry
+    install(FILES packaging/app.qcview.QCView.desktop
+            DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+
+    # Icons (multiple sizes for different contexts)
+    foreach(SIZE 16 32 48 64 128 256 512)
+        if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icons/qcview_${SIZE}.png")
+            install(FILES "assets/icons/qcview_${SIZE}.png"
+                    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/${SIZE}x${SIZE}/apps"
+                    RENAME "app.qcview.QCView.png")
+        endif()
+    endforeach()
+
+    # ======================================================================
+    # CPack — generates .deb and .rpm
+    # ======================================================================
+    set(CPACK_PACKAGE_NAME "qcview")
+    set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+    set(CPACK_PACKAGE_FILE_NAME "QCView-${PROJECT_VERSION}-amd64")
+    set(CPACK_PACKAGE_CONTACT "cbkow")
+    set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "QCView - Professional video and image sequence player")
+    set(CPACK_PACKAGE_DESCRIPTION "QCView is a professional video and image sequence player with OCIO color management, HDR output, hardware-accelerated decode, and annotation tools.")
+    set(CPACK_PACKAGE_HOMEPAGE_URL "https://qcview.app")
+    set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+    set(CPACK_STRIP_FILES TRUE)
+
+    # DEB-specific
+    set(CPACK_DEBIAN_FILE_NAME "QCView-${PROJECT_VERSION}-amd64.deb")
+    set(CPACK_DEBIAN_PACKAGE_SECTION "video")
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS
+        "libglfw3 (>= 3.3), libavcodec-extra | libavcodec60 | libavcodec61, libavformat60 | libavformat61, libavutil58 | libavutil59, libswscale7 | libswscale8, libswresample4 | libswresample5, libopenexr-3-1-30 | libopenexr-3-2-1, libpipewire-0.3-0, libva2, libdrm2, libcurl4 | libcurl4t64, libsoundtouch1, libvulkan1, libwayland-client0, libsystemd0, libtiff6 | libtiff5, libpng16-16 | libpng16-16t64, libjpeg62-turbo | libjpeg-turbo8")
+
+    # RPM-specific
+    set(CPACK_RPM_PACKAGE_LICENSE "Proprietary")
+    set(CPACK_RPM_PACKAGE_GROUP "Applications/Multimedia")
+    set(CPACK_RPM_PACKAGE_AUTOREQ ON)
+    set(CPACK_RPM_PACKAGE_REQUIRES
+        "glfw >= 3.3, ffmpeg-libs, openexr-libs, pipewire-libs, libva, libdrm, libcurl, soundtouch, vulkan-loader, wayland, systemd-libs")
+
+    set(CPACK_GENERATOR "DEB;RPM")
+    include(CPack)
 endif()

@@ -34,8 +34,7 @@ std::shared_ptr<PixelData> MakeBrokenSentinel(int w, int h) {
     auto pd = std::make_shared<PixelData>();
     pd->width = w;
     pd->height = h;
-    pd->gl_format = GL_RGBA;
-    pd->gl_type = GL_UNSIGNED_BYTE;
+    pd->SetFormat(PixelFormat::RGBA8);
     pd->pipeline_mode = PipelineMode::NORMAL;
     pd->is_sentinel = true;
 

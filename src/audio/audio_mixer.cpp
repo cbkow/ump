@@ -1,5 +1,9 @@
 #include "audio_mixer.h"
+#ifdef _WIN32
 #include "wasapi_audio_device.h"
+#elif defined(__linux__)
+#include "pipewire_audio_device.h"
+#endif
 
 #include "../timeline/timeline_view.h"
 #include "../timeline/timeline_types.h"
@@ -32,6 +36,7 @@ bool AudioMixer::Initialize() {
         return true;
     }
 
+#ifdef _WIN32
     Debug::Log("AudioMixer: Initializing WASAPI...");
 
     // Create WASAPI device
@@ -51,6 +56,29 @@ bool AudioMixer::Initialize() {
         device_.reset();
         return false;
     }
+#elif defined(__linux__)
+    Debug::Log("AudioMixer: Initializing PipeWire...");
+
+    device_ = std::make_unique<PipeWireAudioDevice>();
+
+    PipeWireDeviceConfig config;
+    config.dataCallback = [](void* device, float* output, uint32_t frameCount, void* userData) {
+        DataCallback(device, output, frameCount, userData);
+    };
+    config.userData = this;
+    config.sampleRate = 48000;
+    config.channels = 2;
+    config.bufferSizeMs = 10;
+
+    if (!device_->Initialize(config)) {
+        Debug::Log("AudioMixer: Failed to initialize PipeWire device");
+        device_.reset();
+        return false;
+    }
+#else
+    Debug::Log("AudioMixer: Audio not supported on this platform");
+    return false;
+#endif
 
     initialized_ = true;
 
@@ -229,7 +257,8 @@ void AudioMixer::ClearClips() {
 //=============================================================================
 
 void AudioMixer::Play() {
-    if (!initialized_ || !device_ || is_playing_) return;
+    if (!initialized_ || is_playing_) return;
+    if (!device_) return;
 
     Debug::Log("AudioMixer: Play");
 
@@ -260,20 +289,23 @@ void AudioMixer::Play() {
 }
 
 void AudioMixer::Pause() {
-    if (!initialized_ || !device_ || !is_playing_) return;
-
-    Debug::Log("AudioMixer: Pause");
+    if (!initialized_ || !is_playing_) return;
+    if (!device_) return;
 
     device_->Stop();
+
+    Debug::Log("AudioMixer: Pause");
     is_playing_ = false;
 }
 
 void AudioMixer::Stop() {
-    if (!initialized_ || !device_) return;
+    if (!initialized_) return;
+
+    if (device_) {
+        device_->Stop();
+    }
 
     Debug::Log("AudioMixer: Stop");
-
-    device_->Stop();
     is_playing_ = false;
 
     // Reset position

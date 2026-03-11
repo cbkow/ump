@@ -19,7 +19,10 @@
 #include "ui/annotation_panel.h"
 #include "ui/timeline_manager.h"
 #include "audio/audio_mixer.h"
+#include "hdr/hdr_color_utils.h"
+#ifdef _WIN32
 #include "hdr/hdr_output_manager.h"
+#endif
 #include "ui/node_editor_theme.h"
 #include "timeline/timeline_thumbnail_cache.h"
 #include <imgui.h>
@@ -814,11 +817,7 @@ extern bool show_notification_permanent;
                 ImGui::Separator();
                 ImGui::TextDisabled("Auto:");
 
-#ifdef _WIN32
-                bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
-#else
-                bool hdr_active = false;
-#endif
+                bool hdr_active = qcview::IsHDRDisplayActive();
                 if (hdr_active) ImGui::BeginDisabled();
                 if (ImGui::MenuItem("Auto 1-2-1", nullptr, &cache_settings.auto_121_enabled)) {
                     Debug::Log(cache_settings.auto_121_enabled ?
@@ -870,18 +869,30 @@ extern bool show_notification_permanent;
 
             if (ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.0.3");
+                ImGui::TextDisabled("About QCView v1.0.4");
 
                 if (ImGui::MenuItem("Manual")) {
+#ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://qcview.app/", NULL, NULL, SW_SHOWNORMAL);
+#else
+                    system("xdg-open https://qcview.app/ &");
+#endif
                 }
 
                 if (ImGui::MenuItem("License")) {
+#ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/blob/main/LICENSE", NULL, NULL, SW_SHOWNORMAL);
+#else
+                    system("xdg-open https://github.com/cbkow/QCView-Player/blob/main/LICENSE &");
+#endif
                 }
 
                 if (ImGui::MenuItem("Check for Updates")) {
+#ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/releases", NULL, NULL, SW_SHOWNORMAL);
+#else
+                    system("xdg-open https://github.com/cbkow/QCView-Player/releases &");
+#endif
                 }
 
                 ImGui::EndMenu();

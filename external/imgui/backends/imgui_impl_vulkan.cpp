@@ -297,13 +297,21 @@ struct ImGui_ImplVulkan_Data
     // Render buffers for main window
     ImGui_ImplVulkan_WindowRenderBuffers MainWindowRenderBuffers;
 
+    // HDR mode state
+    bool                            HDRActive;
+    float                           HDRTargetNits;
+
     ImGui_ImplVulkan_Data()
     {
         memset((void*)this, 0, sizeof(*this));
         BufferMemoryAlignment = 256;
         NonCoherentAtomSize = 64;
+        HDRTargetNits = 120.0f;
     }
 };
+
+// HDR Passthrough Textures - textures that should NOT have SDR->PQ conversion applied
+static ImVector<ImTextureID> g_VulkanHDRPassthroughTextures;
 
 //-----------------------------------------------------------------------------
 // SHADERS
@@ -430,6 +438,53 @@ static ImGui_ImplVulkan_Data* ImGui_ImplVulkan_GetBackendData()
     return ImGui::GetCurrentContext() ? (ImGui_ImplVulkan_Data*)ImGui::GetIO().BackendRendererUserData : nullptr;
 }
 
+// HDR Mode Control
+void ImGui_ImplVulkan_SetHDRMode(bool active, float target_nits)
+{
+    ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+    if (bd != nullptr)
+    {
+        bd->HDRActive = active;
+        bd->HDRTargetNits = target_nits;
+    }
+}
+
+bool ImGui_ImplVulkan_GetHDRMode()
+{
+    ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
+    return bd != nullptr ? bd->HDRActive : false;
+}
+
+void ImGui_ImplVulkan_SetTextureHDRPassthrough(ImTextureID texture, bool passthrough)
+{
+    if (passthrough)
+    {
+        if (!g_VulkanHDRPassthroughTextures.contains(texture))
+            g_VulkanHDRPassthroughTextures.push_back(texture);
+    }
+    else
+    {
+        for (int i = 0; i < g_VulkanHDRPassthroughTextures.Size; i++)
+        {
+            if (g_VulkanHDRPassthroughTextures[i] == texture)
+            {
+                g_VulkanHDRPassthroughTextures.erase(g_VulkanHDRPassthroughTextures.Data + i);
+                break;
+            }
+        }
+    }
+}
+
+bool ImGui_ImplVulkan_IsTextureHDRPassthrough(ImTextureID texture)
+{
+    return g_VulkanHDRPassthroughTextures.contains(texture);
+}
+
+void ImGui_ImplVulkan_ClearHDRPassthroughTextures()
+{
+    g_VulkanHDRPassthroughTextures.clear();
+}
+
 static uint32_t ImGui_ImplVulkan_MemoryType(VkMemoryPropertyFlags properties, uint32_t type_bits)
 {
     ImGui_ImplVulkan_Data* bd = ImGui_ImplVulkan_GetBackendData();
@@ -533,6 +588,15 @@ static void ImGui_ImplVulkan_SetupRenderState(ImDrawData* draw_data, VkPipeline 
         translate[1] = -1.0f - draw_data->DisplayPos.y * scale[1];
         vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(float) * 0, sizeof(float) * 2, scale);
         vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, sizeof(float) * 2, sizeof(float) * 2, translate);
+    }
+
+    // HDR mode push constants (fragment stage)
+    {
+        int hdr_params[3];
+        hdr_params[0] = bd->HDRActive ? 1 : 0;                         // HDRMode
+        hdr_params[1] = (int)(bd->HDRTargetNits * 10.0f);              // TargetNits (scaled by 10)
+        hdr_params[2] = 0;                                              // HDRPassthrough (default off, set per-draw)
+        vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, sizeof(float) * 4, sizeof(int) * 3, hdr_params);
     }
 }
 
@@ -671,6 +735,15 @@ void ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer comm
                 if (desc_set != last_desc_set)
                     vkCmdBindDescriptorSets(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, bd->PipelineLayout, 0, 1, &desc_set, 0, nullptr);
                 last_desc_set = desc_set;
+
+                // HDR: Set passthrough flag per draw command (skip PQ conversion for video/HDR textures)
+                if (bd->HDRActive)
+                {
+                    ImTextureID tex_id = pcmd->GetTexID();
+                    int passthrough = ImGui_ImplVulkan_IsTextureHDRPassthrough(tex_id) ? 1 : 0;
+                    vkCmdPushConstants(command_buffer, bd->PipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT,
+                        sizeof(float) * 4 + sizeof(int) * 2, sizeof(int), &passthrough);
+                }
 
                 // Draw
                 vkCmdDrawIndexed(command_buffer, pcmd->ElemCount, 1, pcmd->IdxOffset + global_idx_offset, pcmd->VtxOffset + global_vtx_offset, 0);
@@ -1121,17 +1194,22 @@ bool ImGui_ImplVulkan_CreateDeviceObjects()
 
     if (!bd->PipelineLayout)
     {
-        // Constants: we are using 'vec2 offset' and 'vec2 scale' instead of a full 3d projection matrix
-        VkPushConstantRange push_constants[1] = {};
+        // Push constants layout:
+        // Vertex stage:   offset 0,  size 16 bytes (vec2 scale + vec2 translate)
+        // Fragment stage: offset 16, size 12 bytes (int HDRMode + int TargetNits + int HDRPassthrough)
+        VkPushConstantRange push_constants[2] = {};
         push_constants[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
         push_constants[0].offset = sizeof(float) * 0;
         push_constants[0].size = sizeof(float) * 4;
+        push_constants[1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+        push_constants[1].offset = sizeof(float) * 4;
+        push_constants[1].size = sizeof(int) * 3;  // HDRMode, TargetNits, HDRPassthrough
         VkDescriptorSetLayout set_layout[1] = { bd->DescriptorSetLayout };
         VkPipelineLayoutCreateInfo layout_info = {};
         layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
         layout_info.setLayoutCount = 1;
         layout_info.pSetLayouts = set_layout;
-        layout_info.pushConstantRangeCount = 1;
+        layout_info.pushConstantRangeCount = 2;
         layout_info.pPushConstantRanges = push_constants;
         err = vkCreatePipelineLayout(v->Device, &layout_info, v->Allocator, &bd->PipelineLayout);
         check_vk_result(err);
@@ -1348,6 +1426,9 @@ void ImGui_ImplVulkan_Shutdown()
     IM_ASSERT(bd != nullptr && "No renderer backend to shutdown, or already shutdown?");
     ImGuiIO& io = ImGui::GetIO();
     ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+
+    // Clean up HDR passthrough texture list
+    g_VulkanHDRPassthroughTextures.clear();
 
     // First destroy objects in all viewports
     ImGui_ImplVulkan_DestroyDeviceObjects();

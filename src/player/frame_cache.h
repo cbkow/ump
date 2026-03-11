@@ -78,7 +78,7 @@ public:
 
     };
 
-    explicit FrameCache(const CacheConfig& config = CacheConfig{});
+    explicit FrameCache(const CacheConfig& config);
     ~FrameCache();
 
     // Main interface

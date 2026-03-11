@@ -51,13 +51,15 @@ enum class SeekQuality {
 enum class VideoDecoderBackend {
     AUTO,       // Auto-select best available
     FFMPEG,     // Force FFmpeg backend (CPU ring buffer)
-    D3D11       // D3D11 GPU-native backend (Windows only)
+    D3D11,      // D3D11 GPU-native backend (Windows only)
+    VULKAN      // Vulkan backend (Linux only)
 };
 
 inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
     switch (backend) {
         case VideoDecoderBackend::FFMPEG: return "FFmpeg";
         case VideoDecoderBackend::D3D11: return "D3D11";
+        case VideoDecoderBackend::VULKAN: return "Vulkan";
         default: return "Auto";
     }
 }

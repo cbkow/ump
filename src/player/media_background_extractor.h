@@ -140,7 +140,7 @@ public:
         PipelineMode pipeline_mode = PipelineMode::NORMAL;
     };
 
-    explicit MediaBackgroundExtractor(FrameCache* parent_cache, const ExtractorConfig& config = ExtractorConfig{});
+    explicit MediaBackgroundExtractor(FrameCache* parent_cache, const ExtractorConfig& config);
     ~MediaBackgroundExtractor();
 
     // Lifecycle

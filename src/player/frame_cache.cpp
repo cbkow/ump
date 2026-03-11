@@ -10,6 +10,9 @@
 #ifdef _WIN32
 #include <Windows.h>
 #endif
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#endif
 
 // FFmpeg time base constant
 #ifndef AV_TIME_BASE
@@ -85,6 +88,19 @@ void CachedFrame::CreateTexture(int w, int h, const void* data, PipelineMode pip
 
     const PipelineConfig& config = it->second;
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create texture via VulkanTexturePool
+    auto& pool = qcview::VulkanTexturePool::Instance();
+    if (pool.IsInitialized() && data) {
+        VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+        if (config.data_type == GL_UNSIGNED_SHORT) vk_format = VK_FORMAT_R16G16B16A16_UNORM;
+        else if (config.data_type == GL_HALF_FLOAT) vk_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+        size_t data_size = static_cast<size_t>(w) * h * config.bytes_per_pixel;
+        uint64_t pool_id = pool.CreateTextureFromPixels(w, h, vk_format, data, data_size);
+        texture_id = static_cast<GLuint>(pool_id);
+    }
+#else
     glGenTextures(1, &texture_id);
     glBindTexture(GL_TEXTURE_2D, texture_id);
 
@@ -96,6 +112,7 @@ void CachedFrame::CreateTexture(int w, int h, const void* data, PipelineMode pip
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
     width = w;
     height = h;
@@ -108,37 +125,42 @@ bool CachedFrame::EnsureTextureCreated() {
     if (texture_created && texture_id != 0) {
         return true; // Already created
     }
-    
+
     if (pixel_data.empty()) {
         return false;
     }
 
     // Create texture from stored pixel data
     CreateTexture(width, height, pixel_data.data(), pipeline_mode);
-    
-    // Check for errors
+
+#ifndef QCVIEW_USE_VULKAN
+    // Check for GL errors
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
         return false;
     }
+#endif
 
     if (texture_id == 0) {
         return false;
     }
-    
+
     texture_created = true;
-    
+
     // Clear pixel data to save memory now that texture is created
     pixel_data.clear();
     pixel_data.shrink_to_fit();
-    
-    // Debug::Log("CachedFrame: Successfully created texture " + std::to_string(texture_id) + " on main thread");
+
     return true;
 }
 
 void CachedFrame::ReleaseTexture() {
     if (texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+#else
         glDeleteTextures(1, &texture_id);
+#endif
         texture_id = 0;
     }
     width = 0;
@@ -688,7 +710,11 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, GLuint te
     if (scrub_cache.find(frame_number) != scrub_cache.end()) {
         // Frame already cached, release the provided texture
         if (texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+#else
             glDeleteTextures(1, &texture_id);
+#endif
         }
         return;
     }
@@ -723,15 +749,6 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
         return;
     }
 
-    // Create texture from pixel data on main thread (correct OpenGL context)
-    GLuint texture_id = 0;
-    glGenTextures(1, &texture_id);
-
-    if (texture_id == 0) {
-        Debug::Log("FrameCache: Failed to create texture for extracted frame " + std::to_string(frame_number));
-        return;
-    }
-
     // Get pipeline-specific format configuration
     auto it = PIPELINE_CONFIGS.find(config.pipeline_mode);
     if (it == PIPELINE_CONFIGS.end()) {
@@ -739,34 +756,36 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
     }
     const PipelineConfig& pipeline_config = it->second;
 
-    glBindTexture(GL_TEXTURE_2D, texture_id);
+    // Create texture from pixel data on main thread
+    GLuint texture_id = 0;
 
-    // Ensure proper alignment for texture upload
-    // RGBA data (4 channels) is naturally 4-byte aligned, so use default alignment
-    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create texture via VulkanTexturePool
+    {
+        auto& pool = qcview::VulkanTexturePool::Instance();
+        if (!pool.IsInitialized()) {
+            Debug::Log("FrameCache: VulkanTexturePool not initialized");
+            return;
+        }
+        VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+        if (pipeline_config.data_type == GL_UNSIGNED_SHORT) vk_format = VK_FORMAT_R16G16B16A16_UNORM;
+        else if (pipeline_config.data_type == GL_HALF_FLOAT) vk_format = VK_FORMAT_R16G16B16A16_SFLOAT;
 
-    // DIAGNOSTIC: Log first non-zero pixel for texture upload verification
-    if (config.pipeline_mode == PipelineMode::HIGH_RES && pixel_data.size() >= 16) {
-        const uint16_t* pixels16 = reinterpret_cast<const uint16_t*>(pixel_data.data());
-        // Find first non-zero pixel
-        bool found_nonzero = false;
-        for (size_t i = 0; i < std::min(pixel_data.size() / 8, size_t(100)); i++) {
-            if (pixels16[i*4] != 0 || pixels16[i*4+1] != 0 || pixels16[i*4+2] != 0) {
-                Debug::Log("FrameCache: First non-zero pixel at offset " + std::to_string(i) +
-                           ": R=" + std::to_string(pixels16[i*4]) +
-                           " G=" + std::to_string(pixels16[i*4+1]) +
-                           " B=" + std::to_string(pixels16[i*4+2]) +
-                           " A=" + std::to_string(pixels16[i*4+3]) +
-                           " (format=GL_RGBA internal=" + std::to_string(pipeline_config.internal_format) +
-                           " type=" + std::to_string(pipeline_config.data_type) + ")");
-                found_nonzero = true;
-                break;
-            }
-        }
-        if (!found_nonzero) {
-            Debug::Log("FrameCache: WARNING - First 100 pixels are all zeros");
-        }
+        uint64_t pool_id = pool.CreateTextureFromPixels(
+            width, height, vk_format, pixel_data.data(), pixel_data.size());
+        texture_id = static_cast<GLuint>(pool_id);
     }
+#else
+    // OpenGL path
+    glGenTextures(1, &texture_id);
+
+    if (texture_id == 0) {
+        Debug::Log("FrameCache: Failed to create texture for extracted frame " + std::to_string(frame_number));
+        return;
+    }
+
+    glBindTexture(GL_TEXTURE_2D, texture_id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
     glTexImage2D(GL_TEXTURE_2D, 0, pipeline_config.internal_format, width, height, 0,
                  GL_RGBA, pipeline_config.data_type, pixel_data.data());
@@ -777,6 +796,7 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glBindTexture(GL_TEXTURE_2D, 0);
+#endif
 
     // Create cached frame entry
     auto cached_frame = std::make_unique<CachedFrame>();

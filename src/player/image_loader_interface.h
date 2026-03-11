@@ -9,21 +9,68 @@
 namespace qcview {
 
 //=============================================================================
+// Platform-Agnostic Pixel Format
+//=============================================================================
+
+// Cross-platform pixel format enum - replaces direct GL enum usage in data layer
+enum class PixelFormat {
+    RGBA8,      // 4 bytes/pixel, unsigned byte
+    RGBA16,     // 8 bytes/pixel, unsigned short
+    RGBA16F,    // 8 bytes/pixel, half float
+};
+
+// Convert PixelFormat to GL enums (available on all platforms since GL headers are still included)
+inline GLenum PixelFormatToGLFormat(PixelFormat fmt) { (void)fmt; return GL_RGBA; }
+inline GLenum PixelFormatToGLType(PixelFormat fmt) {
+    switch (fmt) {
+        case PixelFormat::RGBA8:  return GL_UNSIGNED_BYTE;
+        case PixelFormat::RGBA16: return GL_UNSIGNED_SHORT;
+        case PixelFormat::RGBA16F: return GL_HALF_FLOAT;
+    }
+    return GL_UNSIGNED_BYTE;
+}
+
+inline PixelFormat GLTypeToPixelFormat(GLenum gl_type) {
+    switch (gl_type) {
+        case GL_UNSIGNED_SHORT: return PixelFormat::RGBA16;
+        case GL_HALF_FLOAT:     return PixelFormat::RGBA16F;
+        default:                return PixelFormat::RGBA8;
+    }
+}
+
+inline size_t PixelFormatBytesPerPixel(PixelFormat fmt) {
+    switch (fmt) {
+        case PixelFormat::RGBA8:  return 4;
+        case PixelFormat::RGBA16: return 8;
+        case PixelFormat::RGBA16F: return 8;
+    }
+    return 4;
+}
+
+//=============================================================================
 // Universal Pixel Data (Type-Erased)
 //=============================================================================
 
 // Supports all pipeline modes: RGBA8, RGBA16, RGBA16F
-// Raw bytes stored in uint8_t vector, interpreted based on gl_type
+// Raw bytes stored in uint8_t vector, interpreted based on pixel_format
 struct PixelData {
     std::vector<uint8_t> pixels;        // Raw bytes (RGBA8: 4 bytes/px, RGBA16/16F: 8 bytes/px)
     int width = 0;
     int height = 0;
-    GLenum gl_format = GL_RGBA;          // Always GL_RGBA (4 channels)
+    PixelFormat pixel_format = PixelFormat::RGBA8;  // Platform-agnostic format
+    GLenum gl_format = GL_RGBA;          // Always GL_RGBA (4 channels) - derived from pixel_format
     GLenum gl_type = GL_UNSIGNED_BYTE;   // GL_UNSIGNED_BYTE, GL_UNSIGNED_SHORT, or GL_HALF_FLOAT
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
     bool is_sentinel = false;            // True for gap/broken sentinel frames
 
     size_t ByteSize() const { return pixels.size(); }
+
+    // Helper to set format consistently
+    void SetFormat(PixelFormat fmt) {
+        pixel_format = fmt;
+        gl_format = PixelFormatToGLFormat(fmt);
+        gl_type = PixelFormatToGLType(fmt);
+    }
 };
 
 //=============================================================================
@@ -42,8 +89,7 @@ inline std::shared_ptr<PixelData> MakeGapSentinel(int w = 1, int h = 1) {
     auto pd = std::make_shared<PixelData>();
     pd->width = w;
     pd->height = h;
-    pd->gl_format = GL_RGBA;
-    pd->gl_type = GL_UNSIGNED_BYTE;
+    pd->SetFormat(PixelFormat::RGBA8);
     pd->pipeline_mode = PipelineMode::NORMAL;
     pd->is_sentinel = true;
     pd->pixels.resize(static_cast<size_t>(w) * h * 4, 0);  // All zeros (transparent RGBA8)

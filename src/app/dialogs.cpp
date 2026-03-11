@@ -720,10 +720,14 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                     if (ImGui::IsItemHovered()) {
                         ImGui::SetTooltip(
                             "Forces software (CPU) video decoding.\n\n"
+#ifdef _WIN32
                             "When enabled, D3D11VA and NVDEC hardware decode are bypassed\n"
+#else
+                            "When enabled, VA-API hardware decode is bypassed\n"
+#endif
                             "and FFmpeg software decode is used for all codecs.\n\n"
                             "Use this if you experience visual artifacts, crashes, or\n"
-                            "black frames — especially on Intel Xe integrated GPUs.\n\n"
+                            "black frames with hardware-accelerated codecs.\n\n"
                             "Requires reopening the current file to take effect.");
                     }
 
@@ -903,7 +907,11 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                     ImGui::PushItemWidth(-1);
                     if (font_regular) ImGui::PushFont(font_regular);
                     if (g_custom_cache_path.empty()) {
+#ifdef _WIN32
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\qcview\\");
+#else
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: ~/.cache/qcview/");
+#endif
                     } else {
                         ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "%s", g_custom_cache_path.c_str());
                     }
@@ -1106,7 +1114,11 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                                 "Effective offset: %.1f ms", effective_offset * 1000.0);
                             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+#ifdef _WIN32
                                 "WASAPI buffer: %.1f ms", wasapi_latency * 1000.0);
+#else
+                                "Audio buffer: %.1f ms", wasapi_latency * 1000.0);
+#endif
                             ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
                                 "Playback tempo: %.0f%%", tempo * 100.0);
                             ImGui::TextColored(time_stretch_active ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f) : ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
@@ -1125,81 +1137,105 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
                         // Info box
                         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+#ifdef _WIN32
                             "Note: These settings only affect Float/HDR video mode\n"
                             "(D3D11/D3D11VA decoders with AudioMixer).\n"
                             "Video mode has its own internal A/V sync.");
+#else
+                            "Note: These settings affect video playback\n"
+                            "with the AudioMixer audio backend.");
+#endif
 
                         ImGui::EndTabItem();
                     } // End Audio Sync tab
 
-                    // ── File Associations tab ──
-                    if (ImGui::BeginTabItem("File Associations")) {
+#ifdef QCVIEW_USE_VULKAN
+                    // === HDR Display tab ===
+                    if (ImGui::BeginTabItem("HDR Display")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "HDR output and display settings");
                         ImGui::Spacing();
 
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            "File associations are managed by Windows.\n"
-                            "Use the button below to open Windows Settings where you can set\n"
-                            "QCView as the default app for supported file types.");
-                        if (font_regular) ImGui::PopFont();
+                        if (vulkan_swapchain_) {
+                            bool hdr_supported = vulkan_swapchain_->IsHDRSupported();
+                            bool hdr_active = vulkan_swapchain_->IsHDRActive();
 
-                        ImGui::Spacing();
+                            // HDR status
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Status");
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            if (hdr_supported) {
+                                ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f),
+                                    "HDR10 (ST.2084 PQ) supported");
+                            } else {
+                                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                    "HDR not supported on this display/compositor");
+                            }
 
-                        PushOutlineButtonStyle();
-                        if (ImGui::Button("Open Default Apps Settings")) {
-                            ShellExecuteA(NULL, "open", "ms-settings:defaultapps", NULL, NULL, SW_SHOWNORMAL);
+                            auto& info = vulkan_swapchain_->GetHDRInfo();
+                            if (hdr_supported) {
+                                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                    "Display: %.0f - %.0f nits (%.0f avg)",
+                                    info.min_luminance, info.max_luminance, info.max_full_frame_luminance);
+                            }
+                            if (font_regular) ImGui::PopFont();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // HDR toggle
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "HDR Output");
+                            ImGui::Spacing();
+                            if (!hdr_supported) ImGui::BeginDisabled();
+                            bool toggle_hdr = hdr_active;
+                            if (ImGui::Checkbox("Enable HDR output", &toggle_hdr)) {
+                                vulkan_swapchain_->SetHDREnabled(toggle_hdr);
+                                settings_changed = true;
+                            }
+                            if (!hdr_supported) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // UI brightness slider (only meaningful when HDR active)
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "UI Brightness");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Controls the brightness of UI elements in HDR mode");
+                            ImGui::Spacing();
+
+                            if (!hdr_active) ImGui::BeginDisabled();
+                            ImGui::SetNextItemWidth(-1);
+                            if (ImGui::SliderFloat("##HDRUIBrightness", &hdr_ui_nits_, 80.0f, 1000.0f, "%.0f nits")) {
+                                vulkan_swapchain_->SetUIBrightness(hdr_ui_nits_);
+                                settings_changed = true;
+                            }
+                            if (!hdr_active) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Recommended: Match your display's typical brightness.\n"
+                                "400 nits is a good default for most HDR displays.");
+                            if (font_regular) ImGui::PopFont();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                                "Note: For true HDR output, ensure HDR is also enabled\n"
+                                "in your system display settings (e.g. KDE Display\n"
+                                "Configuration, GNOME Settings, etc).");
+                        } else {
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                                "Vulkan swapchain not initialized");
+                            if (font_regular) ImGui::PopFont();
                         }
-                        PopOutlineButtonStyle();
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Project Files");
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), ".qcv  .qcvproj  .qcvexr");
-                        if (font_regular) ImGui::PopFont();
-                        ImGui::Spacing();
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Video");
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            ".mp4  .mkv  .avi  .mov  .wmv  .flv  .webm  .m4v\n"
-                            ".m2ts  .mts  .ts  .mxf  .ogv  .3gp");
-                        if (font_regular) ImGui::PopFont();
-                        ImGui::Spacing();
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Image");
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            ".exr  .gif  .hdr  .tif  .tiff  .png  .jpg  .jpeg");
-                        if (font_regular) ImGui::PopFont();
-                        ImGui::Spacing();
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Audio");
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
-                            ".wav  .mp3  .aac  .flac  .ogg  .m4a  .wma");
-                        if (font_regular) ImGui::PopFont();
-                        ImGui::Spacing();
-
-                        ImGui::TextColored(Bright(GetWindowsAccentColor()), "Protocol");
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "qcview://");
-                        if (font_regular) ImGui::PopFont();
-
-                        ImGui::Spacing();
-                        ImGui::Separator();
-                        ImGui::Spacing();
-
-                        if (font_regular) ImGui::PushFont(font_regular);
-                        ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
-                            "Tip: In Default Apps, search for \"QCView\" to find all\n"
-                            "file types that can be associated with this application.");
-                        if (font_regular) ImGui::PopFont();
 
                         ImGui::EndTabItem();
-                    } // End File Associations tab
+                    } // End HDR Display tab
+#endif
 
                     ImGui::EndTabBar();
                 } // End tab bar
@@ -1319,6 +1355,14 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                 AutoConfigureEXRThreading(cache_settings);
                 g_exr_read_ahead_frames = 72;   // ~3s @ 24fps
                 g_read_behind_frames = 12;      // ~0.5s @ 24fps
+
+#ifdef QCVIEW_USE_VULKAN
+                // HDR settings
+                hdr_ui_nits_ = 400.0f;
+                if (vulkan_swapchain_ && vulkan_swapchain_->IsHDRActive()) {
+                    vulkan_swapchain_->SetUIBrightness(hdr_ui_nits_);
+                }
+#endif
 
                 // Disk cache settings
                 g_custom_cache_path = "";

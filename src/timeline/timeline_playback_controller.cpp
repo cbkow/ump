@@ -18,6 +18,12 @@
 #include "../audio/audio_player.h"
 #endif
 
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#include "../gpu/vulkan_dual_compositor.h"
+#include "../gpu/dual_view_layout.h"
+#endif
+
 #include <cmath>
 #include <sstream>
 #include <iomanip>
@@ -111,6 +117,7 @@ bool TimelinePlaybackController::InitializeCacheForScratchTimeline(TimelineView*
     cache_config.fps = fps_;
     cache_config.use_shared_pool = true;
     cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
+    cache_config.force_software_decode = cache_settings.force_software_decode;
 
     cache_->SetConfig(cache_config);
 
@@ -254,9 +261,20 @@ void TimelinePlaybackController::Shutdown() {
     right_flattener_.reset();
     dual_view_mode_ = false;
 
+#ifdef QCVIEW_USE_VULKAN
+    if (vulkan_compositor_) {
+        vulkan_compositor_->Shutdown();
+        vulkan_compositor_.reset();
+    }
+#endif
+
     // Clear texture
     if (current_texture_ != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(current_texture_));
+#else
         glDeleteTextures(1, &current_texture_);
+#endif
         current_texture_ = 0;
     }
 
@@ -746,6 +764,7 @@ void TimelinePlaybackController::SetConfig(const TimelinePlaybackConfig& config)
         cache_config.fps = fps_;
         cache_config.use_shared_pool = true;
         cache_config.pipeline_mode = config_.pipeline_mode;  // Pass through video pipeline mode
+        cache_config.force_software_decode = cache_settings.force_software_decode;
         cache_->SetConfig(cache_config);
     }
 }
@@ -1144,6 +1163,7 @@ bool TimelinePlaybackController::InitializeForVirtualTimeline(
         cache_config.fps = fps_;
         cache_config.use_shared_pool = true;
         cache_config.pipeline_mode = config_.pipeline_mode;
+        cache_config.force_software_decode = cache_settings.force_software_decode;
 
         cache_->SetConfig(cache_config);
         cache_->Initialize(tracks, &timeline_view_->GetFlattener(), fps_,
@@ -1975,6 +1995,7 @@ bool TimelinePlaybackController::InitializeForDualView(TimelineView* timeline_vi
     cache_config.max_textures = g_timeline_max_textures;  // Full textures for each cache (was /2)
     cache_config.fps = fps_;
     cache_config.pipeline_mode = config_.pipeline_mode;  // Use project pipeline mode for D3D11 decoders
+    cache_config.force_software_decode = cache_settings.force_software_decode;
     // Note: use_shared_pool = false for dual view because both caches may reference
     // the same source frames (same file, different slips), causing key collisions.
     cache_config.use_shared_pool = false;
@@ -2355,8 +2376,7 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
     }
 #endif
 
-    // NOTE: ProcessPendingUploads now called from ProcessPendingTextureUploads()
-    // BEFORE ImGui::NewFrame() to avoid GL state corruption during render
+    // Update caches for decode prefetching (once, shared by all paths)
     if (cache_) {
         cache_->UpdatePlayhead(frame, is_playing);
     }
@@ -2364,21 +2384,86 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
         right_cache_->UpdatePlayhead(frame, is_playing);
     }
 
-    // Get frames from both caches (legacy path - two separate interops)
+    // Get frames from both caches
     int left_w = 0, left_h = 0;
     int right_w = 0, right_h = 0;
+    GLuint left_tex = 0, right_tex = 0;
 
     if (cache_) {
-        result.left_texture = cache_->GetFrame(frame, left_w, left_h);
-        result.left_width = left_w;
-        result.left_height = left_h;
+        left_tex = cache_->GetFrame(frame, left_w, left_h);
+    }
+    if (right_cache_) {
+        right_tex = right_cache_->GetFrame(frame, right_w, right_h);
     }
 
-    if (right_cache_) {
-        result.right_texture = right_cache_->GetFrame(frame, right_w, right_h);
-        result.right_width = right_w;
-        result.right_height = right_h;
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan unified composite pipeline
+    {
+        // Lazy-initialize compositor
+        if (!vulkan_compositor_) {
+            vulkan_compositor_ = std::make_unique<VulkanDualCompositor>();
+            if (!vulkan_compositor_->Initialize()) {
+                Debug::Log("TimelinePlaybackController: Failed to initialize VulkanDualCompositor");
+                vulkan_compositor_.reset();
+            }
+        }
+
+        if (vulkan_compositor_) {
+            uint64_t left_pool_id = (left_tex != 0) ? static_cast<uint64_t>(left_tex) : 0;
+            uint64_t right_pool_id = (right_tex != 0) ? static_cast<uint64_t>(right_tex) : 0;
+
+            // Need at least one source to composite
+            if ((left_pool_id != 0 || right_pool_id != 0) &&
+                (left_w > 0 || right_w > 0)) {
+                // Use actual source dimensions (fall back to other side if one is a gap)
+                int eff_left_w = left_w > 0 ? left_w : right_w;
+                int eff_left_h = left_h > 0 ? left_h : right_h;
+                int eff_right_w = right_w > 0 ? right_w : left_w;
+                int eff_right_h = right_h > 0 ? right_h : left_h;
+
+                DualViewLayout layout = ComputeDualViewLayout(
+                    eff_left_w, eff_left_h, eff_right_w, eff_right_h);
+
+                uint64_t composite_id = vulkan_compositor_->Composite(
+                    left_pool_id, right_pool_id, layout);
+
+                if (composite_id != 0) {
+                    result.is_unified = true;
+                    result.composite_texture = static_cast<GLuint>(composite_id);
+                    result.composite_width = layout.composite_width;
+                    result.composite_height = layout.composite_height;
+
+                    // Copy UV coordinates from layout
+                    result.left_uv_min_x = layout.left_uv.u_min;
+                    result.left_uv_max_x = layout.left_uv.u_max;
+                    result.left_uv_min_y = layout.left_uv.v_min;
+                    result.left_uv_max_y = layout.left_uv.v_max;
+
+                    result.right_uv_min_x = layout.right_uv.u_min;
+                    result.right_uv_max_x = layout.right_uv.u_max;
+                    result.right_uv_min_y = layout.right_uv.v_min;
+                    result.right_uv_max_y = layout.right_uv.v_max;
+
+                    // Set individual dimensions for aspect calculations
+                    result.left_width = layout.left_source_width;
+                    result.left_height = layout.left_source_height;
+                    result.right_width = layout.right_source_width;
+                    result.right_height = layout.right_source_height;
+
+                    return result;
+                }
+            }
+        }
     }
+#endif
+
+    // Legacy path: return separate left/right textures (no compositing)
+    result.left_texture = left_tex;
+    result.left_width = left_w;
+    result.left_height = left_h;
+    result.right_texture = right_tex;
+    result.right_width = right_w;
+    result.right_height = right_h;
 
     return result;
 }

@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
+#elif defined(QCVIEW_HAS_CURL)
+#include <curl/curl.h>
 #endif
 
 namespace qcview {
@@ -211,8 +213,35 @@ std::string FrameioUrlParser::FollowRedirect(const std::string& url) {
     WinHttpCloseHandle(hSession);
 
     return final_url;
+#elif defined(QCVIEW_HAS_CURL)
+    CURL* curl = curl_easy_init();
+    if (!curl) return "";
+
+    std::string final_url;
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);           // HEAD request
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);   // Don't follow redirects
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "QCView/1.0");
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+
+        if (http_code == 301 || http_code == 302 || http_code == 307 || http_code == 308) {
+            char* location = nullptr;
+            curl_easy_getinfo(curl, CURLINFO_REDIRECT_URL, &location);
+            if (location) {
+                final_url = location;
+            }
+        }
+    }
+
+    curl_easy_cleanup(curl);
+    return final_url;
 #else
-    // TODO: Implement for non-Windows platforms using libcurl
     return "";
 #endif
 }

@@ -16,6 +16,10 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#ifdef QCVIEW_USE_VULKAN
+#include <vulkan/vulkan.h>
+#include "hdr/vulkan_hdr_swapchain.h"
+#endif
 
 // Project includes needed for member variable types
 #include "player/video_player.h"
@@ -41,8 +45,12 @@ namespace qcview {
     class TimelineCommandManager;
     class TimelineThumbnailCache;
     class MediaLinker;
+    class SingleInstance;
     struct OTIOTrack;
     struct DualViewClip;
+    namespace Annotations {
+        class VulkanAnnotationRenderer;
+    }
 }
 // Need full definitions for nested types used in method signatures
 #include "timeline/timeline_selection.h"  // TimelineClipDragState::DraggedClipInfo
@@ -70,6 +78,9 @@ public:
     void RefreshCurrentFrame();
     void UpdateColorPipeline();
     void ForceReloadCurrentMedia();
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+    void SetSingleInstance(qcview::SingleInstance* si);
+#endif
 
     // ------------------------------------------------------------------------
     // LOADING/SCHEDULING
@@ -81,16 +92,30 @@ public:
     void ScheduleImport(const std::string& path, const std::string& message);
 
     // Static members for window procedure
+#ifdef _WIN32
     static WNDPROC original_wndproc;
+#endif
     static Application* app_instance;
 
 private:
     // ------------------------------------------------------------------------
     // MEMBER VARIABLES - Core Systems
     // ------------------------------------------------------------------------
-    GLFWwindow* window;
+    GLFWwindow* window = nullptr;
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan presentation (HDR-capable swapchain manages all resources)
+    std::unique_ptr<qcview::VulkanHDRSwapchain> vulkan_swapchain_;
+    uint32_t vulkan_current_frame_ = 0;
+    bool hdr_preferred_ = false;  // Loaded from settings, applied after swapchain init
+    float hdr_ui_nits_ = 400.0f; // HDR UI brightness in nits
+#endif
+
     std::unique_ptr<VideoPlayer> video_player;
     std::unique_ptr<qcview::ProjectManager> project_manager;
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+    qcview::SingleInstance* single_instance_ = nullptr;
+#endif
     std::unique_ptr<TimelineManager> timeline_manager;
     std::unique_ptr<qcview::AnnotationManager> annotation_manager;
     std::unique_ptr<qcview::AnnotationPanel> annotation_panel;
@@ -110,6 +135,12 @@ private:
     ImVec2 nvg_display_size_ = ImVec2(0, 0);
     int nvg_video_width_ = 0;
     std::vector<qcview::Annotations::ActiveStroke> nvg_strokes_to_render_;
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan annotation rendering (replaces NanoVG on Linux)
+    std::unique_ptr<qcview::Annotations::VulkanAnnotationRenderer> vulkan_annotation_renderer_;
+    uint64_t vulkan_annotation_texture_id_ = 0;
+#endif
 
     // Undo/redo stacks for annotation editing
     std::vector<std::vector<qcview::Annotations::ActiveStroke>> annotation_undo_stack_;

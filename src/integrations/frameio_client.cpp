@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <winhttp.h>
 #pragma comment(lib, "winhttp.lib")
+#elif defined(QCVIEW_HAS_CURL)
+#include <curl/curl.h>
 #endif
 
 namespace qcview {
@@ -201,8 +203,40 @@ std::string FrameioClient::HttpGet(
     WinHttpCloseHandle(hSession);
 
     return response_body;
+#elif defined(QCVIEW_HAS_CURL)
+    CURL* curl = curl_easy_init();
+    if (!curl) return "";
+
+    std::string response_body;
+    auto write_cb = [](char* ptr, size_t size, size_t nmemb, void* userdata) -> size_t {
+        auto* buf = static_cast<std::string*>(userdata);
+        buf->append(ptr, size * nmemb);
+        return size * nmemb;
+    };
+
+    struct curl_slist* headers = nullptr;
+    std::string auth_header = "Authorization: Bearer " + bearer_token;
+    headers = curl_slist_append(headers, auth_header.c_str());
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, static_cast<curl_write_callback>(write_cb));
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "QCView/1.0");
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res == CURLE_OK) {
+        long http_code = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+        out_status_code = static_cast<int>(http_code);
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    return response_body;
 #else
-    // TODO: Implement for non-Windows platforms using libcurl
     return "";
 #endif
 }

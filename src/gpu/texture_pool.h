@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <thread>
 #include <vector>
 #include <queue>
 #include <unordered_map>
@@ -7,11 +9,7 @@
 #include <mutex>
 #include <memory>
 
-#ifdef _WIN32
 #include <glad/gl.h>
-#else
-#include <GL/gl.h>
-#endif
 
 namespace qcview {
 

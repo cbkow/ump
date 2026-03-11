@@ -41,7 +41,12 @@ extern "C" {
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef QCVIEW_USE_VULKAN
+#include <imgui_impl_vulkan.h>
+#include "gpu/vulkan_device.h"
+#else
 #include <imgui_impl_opengl3.h>
+#endif
 #include <imgui_internal.h>
 #include <implot.h>
 #include <nfd.h>
@@ -88,6 +93,12 @@ extern "C" {
 #ifdef _WIN32
 #include "hdr/hdr_output_manager.h"
 #include "gpu/d3d11_video_interop.h"
+#endif
+#if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+#include "utils/single_instance.h"
+#endif
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_device.h"
 #endif
 #include "app/app_ui_macros.h"
 #include "project/project_manager.h"
@@ -561,8 +572,27 @@ bool g_clear_cache_on_exit = false;  // Clear all cache on app exit
 std::filesystem::path g_exe_dir;
 
 // Resolve asset paths relative to executable directory
+// On Linux, also check the system install location (/usr/share/qcview/)
 std::string GetAssetPath(const std::string& relative_path) {
-    return (g_exe_dir / relative_path).string();
+    // First check relative to executable (works for dev builds and portable installs)
+    auto local_path = g_exe_dir / relative_path;
+    if (std::filesystem::exists(local_path))
+        return local_path.string();
+
+#ifdef __linux__
+    // Check system install location (e.g. /usr/share/qcview/assets/...)
+    auto system_path = std::filesystem::path("/usr/share/qcview") / relative_path;
+    if (std::filesystem::exists(system_path))
+        return system_path.string();
+
+    // Check /usr/local/share as well
+    auto local_system_path = std::filesystem::path("/usr/local/share/qcview") / relative_path;
+    if (std::filesystem::exists(local_system_path))
+        return local_system_path.string();
+#endif
+
+    // Fallback to original path (may not exist, but caller can handle)
+    return local_path.string();
 }
 
 qcview::DirectEXRCacheConfig GetCurrentEXRCacheConfig() {
@@ -604,6 +634,9 @@ qcview::ThumbnailConfig GetCurrentThumbnailConfig() {
 #include "app/app_icons.h"
 #include "app/application.h"
 #include "app/drawing_utils.h"
+#ifdef QCVIEW_USE_VULKAN
+#include "annotations/vulkan_annotation_renderer.h"
+#endif
 
 
 // ============================================================================
@@ -629,6 +662,7 @@ void ScheduleImport(const std::string& path, const std::string& message) {
 // HELPER FUNCTIONS
 // ============================================================================
 
+#ifdef _WIN32
 // Helper function to find the existing QCView instance window
 // Uses window properties instead of class names for reliable identification
 static HWND FindUmpWindow() {
@@ -648,6 +682,7 @@ static HWND FindUmpWindow() {
 
     return found_hwnd;
 }
+#endif // _WIN32
 
 // ============================================================================
 // ENTRY POINTS
@@ -707,7 +742,6 @@ int main(int argc, char* argv[]) {
     #endif
 
     // Store executable directory for asset path resolution
-    // We use GetModuleFileNameW for reliable exe path detection
     #ifdef _WIN32
     {
         wchar_t exe_path_buf[MAX_PATH];
@@ -717,8 +751,6 @@ int main(int argc, char* argv[]) {
     }
 
     // Set working directory to a writable location (%LOCALAPPDATA%\qcview\data)
-    // This avoids issues with Program Files permissions affecting relative path operations
-    // NOTE: Do NOT change TEMP/TMP - D3D11 drivers depend on the system temp location
     {
         PWSTR localappdata_path = nullptr;
         if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_CREATE, nullptr, &localappdata_path))) {
@@ -731,87 +763,119 @@ int main(int argc, char* argv[]) {
                 Debug::Log("Set working directory to: " + writable_dir.string());
             } catch (const std::exception& e) {
                 Debug::Log("Warning: Failed to set writable working directory: " + std::string(e.what()));
-                // Fallback to exe directory
                 std::filesystem::current_path(g_exe_dir);
             }
         } else {
-            // Fallback to exe directory if we can't get LOCALAPPDATA
             std::filesystem::current_path(g_exe_dir);
             Debug::Log("Warning: Could not get LOCALAPPDATA, using exe directory as working directory");
         }
     }
     #else
-    // Non-Windows: just use exe directory
+    // Linux: resolve exe directory and set writable working directory
     try {
-        std::filesystem::path exe_path = std::filesystem::absolute(argv[0]);
+        std::filesystem::path exe_path = std::filesystem::canonical("/proc/self/exe");
         g_exe_dir = exe_path.parent_path();
         Debug::Log("Executable directory: " + g_exe_dir.string());
     } catch (const std::exception& e) {
+        // Fallback to argv[0]
+        try {
+            std::filesystem::path exe_path = std::filesystem::absolute(argv[0]);
+            g_exe_dir = exe_path.parent_path();
+        } catch (...) {}
         std::cerr << "Warning: Failed to determine executable directory: " << e.what() << std::endl;
+    }
+
+    // Set writable working directory on Linux (~/.local/share/qcview/data)
+    {
+        const char* xdg_data = std::getenv("XDG_DATA_HOME");
+        std::filesystem::path data_dir;
+        if (xdg_data && xdg_data[0]) {
+            data_dir = std::filesystem::path(xdg_data) / "qcview" / "data";
+        } else {
+            const char* home = std::getenv("HOME");
+            if (home) {
+                data_dir = std::filesystem::path(home) / ".local" / "share" / "qcview" / "data";
+            }
+        }
+        if (!data_dir.empty()) {
+            try {
+                std::filesystem::create_directories(data_dir);
+                std::filesystem::current_path(data_dir);
+                Debug::Log("Set working directory to: " + data_dir.string());
+            } catch (const std::exception& e) {
+                Debug::Log("Warning: Failed to set writable working directory: " + std::string(e.what()));
+            }
+        }
     }
     #endif
 
-    // Single instance enforcement using named mutex and window messaging
-    // This prevents multiple instances from conflicting with RAM cache
-    // AND allows new instances to pass files/URIs to the existing instance
+    // Single instance enforcement (Windows only)
+    #ifdef _WIN32
     static HANDLE single_instance_mutex = CreateMutexW(NULL, TRUE, L"Local\\qcview_SingleInstanceMutex");
 
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         Debug::Log("Another instance is already running - attempting to pass command to it");
 
-        // Find the existing instance's window using our helper function
         HWND existing_window = FindUmpWindow();
 
         if (existing_window) {
             Debug::Log("Found existing instance window - sending command");
-            // Collect file paths from command-line arguments
             std::string args_to_send;
             for (int i = 1; i < argc; i++) {
-                if (!args_to_send.empty()) args_to_send += "|";  // Use | as separator
+                if (!args_to_send.empty()) args_to_send += "|";
                 args_to_send += argv[i];
             }
 
             if (!args_to_send.empty()) {
                 Debug::Log("Sending command to existing instance: " + args_to_send);
 
-                // Use WM_COPYDATA to send the file path(s) to existing instance
                 COPYDATASTRUCT cds;
-                cds.dwData = 1;  // Message ID
+                cds.dwData = 1;
                 cds.cbData = static_cast<DWORD>(args_to_send.length() + 1);
                 cds.lpData = (PVOID)args_to_send.c_str();
 
                 SendMessageW(existing_window, WM_COPYDATA, 0, (LPARAM)&cds);
 
-                // Bring existing window to front
                 SetForegroundWindow(existing_window);
                 ShowWindow(existing_window, SW_RESTORE);
 
                 Debug::Log("Command sent successfully - exiting");
             } else {
-                // No files to open, just bring existing window to front
                 SetForegroundWindow(existing_window);
                 ShowWindow(existing_window, SW_RESTORE);
                 Debug::Log("No files to send - just bringing window to front");
             }
         } else {
-            // Window not found - likely first instance is still initializing
-            // Just exit silently instead of showing a warning (avoids annoying users who double-click)
             Debug::Log("Another instance starting - exiting silently");
         }
 
         if (single_instance_mutex) {
             CloseHandle(single_instance_mutex);
         }
-        return 0;  // Exit gracefully
+        return 0;
     }
+    #endif // _WIN32
 
-    Application app;
-
-    // Collect file paths from command-line arguments for initial instance
+    // Collect file paths from command-line arguments
     std::vector<std::string> initial_files;
     for (int i = 1; i < argc; i++) {  // Skip argv[0] (executable path)
         initial_files.push_back(argv[i]);
     }
+
+    // Single instance enforcement (Linux via D-Bus)
+    #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+    qcview::SingleInstance single_instance;
+    if (!single_instance.TryAcquire(initial_files)) {
+        Debug::Log("Files sent to existing instance — exiting");
+        return 0;
+    }
+    #endif
+
+    Application app;
+
+    #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
+    app.SetSingleInstance(&single_instance);
+    #endif
 
     if (!app.Initialize(initial_files)) {
         return -1;

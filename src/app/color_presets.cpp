@@ -143,7 +143,7 @@ static void DrawItemIcon(const char* icon) {
 
                     DragPayload payload;
                     payload.type = qcview::NodeType::INPUT_COLORSPACE;
-                    strncpy_s(payload.name, sizeof(payload.name), cs.c_str(), _TRUNCATE);
+                    strncpy(payload.name, cs.c_str(), sizeof(payload.name) - 1); payload.name[sizeof(payload.name) - 1] = '\0';
 
                     ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
                     ImGui::Text("Creating: %s", cs.c_str());
@@ -191,7 +191,7 @@ static void DrawItemIcon(const char* icon) {
 
                         DragPayload payload;
                         payload.type = qcview::NodeType::LOOK;
-                        strncpy_s(payload.name, sizeof(payload.name), look.c_str(), _TRUNCATE);
+                        strncpy(payload.name, look.c_str(), sizeof(payload.name) - 1); payload.name[sizeof(payload.name) - 1] = '\0';
 
                         ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
                         ImGui::Text("Creating: %s", look.c_str());
@@ -309,7 +309,7 @@ static void DrawItemIcon(const char* icon) {
 
                         DragPayload payload;
                         payload.type = qcview::NodeType::OUTPUT_DISPLAY;
-                        strncpy_s(payload.name, sizeof(payload.name), display.c_str(), _TRUNCATE);
+                        strncpy(payload.name, display.c_str(), sizeof(payload.name) - 1); payload.name[sizeof(payload.name) - 1] = '\0';
 
                         ImGui::SetDragDropPayload("OCIO_NODE", &payload, sizeof(payload));
                         ImGui::Text("Creating: %s", display.c_str());

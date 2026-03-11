@@ -2,6 +2,7 @@
 #include "../app/app_ui_macros.h"
 #include "../annotations/annotation_toolbar.h"
 #include "../annotations/viewport_annotator.h"
+#include "../annotations/annotated_thumbnail.h"
 #include "../utils/debug_utils.h"
 #include <imgui.h>
 #include <imgui_markdown.h>
@@ -9,6 +10,18 @@
 #include <filesystem>
 #include <png.h>
 #include <vector>
+
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#else
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    return (ImTextureID)(intptr_t)id;
+}
+#endif
 
 #define ICON_CLOSE u8"\uE5CD"
 #define ICON_NOTE           "\xEE\xA0\xB6"   // U+E836
@@ -486,9 +499,8 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         float thumbnail_aspect = video_aspect_ratio_;
         std::string full_image_path;
 
-        if (annotation_manager_) {
-            std::string images_folder = annotation_manager_->GetImagesFolder();
-            full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
+        full_image_path = ResolveThumbnailPath(note);
+        if (!full_image_path.empty()) {
             thumbnail_id = LoadThumbnail(full_image_path);
 
             auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
@@ -500,7 +512,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         float thumbnail_height = thumbnail_width / thumbnail_aspect;
 
         if (thumbnail_id != 0) {
-            ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumbnail_width, thumbnail_height));
+            ImGui::Image(PoolIDToImTexture(thumbnail_id), ImVec2(thumbnail_width, thumbnail_height));
 
             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 selected_timecode_ = note.timecode;
@@ -771,14 +783,15 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     GLuint thumbnail_id = 0;
     float thumbnail_aspect = video_aspect_ratio_;
 
-    if (annotation_manager_) {
-        std::string images_folder = annotation_manager_->GetImagesFolder();
-        std::string full_image_path = images_folder + "/" + note.image_path.substr(note.image_path.find_last_of('/') + 1);
-        thumbnail_id = LoadThumbnail(full_image_path);
+    {
+        std::string full_image_path = ResolveThumbnailPath(note);
+        if (!full_image_path.empty()) {
+            thumbnail_id = LoadThumbnail(full_image_path);
 
-        auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
-        if (aspect_it != thumbnail_aspect_cache_.end()) {
-            thumbnail_aspect = aspect_it->second;
+            auto aspect_it = thumbnail_aspect_cache_.find(full_image_path);
+            if (aspect_it != thumbnail_aspect_cache_.end()) {
+                thumbnail_aspect = aspect_it->second;
+            }
         }
     }
 
@@ -786,7 +799,7 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     float thumb_h = thumb_w / thumbnail_aspect;
 
     if (thumbnail_id != 0) {
-        ImGui::Image((void*)(intptr_t)thumbnail_id, ImVec2(thumb_w, thumb_h));
+        ImGui::Image(PoolIDToImTexture(thumbnail_id), ImVec2(thumb_w, thumb_h));
         if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             if (seek_callback_) {
                 seek_callback_(note.timestamp_seconds);
@@ -978,7 +991,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
 
         // === Image ===
         if (modal_image_texture_ != 0) {
-            ImGui::Image((void*)(intptr_t)modal_image_texture_, ImVec2(img_w, img_h));
+            ImGui::Image(PoolIDToImTexture(modal_image_texture_), ImVec2(img_w, img_h));
         } else {
             ImGui::Dummy(ImVec2(img_w, img_h));
         }
@@ -1227,7 +1240,13 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
     fclose(fp);
 
-    // Create OpenGL texture
+    // Create texture
+#ifdef QCVIEW_USE_VULKAN
+    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+        width, height, VK_FORMAT_R8G8B8A8_UNORM,
+        image_data.data(), image_data.size());
+    GLuint texture_id = static_cast<GLuint>(pool_id);
+#else
     GLuint texture_id;
     glGenTextures(1, &texture_id);
     glBindTexture(GL_TEXTURE_2D, texture_id);
@@ -1238,6 +1257,7 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data.data());
+#endif
 
     // Cache the texture and aspect ratio
     thumbnail_cache_[image_path] = texture_id;
@@ -1248,10 +1268,47 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     return texture_id;
 }
 
+std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) const {
+    if (!annotation_manager_) return "";
+
+    std::string images_folder = annotation_manager_->GetImagesFolder();
+    std::string filename = note.image_path.substr(note.image_path.find_last_of('/') + 1);
+    std::string clean_path = images_folder + "/" + filename;
+
+    // Prefer annotated thumbnail if it exists
+    std::string annotated_path = Annotations::GetAnnotatedThumbnailPath(clean_path);
+    if (std::filesystem::exists(annotated_path)) {
+        return annotated_path;
+    }
+
+    // Lazy generation: if annotation_data has strokes but no annotated thumbnail yet, generate it
+    if (!note.annotation_data.empty() && std::filesystem::exists(clean_path)) {
+        if (Annotations::GenerateAnnotatedThumbnail(clean_path, annotated_path, note.annotation_data)) {
+            return annotated_path;
+        }
+    }
+
+    return clean_path;
+}
+
+void AnnotationPanel::InvalidateThumbnail(const std::string& image_path) {
+    auto it = thumbnail_cache_.find(image_path);
+    if (it != thumbnail_cache_.end()) {
+#ifndef QCVIEW_USE_VULKAN
+        glDeleteTextures(1, &it->second);
+#endif
+        // On Vulkan, pool textures are small and cleaned up on pool shutdown
+        thumbnail_cache_.erase(it);
+        thumbnail_aspect_cache_.erase(image_path);
+    }
+}
+
 void AnnotationPanel::CleanupThumbnails() {
+#ifndef QCVIEW_USE_VULKAN
     for (auto& pair : thumbnail_cache_) {
         glDeleteTextures(1, &pair.second);
     }
+#endif
     thumbnail_cache_.clear();
     thumbnail_aspect_cache_.clear();
 }

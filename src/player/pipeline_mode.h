@@ -28,6 +28,10 @@ inline const char* VideoRangeModeToString(VideoRangeMode mode) {
     }
 }
 
+// Forward declare PixelFormat (defined in image_loader_interface.h)
+// Used here to keep PipelineConfig compatible with both GL and Vulkan paths
+enum class PixelFormat : int;
+
 struct PipelineConfig {
     PipelineMode mode;
     GLenum internal_format;      // GL_RGBA8, GL_RGBA16, GL_RGBA16F

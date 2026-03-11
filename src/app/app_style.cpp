@@ -20,6 +20,58 @@
 #endif
 #endif
 
+#ifdef QCVIEW_HAS_SDBUS
+#include <systemd/sd-bus.h>
+#include "utils/debug_utils.h"
+
+// Query accent color from XDG Desktop Portal via D-Bus
+// org.freedesktop.portal.Settings → org.freedesktop.appearance → accent-color
+// Returns (r,g,b) as doubles in sRGB [0,1] range
+static ImVec4 QueryDBusAccentColor() {
+    sd_bus* bus = nullptr;
+    sd_bus_message* reply = nullptr;
+    sd_bus_error error = SD_BUS_ERROR_NULL;
+
+    int r = sd_bus_open_user(&bus);
+    if (r < 0) return ImVec4(0, 0, 0, 0);
+
+    r = sd_bus_call_method(bus,
+        "org.freedesktop.portal.Desktop",
+        "/org/freedesktop/portal/desktop",
+        "org.freedesktop.portal.Settings",
+        "ReadOne",
+        &error,
+        &reply,
+        "ss",
+        "org.freedesktop.appearance",
+        "accent-color");
+
+    ImVec4 result(0, 0, 0, 0);
+
+    if (r >= 0 && reply) {
+        // ReadOne returns variant v containing (ddd)
+        r = sd_bus_message_enter_container(reply, 'v', "(ddd)");
+        if (r >= 0) {
+            r = sd_bus_message_enter_container(reply, 'r', "ddd");
+            if (r >= 0) {
+                double dr = 0, dg = 0, db = 0;
+                sd_bus_message_read(reply, "ddd", &dr, &dg, &db);
+                result = ImVec4((float)dr, (float)dg, (float)db, 1.0f);
+                Debug::Log("D-Bus accent color: " +
+                    std::to_string(dr) + ", " + std::to_string(dg) + ", " + std::to_string(db));
+                sd_bus_message_exit_container(reply);
+            }
+            sd_bus_message_exit_container(reply);
+        }
+    }
+
+    sd_bus_error_free(&error);
+    sd_bus_message_unref(reply);
+    sd_bus_unref(bus);
+    return result;
+}
+#endif
+
 // Free functions defined in main.cpp
 std::string GetAssetPath(const std::string& relative_path);
 
@@ -101,9 +153,20 @@ ImVec4 Application::GetWindowsAccentColor() {
 }
 #else
 ImVec4 Application::GetWindowsAccentColor() {
-    // Check if Windows accent color is enabled (non-Windows fallback)
     if (use_windows_accent_color) {
-        return GetDefaultAccentColor();  // Can't get system color on non-Windows
+#ifdef QCVIEW_HAS_SDBUS
+        // Query system accent color via XDG Desktop Portal (D-Bus)
+        static ImVec4 cached_color = {0, 0, 0, 0};
+        static bool queried = false;
+        if (!queried) {
+            queried = true;
+            cached_color = QueryDBusAccentColor();
+        }
+        if (cached_color.w > 0.0f) {
+            return cached_color;
+        }
+#endif
+        return GetDefaultAccentColor();
     }
 
     // Use custom palette color or default

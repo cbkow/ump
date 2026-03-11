@@ -10,7 +10,15 @@
 #include <imgui.h>
 #include "../external/glfw/deps/stb_image_write.h"
 
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_device.h"
+#include "gpu/vulkan_texture_pool.h"
+#include "annotations/vulkan_annotation_renderer.h"
+#include "color/vulkan_ocio_renderer.h"
+#endif
+
 #include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -237,6 +245,268 @@
         if (!pending_capture.pending) {
             return false;
         }
+
+#ifdef QCVIEW_USE_VULKAN
+        // Skip capture on first frame after queueing
+        if (pending_capture.just_queued) {
+            pending_capture.just_queued = false;
+            return false;
+        }
+
+        // Vulkan export path: render video + annotations to offscreen image, readback to CPU
+        {
+            auto& dev = qcview::VulkanDeviceManager::Instance();
+            auto& pool = qcview::VulkanTexturePool::Instance();
+            VkDevice device = dev.GetDevice();
+
+            if (!video_player) {
+                Debug::Log("CaptureRenderedFrame (Vulkan): No video player");
+                pending_capture.pending = false;
+                return false;
+            }
+
+            int video_width = video_player->GetVideoWidth();
+            int video_height = video_player->GetVideoHeight();
+            int capture_width = pending_capture.use_native_resolution ? pending_capture.export_width : video_width;
+            int capture_height = pending_capture.use_native_resolution ? pending_capture.export_height : video_height;
+
+            if (capture_width <= 0 || capture_height <= 0) {
+                Debug::Log("CaptureRenderedFrame (Vulkan): Invalid dimensions");
+                pending_capture.pending = false;
+                return false;
+            }
+
+            // Get the video texture from the pool
+            GLuint video_tex_id = video_player->GetCurrentVideoTexture();
+            const auto* src_tex = pool.GetTexture(static_cast<uint64_t>(video_tex_id));
+
+            if (!src_tex || !src_tex->is_valid) {
+                Debug::Log("CaptureRenderedFrame (Vulkan): No valid video texture in pool");
+                pending_capture.pending = false;
+                return false;
+            }
+
+            Debug::Log("CaptureRenderedFrame (Vulkan): Capturing " +
+                       std::to_string(capture_width) + "x" + std::to_string(capture_height));
+
+            // Create offscreen RGBA8 image at export resolution
+            VkImage export_image = VK_NULL_HANDLE;
+            VmaAllocation export_alloc = VK_NULL_HANDLE;
+            VkImageView export_view = VK_NULL_HANDLE;
+
+            VkImageCreateInfo img_info{};
+            img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+            img_info.imageType = VK_IMAGE_TYPE_2D;
+            img_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+            img_info.extent = {static_cast<uint32_t>(capture_width),
+                               static_cast<uint32_t>(capture_height), 1};
+            img_info.mipLevels = 1;
+            img_info.arrayLayers = 1;
+            img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+            img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+            img_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                             VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                             VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+            VmaAllocationCreateInfo alloc_ci{};
+            alloc_ci.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+            if (vmaCreateImage(dev.GetAllocator(), &img_info, &alloc_ci,
+                               &export_image, &export_alloc, nullptr) != VK_SUCCESS) {
+                Debug::Log("CaptureRenderedFrame (Vulkan): Failed to create export image");
+                pending_capture.pending = false;
+                return false;
+            }
+
+            VkImageViewCreateInfo view_ci{};
+            view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            view_ci.image = export_image;
+            view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            view_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+            view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            view_ci.subresourceRange.levelCount = 1;
+            view_ci.subresourceRange.layerCount = 1;
+
+            if (vkCreateImageView(device, &view_ci, nullptr, &export_view) != VK_SUCCESS) {
+                vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+                pending_capture.pending = false;
+                return false;
+            }
+
+            // Blit video texture onto export image
+            {
+                VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+                // Transition export image to TRANSFER_DST
+                VkImageMemoryBarrier barrier{};
+                barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.image = export_image;
+                barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                barrier.subresourceRange.levelCount = 1;
+                barrier.subresourceRange.layerCount = 1;
+                barrier.srcAccessMask = 0;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                // Transition source to TRANSFER_SRC
+                VkImageMemoryBarrier src_barrier{};
+                src_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                src_barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                src_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                src_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                src_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                src_barrier.image = src_tex->image;
+                src_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                src_barrier.subresourceRange.levelCount = 1;
+                src_barrier.subresourceRange.layerCount = 1;
+                src_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+                // Blit (handles format conversion and scaling)
+                VkImageBlit blit{};
+                blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.srcSubresource.layerCount = 1;
+                blit.srcOffsets[1] = {src_tex->width, src_tex->height, 1};
+                blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                blit.dstSubresource.layerCount = 1;
+                blit.dstOffsets[1] = {capture_width, capture_height, 1};
+
+                vkCmdBlitImage(cmd, src_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                               export_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                               1, &blit, VK_FILTER_LINEAR);
+
+                // Transition source back to SHADER_READ_ONLY
+                src_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                src_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                src_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                src_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+                // Transition export image to COLOR_ATTACHMENT_OPTIMAL for annotation rendering
+                barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                dev.EndSingleTimeCommands(cmd);
+            }
+
+            // Render annotations on top
+            if (!pending_capture.strokes.empty() && vulkan_annotation_renderer_ &&
+                vulkan_annotation_renderer_->IsInitialized()) {
+                float viewport_width = pending_capture.viewport_width_at_creation;
+                float line_width_scale = (float)capture_width / viewport_width;
+
+                Debug::Log("Rendering " + std::to_string(pending_capture.strokes.size()) +
+                          " annotation strokes (Vulkan), lws=" + std::to_string(line_width_scale));
+
+                vulkan_annotation_renderer_->RenderAnnotationsToImage(
+                    pending_capture.strokes,
+                    export_image, export_view,
+                    capture_width, capture_height,
+                    0.0f, 0.0f, (float)capture_width, (float)capture_height,
+                    line_width_scale, true);
+            }
+
+            // Readback: copy image to staging buffer
+            size_t pixel_count = static_cast<size_t>(capture_width) * capture_height;
+            size_t buffer_size = pixel_count * 4;
+
+            VkBuffer staging_buffer = VK_NULL_HANDLE;
+            VmaAllocation staging_alloc = VK_NULL_HANDLE;
+
+            VkBufferCreateInfo buf_ci{};
+            buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+            buf_ci.size = buffer_size;
+            buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+            VmaAllocationCreateInfo staging_ai{};
+            staging_ai.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+            staging_ai.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+            VmaAllocationInfo staging_info{};
+            if (vmaCreateBuffer(dev.GetAllocator(), &buf_ci, &staging_ai,
+                                &staging_buffer, &staging_alloc, &staging_info) != VK_SUCCESS) {
+                vkDestroyImageView(device, export_view, nullptr);
+                vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+                pending_capture.pending = false;
+                return false;
+            }
+
+            {
+                VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+                // Transition export image to TRANSFER_SRC
+                VkImageMemoryBarrier barrier{};
+                barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+                barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+                barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                barrier.image = export_image;
+                barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                barrier.subresourceRange.levelCount = 1;
+                barrier.subresourceRange.layerCount = 1;
+                barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+                barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+                vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                     0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+                VkBufferImageCopy region{};
+                region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+                region.imageSubresource.layerCount = 1;
+                region.imageExtent = {static_cast<uint32_t>(capture_width),
+                                      static_cast<uint32_t>(capture_height), 1};
+
+                vkCmdCopyImageToBuffer(cmd, export_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                       staging_buffer, 1, &region);
+
+                dev.EndSingleTimeCommands(cmd);
+            }
+
+            // Write PNG
+            bool write_ok = false;
+            if (staging_info.pMappedData) {
+                write_ok = stbi_write_png(
+                    pending_capture.output_path.c_str(),
+                    capture_width, capture_height, 4,
+                    staging_info.pMappedData,
+                    capture_width * 4) != 0;
+
+                if (write_ok) {
+                    Debug::Log("CaptureRenderedFrame (Vulkan): Saved " + pending_capture.output_path);
+                } else {
+                    Debug::Log("CaptureRenderedFrame (Vulkan): stbi_write_png failed");
+                }
+            }
+
+            // Cleanup
+            vmaDestroyBuffer(dev.GetAllocator(), staging_buffer, staging_alloc);
+            vkDestroyImageView(device, export_view, nullptr);
+            vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+
+            pending_capture.success = write_ok;
+            pending_capture.completed = true;
+            pending_capture.pending = false;
+            return write_ok;
+        }
+#endif
 
         // Skip capture on first frame after queueing - wait for video texture to update
         if (pending_capture.just_queued) {

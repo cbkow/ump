@@ -33,6 +33,18 @@
 #include <algorithm>
 #include <chrono>
 
+#ifdef QCVIEW_USE_VULKAN
+#include "gpu/vulkan_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#else
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    return (ImTextureID)(intptr_t)id;
+}
+#endif
+
 // Globals defined in main.cpp
 extern ImFont* font_regular;
 extern ImFont* font_bold;
@@ -1975,7 +1987,7 @@ static bool show_empty_area_context_menu = false;
 
                                             // Draw thumbnail (full opacity now that we have letterbox background)
                                             draw_list->AddImage(
-                                                (ImTextureID)(intptr_t)thumb_texture,
+                                                PoolIDToImTexture(thumb_texture),
                                                 ImVec2(thumb_x + offset_x, thumb_y + offset_y),
                                                 ImVec2(thumb_x + offset_x + draw_width, thumb_y + offset_y + draw_height),
                                                 ImVec2(0, 0), ImVec2(1, 1),
@@ -2314,7 +2326,7 @@ static bool show_empty_area_context_menu = false;
                                                 IM_COL32(15, 15, 15, 255), 4.0f);
 
                                             ImGui::SetCursorPos(ImVec2(cursor.x + offset_x, cursor.y + offset_y));
-                                            ImGui::Image((ImTextureID)(intptr_t)preview_texture, ImVec2(draw_w, draw_h));
+                                            ImGui::Image(PoolIDToImTexture(preview_texture), ImVec2(draw_w, draw_h));
                                             ImGui::SetCursorPosY(cursor.y + preview_max_h + 6.0f);
                                         } else {
                                             // Placeholder for loading thumbnail
@@ -3146,7 +3158,7 @@ static bool show_empty_area_context_menu = false;
                                         float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                                         float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                                         fg_draw->AddImage(
-                                            (ImTextureID)(intptr_t)preview_texture,
+                                            PoolIDToImTexture(preview_texture),
                                             ImVec2(img_x, img_y),
                                             ImVec2(img_x + thumb_w, img_y + thumb_h));
 
@@ -3551,7 +3563,7 @@ static bool show_empty_area_context_menu = false;
                                 float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                                 float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                                 fg_draw->AddImage(
-                                    (ImTextureID)(intptr_t)preview_texture,
+                                    PoolIDToImTexture(preview_texture),
                                     ImVec2(img_x, img_y),
                                     ImVec2(img_x + thumb_w, img_y + thumb_h));
 
@@ -3850,7 +3862,7 @@ static bool show_empty_area_context_menu = false;
                             float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                             float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                             fg_draw->AddImage(
-                                (ImTextureID)(intptr_t)hover_thumbnail,
+                                PoolIDToImTexture(hover_thumbnail),
                                 ImVec2(img_x, img_y),
                                 ImVec2(img_x + thumb_w, img_y + thumb_h));
                         } else {

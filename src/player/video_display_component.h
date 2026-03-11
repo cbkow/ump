@@ -21,6 +21,9 @@
 #ifdef _WIN32
 #include <d3d11_1.h>
 #include <wrl/client.h>
+#elif defined(QCVIEW_USE_VULKAN)
+#include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 #endif
 
 #include "pipeline_mode.h"
@@ -37,6 +40,10 @@ class OCIOPipeline;
 #ifdef _WIN32
 namespace qcview {
     class D3D11OCIORenderer;
+}
+#elif defined(__linux__)
+namespace qcview {
+    class VulkanOCIORenderer;
 }
 #endif
 
@@ -93,15 +100,8 @@ public:
     ImVec2 GetLastDisplaySize() const { return last_display_size_; }
 
     // Cross-platform texture ID for ImGui
-    // Returns D3D11 SRV on Windows (full D3D11 mode), OpenGL texture ID otherwise
-    ImTextureID GetDisplayTextureID() const {
-#ifdef _WIN32
-        if (use_d3d11_rendering_ && color_srv_d3d_) {
-            return reinterpret_cast<ImTextureID>(color_srv_d3d_.Get());
-        }
-#endif
-        return (ImTextureID)(intptr_t)color_texture_;
-    }
+    // Returns D3D11 SRV on Windows, VkDescriptorSet on Vulkan, GLuint on GL
+    ImTextureID GetDisplayTextureID() const;  // Defined in .cpp for Vulkan path
 
 #ifdef _WIN32
     //=========================================================================
@@ -488,5 +488,42 @@ private:
     void CreateD3D11VideoTextures(int width, int height);
     void CreateD3D11ColorTextures(int width, int height);
     void CleanupD3D11Resources();
+#endif
+
+#ifdef QCVIEW_USE_VULKAN
+    //=========================================================================
+    // Vulkan OCIO Resources (Linux)
+    //=========================================================================
+
+    std::unique_ptr<qcview::VulkanOCIORenderer> vulkan_ocio_renderer_;
+
+    // Dedicated color texture (render target for OCIO output)
+    // Separate from VulkanTexturePool because it needs COLOR_ATTACHMENT usage
+    struct VulkanColorTexture {
+        VkImage image = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
+        VkImageView view = VK_NULL_HANDLE;
+        VkDescriptorSet descriptor_set = VK_NULL_HANDLE;  // ImGui display
+        VkSampler sampler = VK_NULL_HANDLE;
+        int width = 0;
+        int height = 0;
+        bool valid = false;
+    };
+    VulkanColorTexture vulkan_color_tex_;
+
+    // Dedicated color texture for dual view composite OCIO
+    VulkanColorTexture vulkan_dual_color_tex_;
+
+    void CreateVulkanColorTexture(int width, int height);
+    void DestroyVulkanColorTexture();
+    void ApplyColorPipelineVulkan();
+
+public:
+    // Apply OCIO to a VulkanTexturePool texture, returns new pool texture ID.
+    // Used by dual view compositor for OCIO on the composite texture.
+    uint64_t CreateColorCorrectedPoolTexture(uint64_t input_pool_id, int width, int height);
+private:
+    void CreateVulkanDualColorTexture(int width, int height);
+    void DestroyVulkanDualColorTexture();
 #endif
 };

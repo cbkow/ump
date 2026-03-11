@@ -67,16 +67,19 @@ public:
     AVBufferRef* GetD3D11VAContext();
     AVBufferRef* GetQSVContext();
     AVBufferRef* GetDXVA2Context();
+    AVBufferRef* GetVAAPIContext();
 
     int GetCUDAPixelFormat() const { return cuda_pix_fmt_; }
     int GetD3D11VAPixelFormat() const { return d3d11va_pix_fmt_; }
     int GetQSVPixelFormat() const { return qsv_pix_fmt_; }
     int GetDXVA2PixelFormat() const { return dxva2_pix_fmt_; }
+    int GetVAAPIPixelFormat() const { return vaapi_pix_fmt_; }
 
     bool HasCUDA() const { return cuda_initialized_.load() && cuda_ctx_ != nullptr; }
     bool HasD3D11VA() const { return d3d11va_initialized_.load() && d3d11va_ctx_ != nullptr; }
     bool HasQSV() const { return qsv_initialized_.load() && qsv_ctx_ != nullptr; }
     bool HasDXVA2() const { return dxva2_initialized_.load() && dxva2_ctx_ != nullptr; }
+    bool HasVAAPI() const { return vaapi_initialized_.load() && vaapi_ctx_ != nullptr; }
 
     //=========================================================================
     // Lifecycle
@@ -94,6 +97,7 @@ private:
     void InitializeD3D11VA();
     void InitializeQSV();
     void InitializeDXVA2();
+    void InitializeVAAPI();
 
     // CUDA context (NVIDIA NVDEC)
     AVBufferRef* cuda_ctx_ = nullptr;
@@ -118,6 +122,12 @@ private:
     int dxva2_pix_fmt_ = -1;
     std::atomic<bool> dxva2_initialized_{false};
     std::mutex dxva2_mutex_;
+
+    // VAAPI context (Linux VA-API acceleration)
+    AVBufferRef* vaapi_ctx_ = nullptr;
+    int vaapi_pix_fmt_ = -1;
+    std::atomic<bool> vaapi_initialized_{false};
+    std::mutex vaapi_mutex_;
 
     // Global shutdown flag
     std::atomic<bool> shutdown_{false};

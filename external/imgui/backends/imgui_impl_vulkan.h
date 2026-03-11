@@ -145,6 +145,18 @@ IMGUI_IMPL_API void             ImGui_ImplVulkan_NewFrame();
 IMGUI_IMPL_API void             ImGui_ImplVulkan_RenderDrawData(ImDrawData* draw_data, VkCommandBuffer command_buffer, VkPipeline pipeline = VK_NULL_HANDLE);
 IMGUI_IMPL_API void             ImGui_ImplVulkan_SetMinImageCount(uint32_t min_image_count); // To override MinImageCount after initialization (e.g. if swap chain is recreated)
 
+// HDR Mode - enables automatic sRGB to PQ (ST.2084) conversion for HDR displays
+// When active, all UI colors are converted to PQ at the specified target brightness
+// target_nits: typical range 80-150 nits for comfortable viewing (default 120)
+IMGUI_IMPL_API void             ImGui_ImplVulkan_SetHDRMode(bool active, float target_nits = 120.0f);
+IMGUI_IMPL_API bool             ImGui_ImplVulkan_GetHDRMode();
+
+// HDR Passthrough - mark textures that should NOT have SDR->PQ conversion applied
+// Use for video/image textures that are already in HDR/PQ format
+IMGUI_IMPL_API void             ImGui_ImplVulkan_SetTextureHDRPassthrough(ImTextureID texture, bool passthrough);
+IMGUI_IMPL_API bool             ImGui_ImplVulkan_IsTextureHDRPassthrough(ImTextureID texture);
+IMGUI_IMPL_API void             ImGui_ImplVulkan_ClearHDRPassthroughTextures();
+
 // (Advanced) Use e.g. if you need to recreate pipeline without reinitializing the backend (see #8110, #8111)
 // The main window pipeline will be created by ImGui_ImplVulkan_Init() if possible (== RenderPass xor (UseDynamicRendering && PipelineRenderingCreateInfo->sType == VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR))
 // Else, the pipeline can be created, or re-created, using ImGui_ImplVulkan_CreateMainPipeline() before rendering.

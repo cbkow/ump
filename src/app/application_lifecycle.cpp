@@ -10,7 +10,14 @@
 
 #include <imgui.h>
 #include <imgui_impl_glfw.h>
+#ifdef QCVIEW_USE_VULKAN
+#include <imgui_impl_vulkan.h>
+#include "gpu/vulkan_device.h"
+#include "gpu/vulkan_texture_pool.h"
+#include "annotations/vulkan_annotation_renderer.h"
+#else
 #include <imgui_impl_opengl3.h>
+#endif
 #include <implot.h>
 #include <nfd.h>
 
@@ -51,6 +58,7 @@
 #include "audio/audio_mixer.h"
 #include "player/hw_context_manager.h"
 #include "player/shared_memory_pool.h"
+#include "hdr/hdr_color_utils.h"
 #ifdef _WIN32
 #include "hdr/hdr_output_manager.h"
 #include "gpu/d3d11_video_interop.h"
@@ -312,8 +320,15 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         NFD_Quit();
 
         // Shutdown ImGui and related contexts
+#ifdef QCVIEW_USE_VULKAN
+        Debug::Log("Cleanup: Shutting down ImGui Vulkan...");
+        auto& vk_dev = qcview::VulkanDeviceManager::Instance();
+        vkDeviceWaitIdle(vk_dev.GetDevice());
+        ImGui_ImplVulkan_Shutdown();
+#else
         Debug::Log("Cleanup: Shutting down ImGui OpenGL3...");
         ImGui_ImplOpenGL3_Shutdown();
+#endif
         Debug::Log("Cleanup: Shutting down ImGui GLFW...");
         ImGui_ImplGlfw_Shutdown();
         Debug::Log("Cleanup: Destroying ImNodes context...");
@@ -325,6 +340,26 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         Debug::Log("Cleanup: Destroying ImGui context...");
         ImGui::DestroyContext();
         Debug::Log("Cleanup: All ImGui contexts destroyed");
+
+#ifdef QCVIEW_USE_VULKAN
+        // Destroy Vulkan presentation resources (swapchain manages all resources)
+        Debug::Log("Cleanup: Destroying Vulkan swapchain...");
+        qcview::SetVulkanHDRSwapchain(nullptr);
+        vulkan_swapchain_.reset();
+
+        // Shutdown Vulkan annotation renderer before texture pool
+        if (vulkan_annotation_renderer_) {
+            Debug::Log("Cleanup: Shutting down VulkanAnnotationRenderer...");
+            vulkan_annotation_renderer_->Shutdown();
+            vulkan_annotation_renderer_.reset();
+        }
+
+        Debug::Log("Cleanup: Shutting down VulkanTexturePool...");
+        qcview::VulkanTexturePool::Instance().Shutdown();
+
+        Debug::Log("Cleanup: Shutting down VulkanDeviceManager...");
+        vk_dev.Shutdown();
+#endif
 
         // Destroy GLFW window and terminate
         Debug::Log("Cleanup: Destroying GLFW window...");

@@ -53,6 +53,33 @@ public:
     // Used for frame buffering during media transitions when no OCIO config is active
     bool CreatePassthroughPipeline();
 
+#ifdef __linux__
+    //=========================================================================
+    // Vulkan/SPIR-V Support
+    //=========================================================================
+
+    // LUT texture info extracted from OCIO shader descriptor
+    struct VulkanLUTInfo {
+        std::string sampler_name;
+        bool is_3d = false;
+        unsigned width = 0;
+        unsigned height = 0;       // 1D: 1, 2D: height
+        unsigned edge_len = 0;     // 3D only
+        bool is_red_channel = false;
+        std::vector<float> data;   // Owned copy of LUT data
+    };
+
+    // Complete shader info for Vulkan pipeline construction
+    struct VulkanShaderInfo {
+        std::string ocio_function_glsl;  // OCIO-generated GLSL function code
+        std::vector<VulkanLUTInfo> luts;
+        bool valid = false;
+    };
+
+    // Extract OCIO shader info for Vulkan (no GPU resources created)
+    bool GenerateVulkanShaderInfo(VulkanShaderInfo& info);
+#endif
+
 #ifdef _WIN32
     //=========================================================================
     // D3D11/HLSL Support

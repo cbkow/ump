@@ -15,8 +15,12 @@
 // AudioRateCorrector removed - caused crackling artifacts; audio is kept pristine
 // and video timing is adjusted for sync instead
 
-// Forward declare WASAPI device
+// Forward declare audio device
+#ifdef _WIN32
 namespace qcview { class WasapiAudioDevice; }
+#elif defined(__linux__)
+namespace qcview { class PipeWireAudioDevice; }
+#endif
 
 namespace qcview {
 
@@ -256,8 +260,12 @@ private:
     TimelineFlattener* flattener_ = nullptr;
     PlaybackTimer* timer_ = nullptr;
 
-    // WASAPI audio device
+    // Audio output device
+#ifdef _WIN32
     std::unique_ptr<WasapiAudioDevice> device_;
+#elif defined(__linux__)
+    std::unique_ptr<PipeWireAudioDevice> device_;
+#endif
 
     // Clip decoders (keyed by source path)
     std::unordered_map<std::string, std::shared_ptr<AudioDecoder>> decoders_;

@@ -1,12 +1,17 @@
 #include "direct_exr_cache.h"
 #include "../utils/debug_utils.h"
 
+#ifdef QCVIEW_USE_VULKAN
+#include "../gpu/vulkan_texture_pool.h"
+#endif
+
 #ifdef _WIN32
 #undef min
 #undef max
 #endif
 
 #include <ImfInputFile.h>
+#include <ImfHeader.h>
 #include <ImfChannelList.h>
 #include <ImfFrameBuffer.h>
 #include <ImfInputPart.h>
@@ -15,6 +20,13 @@
 
 #include <algorithm>
 #include <filesystem>
+
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace qcview {
 
@@ -69,8 +81,30 @@ MemoryMappedIStream::MemoryMappedIStream(const std::string& fileName)
     range.NumberOfBytes = fileSize_;
     PrefetchVirtualMemory(GetCurrentProcess(), 1, &range, 0);
 #else
-    // TODO: Linux mmap implementation
-    throw std::runtime_error("Memory-mapped files not implemented on this platform");
+    // Linux memory-mapped file via mmap
+    fd_ = open(fileName.c_str(), O_RDONLY);
+    if (fd_ == -1) {
+        throw std::runtime_error("Cannot open file: " + fileName);
+    }
+
+    struct stat st;
+    if (fstat(fd_, &st) == -1) {
+        close(fd_);
+        fd_ = -1;
+        throw std::runtime_error("Cannot get file size: " + fileName);
+    }
+    fileSize_ = static_cast<uint64_t>(st.st_size);
+
+    mappedData_ = static_cast<char*>(mmap(nullptr, fileSize_, PROT_READ, MAP_PRIVATE, fd_, 0));
+    if (mappedData_ == MAP_FAILED) {
+        mappedData_ = nullptr;
+        close(fd_);
+        fd_ = -1;
+        throw std::runtime_error("Cannot mmap file: " + fileName);
+    }
+
+    // Hint to kernel: sequential access pattern for better read-ahead
+    madvise(mappedData_, fileSize_, MADV_SEQUENTIAL);
 #endif
 }
 
@@ -79,6 +113,9 @@ MemoryMappedIStream::~MemoryMappedIStream() {
     if (mappedData_) UnmapViewOfFile(mappedData_);
     if (hMapping_) CloseHandle(hMapping_);
     if (hFile_ != INVALID_HANDLE_VALUE) CloseHandle(hFile_);
+#else
+    if (mappedData_ && mappedData_ != MAP_FAILED) munmap(mappedData_, fileSize_);
+    if (fd_ != -1) close(fd_);
 #endif
 }
 
@@ -171,12 +208,15 @@ DirectEXRCache::~DirectEXRCache() {
         //Debug::Log("DirectEXRCache: I/O worker thread was not running");
     }
 
-    // Clean up GL textures before clearing cache
-    //Debug::Log("DirectEXRCache: Deleting GL textures...");
+    // Clean up textures before clearing cache
     int texture_count = 0;
     for (auto& pair : glTextureCache_) {
         if (pair.second && pair.second->texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(pair.second->texture_id));
+#else
             glDeleteTextures(1, &pair.second->texture_id);
+#endif
             texture_count++;
         }
     }
@@ -185,7 +225,11 @@ DirectEXRCache::~DirectEXRCache() {
     // Also delete any textures queued for deletion (from Shutdown() calls)
     for (GLuint tex_id : texturesToDelete_) {
         if (tex_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(tex_id));
+#else
             glDeleteTextures(1, &tex_id);
+#endif
             texture_count++;
         }
     }
@@ -674,9 +718,9 @@ bool DirectEXRCache::GetFrameDimensions(const std::string& filePath, int& width,
 }
 
 void DirectEXRCache::ProcessReadyTextures() {
-    // GL textures created on-demand in GetTexture()
-    // This function now ONLY handles deletion of queued GL textures
-    // MUST be called from main thread with GL context. I keep forgetting this.
+    // GL/Vulkan textures created on-demand in GetTexture()
+    // This function now ONLY handles deletion of queued textures
+    // MUST be called from main thread.
 
     const int MAX_DELETES_PER_FRAME = 20;
     std::vector<GLuint> toDelete;
@@ -692,17 +736,22 @@ void DirectEXRCache::ProcessReadyTextures() {
     }
 
     if (!toDelete.empty()) {
-        glDeleteTextures(static_cast<GLsizei>(toDelete.size()), toDelete.data());
-
-        int remaining_deletes = 0;
-        {
-            std::lock_guard<std::mutex> lock(textureMutex_);
-            remaining_deletes = (int)texturesToDelete_.size();
+#ifdef QCVIEW_USE_VULKAN
+        // Vulkan path: Queue deletions via VulkanTexturePool
+        auto& pool = VulkanTexturePool::Instance();
+        for (GLuint id : toDelete) {
+            pool.QueueDelete(static_cast<uint64_t>(id));
         }
-
-        //Debug::Log("DirectEXRCache: [TEX-DELETE] Deleted " + std::to_string(toDelete.size()) +
-        //           " GL textures (" + std::to_string(remaining_deletes) + " queued)");
+        pool.ProcessPendingDeletions();
+#else
+        glDeleteTextures(static_cast<GLsizei>(toDelete.size()), toDelete.data());
+#endif
     }
+
+#ifdef QCVIEW_USE_VULKAN
+    // Also process any pending Vulkan deletions from other sources
+    VulkanTexturePool::Instance().ProcessPendingDeletions();
+#endif
 }
 
 bool DirectEXRCache::HasPendingTextureDeletions() const {
@@ -1608,8 +1657,7 @@ std::shared_ptr<PixelData> DirectEXRCache::LoadPixels(const std::string& path) {
     auto pixels = std::make_shared<PixelData>();
     pixels->width = exr_pixels->width;
     pixels->height = exr_pixels->height;
-    pixels->gl_format = GL_RGBA;
-    pixels->gl_type = GL_HALF_FLOAT;
+    pixels->SetFormat(PixelFormat::RGBA16F);
     pixels->pipeline_mode = PipelineMode::HDR_RES;  // EXR is always HDR
 
     // Convert half vector to uint8_t vector (reinterpret bytes)
@@ -1849,6 +1897,32 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
         return 0;
     }
 
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan path: Create texture via VulkanTexturePool
+    auto& pool = VulkanTexturePool::Instance();
+    if (!pool.IsInitialized()) {
+        return 0;
+    }
+
+    // Map PixelFormat to VkFormat
+    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
+    switch (pixels->pixel_format) {
+        case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
+        case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
+        case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+    }
+
+    uint64_t pool_id = pool.CreateTextureFromPixels(
+        pixels->width, pixels->height,
+        vk_format,
+        pixels->pixels.data(),
+        pixels->pixels.size()
+    );
+
+    // Pool IDs are small sequential integers, safe to truncate to GLuint
+    return static_cast<GLuint>(pool_id);
+#else
+    // OpenGL path
     // Save current GL state to avoid corrupting ImGui during render
     GLint previous_texture = 0;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
@@ -1880,6 +1954,7 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
     glBindTexture(GL_TEXTURE_2D, previous_texture);
 
     return texId;
+#endif
 }
 
 //=============================================================================

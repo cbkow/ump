@@ -2,9 +2,10 @@
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
 add_subdirectory(glfw)
 
-# GLAD
+# GLAD (OpenGL loader - still built on Vulkan path for header compatibility)
 add_library(glad glad/src/gl.c)
 target_include_directories(glad PUBLIC glad/include)
 
@@ -16,12 +17,21 @@ set(IMGUI_SOURCES
     imgui/imgui_tables.cpp
     imgui/imgui_widgets.cpp
     imgui/backends/imgui_impl_glfw.cpp
-    imgui/backends/imgui_impl_opengl3.cpp
 )
+
+# Add OpenGL3 backend when not using Vulkan
+if(NOT QCVIEW_USE_VULKAN)
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_opengl3.cpp)
+endif()
 
 # Add D3D11 backend on Windows for full D3D11 rendering mode
 if(WIN32)
     list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_dx11.cpp)
+endif()
+
+# Add Vulkan backend on Linux
+if(UNIX AND NOT APPLE AND QCVIEW_USE_VULKAN)
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_vulkan.cpp)
 endif()
 
 add_library(imgui ${IMGUI_SOURCES})
@@ -35,6 +45,13 @@ target_link_libraries(imgui glfw)
 # Link D3D11 libraries for ImGui on Windows
 if(WIN32)
     target_link_libraries(imgui d3d11 d3dcompiler)
+endif()
+
+# Link Vulkan for ImGui on Linux
+if(UNIX AND NOT APPLE AND QCVIEW_USE_VULKAN)
+    find_package(Vulkan REQUIRED)
+    target_link_libraries(imgui Vulkan::Vulkan)
+    target_include_directories(imgui PUBLIC ${Vulkan_INCLUDE_DIRS})
 endif()
 
 # Enable docking features
@@ -65,10 +82,12 @@ FetchContent_Declare(
     libharu
     GIT_REPOSITORY https://github.com/libharu/libharu.git
     GIT_TAG v2.4.5
+    EXCLUDE_FROM_ALL
 )
 # Configure libharu options before making it available
 set(LIBHPDF_STATIC ON CACHE BOOL "Build static library" FORCE)
 set(LIBHPDF_SHARED OFF CACHE BOOL "Don't build shared library" FORCE)
+set(LIBHPDF_INSTALL OFF CACHE BOOL "Don't install libharu" FORCE)
 set(DEVPAK OFF CACHE BOOL "Don't create DevPackage" FORCE)
 # Point libharu to existing PNG and ZLIB
 set(PNG_PNG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/png/include" CACHE PATH "PNG include dir" FORCE)
@@ -93,6 +112,7 @@ set(OTIO_PYTHON_INSTALL OFF CACHE BOOL "Don't build Python bindings" FORCE)
 set(OTIO_SHARED_LIBS OFF CACHE BOOL "Build static libraries" FORCE)
 set(OTIO_FIND_IMATH OFF CACHE BOOL "Don't require Imath" FORCE)
 set(OTIO_DEPENDENCIES_INSTALL OFF CACHE BOOL "Don't install dependencies" FORCE)
+set(IMATH_INSTALL OFF CACHE BOOL "Don't install Imath" FORCE)
 FetchContent_MakeAvailable(opentimelineio)
 message(STATUS "OpenTimelineIO configured")
 
@@ -110,6 +130,8 @@ FetchContent_Declare(
 set(INK_STROKE_MODELER_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 set(INK_STROKE_MODELER_FIND_DEPENDENCIES OFF CACHE BOOL "" FORCE)
 set(INK_STROKE_MODELER_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(ink_stroke_modeler)
 message(STATUS "ink-stroke-modeler configured (with Abseil dependency)")
 
