@@ -25,7 +25,7 @@ The annotation toolbar provides shapes (freehand, box, circle, arrow), a line-wi
 | `Ctrl + Z` | Undo |
 | `Ctrl + Y` | Redo |
 
-Save your drawing when finished.
+Save your drawing when finished. Screenshots captured with annotations are saved as illustration thumbnails alongside the clean frame, so notes include a visual reference of exactly what was marked up.
 
 ![Drawing annotations](images/QCView_v041.webp)
 

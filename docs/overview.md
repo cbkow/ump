@@ -8,7 +8,11 @@ nav_order: 3
 
 ## Rendering Architecture
 
-u.m.p. uses a layered GPU pipeline that flows from source media through decode, caching, color processing, and finally to display. Everything passes through the OCIO color pipeline before reaching the screen or being exported to files.
+QCView uses a layered GPU pipeline that flows from source media through decode, caching, color processing, and finally to display. Everything passes through the OCIO color pipeline before reaching the screen or being exported to files.
+
+On **Windows**, the pipeline uses Direct3D 11 for video decoding and rendering, with D3D11-OpenGL interop to share textures with the ImGui UI layer. On **Linux**, the pipeline uses **Vulkan** throughout — VA-API for hardware video decoding with DMA-BUF zero-copy import into Vulkan, GLSL shaders compiled to SPIR-V for YUV conversion and OCIO processing, and PipeWire for audio. The diagrams below show both the Windows/D3D11 and Linux/Vulkan pipelines.
+
+### Windows (D3D11 + OpenGL)
 
 ```
     ┌─────────────────────────────────────────────────────────────────────────┐
@@ -266,17 +270,175 @@ u.m.p. uses a layered GPU pipeline that flows from source media through decode, 
 
 ```
 
+### Linux (Vulkan)
+
+```
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              SOURCE MEDIA                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                │                                        │
+        ┌───────▼───────┐                        ┌───────▼───────┐
+        │  VIDEO FILES  │                        │    IMAGES     │
+        │  .mp4 .mov    │                        │  .exr .tiff   │
+        │  .mxf  etc    │                        │  .png .jpg    │
+        └───────┬───────┘                        └───────┬───────┘
+                │                                        │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              DECODE LAYER                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                │                                        │
+        ┌───────▼────────────────────┐           ┌───────▼───────────────────┐
+        │   VulkanVideoDecoder       │           │  ImageSequenceDecoder     │
+        │   src/player/              │           │  src/player/              │
+        │                            │           │                           │
+        │  ┌──────────┐ ┌──────────┐ │           │  ┌─────────────────────┐  │
+        │  │  VA-API  │ │  FFmpeg  │ │           │  │     LOADERS         │  │
+        │  │ Hardware │ │ Software │ │           │  │  ┌───────────────┐  │  │
+        │  │  Decode  │ │  Decode  │ │           │  │  │ EXRImageLoader│  │  │
+        │  └────┬─────┘ └────┬─────┘ │           │  │  │ TIFFLoader    │  │  │
+        │       │            │       │           │  │  │ PNGLoader     │  │  │
+        │       └─────┬──────┘       │           │  │  │ JPEGLoader    │  │  │
+        │             │              │           │  │  └───────────────┘  │  │
+        │      ┌──────▼──────┐       │           │  └──────────┬──────────┘  │
+        │      │  DMA-BUF FD │       │           │             │             │
+        │      │  (DRM PRIME)│       │           │      ┌──────▼──────┐      │
+        │      │   Y + UV    │       │           │      │  PixelData  │      │
+        │      └──────┬──────┘       │           │      │  (CPU RAM)  │      │
+        │             │              │           │      └┬────────────┘      │
+        └─────────────┼──────────────┘           └───────┼───────────────────┘
+                      │                                  │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              CACHE LAYER                                │
+    │                         (shared cross-platform)                         │
+    └─────────────────────────────────────────────────────────────────────────┘
+                      │                                  │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                         GPU CONVERSION LAYER                            │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼───────────────┐
+                       │   VulkanHWFrameImporter      │
+                       │   + VulkanYUVRenderer        │
+                       │   src/gpu/                   │
+                       │                              │
+                       │  ┌────────────────────────┐  │
+                       │  │  DMA-BUF → VkImage     │  │
+                       │  │  (VK_EXT_external_     │  │
+                       │  │   memory_dma_buf)      │  │
+                       │  └──────────┬─────────────┘  │
+                       │             │                │
+                       │  ┌──────────▼─────────────┐  │
+                       │  │   GLSL → SPIR-V        │  │
+                       │  │                        │  │
+                       │  │  • BT.709 matrix       │  │
+                       │  │  • BT.2020 matrix      │  │
+                       │  │  • PQ EOTF (HDR)       │  │
+                       │  │  • Range expand        │  │
+                       │  └──────────┬─────────────┘  │
+                       │             │                │
+                       │   Input:  DMA-BUF planes     │
+                       │   Output: RGBA16F linear     │
+                       └─────────────┬────────────────┘
+                                     │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                            COLOR LAYER                                  │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                     │
+                      ┌──────────────▼───────────────┐
+                      │    VulkanOCIORenderer        │
+                      │    src/color/                │
+                      │                              │
+                      │  ┌────────────────────────┐  │
+                      │  │  OCIO GLSL → SPIR-V    │  │
+                      │  │  + 1D/3D LUT textures  │  │
+                      │  │ Fullscreen render pass │  │
+                      │  └──────────┬─────────────┘  │
+                      └─────────────┼────────────────┘
+                                    │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                            RENDER LAYER                                 │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                      ┌─────────────▼────────────────┐
+                      │         ImGui                │
+                      │     + Vulkan Rendering       │
+                      │                              │
+                      │  ┌────────────────────────┐  │
+                      │  │  ImGui_ImplVulkan      │  │
+                      │  │  ImGui_ImplGlfw        │  │
+                      │  └──────────┬─────────────┘  │
+                      │             │                │
+                      │  ┌──────────▼─────────────┐  │
+                      │  │    UI Components       │  │
+                      │  │  ┌──────────────────┐  │  │
+                      │  │  │ Video Display    │  │  │
+                      │  │  │ Timeline         │  │  │
+                      │  │  │ Inspector        │  │  │
+                      │  │  │ Color Controls   │  │  │
+                      │  │  └──────────────────┘  │  │
+                      │  └────────────────────────┘  │
+                      └─────────────┬────────────────┘
+                                    │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                           SWAPCHAIN LAYER                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                      ┌─────────────▼────────────────┐
+                      │   VulkanHDRSwapchain         │
+                      │   src/hdr/                   │
+                      │                              │
+                      │  ┌────────────────────────┐  │
+                      │  │  Runtime HDR Toggle    │  │
+                      │  │                        │  │
+                      │  │  SDR: B8G8R8A8_UNORM   │  │
+                      │  │       sRGB Nonlinear   │  │
+                      │  │                        │  │
+                      │  │ HDR: A2B10G10R10_UNORM │  │
+                      │  │       HDR10_ST2084     │  │
+                      │  └────────────────────────┘  │
+                      └─────────────┬────────────────┘
+                                    │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              DISPLAY                                    │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                    │
+                      ┌─────────────▼────────────────┐
+                      │                              │
+                      │      ╔═══════════════╗       │
+                      │      ║               ║       │
+                      │      ║    MONITOR    ║       │
+                      │      ║               ║       │
+                      │      ║   HDR / SDR   ║       │
+                      │      ║               ║       │
+                      │      ╚═══════════════╝       │
+                      │                              │
+                      └──────────────────────────────┘
+```
+
 ---
 
 ## Video
 
+### Windows (D3D11)
+
 Videos are decoded using D3D11VA hardware acceleration (with FFmpeg software fallback). Frames arrive as YUV textures (NV12/P010) and are converted to linear RGBA16F via HLSL shaders on the GPU. The D3D11-GL interop layer shares these textures with OpenGL using zero-copy methods (NV_DX_interop2 on NVIDIA, EXT_external_objects cross-vendor, or CPU staging as fallback). This allows the ImGui/OpenGL UI to display video frames without expensive GPU-to-CPU-to-GPU copies.
+
+### Linux (Vulkan)
+
+Videos are decoded using VA-API hardware acceleration (with FFmpeg software fallback). Hardware-decoded frames remain in GPU memory and are imported into Vulkan as VkImages via DMA-BUF file descriptors — a zero-copy path that avoids any GPU-to-CPU readback. The flow is:
+
+1. FFmpeg decodes with `AV_HWDEVICE_TYPE_VAAPI`
+2. Frames are mapped to DRM PRIME format via `av_hwframe_map()`
+3. DMA-BUF file descriptors are imported into Vulkan via `VK_EXT_external_memory_dma_buf`
+4. GLSL fragment shaders (compiled to SPIR-V) perform YUV-to-RGBA16F conversion
+
+Supported YUV formats include NV12 (8-bit), P010 (10-bit), YUV420P/422P/444P planar, and GBRP/GBRAP for ProRes pathways.
 
 ---
 
 ## Image Sequences
 
-Image sequences use OTIO for timeline control. When loading a sequence, u.m.p. creates a virtual timeline and loads images directly via dedicated loaders:
+Image sequences use OTIO for timeline control. When loading a sequence, QCView creates a virtual timeline and loads images directly via dedicated loaders:
 
 - **EXR**: Multi-layer and multi-part support with layer extraction
 - **TIFF**: Scanline-based loading
@@ -284,9 +446,13 @@ Image sequences use OTIO for timeline control. When loading a sequence, u.m.p. c
 
 Images are loaded into a ring buffer cache centered around the playhead position. The cache prioritizes: current frame > frames ahead > frames behind, with automatic eviction outside the window.
 
+Image sequence loading is cross-platform — the same loaders and cache engine are used on both Windows and Linux.
+
 ---
 
-## D3D11-OpenGL Interop
+## GPU Interop
+
+### Windows: D3D11-OpenGL Interop
 
 The interop layer uses triple-buffered shared textures to eliminate GPU blocking:
 
@@ -296,11 +462,26 @@ The interop layer uses triple-buffered shared textures to eliminate GPU blocking
 | EXT_external_objects | Intel/AMD/NVIDIA | Zero-copy, cross-vendor |
 | CPU Staging | All | Universal fallback |
 
+### Linux: VA-API DMA-BUF Import
+
+On Linux, the interop problem is different — there is no D3D11/OpenGL boundary to cross. Instead, VA-API decoded frames need to be imported into Vulkan. This is handled via DMA-BUF, a Linux kernel mechanism for sharing GPU memory between APIs:
+
+| Step | Operation |
+|------|-----------|
+| VA-API decode | Frame decoded in GPU memory |
+| DRM PRIME map | VA-API surface exported as DMA-BUF file descriptors |
+| Vulkan import | `VK_EXT_external_memory_dma_buf` creates VkImage per YUV plane |
+| YUV conversion | GLSL shader converts to RGBA16F |
+
+The DMA-BUF path is zero-copy across the entire pipeline — the decoded frame never leaves GPU memory.
+
 ---
 
 ## HDR Output
 
-u.m.p. supports HDR10 output via the D3D11 swapchain when Windows HDR mode is enabled. The display pipeline uses:
+### Windows
+
+QCView supports HDR10 output via the D3D11 swapchain when Windows HDR mode is enabled. The display pipeline uses:
 
 - **Format**: R10G10B10A2
 - **Transfer**: PQ/ST.2084 (HDR10)
@@ -308,11 +489,45 @@ u.m.p. supports HDR10 output via the D3D11 swapchain when Windows HDR mode is en
 
 HDR detection is automatic via DXGI Output6, and the UI colors are converted to PQ when HDR is active.
 
+### Linux
+
+HDR output on Linux is toggleable at runtime within QCView. The Vulkan swapchain switches between SDR and HDR modes:
+
+| Mode | Swapchain Format | Color Space |
+|------|-----------------|-------------|
+| SDR | B8G8R8A8_UNORM | sRGB Nonlinear |
+| HDR | A2B10G10R10_UNORM | HDR10_ST2084 |
+
+When HDR is active, the ImGui interface is converted to PQ via a GPU fragment shader with configurable target nits for UI brightness. HDR must also be enabled at the compositor level (e.g., KDE Plasma Display settings) for HDR output to reach the monitor.
+
+---
+
+## Color Processing
+
+### Windows
+
+OCIO color transforms are applied via `D3D11OCIORenderer` using DirectX shaders and 3D LUT textures.
+
+### Linux
+
+OCIO color transforms are applied via `VulkanOCIORenderer`, which compiles OCIO-generated GLSL shaders to SPIR-V at runtime and builds 1D/3D LUT textures from the OCIO pipeline. The Vulkan graphics pipeline applies the transforms in a fullscreen rendering pass.
+
+---
+
+## Audio
+
+| Platform | Backend | Details |
+|----------|---------|---------|
+| Windows | WASAPI | Event-driven with MMCSS "Pro Audio" thread priority |
+| Linux | PipeWire | Event-driven callback, low-latency buffer (default 10ms) |
+
+Both backends output float32 stereo at 48kHz and expose identical callback interfaces, so the audio mixer and SoundTouch time-stretch processing are shared cross-platform.
+
 ---
 
 ## Pipeline Modes
 
-u.m.p. supports multiple pipeline modes that control texture formats, bit depth, and cache sizing throughout the rendering chain. The pipeline mode affects FBOs at both the video and color processing stages.
+QCView supports multiple pipeline modes that control texture formats, bit depth, and cache sizing throughout the rendering chain. The pipeline mode affects FBOs at both the video and color processing stages.
 
 | Mode | Format | Bit Depth | Bytes/Pixel | Use Case |
 |------|--------|-----------|-------------|----------|

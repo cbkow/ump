@@ -9,19 +9,19 @@ nav_order: 1
 
 ![QCView main interface](images/QCmain.webp)
 
-**QCView** is a professional media player and reviewer for Windows, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a professional media player and reviewer for Windows and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
 
 ## Key Features
 
 ### Playback
-- D3D11VA hardware-accelerated video decoding with FFmpeg software fallback
-- HDR10 output via D3D11 swapchain (PQ/ST.2084, BT.2020)
+- Hardware-accelerated video decoding — D3D11VA on Windows, VA-API on Linux — with FFmpeg software fallback
+- HDR10 output (PQ/ST.2084, BT.2020) with adjustable interface tonemapping target nits
 - Frame-accurate stepping with press-and-hold fast forward/rewind
 - Playlists and hover thumbnails with filmstrip view
 - Embedded timecode support
-- Audio playback with tempo-preserving time stretch
+- Audio playback with tempo-preserving time stretch (WASAPI on Windows, PipeWire on Linux)
 
 ### Image Sequences
 - [OpenEXR](https://openexr.com/en/latest/) with multichannel and multipart support
@@ -34,7 +34,7 @@ nav_order: 1
 - Screenshots with OCIO transforms applied
 
 ### Review Tools
-- Annotation and notes system with drawing and line smoothing
+- Annotation and notes system with drawing, line smoothing, and screenshot illustrations
 - Dual-view comparison mode
 - Title-safety guides for broadcast and social-media deliverables
 - Live background switching for alpha-channel review
