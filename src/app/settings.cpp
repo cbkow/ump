@@ -152,14 +152,14 @@ void Application::LoadSettings() {
                 if (g_font_scale < 0.5f) g_font_scale = 0.5f;
                 if (g_font_scale > 2.0f) g_font_scale = 2.0f;
             }
-#ifdef QCVIEW_USE_VULKAN
-            if (j["appearance"].contains("hdr_enabled")) {
-                hdr_preferred_ = j["appearance"]["hdr_enabled"].get<bool>();
-            }
             if (j["appearance"].contains("hdr_ui_nits")) {
                 hdr_ui_nits_ = j["appearance"]["hdr_ui_nits"].get<float>();
                 if (hdr_ui_nits_ < 80.0f) hdr_ui_nits_ = 80.0f;
                 if (hdr_ui_nits_ > 1000.0f) hdr_ui_nits_ = 1000.0f;
+            }
+#ifdef QCVIEW_USE_VULKAN
+            if (j["appearance"].contains("hdr_enabled")) {
+                hdr_preferred_ = j["appearance"]["hdr_enabled"].get<bool>();
             }
 #endif
         }
@@ -312,6 +312,13 @@ void Application::LoadSettings() {
             }
             if (j["playback"].contains("loop_enabled")) {
                 cache_settings.loop_enabled = j["playback"]["loop_enabled"].get<bool>();
+            }
+        }
+
+        // Screenshot settings
+        if (j.contains("screenshots")) {
+            if (j["screenshots"].contains("bake_annotations")) {
+                cache_settings.bake_annotations_on_screenshots = j["screenshots"]["bake_annotations"].get<bool>();
             }
         }
 
@@ -488,9 +495,9 @@ void Application::SaveSettings() {
         }
         j["appearance"]["video_background"] = bg_str;
         j["appearance"]["font_scale"] = g_font_scale;
+        j["appearance"]["hdr_ui_nits"] = hdr_ui_nits_;
 #ifdef QCVIEW_USE_VULKAN
         j["appearance"]["hdr_enabled"] = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : hdr_preferred_;
-        j["appearance"]["hdr_ui_nits"] = hdr_ui_nits_;
 #endif
 
         // Window position and size
@@ -556,6 +563,9 @@ void Application::SaveSettings() {
         // Playback settings
         j["playback"]["auto_play_on_load"] = cache_settings.auto_play_on_load;
         j["playback"]["loop_enabled"] = cache_settings.loop_enabled;
+
+        // Screenshot settings
+        j["screenshots"]["bake_annotations"] = cache_settings.bake_annotations_on_screenshots;
 
         // Audio sync settings
         j["audio_sync"]["display_latency_preset"] = cache_settings.display_latency_preset;

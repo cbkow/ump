@@ -40,6 +40,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../../external/glfw/deps/stb_image_write.h"
 
+// STB image read for clipboard screenshot path (header-only, no IMPLEMENTATION here)
+#include "../../external/glfw/deps/stb_image.h"
+
 // External functions from main.cpp
 extern ImVec4 GetWindowsAccentColor();
 
@@ -1586,109 +1589,108 @@ bool VideoDisplayComponent::CaptureScreenshotToClipboard() {
     }
     return success;
 #else
+    // Windows/GL: save to temp file (includes annotations via CaptureScreenshotToPath),
+    // then load and copy to clipboard
     if (!HasValidTexture()) {
         Debug::Log("Screenshot failed: No valid video texture");
         return false;
     }
 
-    GLuint final_texture = video_texture_;
+#ifdef _WIN32
+    // Save to temp file
+    char temp_path[MAX_PATH];
+    GetTempPathA(MAX_PATH, temp_path);
+    std::string tmp_dir(temp_path);
+    std::string tmp_name = "qcview_clipboard_tmp.png";
+    std::string tmp_full = tmp_dir + tmp_name;
 
-    if (HasColorPipeline()) {
-        GLuint color_corrected = CreateColorCorrectedTexture(video_texture_, video_width_, video_height_,
-                                                              video_width_, video_height_);
-        if (color_corrected != 0) {
-            final_texture = color_corrected;
-        }
+    if (!CaptureScreenshotToPath(tmp_dir, tmp_name)) {
+        Debug::Log("Screenshot: Failed to save temp PNG for clipboard");
+        return false;
     }
 
-    std::vector<unsigned char> pixels(video_width_ * video_height_ * 4);
+    // Read pixels from the temp PNG
+    int img_w, img_h, img_channels;
+    unsigned char* img_data = stbi_load(tmp_full.c_str(), &img_w, &img_h, &img_channels, 4);
+    std::remove(tmp_full.c_str());
 
-    GLint current_fbo;
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
-
-    GLuint temp_fbo;
-    glGenFramebuffers(1, &temp_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, temp_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, final_texture, 0);
+    if (!img_data) {
+        Debug::Log("Screenshot: Failed to read temp PNG");
+        return false;
+    }
 
     bool success = false;
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        glReadPixels(0, 0, video_width_, video_height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+    if (OpenClipboard(nullptr)) {
+        EmptyClipboard();
 
-#ifdef _WIN32
-        if (OpenClipboard(nullptr)) {
-            EmptyClipboard();
+        size_t pixel_size = static_cast<size_t>(img_w) * img_h * 4;
 
-            std::vector<unsigned char> rgba_pixels = pixels;
+        // BGRA copy for CF_DIB
+        std::vector<unsigned char> bgra_pixels(pixel_size);
+        memcpy(bgra_pixels.data(), img_data, pixel_size);
+        for (size_t i = 0; i < pixel_size; i += 4) {
+            std::swap(bgra_pixels[i], bgra_pixels[i + 2]);
+        }
 
-            // Convert RGBA to BGRA for Windows
-            for (size_t i = 0; i < pixels.size(); i += 4) {
-                std::swap(pixels[i], pixels[i + 2]);
+        BITMAPINFOHEADER bi = {};
+        bi.biSize = sizeof(BITMAPINFOHEADER);
+        bi.biWidth = img_w;
+        bi.biHeight = -img_h;
+        bi.biPlanes = 1;
+        bi.biBitCount = 32;
+        bi.biCompression = BI_RGB;
+
+        HGLOBAL hDIB = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixel_size);
+        if (hDIB) {
+            unsigned char* pDIB = (unsigned char*)GlobalLock(hDIB);
+            if (pDIB) {
+                memcpy(pDIB, &bi, sizeof(BITMAPINFOHEADER));
+                memcpy(pDIB + sizeof(BITMAPINFOHEADER), bgra_pixels.data(), pixel_size);
+                GlobalUnlock(hDIB);
+                SetClipboardData(CF_DIB, hDIB);
             }
+        }
 
-            // CF_DIB format
-            BITMAPINFOHEADER bi = {};
-            bi.biSize = sizeof(BITMAPINFOHEADER);
-            bi.biWidth = video_width_;
-            bi.biHeight = -video_height_;
-            bi.biPlanes = 1;
-            bi.biBitCount = 32;
-            bi.biCompression = BI_RGB;
+        // PNG format
+        static UINT CF_PNG = RegisterClipboardFormatA("PNG");
+        if (CF_PNG) {
+            auto png_write_func = [](void* context, void* data, int size) {
+                std::vector<unsigned char>* buffer = (std::vector<unsigned char>*)context;
+                unsigned char* bytes = (unsigned char*)data;
+                buffer->insert(buffer->end(), bytes, bytes + size);
+            };
 
-            HGLOBAL hDIB = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixels.size());
-            if (hDIB) {
-                unsigned char* pDIB = (unsigned char*)GlobalLock(hDIB);
-                if (pDIB) {
-                    memcpy(pDIB, &bi, sizeof(BITMAPINFOHEADER));
-                    memcpy(pDIB + sizeof(BITMAPINFOHEADER), pixels.data(), pixels.size());
-                    GlobalUnlock(hDIB);
-                    SetClipboardData(CF_DIB, hDIB);
-                }
-            }
+            std::vector<unsigned char> png_buffer;
+            stbi_write_png_to_func(png_write_func, &png_buffer, img_w, img_h,
+                                   4, img_data, img_w * 4);
 
-            // PNG format
-            static UINT CF_PNG = RegisterClipboardFormatA("PNG");
-            if (CF_PNG) {
-                auto png_write_func = [](void* context, void* data, int size) {
-                    std::vector<unsigned char>* buffer = (std::vector<unsigned char>*)context;
-                    unsigned char* bytes = (unsigned char*)data;
-                    buffer->insert(buffer->end(), bytes, bytes + size);
-                };
-
-                std::vector<unsigned char> png_buffer;
-                stbi_write_png_to_func(png_write_func, &png_buffer, video_width_, video_height_,
-                                       4, rgba_pixels.data(), video_width_ * 4);
-
-                if (!png_buffer.empty()) {
-                    HGLOBAL hPNG = GlobalAlloc(GMEM_MOVEABLE, png_buffer.size());
-                    if (hPNG) {
-                        unsigned char* pPNG = (unsigned char*)GlobalLock(hPNG);
-                        if (pPNG) {
-                            memcpy(pPNG, png_buffer.data(), png_buffer.size());
-                            GlobalUnlock(hPNG);
-                            SetClipboardData(CF_PNG, hPNG);
-                        }
+            if (!png_buffer.empty()) {
+                HGLOBAL hPNG = GlobalAlloc(GMEM_MOVEABLE, png_buffer.size());
+                if (hPNG) {
+                    unsigned char* pPNG = (unsigned char*)GlobalLock(hPNG);
+                    if (pPNG) {
+                        memcpy(pPNG, png_buffer.data(), png_buffer.size());
+                        GlobalUnlock(hPNG);
+                        SetClipboardData(CF_PNG, hPNG);
                     }
                 }
             }
-
-            CloseClipboard();
-            success = true;
         }
-#endif
 
-        Debug::Log("Screenshot captured to clipboard (" + std::to_string(video_width_) + "x" +
-                   std::to_string(video_height_) + ")");
+        CloseClipboard();
+        success = true;
     }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
-    glDeleteFramebuffers(1, &temp_fbo);
+    free(img_data);
 
-    if (final_texture != video_texture_) {
-        glDeleteTextures(1, &final_texture);
+    if (success) {
+        Debug::Log("Screenshot captured to clipboard (" + std::to_string(img_w) + "x" +
+                   std::to_string(img_h) + ")");
     }
-
     return success;
+#else
+    return false;
+#endif // _WIN32
 #endif // QCVIEW_USE_VULKAN
 }
 
@@ -1782,67 +1784,6 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
     int h = src_tex->height;
     size_t buffer_size = static_cast<size_t>(w) * h * 4;
 
-    // Create staging buffer for readback
-    VkBuffer staging_buffer = VK_NULL_HANDLE;
-    VmaAllocation staging_alloc = VK_NULL_HANDLE;
-
-    VkBufferCreateInfo buf_ci{};
-    buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buf_ci.size = buffer_size;
-    buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-    VmaAllocationCreateInfo staging_ai{};
-    staging_ai.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
-    staging_ai.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-    VmaAllocationInfo staging_info{};
-    if (vmaCreateBuffer(dev.GetAllocator(), &buf_ci, &staging_ai,
-                        &staging_buffer, &staging_alloc, &staging_info) != VK_SUCCESS) {
-        Debug::Log("Screenshot (Vulkan): Failed to create staging buffer");
-        return false;
-    }
-
-    // Copy image to staging buffer
-    {
-        VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
-
-        // Transition to TRANSFER_SRC
-        VkImageMemoryBarrier barrier{};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = src_tex->image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.levelCount = 1;
-        barrier.subresourceRange.layerCount = 1;
-        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                             VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-        VkBufferImageCopy region{};
-        region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        region.imageSubresource.layerCount = 1;
-        region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
-
-        vkCmdCopyImageToBuffer(cmd, src_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                               staging_buffer, 1, &region);
-
-        // Transition back to SHADER_READ_ONLY
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
-                             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                             0, 0, nullptr, 0, nullptr, 1, &barrier);
-
-        dev.EndSingleTimeCommands(cmd);
-    }
-
     // Build output path
     std::string output_filename = directory_path;
     if (!output_filename.empty() && output_filename.back() != '/') {
@@ -1850,53 +1791,309 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
     }
     output_filename += filename;
 
-    // Write PNG
-    bool success = false;
-    if (staging_info.pMappedData) {
-        // Handle format differences: pool textures may be RGBA16F or RGBA8
-        if (src_tex->format == VK_FORMAT_R8G8B8A8_UNORM || src_tex->format == VK_FORMAT_R8G8B8A8_SRGB) {
-            success = stbi_write_png(output_filename.c_str(), w, h, 4,
-                                     staging_info.pMappedData, w * 4) != 0;
-        } else if (src_tex->format == VK_FORMAT_R16G16B16A16_SFLOAT) {
-            // Convert float16 to uint8
-            const uint16_t* src = static_cast<const uint16_t*>(staging_info.pMappedData);
-            std::vector<unsigned char> rgba8(buffer_size);
-            // half-float to byte conversion (simplified: clamp [0,1])
-            for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
-                // Decode IEEE 754 half-float
-                uint16_t half = src[i];
-                uint32_t sign = (half >> 15) & 1;
-                uint32_t exp = (half >> 10) & 0x1F;
-                uint32_t mant = half & 0x3FF;
-                float val;
-                if (exp == 0) {
-                    val = (mant / 1024.0f) * (1.0f / 16384.0f);
-                } else if (exp == 31) {
-                    val = 1.0f;
-                } else {
-                    val = (1.0f + mant / 1024.0f) * std::pow(2.0f, (float)exp - 15.0f);
-                }
-                if (sign) val = -val;
-                val = std::max(0.0f, std::min(1.0f, val));
-                rgba8[i] = static_cast<unsigned char>(val * 255.0f + 0.5f);
-            }
-            success = stbi_write_png(output_filename.c_str(), w, h, 4,
-                                     rgba8.data(), w * 4) != 0;
-        } else if (src_tex->format == VK_FORMAT_R16G16B16A16_UNORM) {
-            // Convert uint16 to uint8
-            const uint16_t* src = static_cast<const uint16_t*>(staging_info.pMappedData);
-            std::vector<unsigned char> rgba8(buffer_size);
-            for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
-                rgba8[i] = static_cast<unsigned char>(src[i] >> 8);
-            }
-            success = stbi_write_png(output_filename.c_str(), w, h, 4,
-                                     rgba8.data(), w * 4) != 0;
-        } else {
-            Debug::Log("Screenshot (Vulkan): Unsupported format " + std::to_string(src_tex->format));
-        }
+    // Check if we need to composite annotations
+    std::vector<qcview::Annotations::ActiveStroke> strokes;
+    if (get_annotation_strokes_callback_) {
+        strokes = get_annotation_strokes_callback_();
     }
 
-    vmaDestroyBuffer(dev.GetAllocator(), staging_buffer, staging_alloc);
+    bool success = false;
+
+    if (!strokes.empty() && vulkan_render_annotations_to_image_callback_) {
+        // --- Annotation compositing path: blit to intermediate image, render annotations, readback ---
+
+        // Create offscreen RGBA8 export image
+        VkImage export_image = VK_NULL_HANDLE;
+        VmaAllocation export_alloc = VK_NULL_HANDLE;
+        VkImageView export_view = VK_NULL_HANDLE;
+
+        VkImageCreateInfo img_info{};
+        img_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        img_info.imageType = VK_IMAGE_TYPE_2D;
+        img_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        img_info.extent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+        img_info.mipLevels = 1;
+        img_info.arrayLayers = 1;
+        img_info.samples = VK_SAMPLE_COUNT_1_BIT;
+        img_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+        img_info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+        img_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+        VmaAllocationCreateInfo alloc_ci{};
+        alloc_ci.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+        if (vmaCreateImage(dev.GetAllocator(), &img_info, &alloc_ci,
+                           &export_image, &export_alloc, nullptr) != VK_SUCCESS) {
+            Debug::Log("Screenshot (Vulkan): Failed to create annotation export image");
+            if (color_pool_id) pool.QueueDelete(color_pool_id);
+            return false;
+        }
+
+        VkImageViewCreateInfo view_ci{};
+        view_ci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        view_ci.image = export_image;
+        view_ci.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_ci.format = VK_FORMAT_R8G8B8A8_UNORM;
+        view_ci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_ci.subresourceRange.levelCount = 1;
+        view_ci.subresourceRange.layerCount = 1;
+
+        if (vkCreateImageView(device, &view_ci, nullptr, &export_view) != VK_SUCCESS) {
+            vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+            if (color_pool_id) pool.QueueDelete(color_pool_id);
+            return false;
+        }
+
+        // Blit source texture onto export image
+        {
+            VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+            // Transition export image to TRANSFER_DST
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = export_image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = 0;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            // Transition source to TRANSFER_SRC
+            VkImageMemoryBarrier src_barrier{};
+            src_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            src_barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            src_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            src_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            src_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            src_barrier.image = src_tex->image;
+            src_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            src_barrier.subresourceRange.levelCount = 1;
+            src_barrier.subresourceRange.layerCount = 1;
+            src_barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            src_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+            // Blit (handles format conversion and scaling)
+            VkImageBlit blit{};
+            blit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.srcSubresource.layerCount = 1;
+            blit.srcOffsets[1] = {src_tex->width, src_tex->height, 1};
+            blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            blit.dstSubresource.layerCount = 1;
+            blit.dstOffsets[1] = {w, h, 1};
+
+            vkCmdBlitImage(cmd, src_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           export_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1, &blit, VK_FILTER_LINEAR);
+
+            // Transition source back to SHADER_READ_ONLY
+            src_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            src_barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            src_barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            src_barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &src_barrier);
+
+            // Transition export image to COLOR_ATTACHMENT_OPTIMAL for annotation rendering
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            dev.EndSingleTimeCommands(cmd);
+        }
+
+        // Render annotations on top
+        vulkan_render_annotations_to_image_callback_(strokes, export_image, export_view, w, h);
+
+        // Readback: copy export image to staging buffer
+        VkBuffer staging_buffer = VK_NULL_HANDLE;
+        VmaAllocation staging_alloc = VK_NULL_HANDLE;
+
+        VkBufferCreateInfo buf_ci{};
+        buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buf_ci.size = buffer_size;
+        buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+        VmaAllocationCreateInfo staging_ai{};
+        staging_ai.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+        staging_ai.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VmaAllocationInfo staging_info{};
+        if (vmaCreateBuffer(dev.GetAllocator(), &buf_ci, &staging_ai,
+                            &staging_buffer, &staging_alloc, &staging_info) != VK_SUCCESS) {
+            vkDestroyImageView(device, export_view, nullptr);
+            vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+            if (color_pool_id) pool.QueueDelete(color_pool_id);
+            return false;
+        }
+
+        {
+            VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+            // Transition export image to TRANSFER_SRC
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = export_image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            VkBufferImageCopy region{};
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.layerCount = 1;
+            region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+
+            vkCmdCopyImageToBuffer(cmd, export_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   staging_buffer, 1, &region);
+
+            dev.EndSingleTimeCommands(cmd);
+        }
+
+        // Write PNG from export image (always RGBA8)
+        if (staging_info.pMappedData) {
+            success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                     staging_info.pMappedData, w * 4) != 0;
+        }
+
+        // Cleanup
+        vmaDestroyBuffer(dev.GetAllocator(), staging_buffer, staging_alloc);
+        vkDestroyImageView(device, export_view, nullptr);
+        vmaDestroyImage(dev.GetAllocator(), export_image, export_alloc);
+
+    } else {
+        // --- Direct path (no annotations): copy source texture straight to staging ---
+
+        VkBuffer staging_buffer = VK_NULL_HANDLE;
+        VmaAllocation staging_alloc = VK_NULL_HANDLE;
+
+        VkBufferCreateInfo buf_ci{};
+        buf_ci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        buf_ci.size = buffer_size;
+        buf_ci.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+        VmaAllocationCreateInfo staging_ai{};
+        staging_ai.usage = VMA_MEMORY_USAGE_GPU_TO_CPU;
+        staging_ai.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        VmaAllocationInfo staging_info{};
+        if (vmaCreateBuffer(dev.GetAllocator(), &buf_ci, &staging_ai,
+                            &staging_buffer, &staging_alloc, &staging_info) != VK_SUCCESS) {
+            Debug::Log("Screenshot (Vulkan): Failed to create staging buffer");
+            if (color_pool_id) pool.QueueDelete(color_pool_id);
+            return false;
+        }
+
+        // Copy image to staging buffer
+        {
+            VkCommandBuffer cmd = dev.BeginSingleTimeCommands();
+
+            // Transition to TRANSFER_SRC
+            VkImageMemoryBarrier barrier{};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = src_tex->image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.levelCount = 1;
+            barrier.subresourceRange.layerCount = 1;
+            barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            VkBufferImageCopy region{};
+            region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            region.imageSubresource.layerCount = 1;
+            region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+
+            vkCmdCopyImageToBuffer(cmd, src_tex->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                   staging_buffer, 1, &region);
+
+            // Transition back to SHADER_READ_ONLY
+            barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+            barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+            barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+            vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                 VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                                 0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+            dev.EndSingleTimeCommands(cmd);
+        }
+
+        // Write PNG
+        if (staging_info.pMappedData) {
+            // Handle format differences: pool textures may be RGBA16F or RGBA8
+            if (src_tex->format == VK_FORMAT_R8G8B8A8_UNORM || src_tex->format == VK_FORMAT_R8G8B8A8_SRGB) {
+                success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                         staging_info.pMappedData, w * 4) != 0;
+            } else if (src_tex->format == VK_FORMAT_R16G16B16A16_SFLOAT) {
+                // Convert float16 to uint8
+                const uint16_t* float_src = static_cast<const uint16_t*>(staging_info.pMappedData);
+                std::vector<unsigned char> rgba8(buffer_size);
+                for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
+                    uint16_t half = float_src[i];
+                    uint32_t sign = (half >> 15) & 1;
+                    uint32_t exp = (half >> 10) & 0x1F;
+                    uint32_t mant = half & 0x3FF;
+                    float val;
+                    if (exp == 0) {
+                        val = (mant / 1024.0f) * (1.0f / 16384.0f);
+                    } else if (exp == 31) {
+                        val = 1.0f;
+                    } else {
+                        val = (1.0f + mant / 1024.0f) * std::pow(2.0f, (float)exp - 15.0f);
+                    }
+                    if (sign) val = -val;
+                    val = std::max(0.0f, std::min(1.0f, val));
+                    rgba8[i] = static_cast<unsigned char>(val * 255.0f + 0.5f);
+                }
+                success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                         rgba8.data(), w * 4) != 0;
+            } else if (src_tex->format == VK_FORMAT_R16G16B16A16_UNORM) {
+                const uint16_t* unorm_src = static_cast<const uint16_t*>(staging_info.pMappedData);
+                std::vector<unsigned char> rgba8(buffer_size);
+                for (size_t i = 0; i < static_cast<size_t>(w) * h * 4; ++i) {
+                    rgba8[i] = static_cast<unsigned char>(unorm_src[i] >> 8);
+                }
+                success = stbi_write_png(output_filename.c_str(), w, h, 4,
+                                         rgba8.data(), w * 4) != 0;
+            } else {
+                Debug::Log("Screenshot (Vulkan): Unsupported format " + std::to_string(src_tex->format));
+            }
+        }
+
+        vmaDestroyBuffer(dev.GetAllocator(), staging_buffer, staging_alloc);
+    }
+
     if (color_pool_id) pool.QueueDelete(color_pool_id);
 
     if (success) {
@@ -1931,31 +2128,154 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
         }
     }
 
+    // Check if we need to composite annotations
+    std::vector<qcview::Annotations::ActiveStroke> strokes;
+    if (get_annotation_strokes_callback_) {
+        strokes = get_annotation_strokes_callback_();
+    }
+
     std::vector<unsigned char> pixels(video_width_ * video_height_ * 4);
 
     GLint current_fbo;
     glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &current_fbo);
 
-    GLuint temp_fbo;
-    glGenFramebuffers(1, &temp_fbo);
-    glBindFramebuffer(GL_FRAMEBUFFER, temp_fbo);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, final_texture, 0);
-
     bool success = false;
-    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
-        glReadPixels(0, 0, video_width_, video_height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
 
-        int result = stbi_write_png(output_filename.c_str(), video_width_, video_height_, 4,
-                                   pixels.data(), video_width_ * 4);
+    if (!strokes.empty() && render_annotations_to_fbo_callback_) {
+        // --- Annotation compositing path: FBO with depth-stencil for NanoVG ---
+        GLuint render_fbo = 0, render_texture = 0, depth_stencil_rb = 0;
 
-        if (result) {
-            Debug::Log("Screenshot saved to: " + output_filename);
-            success = true;
+        glGenFramebuffers(1, &render_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, render_fbo);
+
+        // Create color attachment
+        glGenTextures(1, &render_texture);
+        glBindTexture(GL_TEXTURE_2D, render_texture);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, video_width_, video_height_, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, render_texture, 0);
+
+        // Create depth-stencil for NanoVG anti-aliased strokes
+        glGenRenderbuffers(1, &depth_stencil_rb);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth_stencil_rb);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, video_width_, video_height_);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, depth_stencil_rb);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+            glViewport(0, 0, video_width_, video_height_);
+            glDisable(GL_SCISSOR_TEST);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClearStencil(0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+
+            // Blit video texture to render FBO using simple quad
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+            const char* vertex_shader = R"(
+                #version 330 core
+                layout(location = 0) in vec2 aPos;
+                layout(location = 1) in vec2 aTexCoord;
+                out vec2 TexCoord;
+                void main() {
+                    gl_Position = vec4(aPos, 0.0, 1.0);
+                    TexCoord = aTexCoord;
+                }
+            )";
+            const char* fragment_shader = R"(
+                #version 330 core
+                in vec2 TexCoord;
+                out vec4 FragColor;
+                uniform sampler2D uTexture;
+                void main() {
+                    FragColor = texture(uTexture, TexCoord);
+                }
+            )";
+
+            GLuint vs = glCreateShader(GL_VERTEX_SHADER);
+            glShaderSource(vs, 1, &vertex_shader, nullptr);
+            glCompileShader(vs);
+            GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
+            glShaderSource(fs, 1, &fragment_shader, nullptr);
+            glCompileShader(fs);
+            GLuint shader_program = glCreateProgram();
+            glAttachShader(shader_program, vs);
+            glAttachShader(shader_program, fs);
+            glLinkProgram(shader_program);
+
+            float quad_vertices[] = {
+                -1.0f, -1.0f,  0.0f, 0.0f,
+                 1.0f, -1.0f,  1.0f, 0.0f,
+                 1.0f,  1.0f,  1.0f, 1.0f,
+                -1.0f, -1.0f,  0.0f, 0.0f,
+                 1.0f,  1.0f,  1.0f, 1.0f,
+                -1.0f,  1.0f,  0.0f, 1.0f
+            };
+
+            GLuint vao, vbo;
+            glGenVertexArrays(1, &vao);
+            glGenBuffers(1, &vbo);
+            glBindVertexArray(vao);
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(quad_vertices), quad_vertices, GL_STATIC_DRAW);
+            glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+            glEnableVertexAttribArray(0);
+            glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+            glEnableVertexAttribArray(1);
+
+            glUseProgram(shader_program);
+            glBindTexture(GL_TEXTURE_2D, final_texture);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            glDeleteVertexArrays(1, &vao);
+            glDeleteBuffers(1, &vbo);
+            glDeleteProgram(shader_program);
+            glDeleteShader(vs);
+            glDeleteShader(fs);
+
+            // Render annotations on top
+            render_annotations_to_fbo_callback_(strokes, video_width_, video_height_);
+
+            // Read pixels
+            glReadPixels(0, 0, video_width_, video_height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+            glEnable(GL_SCISSOR_TEST);
+
+            int result = stbi_write_png(output_filename.c_str(), video_width_, video_height_, 4,
+                                       pixels.data(), video_width_ * 4);
+            if (result) {
+                Debug::Log("Screenshot saved to: " + output_filename);
+                success = true;
+            }
         }
-    }
 
-    glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
-    glDeleteFramebuffers(1, &temp_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+        glDeleteRenderbuffers(1, &depth_stencil_rb);
+        glDeleteTextures(1, &render_texture);
+        glDeleteFramebuffers(1, &render_fbo);
+
+    } else {
+        // --- Direct path (no annotations) ---
+        GLuint temp_fbo;
+        glGenFramebuffers(1, &temp_fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, temp_fbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, final_texture, 0);
+
+        if (glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+            glReadPixels(0, 0, video_width_, video_height_, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+
+            int result = stbi_write_png(output_filename.c_str(), video_width_, video_height_, 4,
+                                       pixels.data(), video_width_ * 4);
+            if (result) {
+                Debug::Log("Screenshot saved to: " + output_filename);
+                success = true;
+            }
+        }
+
+        glBindFramebuffer(GL_FRAMEBUFFER, current_fbo);
+        glDeleteFramebuffers(1, &temp_fbo);
+    }
 
     if (final_texture != video_texture_) {
         glDeleteTextures(1, &final_texture);

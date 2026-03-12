@@ -30,6 +30,7 @@
 #include "dual_view_types.h"
 #include "../overlay/safety_overlay_system.h"
 #include "../overlay/svg_overlay_renderer.h"
+#include "../annotations/viewport_annotator.h"
 
 // Include actual headers to avoid forward declaration conflicts
 #include "direct_exr_cache.h"
@@ -253,6 +254,31 @@ public:
         dimension_change_callback_ = callback;
     }
 
+    // Annotation screenshot callbacks
+    using GetAnnotationStrokesCallback = std::function<std::vector<qcview::Annotations::ActiveStroke>()>;
+    void SetGetAnnotationStrokesCallback(GetAnnotationStrokesCallback callback) {
+        get_annotation_strokes_callback_ = std::move(callback);
+    }
+
+    // GL/NanoVG annotation rendering callback (Windows)
+    using RenderAnnotationsToFBOCallback = std::function<void(
+        const std::vector<qcview::Annotations::ActiveStroke>& strokes,
+        int width, int height)>;
+    void SetRenderAnnotationsToFBOCallback(RenderAnnotationsToFBOCallback callback) {
+        render_annotations_to_fbo_callback_ = std::move(callback);
+    }
+
+#ifdef QCVIEW_USE_VULKAN
+    // Vulkan annotation rendering callback (Linux)
+    using VulkanRenderAnnotationsToImageCallback = std::function<bool(
+        const std::vector<qcview::Annotations::ActiveStroke>& strokes,
+        VkImage target_image, VkImageView target_view,
+        int width, int height)>;
+    void SetVulkanRenderAnnotationsToImageCallback(VulkanRenderAnnotationsToImageCallback callback) {
+        vulkan_render_annotations_to_image_callback_ = std::move(callback);
+    }
+#endif
+
     //=========================================================================
     // Backward Compatibility Stubs
     // These methods exist to maintain compilation compatibility
@@ -443,6 +469,13 @@ private:
     //=========================================================================
 
     std::function<void(int, int)> dimension_change_callback_;
+
+    // Annotation screenshot callbacks
+    GetAnnotationStrokesCallback get_annotation_strokes_callback_;
+    RenderAnnotationsToFBOCallback render_annotations_to_fbo_callback_;
+#ifdef QCVIEW_USE_VULKAN
+    VulkanRenderAnnotationsToImageCallback vulkan_render_annotations_to_image_callback_;
+#endif
 
     // Last rendered display area (for annotation overlay alignment)
     ImVec2 last_display_pos_ = ImVec2(0, 0);

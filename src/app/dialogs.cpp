@@ -20,6 +20,9 @@
 #include "audio/audio_mixer.h"
 #include "audio/audio_player.h"
 #include "transcode/transcode_settings.h"
+#ifdef _WIN32
+#include "hdr/hdr_output_manager.h"
+#endif
 #include <imgui.h>
 #include <nfd.h>
 #include <GLFW/glfw3.h>
@@ -1149,12 +1152,12 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                         ImGui::EndTabItem();
                     } // End Audio Sync tab
 
-#ifdef QCVIEW_USE_VULKAN
                     // === HDR Display tab ===
                     if (ImGui::BeginTabItem("HDR Display")) {
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "HDR output and display settings");
                         ImGui::Spacing();
 
+#ifdef QCVIEW_USE_VULKAN
                         if (vulkan_swapchain_) {
                             bool hdr_supported = vulkan_swapchain_->IsHDRSupported();
                             bool hdr_active = vulkan_swapchain_->IsHDRActive();
@@ -1207,6 +1210,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                             ImGui::SetNextItemWidth(-1);
                             if (ImGui::SliderFloat("##HDRUIBrightness", &hdr_ui_nits_, 80.0f, 1000.0f, "%.0f nits")) {
                                 vulkan_swapchain_->SetUIBrightness(hdr_ui_nits_);
+                                qcview::SetHDRUIBrightness(hdr_ui_nits_);
                                 settings_changed = true;
                             }
                             if (!hdr_active) ImGui::EndDisabled();
@@ -1232,10 +1236,82 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                                 "Vulkan swapchain not initialized");
                             if (font_regular) ImGui::PopFont();
                         }
+#elif defined(_WIN32)
+                        {
+                            bool hdr_supported = qcview::HDROutputManager::Instance().IsHDRSupported();
+                            bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
+
+                            // HDR status
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Status");
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            if (hdr_supported) {
+                                ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f),
+                                    "HDR supported (Windows HDR enabled)");
+                            } else {
+                                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                    "HDR not available — enable HDR in Windows Display Settings");
+                            }
+                            if (font_regular) ImGui::PopFont();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // UI brightness slider
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "UI Brightness");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Controls the brightness of UI elements in HDR mode");
+                            ImGui::Spacing();
+
+                            if (!hdr_active) ImGui::BeginDisabled();
+                            ImGui::SetNextItemWidth(-1);
+                            if (ImGui::SliderFloat("##HDRUIBrightness", &hdr_ui_nits_, 80.0f, 1000.0f, "%.0f nits")) {
+                                qcview::SetHDRUIBrightness(hdr_ui_nits_);
+                                settings_changed = true;
+                            }
+                            if (!hdr_active) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Recommended: Match your display's typical brightness.\n"
+                                "400 nits is a good default for most HDR displays.");
+                            if (font_regular) ImGui::PopFont();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                                "Note: HDR output requires Windows HDR to be enabled\n"
+                                "in Settings > System > Display > HDR.");
+                        }
+#endif
 
                         ImGui::EndTabItem();
                     } // End HDR Display tab
-#endif
+
+                    // === TAB: General ===
+                    if (ImGui::BeginTabItem("General")) {
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "General application settings");
+                        ImGui::Spacing();
+
+                        ImGui::Text("Screenshots:");
+                        ImGui::Spacing();
+                        if (ImGui::Checkbox("Bake annotations on screenshots", &cache_settings.bake_annotations_on_screenshots)) {
+                            settings_changed = true;
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(?)");
+                        if (ImGui::IsItemHovered()) {
+                            ImGui::SetTooltip(
+                                "When enabled, screenshots (Ctrl+[ and Ctrl+]) will\n"
+                                "include any annotation drawings on the current frame.\n\n"
+                                "When disabled, screenshots capture the clean video only.");
+                        }
+
+                        ImGui::EndTabItem();
+                    } // End General tab
 
                     ImGui::EndTabBar();
                 } // End tab bar
@@ -1356,13 +1432,17 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                 g_exr_read_ahead_frames = 72;   // ~3s @ 24fps
                 g_read_behind_frames = 12;      // ~0.5s @ 24fps
 
-#ifdef QCVIEW_USE_VULKAN
                 // HDR settings
                 hdr_ui_nits_ = 400.0f;
+                qcview::SetHDRUIBrightness(hdr_ui_nits_);
+#ifdef QCVIEW_USE_VULKAN
                 if (vulkan_swapchain_ && vulkan_swapchain_->IsHDRActive()) {
                     vulkan_swapchain_->SetUIBrightness(hdr_ui_nits_);
                 }
 #endif
+
+                // Screenshot settings
+                cache_settings.bake_annotations_on_screenshots = true;
 
                 // Disk cache settings
                 g_custom_cache_path = "";

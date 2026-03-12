@@ -101,6 +101,13 @@ bool IsHDRDisplayActive();
 // handles sRGB→PQ on the GPU. On Windows/OpenGL this returns true.
 bool IsHDROutputActive();
 
+// Set/get the UI brightness level in nits (cross-platform).
+// On Windows this controls CPU-side PQ conversion target.
+// On Linux this is stored here for settings persistence; the actual
+// conversion happens in the ImGui Vulkan HDR fragment shader.
+void SetHDRUIBrightness(float nits);
+float GetHDRUIBrightness();
+
 #ifdef __linux__
 class VulkanHDRSwapchain;
 void SetVulkanHDRSwapchain(VulkanHDRSwapchain* swapchain);
@@ -110,26 +117,26 @@ void SetVulkanHDRSwapchain(VulkanHDRSwapchain* swapchain);
 // Runtime HDR Color Helpers
 //
 // Use these throughout the application for colors that need HDR adjustment.
-// They check HDR state at runtime and convert only when needed.
+// They check HDR state at runtime and use the user-configured brightness.
 //=============================================================================
 
-inline ImU32 GetUIWhite(float target_nits = 120.0f) {
+inline ImU32 GetUIWhite() {
     if (IsHDROutputActive()) {
-        return Col32ToHDR(IM_COL32(255, 255, 255, 255), target_nits);
+        return Col32ToHDR(IM_COL32(255, 255, 255, 255), GetHDRUIBrightness());
     }
     return IM_COL32(255, 255, 255, 255);
 }
 
-inline ImU32 GetUIColor(ImU32 sdr_color, float target_nits = 120.0f) {
+inline ImU32 GetUIColor(ImU32 sdr_color) {
     if (IsHDROutputActive()) {
-        return Col32ToHDR(sdr_color, target_nits);
+        return Col32ToHDR(sdr_color, GetHDRUIBrightness());
     }
     return sdr_color;
 }
 
-inline ImVec4 GetUIColorVec4(const ImVec4& sdr_color, float target_nits = 120.0f) {
+inline ImVec4 GetUIColorVec4(const ImVec4& sdr_color) {
     if (IsHDROutputActive()) {
-        return ColorToHDR(sdr_color, target_nits);
+        return ColorToHDR(sdr_color, GetHDRUIBrightness());
     }
     return sdr_color;
 }

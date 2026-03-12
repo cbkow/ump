@@ -455,10 +455,14 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         ImGui_ImplOpenGL3_Init("#version 450");
 
 #ifdef _WIN32
+        // Apply saved HDR UI brightness
+        qcview::SetHDRUIBrightness(hdr_ui_nits_);
+
         // Enable HDR mode in ImGui shader if HDR output is active
         if (qcview::HDROutputManager::Instance().IsHDRActive()) {
-            ImGui_ImplOpenGL3_SetHDRMode(true, 120.0f);
-            Debug::Log("ImGui shader HDR mode enabled (sRGB->PQ conversion at 120 nits)");
+            ImGui_ImplOpenGL3_SetHDRMode(true, hdr_ui_nits_);
+            Debug::Log("ImGui shader HDR mode enabled (sRGB->PQ conversion at " +
+                       std::to_string((int)hdr_ui_nits_) + " nits)");
         }
 #endif
 #endif // QCVIEW_USE_VULKAN
@@ -1963,6 +1967,63 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             }
             return video_player->CaptureScreenshotToPath(directory_path, filename);
         });
+
+        // Wire annotation screenshot callbacks on video player
+        video_player->SetGetAnnotationStrokesCallback([this]() -> std::vector<qcview::Annotations::ActiveStroke> {
+            std::vector<qcview::Annotations::ActiveStroke> strokes;
+
+            if (!cache_settings.bake_annotations_on_screenshots || !annotation_manager) {
+                return strokes;
+            }
+
+            // If currently editing annotations, use live editing strokes
+            if (viewport_annotator && viewport_annotator->GetMode() == qcview::Annotations::ViewportMode::ANNOTATION
+                && !current_editing_timecode_.empty()) {
+                strokes = current_annotation_strokes_;
+                if (viewport_annotator->GetActiveStroke()) {
+                    strokes.push_back(*viewport_annotator->GetActiveStroke());
+                }
+                return strokes;
+            }
+
+            // Look up saved annotations for current frame
+            if (video_player) {
+                double position = video_player->GetPosition();
+                double fps = video_player->GetFrameRate();
+                std::string timecode = VideoDisplayComponent::FormatTimecode(position, fps);
+                auto* note = annotation_manager->GetNoteAtTimecode(timecode);
+                if (note && !note->annotation_data.empty()) {
+                    strokes = qcview::Annotations::AnnotationSerializer::JsonStringToStrokes(note->annotation_data);
+                }
+            }
+
+            return strokes;
+        });
+
+        // GL/NanoVG annotation rendering callback (Windows)
+        video_player->SetRenderAnnotationsToFBOCallback(
+            [this](const std::vector<qcview::Annotations::ActiveStroke>& strokes, int width, int height) {
+                if (!annotation_renderer) return;
+                annotation_renderer->BeginFrame((float)width, (float)height, 1.0f);
+                for (const auto& stroke : strokes) {
+                    if (stroke.points.empty()) continue;
+                    annotation_renderer->RenderActiveStroke(
+                        stroke, 0.0f, 0.0f, (float)width, (float)height, true, 1.0f);
+                }
+                annotation_renderer->EndFrame();
+            });
+
+#ifdef QCVIEW_USE_VULKAN
+        // Vulkan annotation rendering callback (Linux)
+        video_player->SetVulkanRenderAnnotationsToImageCallback(
+            [this](const std::vector<qcview::Annotations::ActiveStroke>& strokes,
+                   VkImage target, VkImageView target_view, int w, int h) -> bool {
+                if (!vulkan_annotation_renderer_ || !vulkan_annotation_renderer_->IsInitialized()) return false;
+                return vulkan_annotation_renderer_->RenderAnnotationsToImage(
+                    strokes, target, target_view, w, h,
+                    0.0f, 0.0f, (float)w, (float)h, 1.0f, true);
+            });
+#endif
 
         annotation_panel->SetGetCurrentStateCallback([this](double& timestamp, std::string& timecode, int& frame) {
             if (video_player) {

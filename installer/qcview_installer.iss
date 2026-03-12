@@ -87,7 +87,7 @@ Source: "..\build\Release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversi
 
 ; Core DLLs (FFmpeg, OpenEXR, OpenColorIO, etc.)
 Source: "..\build\Release\*.dll"; DestDir: "{app}"; Flags: ignoreversion; Components: core
-Source: "..\build\Release\*.exe"; DestDir: "{app}"; Excludes: "{#MyAppExeName}"; Flags: ignoreversion; Components: core
+Source: "..\build\Release\*.exe"; DestDir: "{app}"; Excludes: "{#MyAppExeName}"; Flags: ignoreversion skipifsourcedoesntexist; Components: core
 
 ; Assets directory (recursive)
 Source: "..\build\Release\assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: core

@@ -10,6 +10,17 @@
 
 namespace qcview {
 
+// User-adjustable UI brightness for HDR mode (default 400 nits)
+static float g_hdr_ui_nits = 400.0f;
+
+void SetHDRUIBrightness(float nits) {
+    g_hdr_ui_nits = nits;
+}
+
+float GetHDRUIBrightness() {
+    return g_hdr_ui_nits;
+}
+
 // Global pointer set by application init — avoids circular dependency
 // with VulkanHDRSwapchain while keeping the query lightweight.
 #ifdef __linux__

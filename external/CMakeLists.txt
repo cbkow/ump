@@ -19,18 +19,18 @@ set(IMGUI_SOURCES
     imgui/backends/imgui_impl_glfw.cpp
 )
 
-# Add OpenGL3 backend when not using Vulkan
-if(NOT QCVIEW_USE_VULKAN)
+# OpenGL3 backend — Windows always, Linux when not using Vulkan
+if(WIN32 OR (QCVIEW_LINUX AND NOT QCVIEW_USE_VULKAN))
     list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_opengl3.cpp)
 endif()
 
-# Add D3D11 backend on Windows for full D3D11 rendering mode
+# D3D11 backend on Windows
 if(WIN32)
     list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_dx11.cpp)
 endif()
 
-# Add Vulkan backend on Linux
-if(UNIX AND NOT APPLE AND QCVIEW_USE_VULKAN)
+# Vulkan backend on Linux
+if(QCVIEW_LINUX AND QCVIEW_USE_VULKAN)
     list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_vulkan.cpp)
 endif()
 
@@ -48,7 +48,7 @@ if(WIN32)
 endif()
 
 # Link Vulkan for ImGui on Linux
-if(UNIX AND NOT APPLE AND QCVIEW_USE_VULKAN)
+if(QCVIEW_LINUX AND QCVIEW_USE_VULKAN)
     find_package(Vulkan REQUIRED)
     target_link_libraries(imgui Vulkan::Vulkan)
     target_include_directories(imgui PUBLIC ${Vulkan_INCLUDE_DIRS})
@@ -159,43 +159,44 @@ target_link_libraries(nanovg glad)
 message(STATUS "NanoVG configured")
 
 # ========================================
-# OPENCOLORIO - Manual Setup
+# OPENCOLORIO - Manual Setup (Windows only, Linux uses pkg-config)
 # ========================================
-set(OCIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ocio")
+if(WIN32)
+    set(OCIO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/ocio")
 
-# Verify files exist
-if(NOT EXISTS "${OCIO_ROOT}/lib/OpenColorIO.lib")
-    message(WARNING "OpenColorIO.lib not found at ${OCIO_ROOT}/lib/. Make sure you copied the vcpkg files.")
-    message(STATUS "Expected path: ${OCIO_ROOT}/lib/OpenColorIO.lib")
-    # Don't fail the build, just warn
-else()
-    message(STATUS "Found OpenColorIO.lib")
-endif()
+    # Verify files exist
+    if(NOT EXISTS "${OCIO_ROOT}/lib/OpenColorIO.lib")
+        message(WARNING "OpenColorIO.lib not found at ${OCIO_ROOT}/lib/. Make sure you copied the vcpkg files.")
+        message(STATUS "Expected path: ${OCIO_ROOT}/lib/OpenColorIO.lib")
+    else()
+        message(STATUS "Found OpenColorIO.lib")
+    endif()
 
-if(NOT EXISTS "${OCIO_ROOT}/include/OpenColorIO/OpenColorIO.h")
-    message(WARNING "OpenColorIO headers not found at ${OCIO_ROOT}/include/.")
-    message(STATUS "Expected path: ${OCIO_ROOT}/include/OpenColorIO/OpenColorIO.h")
-else()
-    message(STATUS "Found OpenColorIO headers")
-endif()
+    if(NOT EXISTS "${OCIO_ROOT}/include/OpenColorIO/OpenColorIO.h")
+        message(WARNING "OpenColorIO headers not found at ${OCIO_ROOT}/include/.")
+        message(STATUS "Expected path: ${OCIO_ROOT}/include/OpenColorIO/OpenColorIO.h")
+    else()
+        message(STATUS "Found OpenColorIO headers")
+    endif()
 
-# Only create the target if files exist
-if(EXISTS "${OCIO_ROOT}/lib/OpenColorIO.lib")
-    # Create imported target
-    add_library(OpenColorIO SHARED IMPORTED)
-    set_target_properties(OpenColorIO PROPERTIES
-        IMPORTED_LOCATION_RELEASE "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
-        IMPORTED_IMPLIB_RELEASE "${OCIO_ROOT}/lib/OpenColorIO.lib"
-        IMPORTED_LOCATION_DEBUG "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
-        IMPORTED_IMPLIB_DEBUG "${OCIO_ROOT}/lib/OpenColorIO.lib"
-        INTERFACE_INCLUDE_DIRECTORIES "${OCIO_ROOT}/include"
-        MAP_IMPORTED_CONFIG_DEBUG Release
-        MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
-        MAP_IMPORTED_CONFIG_MINSIZEREL Release
-    )
-    message(STATUS "OpenColorIO target configured")
-else()
-    # Create dummy target so build doesn't fail
-    add_library(OpenColorIO INTERFACE)
-    message(WARNING "OpenColorIO not found - created dummy target")
+    # Only create the target if files exist
+    if(EXISTS "${OCIO_ROOT}/lib/OpenColorIO.lib")
+        # Create imported target
+        add_library(OpenColorIO SHARED IMPORTED)
+        set_target_properties(OpenColorIO PROPERTIES
+            IMPORTED_LOCATION_RELEASE "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
+            IMPORTED_IMPLIB_RELEASE "${OCIO_ROOT}/lib/OpenColorIO.lib"
+            IMPORTED_LOCATION_DEBUG "${OCIO_ROOT}/bin/OpenColorIO_2_5.dll"
+            IMPORTED_IMPLIB_DEBUG "${OCIO_ROOT}/lib/OpenColorIO.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${OCIO_ROOT}/include"
+            MAP_IMPORTED_CONFIG_DEBUG Release
+            MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
+            MAP_IMPORTED_CONFIG_MINSIZEREL Release
+        )
+        message(STATUS "OpenColorIO target configured")
+    else()
+        # Create dummy target so build doesn't fail
+        add_library(OpenColorIO INTERFACE)
+        message(WARNING "OpenColorIO not found - created dummy target")
+    endif()
 endif()

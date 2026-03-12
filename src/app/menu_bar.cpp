@@ -189,6 +189,11 @@ extern bool show_notification_permanent;
                 }
 
                 ImGui::Separator();
+                if (ImGui::MenuItem("Bake Annotations on Screenshots", nullptr, &cache_settings.bake_annotations_on_screenshots)) {
+                    // Toggled - will be persisted on app close
+                }
+
+                ImGui::Separator();
 
                 // Project sharing
                 ImGui::TextDisabled("Share:");

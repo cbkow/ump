@@ -6,13 +6,13 @@
 // These convert SDR colors to PQ-encoded values when HDR is active
 // Cross-platform: uses hdr_color_utils.h which queries the appropriate backend
 #include "hdr/hdr_color_utils.h"
-#define UI_WHITE qcview::GetUIWhite(120.0f)
-#define UI_WHITE_A(a) qcview::GetUIColor(IM_COL32(255, 255, 255, a), 120.0f)
-#define UI_COLOR(r,g,b,a) qcview::GetUIColor(IM_COL32(r, g, b, a), 120.0f)
-#define UI_WHITE_VEC4 qcview::GetUIColorVec4(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 120.0f)
-#define UI_GRAY_VEC4 qcview::GetUIColorVec4(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), 120.0f)
-#define UI_LIGHT_GRAY qcview::GetUIColor(IM_COL32(220, 220, 220, 255), 120.0f)
-#define UI_LIGHT_GRAY_A(a) qcview::GetUIColor(IM_COL32(220, 220, 220, a), 120.0f)
+#define UI_WHITE qcview::GetUIWhite()
+#define UI_WHITE_A(a) qcview::GetUIColor(IM_COL32(255, 255, 255, a))
+#define UI_COLOR(r,g,b,a) qcview::GetUIColor(IM_COL32(r, g, b, a))
+#define UI_WHITE_VEC4 qcview::GetUIColorVec4(ImVec4(1.0f, 1.0f, 1.0f, 1.0f))
+#define UI_GRAY_VEC4 qcview::GetUIColorVec4(ImVec4(0.6f, 0.6f, 0.6f, 1.0f))
+#define UI_LIGHT_GRAY qcview::GetUIColor(IM_COL32(220, 220, 220, 255))
+#define UI_LIGHT_GRAY_A(a) qcview::GetUIColor(IM_COL32(220, 220, 220, a))
 
 // Outline button style: transparent bg + visible border, solid fill on hover
 inline void PushOutlineButtonStyle() {

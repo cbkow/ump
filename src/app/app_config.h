@@ -42,6 +42,9 @@ struct CacheSettings {
     // VIDEO RANGE OVERRIDE (for D3D11 decoders)
     int video_range_mode = 0;             // 0=AUTO, 1=FULL, 2=LIMITED - override YUV color range
 
+    // SCREENSHOT SETTINGS
+    bool bake_annotations_on_screenshots = true;  // Bake annotation drawings onto screenshots
+
     // AUDIO SYNC SETTINGS
     int display_latency_preset = 5;       // 0=60Hz, 1=75Hz, 2=120Hz, 3=144Hz, 4=240Hz, 5=Custom
     float audio_fine_tune_ms = 0.0f;      // Fine-tune offset in milliseconds (±50ms range)

@@ -103,12 +103,14 @@ private:
     // ------------------------------------------------------------------------
     GLFWwindow* window = nullptr;
 
+    // HDR UI brightness in nits (cross-platform, persisted in settings)
+    float hdr_ui_nits_ = 400.0f;
+
 #ifdef QCVIEW_USE_VULKAN
     // Vulkan presentation (HDR-capable swapchain manages all resources)
     std::unique_ptr<qcview::VulkanHDRSwapchain> vulkan_swapchain_;
     uint32_t vulkan_current_frame_ = 0;
     bool hdr_preferred_ = false;  // Loaded from settings, applied after swapchain init
-    float hdr_ui_nits_ = 400.0f; // HDR UI brightness in nits
 #endif
 
     std::unique_ptr<VideoPlayer> video_player;
