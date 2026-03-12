@@ -390,7 +390,7 @@ On **Windows**, the pipeline uses Direct3D 11 for video decoding and rendering, 
                       │  ┌────────────────────────┐  │
                       │  │  Runtime HDR Toggle    │  │
                       │  │                        │  │
-                      │  │  SDR: B8G8R8A8_UNORM   │  │
+                      │  │ SDR: B8G8R8A8_UNORM    │  │
                       │  │       sRGB Nonlinear   │  │
                       │  │                        │  │
                       │  │ HDR: A2B10G10R10_UNORM │  │
