@@ -980,7 +980,12 @@ Each stream mirrors the <code class="code">id</code> and <code class="code">band
 </p>
 <dl class="table">
 <dt><samp class="option">cenc_decryption_key</samp></dt>
-<dd><p>16-byte key, in hex, to decrypt files encrypted using ISO Common Encryption (CENC/AES-128 CTR; ISO/IEC 23001-7).
+<dd><p>Default 16-byte key, in hex, to decrypt files encrypted using ISO Common Encryption (CENC/AES-128 CTR; ISO/IEC 23001-7).
+</p>
+</dd>
+<dt><samp class="option">cenc_decryption_keys</samp></dt>
+<dd><p>Dictionary of 16-byte key ID =&gt; 16-byte key, both in hex, to decrypt files encrypted using ISO Common Encryption
+(CENC/AES-128 CTR; ISO/IEC 23001-7).
 </p>
 </dd>
 </dl>
@@ -1404,32 +1409,10 @@ sequence of filenames of the form <samp class="file">i%m%g-1.jpg</samp>,
 </p>
 <p>The pattern is interpreted like a <code class="code">glob()</code> pattern. This is only
 selectable if libavformat was compiled with globbing support.
-</p>
-</dd>
-<dt><samp class="option">glob_sequence <em class="emph">(deprecated, will be removed)</em></samp></dt>
-<dd><p>Select a mixed glob wildcard/sequence pattern.
-</p>
-<p>If your version of libavformat was compiled with globbing support, and
-the provided pattern contains at least one glob meta character among
-<code class="code">%*?[]{}</code> that is preceded by an unescaped &quot;%&quot;, the pattern is
-interpreted like a <code class="code">glob()</code> pattern, otherwise it is interpreted
-like a sequence pattern.
-</p>
-<p>All glob special characters <code class="code">%*?[]{}</code> must be prefixed
-with &quot;%&quot;. To escape a literal &quot;%&quot; you shall use &quot;%%&quot;.
-</p>
-<p>For example the pattern <code class="code">foo-%*.jpeg</code> will match all the
-filenames prefixed by &quot;foo-&quot; and terminating with &quot;.jpeg&quot;, and
-<code class="code">foo-%?%?%?.jpeg</code> will match all the filenames prefixed with
-&quot;foo-&quot;, followed by a sequence of three characters, and terminating
-with &quot;.jpeg&quot;.
-</p>
-<p>This pattern type is deprecated in favor of <var class="var">glob</var> and
-<var class="var">sequence</var>.
 </p></dd>
 </dl>
 
-<p>Default value is <var class="var">glob_sequence</var>.
+<p>Default value is <var class="var">sequence</var>.
 </p></dd>
 <dt><samp class="option">pixel_format</samp></dt>
 <dd><p>Set the pixel format of the images to read. If not specified the pixel
@@ -1748,7 +1731,12 @@ specify.
 </p>
 </dd>
 <dt><samp class="option">decryption_key</samp></dt>
-<dd><p>16-byte key, in hex, to decrypt files encrypted using ISO Common Encryption (CENC/AES-128 CTR; ISO/IEC 23001-7).
+<dd><p>Default 16-byte key, in hex, to decrypt files encrypted using ISO Common Encryption (CENC/AES-128 CTR; ISO/IEC 23001-7).
+</p>
+</dd>
+<dt><samp class="option">decryption_keys</samp></dt>
+<dd><p>Dictionary of 16-byte key ID =&gt; 16-byte key, both in hex, to decrypt files encrypted using ISO Common Encryption
+(CENC/AES-128 CTR; ISO/IEC 23001-7).
 </p>
 </dd>
 <dt><samp class="option">max_stts_delta</samp></dt>
@@ -1858,6 +1846,12 @@ in order to be able to decode the data correctly.
 <dd><p>Set the input video pixel format. Default value is <code class="code">yuv420p</code>.
 </p>
 </dd>
+<dt><samp class="option">stride</samp></dt>
+<dd><p>Set frame line size in bytes, only required if there are extra padding.
+For multiplane formats, <samp class="option">stride</samp> is a list of line size for each
+plane.
+</p>
+</dd>
 <dt><samp class="option">video_size</samp></dt>
 <dd><p>Set the input video size. This value must be specified explicitly.
 </p></dd>
@@ -1869,6 +1863,13 @@ size of <code class="code">320x240</code>, and a frame rate of 10 images per sec
 the command:
 </p><div class="example">
 <pre class="example-preformatted">ffplay -f rawvideo -pixel_format rgb24 -video_size 320x240 -framerate 10 input.raw
+</pre></div>
+
+<p>Read a rawvideo with <code class="command">ffplay</code>, assuming a pixel format of <code class="code">yuv420p</code>,
+a video size of <code class="code">1080x1920</code>, has 8 bytes of padding in each line of Y plane,
+and 4 bytes of padding with UV plane,
+</p><div class="example">
+<pre class="example-preformatted">ffplay -f rawvideo -pixel_format yuv420p -video_size 1080x1920 -stride 1088,544,544 input.raw
 </pre></div>
 
 <a class="anchor" id="rcwtdec"></a><a name="rcwt"></a>
@@ -6428,7 +6429,27 @@ Default value is 5000.
 </dd>
 <dt><samp class="option">pkt_size <var class="var">integer</var></samp></dt>
 <dd><p>Set the maximum size, in bytes, of RTP packets that send out.
-Default value is 1500.
+Default value is 1200.
+</p>
+</dd>
+<dt><samp class="option">ts_buffer_size <var class="var">integer</var></samp></dt>
+<dd><p>Set the buffer size, in bytes, of underlying protocol.
+Default value is -1(auto). The UDP auto selects a reasonable value.
+</p>
+</dd>
+<dt><samp class="option">whip_flags <var class="var">flags</var></samp></dt>
+<dd><p>Possible values:
+</p>
+<dl class="table">
+<dt>&lsquo;<samp class="samp">dtls_active</samp>&rsquo;</dt>
+<dd><p>The muxer will try to set dtls active role and send the first client hello.
+</p></dd>
+</dl>
+
+</dd>
+<dt><samp class="option">rtp_history <var class="var">integer</var></samp></dt>
+<dd><p>Set the number of RTP history items to store.
+Default value is 512.
 </p>
 </dd>
 <dt><samp class="option">authorization <var class="var">string</var></samp></dt>

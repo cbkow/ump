@@ -16,6 +16,8 @@ EXPORTS
     av_aes_ctr_set_random_iv
     av_aes_init
     av_aes_size
+    av_alpha_mode_from_name
+    av_alpha_mode_name
     av_ambient_viewing_environment_alloc
     av_ambient_viewing_environment_create_side_data
     av_amf_to_av_format
@@ -134,6 +136,7 @@ EXPORTS
     av_crc
     av_crc_get_table
     av_crc_init
+    av_csp_approximate_eotf_gamma
     av_csp_approximate_trc_gamma
     av_csp_itu_eotf
     av_csp_itu_eotf_inv
@@ -593,6 +596,8 @@ EXPORTS
     av_video_hint_alloc
     av_video_hint_create_side_data
     av_vk_frame_alloc
+    av_vk_get_optional_device_extensions
+    av_vk_get_optional_instance_extensions
     av_vkfmt_from_pixfmt
     av_vlog
     av_write_image_line

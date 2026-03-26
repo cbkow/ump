@@ -250,7 +250,10 @@ extern bool show_delete_prefs_confirm;
         // Hide menu bar during fullscreen and transitions (same condition as borders)
         bool hide_menu = is_fullscreen
             || (!show_timeline_panel && !show_sidebar_panel && !show_project_panel && !show_inspector_panel)
-            || MacOS_IsFullscreenAnimating();
+#ifdef QCVIEW_USE_METAL
+            || MacOS_IsFullscreenAnimating()
+#endif
+            ;
         if (!hide_menu) {
             window_flags |= ImGuiWindowFlags_MenuBar;
         }
@@ -271,7 +274,10 @@ extern bool show_delete_prefs_confirm;
         // Also hide during the macOS fullscreen exit animation to mask the rebuild frame.
         bool hide_borders = is_fullscreen
             || (!show_timeline_panel && !show_sidebar_panel && !show_project_panel && !show_inspector_panel)
-            || MacOS_IsFullscreenAnimating();
+#ifdef QCVIEW_USE_METAL
+            || MacOS_IsFullscreenAnimating()
+#endif
+            ;
         if (hide_borders) {
             ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 0.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);

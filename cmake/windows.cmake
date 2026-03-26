@@ -40,13 +40,17 @@ set(FFMPEG_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/lib")
 set(FFMPEG_BIN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/ffmpeg/bin")
 
 # ==========================================================================
-# Source Filtering — exclude Linux/Vulkan-only files
+# Source Filtering — exclude Linux/Vulkan/macOS/Metal-only files
 # ==========================================================================
 list(FILTER SOURCES EXCLUDE REGEX ".*vulkan_.*")
 list(FILTER SOURCES EXCLUDE REGEX ".*pipewire_.*")
 list(FILTER SOURCES EXCLUDE REGEX ".*linux_clipboard.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*metal_.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*macos_.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*coreaudio_.*")
+list(FILTER SOURCES EXCLUDE REGEX ".*\\.mm$")
 list(FILTER SOURCES EXCLUDE REGEX ".*\\.disabled$")
-message(STATUS "Windows build: Excluded Vulkan/PipeWire/Linux-only sources")
+message(STATUS "Windows build: Excluded Vulkan/PipeWire/Linux/Metal/macOS-only sources")
 
 # ==========================================================================
 # Create Executable

@@ -772,11 +772,6 @@ uint64_t ScrubDecoder::GetKeyframeAsPoolTexture(int frame_number, int* actual_fr
     if (actual_frame) *actual_frame = -1;
     return 0;
 }
-std::shared_ptr<PixelData> ScrubDecoder::GetKeyframe(int frame_number, int* actual_frame) {
-    (void)frame_number;
-    if (actual_frame) *actual_frame = -1;
-    return nullptr;
-}
 #endif
 
 //=============================================================================

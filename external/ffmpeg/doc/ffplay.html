@@ -167,7 +167,7 @@ input files.
 <p>These options are shared amongst the ff* tools.
 </p>
 <dl class="table">
-<dt><samp class="option">-L</samp></dt>
+<dt><samp class="option">-L, -license</samp></dt>
 <dd><p>Show license.
 </p>
 </dd>
@@ -796,6 +796,15 @@ determined by the number of available CPUs.
 automatically.
 </p>
 </dd>
+<dt><samp class="option">-video_bg <var class="var">pattern</var></samp></dt>
+<dd><p>Set the video background pattern used for transparent videos. For solid color
+patterns you can use the color name or color code as specified in the
+<a data-manual="ffmpeg-utils" href="./ffmpeg-utils.html#color-syntax">Color section in the ffmpeg-utils(1) manual</a>.
+You can also use the special <code class="code">tiles</code> keyword for a checker board style
+pattern. This is also the default. The <code class="code">none</code> pattern does rendering
+without alpha blending effectively ignoring alpha channel.
+</p>
+</dd>
 </dl>
 
 <a name="While-playing"></a>
@@ -851,7 +860,7 @@ frame, and pause.
 </p>
 </dd>
 <dt><kbd class="key">left/right</kbd></dt>
-<dd><p>Seek backward/forward 10 seconds.
+<dd><p>Seek backward/forward by 10 seconds or a custom interval if -seek_interval is set.
 </p>
 </dd>
 <dt><kbd class="key">down/up</kbd></dt>
@@ -859,9 +868,7 @@ frame, and pause.
 </p>
 </dd>
 <dt><kbd class="key">page down/page up</kbd></dt>
-<dd><p>Seek to the previous/next chapter.
-or if there are no chapters
-Seek backward/forward 10 minutes.
+<dd><p>Seek to previous/next chapter or backward/forward 10 minutes if no chapters.
 </p>
 </dd>
 <dt><kbd class="key">right mouse click</kbd></dt>

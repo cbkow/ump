@@ -117,7 +117,7 @@ private:
     int64_t start_time_ = 0;
 
     // Frame index for precise seeking (built from AVStream index_entries)
-    std::shared_ptr<qcview::FrameIndex> frame_index_;
+    std::shared_ptr<FrameIndex> frame_index_;
 
     // Cache last decoded frame to avoid redundant decodes
     int last_decoded_frame_ = -1;

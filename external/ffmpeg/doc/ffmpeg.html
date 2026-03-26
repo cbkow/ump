@@ -908,7 +908,7 @@ input files.
 <p>These options are shared amongst the ff* tools.
 </p>
 <dl class="table">
-<dt><samp class="option">-L</samp></dt>
+<dt><samp class="option">-L, -license</samp></dt>
 <dd><p>Show license.
 </p>
 </dd>
@@ -2302,6 +2302,7 @@ factor if negative.
 <dt><samp class="option">-force_key_frames[:<var class="var">stream_specifier</var>] <var class="var">time</var>[,<var class="var">time</var>...] (<em class="emph">output,per-stream</em>)</samp></dt>
 <dt><samp class="option">-force_key_frames[:<var class="var">stream_specifier</var>] expr:<var class="var">expr</var> (<em class="emph">output,per-stream</em>)</samp></dt>
 <dt><samp class="option">-force_key_frames[:<var class="var">stream_specifier</var>] source (<em class="emph">output,per-stream</em>)</samp></dt>
+<dt><samp class="option">-force_key_frames[:<var class="var">stream_specifier</var>] scd_metadata (<em class="emph">output,per-stream</em>)</samp></dt>
 <dd>
 <p><var class="var">force_key_frames</var> can take arguments of the following form:
 </p>
@@ -2370,6 +2371,15 @@ starting from second 13:
 the current frame being encoded is marked as a key frame in its source.
 In cases where this particular source frame has to be dropped,
 enforce the next available frame to become a key frame instead.
+</p>
+</dd>
+<dt><samp class="option">scd_metadata</samp></dt>
+<dd><p>If the argument is <code class="code">scd_metadata</code>, ffmpeg will force a key frame if
+the current frame contains a metadata entry with the key <code class="code">lavfi.scd.time</code>.
+The metadata can be added by filters like <code class="code">scdet</code> and <code class="code">scdet_vulkan</code>.
+Avoid inserting filters that duplicate frames after <code class="code">scdet</code>, as this can
+cause duplicate metadata for multiple frames and repeated insertion of key
+frames.
 </p>
 </dd>
 </dl>

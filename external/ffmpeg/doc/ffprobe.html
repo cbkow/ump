@@ -206,7 +206,7 @@ input files.
 <p>These options are shared amongst the ff* tools.
 </p>
 <dl class="table">
-<dt><samp class="option">-L</samp></dt>
+<dt><samp class="option">-L, -license</samp></dt>
 <dd><p>Show license.
 </p>
 </dd>
@@ -673,7 +673,8 @@ option affects only the options related to streams
 
 </dd>
 <dt><samp class="option">-show_data</samp></dt>
-<dd><p>Show payload data, as a hexadecimal and ASCII dump. Coupled with
+<dd><p>Show payload data, as a hexadecimal and ASCII dump (other formats can be
+selected using <samp class="option">-data_dump_format</samp>). Coupled with
 <samp class="option">-show_packets</samp>, it will dump the packets&rsquo; data. Coupled with
 <samp class="option">-show_streams</samp>, it will dump the codec extradata.
 </p>
@@ -683,6 +684,12 @@ option affects only the options related to streams
 <dt><samp class="option">-show_data_hash <var class="var">algorithm</var></samp></dt>
 <dd><p>Show a hash of payload data, for packets with <samp class="option">-show_packets</samp> and for
 codec extradata with <samp class="option">-show_streams</samp>.
+</p>
+</dd>
+<dt><samp class="option">-data_dump_format <var class="var">format</var></samp></dt>
+<dd><p>Select a format used for the data dumps enabled with the <samp class="option">-show_data</samp>
+option. The default is <code class="code">xxd</code> which is a hexdump format compatible with the
+well-known <code class="command">xxd</code> program. <code class="code">base64</code> is also supported.
 </p>
 </dd>
 <dt><samp class="option">-show_error</samp></dt>
@@ -943,6 +950,13 @@ on the specific build.
 <dt><samp class="option">-o <var class="var">output_url</var></samp></dt>
 <dd><p>Write output to <var class="var">output_url</var>. If not specified, the output is sent
 to stdout.
+</p>
+</dd>
+<dt><samp class="option">-c:<var class="var">media_specifier</var> <var class="var">codec_name</var></samp></dt>
+<dt><samp class="option">-codec:<var class="var">media_specifier</var> <var class="var">codec_name</var></samp></dt>
+<dd><p>Force a specific decoder implementation for the stream identified by
+<var class="var">media_specifier</var>, which can assume the values <code class="code">a</code> (audio),
+<code class="code">v</code> (video), <code class="code">s</code> (subtitle), and <code class="code">d</code> (data).
 </p>
 </dd>
 </dl>

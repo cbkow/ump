@@ -1149,6 +1149,9 @@ Available values are:
 <dt><samp class="option">time_base</samp></dt>
 <dd><p>Set output time base.
 </p></dd>
+<dt><samp class="option">prescale</samp></dt>
+<dd><p>Set whether to convert time fields to user-set output time base before evaluation of expressions. Defaults to 0.
+</p></dd>
 </dl>
 
 <p>The expressions are evaluated through the eval API and can contain the following
@@ -1226,7 +1229,7 @@ for the current packet
 </p>
 </dd>
 <dt><samp class="option">TB</samp></dt>
-<dd><p>The timebase of stream packet belongs.
+<dd><p>The timebase in which time fields are denominated. The user-set output timebase if prescale is enabled, else the input timebase.
 </p>
 </dd>
 <dt><samp class="option">TB_OUT</samp></dt>

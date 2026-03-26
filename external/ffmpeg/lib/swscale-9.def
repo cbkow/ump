@@ -33,6 +33,7 @@ EXPORTS
     sws_test_colorspace
     sws_test_format
     sws_test_frame
+    sws_test_hw_format
     sws_test_primaries
     sws_test_transfer
     swscale_configuration

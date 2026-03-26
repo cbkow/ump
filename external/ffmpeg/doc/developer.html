@@ -110,6 +110,7 @@ maintained and developed.
 </li></ul>
 
 <p>All proposed code changes should be submitted for review to
+<a class="url" href="https://code.ffmpeg.org/FFmpeg/FFmpeg/pulls">Forgejo</a> or
 <a class="url" href="mailto:ffmpeg-devel@ffmpeg.org">the development mailing list</a>, as
 described in more detail in the <a class="ref" href="#Submitting-patches">Submitting patches</a> chapter. The code
 should comply with the <a class="ref" href="#Development-Policy">Development Policy</a> and follow the <a class="ref" href="#Coding-Rules">Coding Rules</a>.
@@ -416,6 +417,8 @@ symbols. If in doubt, just avoid names starting with <code class="code">_</code>
 <ul class="itemize mark-bullet">
 <li>Casts should be used only when necessary. Unneeded parentheses
 should also be avoided if they don&rsquo;t make the code easier to understand.
+</li><li>Where applicable, SI units shall be used. For example timeouts should use seconds as the fundamental unit not micro seconds.
+That means a bare value like &lsquo;<samp class="samp">1.0</samp>&rsquo; must mean 1 second, &lsquo;<samp class="samp">50m</samp>&rsquo; means 50 milliseconds. For weight, gram shall be used.
 </li></ul>
 
 <a class="anchor" id="Development-Policy"></a><a name="Development-Policy-1"></a>
@@ -776,7 +779,8 @@ and has no lrint()&rsquo;)
 <p>Also please if you send several patches, send each patch as a separate mail,
 do not attach several unrelated patches to the same mail.
 </p>
-<p>Patches should be posted to the
+<p>Patches should be posted to
+<a class="uref" href="https://code.ffmpeg.org/FFmpeg/FFmpeg/pulls">Forgejo</a> or the
 <a class="uref" href="https://lists.ffmpeg.org/mailman/listinfo/ffmpeg-devel">ffmpeg-devel</a>
 mailing list. Use <code class="code">git send-email</code> when possible since it will properly
 send patches without requiring extra care. If you cannot, then send patches
