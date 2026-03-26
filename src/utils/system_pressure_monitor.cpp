@@ -75,26 +75,27 @@ void SystemPressureMonitor::Stop() {
         monitor_thread_.join();
     }
     is_running_.store(false);
-    Debug::Log("SystemPressureMonitor: Background thread stopped");
+    // Don't log here — Stop() may be called from destructor during global
+    // static destruction, after Debug::AsyncLogger is already destroyed.
 }
 
 void SystemPressureMonitor::MonitorWorker() {
-    Debug::Log("SystemPressureMonitor: Worker thread running");
+    // Don't log after should_stop_ is set — the Debug::AsyncLogger singleton
+    // may be destroyed during global static destruction, and logging after that
+    // crashes with "mutex lock failed: Invalid argument".
 
     while (!should_stop_.load()) {
         auto start = std::chrono::steady_clock::now();
 
-        // Update metrics (all Windows APIs are fast: <2ms total)
         UpdateRAMMetrics();
         UpdateCPUMetrics();
-        UpdateGPUMetrics();  // Optional/best-effort
+        UpdateGPUMetrics();
         DeterminePressureLevel();
 
         auto elapsed = std::chrono::steady_clock::now() - start;
         auto elapsed_ms = std::chrono::duration<double, std::milli>(elapsed).count();
 
-        // Log if monitoring is too slow (should be <5ms)
-        if (elapsed_ms > 5.0) {
+        if (elapsed_ms > 5.0 && !should_stop_.load()) {
             Debug::Log("SystemPressureMonitor: Slow poll detected (" +
                       std::to_string(elapsed_ms) + "ms)");
         }
@@ -107,12 +108,10 @@ void SystemPressureMonitor::MonitorWorker() {
             auto sleep_elapsed = std::chrono::steady_clock::now() - sleep_start;
             if (sleep_elapsed >= sleep_duration) break;
 
-            // Check every 100ms for shutdown signal
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
-
-    Debug::Log("SystemPressureMonitor: Worker thread exiting");
+    // No Debug::Log here — logger may already be destroyed during shutdown
 }
 
 void SystemPressureMonitor::UpdateRAMMetrics() {

@@ -1,12 +1,16 @@
 # QCView
 
-**QCView** is a professional media player and reviewer for Windows and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a professional media player and reviewer for Windows, macOS, and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ### Windows
 
 <a href="https://apps.microsoft.com/detail/9p4z15p5g805?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer">
   <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
+
+### macOS
+
+Signed and notarized `.dmg` available from [GitHub Releases](https://github.com/cbkow/QCView-Player/releases). Requires macOS 13.0 (Ventura) or later on Apple Silicon.
 
 ### Linux (Experimental)
 
@@ -17,12 +21,12 @@
 ## Key Features
 
 ### Playback
-- Hardware-accelerated video decoding — D3D11VA on Windows, VA-API on Linux — with FFmpeg software fallback
-- HDR10 output (PQ/ST.2084, BT.2020) with adjustable interface tonemapping target nits
+- Hardware-accelerated video decoding — D3D11VA on Windows, VideoToolbox on macOS, VA-API on Linux — with FFmpeg software fallback
+- HDR output: HDR10 (PQ/ST.2084) on Windows/Linux, Extended Dynamic Range (EDR) on macOS
 - Frame-accurate stepping with press-and-hold fast forward/rewind
 - Playlists and hover thumbnails with filmstrip view
 - Embedded timecode support
-- Audio playback with tempo-preserving time stretch (WASAPI on Windows, PipeWire on Linux)
+- Audio playback with tempo-preserving time stretch (WASAPI on Windows, CoreAudio on macOS, PipeWire on Linux)
 
 ### Image Sequences
 - [OpenEXR](https://openexr.com/en/latest/) with multichannel and multipart support
@@ -31,6 +35,8 @@
 
 ### Color
 - Live [OCIO](https://opencolorio.org/) color correction with a node-based interface
+- Bundled OCIO configs: ACES 2.0, Blender 5.1, ACES 1.3
+- Linear sRGB and linear P3 EDR display outputs for macOS HDR workflows
 - Multiple pipeline modes: 8-bit, 12-bit, 16-bit float
 - Screenshots with OCIO transforms applied
 
@@ -48,13 +54,13 @@
 
 ### Platform Details
 
-| | Windows | Linux (Experimental) |
-|---|---|---|
-| **GPU** | Direct3D 11 | Vulkan |
-| **HW Decode** | D3D11VA | VA-API + DMA-BUF |
-| **Audio** | WASAPI | PipeWire |
-| **HDR** | Automatic via DXGI | Toggleable in-app (requires display HDR enabled) |
-| **Packaging** | Microsoft Store / .exe installer | .deb / .rpm |
+| | Windows | macOS | Linux (Experimental) |
+|---|---|---|---|
+| **GPU** | Direct3D 11 | Metal | Vulkan |
+| **HW Decode** | D3D11VA | VideoToolbox | VA-API + DMA-BUF |
+| **Audio** | WASAPI | CoreAudio | PipeWire |
+| **HDR** | Automatic via DXGI | EDR (Extended Dynamic Range) | Toggleable in-app |
+| **Packaging** | Microsoft Store / .exe installer | Signed .dmg | .deb / .rpm |
 ## Manual and documentation
 
 - [Docs](https://qcview.app/) 

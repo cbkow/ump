@@ -227,6 +227,7 @@ void ProjectManager::RenderTranscodeSettingsDialog() {
 
     // Output directory
     ImGui::Text("Output Directory:");
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
     ImGui::InputText("##OutputDir", settings.output_directory,
                     sizeof(settings.output_directory));
     ImGui::SameLine();

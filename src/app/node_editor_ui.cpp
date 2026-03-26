@@ -5,6 +5,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "project/project_manager.h"
 #include "nodes/node_manager.h"
 #include "player/video_player.h"
@@ -89,8 +90,8 @@ extern std::string lut_export_error_message;
 
     void Application::CreateNodePropertiesContent() {
         // Header section (non-scrollable)
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(15.0f, 12.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(15.0f), S(12.0f)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8.0f), S(6.0f)));
 
         ImGui::PushStyleColor(ImGuiCol_Text, UI_GRAY_VEC4);
         if (font_icons) {
@@ -116,9 +117,7 @@ extern std::string lut_export_error_message;
         }
 
         // Reserve space for sticky footer (scale with font, 0.65 dampened)
-        const float ui_scale = ImGui::GetIO().FontGlobalScale;
-        const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-        float footer_reserve = 96.0f * height_scale;  // Space for shader toggle + export LUT buttons
+        float footer_reserve = S(96.0f);  // Space for shader toggle + export LUT buttons
 
         float available_height = ImGui::GetContentRegionAvail().y;
 
@@ -152,7 +151,7 @@ extern std::string lut_export_error_message;
         // Sticky footer - always visible, disabled when output node not selected
         ImGui::Separator();
 
-        float footer_width = ImGui::GetContentRegionAvail().x - 10.0f;  // 10px right margin
+        float footer_width = ImGui::GetContentRegionAvail().x - S(10.0f);  // right margin
         if (ImGui::BeginChild("ShaderFooter", ImVec2(footer_width, 0), false, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             // Check if pipeline is ready (only meaningful when output node selected)
             bool pipeline_ready = output_node_selected && CheckPipelineReadiness();
@@ -225,9 +224,14 @@ extern std::string lut_export_error_message;
             PushOutlineButtonStyle();
             if (ImGui::Button("Export LUT", ImVec2(-1, 0))) {
                 // Open save dialog for .cube file
+                extern bool g_nfd_dialog_open;
+                if (!g_nfd_dialog_open) {
+                g_nfd_dialog_open = true;
                 nfdu8char_t* out_path = nullptr;
                 nfdfilteritem_t filter[1] = { { "3D LUT", "cube" } };
                 nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, "color_transform.cube");
+                ImGui::GetIO().ClearInputKeys();
+                g_nfd_dialog_open = false;
 
                 if (result == NFD_OKAY) {
                     lut_export_path = out_path;
@@ -325,6 +329,7 @@ extern std::string lut_export_error_message;
                 } else if (result == NFD_ERROR) {
                     Debug::Log("NFD Error: " + std::string(NFD_GetError()));
                 }
+                } // g_nfd_dialog_open guard
             }
             PopOutlineButtonStyle();
 
@@ -350,7 +355,7 @@ extern std::string lut_export_error_message;
     void Application::RenderNodeSpecificProperties(qcview::NodeBase* node) {
         if (!node) return;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 6));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8), S(6)));
 
         // Node type header
         ImGui::TextColored(ImVec4(0.8f, 0.8f, 0.8f, 1.0f), "%s", node->GetTitle().c_str());

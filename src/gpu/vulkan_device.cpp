@@ -676,6 +676,25 @@ VkFence VulkanDeviceManager::EndSingleTimeCommandsFenced(VkCommandBuffer cmd) {
     return fence;
 }
 
+void VulkanDeviceManager::EndSingleTimeCommandsAsync(VkCommandBuffer cmd) {
+    vkEndCommandBuffer(cmd);
+
+    // Free the previous async command buffer — the GPU is guaranteed to be done
+    // with it since commands are serialized on the same queue.
+    if (prev_async_cmd_ != VK_NULL_HANDLE) {
+        vkFreeCommandBuffers(device_, transient_command_pool_, 1, &prev_async_cmd_);
+    }
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &cmd;
+
+    vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
+
+    prev_async_cmd_ = cmd;
+}
+
 //=============================================================================
 // Descriptor Set Allocation
 //=============================================================================

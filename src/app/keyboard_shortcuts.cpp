@@ -16,7 +16,9 @@
 #include "audio/audio_mixer.h"
 #include <imgui.h>
 #include <imnodes.h>
+#if !defined(QCVIEW_USE_METAL)
 #include <GLFW/glfw3.h>
+#endif
 #include <chrono>
 #include <string>
 
@@ -372,13 +374,6 @@ extern std::unique_ptr<qcview::TimelineView> timeline_view;
             show_annotation_toolbar = !show_annotation_toolbar;
             annotation_toolbar->SetVisible(show_annotation_toolbar);
             Debug::Log("Toggle Annotation Toolbar: " + std::string(show_annotation_toolbar ? "ON" : "OFF"));
-        }
-
-        // Sidebar Panel
-        if (IsShortcutPressed("toggle_sidebar")) {
-            show_sidebar_panel = !show_sidebar_panel;
-            first_time_setup = true;
-            Debug::Log("Toggle Sidebar Panel: " + std::string(show_sidebar_panel ? "ON" : "OFF"));
         }
 
         // New Playlist

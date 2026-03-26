@@ -3,6 +3,8 @@
 #include "wasapi_audio_device.h"
 #elif defined(__linux__)
 #include "pipewire_audio_device.h"
+#elif defined(__APPLE__)
+#include "coreaudio_audio_device.h"
 #endif
 
 #include "../timeline/timeline_view.h"
@@ -72,6 +74,25 @@ bool AudioMixer::Initialize() {
 
     if (!device_->Initialize(config)) {
         Debug::Log("AudioMixer: Failed to initialize PipeWire device");
+        device_.reset();
+        return false;
+    }
+#elif defined(__APPLE__)
+    Debug::Log("AudioMixer: Initializing Core Audio...");
+
+    device_ = std::make_unique<CoreAudioAudioDevice>();
+
+    CoreAudioDeviceConfig config;
+    config.dataCallback = [](void* device, float* output, uint32_t frameCount, void* userData) {
+        DataCallback(device, output, frameCount, userData);
+    };
+    config.userData = this;
+    config.sampleRate = 48000;
+    config.channels = 2;
+    config.bufferSizeMs = 10;
+
+    if (!device_->Initialize(config)) {
+        Debug::Log("AudioMixer: Failed to initialize Core Audio device");
         device_.reset();
         return false;
     }

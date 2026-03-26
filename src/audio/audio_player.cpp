@@ -3,6 +3,8 @@
 #include "wasapi_audio_device.h"
 #elif defined(__linux__)
 #include "pipewire_audio_device.h"
+#elif defined(__APPLE__)
+#include "coreaudio_audio_device.h"
 #endif
 #include "../player/playback_timer.h"
 #include "../utils/debug_utils.h"
@@ -68,6 +70,25 @@ bool AudioPlayer::Initialize() {
 
     if (!device_->Initialize(config)) {
         Debug::Log("AudioPlayer: Failed to initialize PipeWire device");
+        device_.reset();
+        return false;
+    }
+#elif defined(__APPLE__)
+    Debug::Log("AudioPlayer: Initializing Core Audio...");
+
+    device_ = std::make_unique<CoreAudioAudioDevice>();
+
+    CoreAudioDeviceConfig config;
+    config.dataCallback = [](void* device, float* output, uint32_t frameCount, void* userData) {
+        DataCallback(device, output, frameCount, userData);
+    };
+    config.userData = this;
+    config.sampleRate = 48000;
+    config.channels = 2;
+    config.bufferSizeMs = 10;
+
+    if (!device_->Initialize(config)) {
+        Debug::Log("AudioPlayer: Failed to initialize Core Audio device");
         device_.reset();
         return false;
     }

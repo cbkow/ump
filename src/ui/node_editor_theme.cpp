@@ -1,4 +1,5 @@
 #include "node_editor_theme.h"
+#include "../app/ui_scale.h"
 #include <imgui.h>
 
 #ifdef _WIN32
@@ -97,8 +98,12 @@ ImU32 ToImU32(const ImVec4& color) {
         style.Colors[ImNodesCol_BoxSelectorOutline] = IM_COL32(50, 150, 250, 200);    
 
         // === SIZING & SPACING ===
+#ifdef __APPLE__
+        style.NodeCornerRounding = 12.0f;      // macOS Tahoe-style rounding
+#else
         style.NodeCornerRounding = 1.0f;       // Match app FrameRounding
-        style.NodePadding = ImVec2(10.0f, 8.0f);
+#endif
+        style.NodePadding = ImVec2(S(10.0f), S(8.0f));
         style.NodeBorderThickness = 1.0f;      // Match app FrameBorderSize                                            
         style.LinkThickness = 3.5f;                                                  
         style.LinkLineSegmentsPerLength = 0.08f;                                     
@@ -110,8 +115,8 @@ ImU32 ToImU32(const ImVec4& color) {
         style.PinOffset = 2.0f;                                                      
 
         // === MINIMAP ===
-        style.MiniMapPadding = ImVec2(8.0f, 8.0f);
-        style.MiniMapOffset = ImVec2(4.0f, 4.0f);
+        style.MiniMapPadding = ImVec2(S(8.0f), S(8.0f));
+        style.MiniMapOffset = ImVec2(S(4.0f), S(4.0f));
     }
 
     void ApplyNodeTypeColors() {

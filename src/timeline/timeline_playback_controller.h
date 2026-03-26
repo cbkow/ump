@@ -26,6 +26,8 @@ class D3D11VideoDecoder;
 class DualViewPipeline;
 // Forward declaration for Vulkan dual view compositor
 class VulkanDualCompositor;
+// Forward declaration for Metal dual view compositor
+class MetalDualCompositor;
 
 // Forward declarations
 class TimelineView;
@@ -293,6 +295,11 @@ private:
 #ifdef QCVIEW_USE_VULKAN
     // Vulkan unified dual view compositor
     std::unique_ptr<VulkanDualCompositor> vulkan_compositor_;
+#endif
+
+#ifdef QCVIEW_USE_METAL
+    // Metal unified dual view compositor
+    std::unique_ptr<MetalDualCompositor> metal_compositor_;
 #endif
 
     // Virtual timeline mode flag (always true now - dummy video mode removed)

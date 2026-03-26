@@ -1,4 +1,5 @@
 #include "timeline_view.h"
+#include "../app/ui_scale.h"
 #include "timeline_playback_controller.h"
 #include "timeline_cache.h"
 #include "nested_timeline_manager.h"
@@ -962,10 +963,11 @@ void TimelineView::RenderTrackList() {
         ImGui::SameLine();
         
         // Track clips area
+        float scaled_track_height = S(track_height_);
         ImGui::BeginChild(("TrackClips_" + track.id).c_str(),
-                         ImVec2(0, track_height_), true);
+                         ImVec2(0, scaled_track_height), true);
 
-        RenderTrackClips(track, track_height_);
+        RenderTrackClips(track, scaled_track_height);
 
         // Drag-drop target for PLAYLIST mode - accept media items dropped onto video track
         if (source_mode_ == TimelineSourceMode::PLAYLIST && track.is_video) {
@@ -1089,7 +1091,7 @@ void TimelineView::RenderTrackHeader(OTIOTrack& track, int track_index) {
 
     // Fixed width for header
     ImGui::SameLine();
-    ImGui::Dummy(ImVec2(200 - ImGui::GetItemRectSize().x, 0));
+    ImGui::Dummy(ImVec2(S(200) - ImGui::GetItemRectSize().x, 0));
 }
 
 void TimelineView::RenderTrackClips(const OTIOTrack& track, float track_height) {
@@ -1103,8 +1105,8 @@ void TimelineView::RenderTrackClips(const OTIOTrack& track, float track_height) 
     for (const auto& clip : track.clips) {
         float x_start = canvas_pos.x + (float)(clip.start_time * zoom_level_);
         float x_end = canvas_pos.x + (float)((clip.start_time + clip.duration) * zoom_level_);
-        float y_top = canvas_pos.y + 2;
-        float y_bottom = canvas_pos.y + track_height - 2;
+        float y_top = canvas_pos.y + S(2);
+        float y_bottom = canvas_pos.y + track_height - S(2);
         float clip_width = x_end - x_start;
         float clip_height = y_bottom - y_top;
 

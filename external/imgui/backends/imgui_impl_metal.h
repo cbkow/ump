@@ -43,6 +43,11 @@ IMGUI_IMPL_API void ImGui_ImplMetal_DestroyDeviceObjects();
 // (Advanced) Use e.g. if you need to precisely control the timing of texture updates (e.g. for staged rendering), by setting ImDrawData::Textures = NULL to handle this manually.
 IMGUI_IMPL_API void ImGui_ImplMetal_UpdateTexture(ImTextureData* tex);
 
+// HDR/EDR support: replace ImGui's fragment shader with a custom EDR-aware one.
+// When enabled, the fragment shader converts sRGB-gamma ImGui output to linear light
+// and scales by edr_scale (= target_nits / 80.0) for macOS Extended Dynamic Range.
+IMGUI_IMPL_API void ImGui_ImplMetal_SetHDRMode(bool enabled, float edr_scale);
+
 #endif
 
 //-----------------------------------------------------------------------------

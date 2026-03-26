@@ -1,4 +1,27 @@
 #include "safety_overlay_system.h"
+
+#if defined(QCVIEW_USE_METAL)
+// Metal stub: safety overlays use GL shaders — disabled on Metal for now
+SafetyOverlaySystem::SafetyOverlaySystem() {}
+SafetyOverlaySystem::~SafetyOverlaySystem() {}
+bool SafetyOverlaySystem::Initialize(int, int) { return false; }
+void SafetyOverlaySystem::Cleanup() {}
+void SafetyOverlaySystem::UpdateDimensions(int, int) {}
+void SafetyOverlaySystem::SetOverlaySettings(const SafetyGuideSettings& s) { current_settings = s; }
+GLuint SafetyOverlaySystem::CompositeOverlays(GLuint input, int, int) { return input; }
+bool SafetyOverlaySystem::SetupFramebuffer() { return false; }
+bool SafetyOverlaySystem::SetupShaders() { return false; }
+bool SafetyOverlaySystem::SetupGeometry() { return false; }
+void SafetyOverlaySystem::GenerateGuideGeometry() {}
+void SafetyOverlaySystem::GenerateTitleSafeGuides(float) {}
+void SafetyOverlaySystem::GenerateActionSafeGuides(float) {}
+void SafetyOverlaySystem::GenerateCenterCutGuides() {}
+void SafetyOverlaySystem::AddLine(float, float, float, float) {}
+bool SafetyOverlaySystem::CompileShader(GLuint&, const char*, GLenum) { return false; }
+bool SafetyOverlaySystem::LinkProgram(GLuint) { return false; }
+void SafetyOverlaySystem::CleanupShaders() {}
+#else
+
 #include <sstream>
 #include <cstring>
 #include <cmath>
@@ -459,3 +482,4 @@ void SafetyOverlaySystem::CleanupShaders() {
         overlay_fragment_shader = 0;
     }
 }
+#endif // !QCVIEW_USE_METAL

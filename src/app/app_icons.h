@@ -12,7 +12,7 @@
 #define ICON_FAST_FORWARD           u8"\uE01F"
 #define ICON_SKIP_NEXT              u8"\uE044"
 #define ICON_FOLDER_OPEN            u8"\uE2C8"
-#define ICON_CONTENT_COPY           u8"\xE14D"
+#define ICON_CONTENT_COPY           u8"\uE14D"
 #define ICON_CONTENT_CUT            u8"\uE14E"
 #define ICON_ARTICLE                u8"\uEF42"
 #define ICON_SCREENSHOT_CLIPBOARD   u8"\uF7d3"

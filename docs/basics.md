@@ -45,7 +45,6 @@ Toggle panels from the **View** menu or with keyboard shortcuts:
 | Timeline | `Ctrl + 3` |
 | Color | `Ctrl + 4` |
 | Annotations | `Ctrl + 5` |
-| Sidebar | `Ctrl + 7` |
 
 ### Layout Presets
 

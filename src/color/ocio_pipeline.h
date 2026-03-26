@@ -80,6 +80,32 @@ public:
     bool GenerateVulkanShaderInfo(VulkanShaderInfo& info);
 #endif
 
+#ifdef __APPLE__
+    //=========================================================================
+    // Metal/MSL Support
+    //=========================================================================
+
+    struct MetalLUTInfo {
+        std::string texture_name;   // e.g. "ocio_lut3d_0"
+        std::string sampler_name;   // e.g. "ocio_lut3d_0Sampler"
+        bool is_3d = false;
+        unsigned width = 0;
+        unsigned height = 0;
+        unsigned edge_len = 0;
+        bool is_red_channel = false;
+        std::vector<float> data;
+    };
+
+    struct MetalShaderInfo {
+        std::string ocio_function_msl;  // OCIO-generated MSL via GPU_LANGUAGE_MSL_2_0
+        std::vector<MetalLUTInfo> luts;
+        bool valid = false;
+    };
+
+    // Extract OCIO shader info for Metal (no GPU resources created)
+    bool GenerateMetalShaderInfo(MetalShaderInfo& info);
+#endif
+
 #ifdef _WIN32
     //=========================================================================
     // D3D11/HLSL Support

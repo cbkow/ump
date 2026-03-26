@@ -6,7 +6,11 @@
 #include "project/project_manager.h"
 #include "utils/debug_utils.h"
 #include <imgui.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 #include <vector>
 #include <string>
 #include <algorithm>
@@ -285,29 +289,70 @@ void Application::SetupImGuiStyle() {
     style.PopupBorderSize = 1.0f;
     style.FrameBorderSize = 1.0f;
     style.TabBorderSize = 1.0f;
+#ifdef __APPLE__
+    // macOS Tahoe-inspired rounding — fully rounded, pill-shaped controls
+    style.WindowRounding = 12.0f;
+    style.ChildRounding = 12.0f;
+    style.FrameRounding = 12.0f;
+    style.PopupRounding = 12.0f;
+    style.ScrollbarRounding = 12.0f;
+    style.GrabRounding = 12.0f;
+    style.TabRounding = 12.0f;
+#else
     style.WindowRounding = 1.0f;
     style.ChildRounding = 1.0f;
     style.FrameRounding = 1.0f;
     style.PopupRounding = 1.0f;
     style.ScrollbarRounding = 1.0f;
     style.GrabRounding = 1.0f;
-    style.LogSliderDeadzone = 4;
     style.TabRounding = 1.0f;
+#endif
+    style.LogSliderDeadzone = 4;
 
     // Note: HDR color conversion is handled automatically by the ImGui OpenGL shader
     // when ImGui_ImplOpenGL3_SetHDRMode() is called. No manual conversion needed here.
 }
 
+// Static app pointer for native drag-drop callback (no GLFW user pointer)
+static Application* g_drag_drop_app = nullptr;
+
 void Application::SetupDragDrop() {
+    g_drag_drop_app = this;
+
+#ifdef QCVIEW_USE_METAL
+    // Native macOS drag-drop via NSDraggingDestination (in macos_app_delegate.mm)
+    MacOS_SetDropCallback([](int count, const char** paths) {
+        Debug::Log("=== Native Drag-Drop Event STARTED ===");
+        MacOS_FocusWindow();
+        Debug::Log("Files dropped: " + std::to_string(count));
+
+        Application* app = g_drag_drop_app;
+        if (!app || !app->project_manager) {
+            Debug::Log("No app or project manager available for drag-drop");
+            return;
+        }
+
+        if (count == 1) {
+            Debug::Log("Single file dropped - acting like Open Video");
+            app->project_manager->LoadSingleFileFromDrop(std::string(paths[0]));
+        } else if (count > 1) {
+            Debug::Log("Multiple files dropped - acting like Load Media");
+            app->show_project_panel = true;
+            std::vector<std::string> filePaths;
+            for (int i = 0; i < count; i++) {
+                filePaths.push_back(std::string(paths[i]));
+            }
+            app->project_manager->LoadMultipleFilesFromDrop(filePaths);
+        }
+        Debug::Log("=== Drag-Drop Event Complete ===");
+    });
+    Debug::Log("Native macOS drag-drop callback registered");
+#else
     glfwSetWindowUserPointer(window, this);
 
     glfwSetDropCallback(window, [](GLFWwindow* window, int count, const char** paths) {
         Debug::Log("=== GLFW Drag-Drop Event STARTED ===");
-
-        // Focus the window when files are dropped (like VS Code, Photoshop, etc.)
-        // This ensures the window comes to the foreground and receives the drop
         glfwFocusWindow(window);
-
         Debug::Log("Files dropped: " + std::to_string(count));
 
         Application* app = static_cast<Application*>(glfwGetWindowUserPointer(window));
@@ -316,24 +361,16 @@ void Application::SetupDragDrop() {
             return;
         }
 
-        Debug::Log("App and project manager available, processing files...");
-
         if (count == 1) {
-            // Single file - act like "Open Video"
             Debug::Log("Single file dropped - acting like Open Video");
-            std::string dropped_file = std::string(paths[0]);
-            Debug::Log("Dropped file path: " + dropped_file);
-
-            app->project_manager->LoadSingleFileFromDrop(dropped_file);
+            app->project_manager->LoadSingleFileFromDrop(std::string(paths[0]));
         }
         else if (count > 1) {
-            // Multiple files - act like "Load Media"
             Debug::Log("Multiple files dropped - acting like Load Media");
             app->show_project_panel = true;
             std::vector<std::string> filePaths;
             for (int i = 0; i < count; i++) {
                 filePaths.push_back(std::string(paths[i]));
-                Debug::Log("  File " + std::to_string(i) + ": " + std::string(paths[i]));
             }
             app->project_manager->LoadMultipleFilesFromDrop(filePaths);
         }
@@ -342,6 +379,7 @@ void Application::SetupDragDrop() {
         });
 
     Debug::Log("GLFW drag-drop callback registered");
+#endif
 }
 
 #ifdef _WIN32

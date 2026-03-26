@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
-project(qcview VERSION 1.0.4 LANGUAGES CXX C)
+if(APPLE)
+    project(qcview VERSION 1.0.5 LANGUAGES CXX C OBJC OBJCXX)
+else()
+    project(qcview VERSION 1.0.5 LANGUAGES CXX C)
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,17 +50,7 @@ if(QCVIEW_LINUX)
 elseif(WIN32)
     include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows.cmake)
 elseif(APPLE)
-    # macOS stub — not actively maintained
-    message(STATUS "Platform: macOS (stub)")
-    add_executable(${PROJECT_NAME} ${SOURCES})
-    find_library(COCOA_LIBRARY Cocoa)
-    find_library(IOKIT_LIBRARY IOKit)
-    find_library(COREVIDEO_LIBRARY CoreVideo)
-    target_link_libraries(${PROJECT_NAME}
-        ${COCOA_LIBRARY}
-        ${IOKIT_LIBRARY}
-        ${COREVIDEO_LIBRARY}
-    )
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos.cmake)
 endif()
 
 # ==========================================================================
@@ -66,7 +60,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/src/imnodes
     ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui
     ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/backends
@@ -86,8 +79,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # ==========================================================================
 # Common link libraries (cross-platform)
 # ==========================================================================
+if(NOT APPLE)
+    target_include_directories(${PROJECT_NAME} PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/include
+    )
+endif()
+
 target_link_libraries(${PROJECT_NAME}
-    glfw
     glad
     imgui
     implot
@@ -98,6 +96,9 @@ target_link_libraries(${PROJECT_NAME}
     hpdf                                                                # libharu for PDF export
     Threads::Threads
 )
+if(NOT APPLE)
+    target_link_libraries(${PROJECT_NAME} glfw)
+endif()
 
 # Enable OpenTimelineIO support
 target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
@@ -110,12 +111,16 @@ set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CM
 # ==========================================================================
 # Copy assets (cross-platform)
 # ==========================================================================
-message(STATUS "Setting up asset copying for all build configurations")
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
-    COMMENT "Copying assets to output directory"
-)
+# On macOS, assets go to Contents/Resources/ (handled in cmake/macos.cmake).
+# The cross-platform copy to the executable dir is only needed on Windows/Linux.
+if(NOT APPLE)
+    message(STATUS "Setting up asset copying for all build configurations")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
+        COMMENT "Copying assets to output directory"
+    )
+endif()
 
 # Copy shaders (only if directory has files)
 if(SHADER_FILES)

@@ -10,7 +10,7 @@ nav_order: 3
 
 QCView uses a layered GPU pipeline that flows from source media through decode, caching, color processing, and finally to display. Everything passes through the OCIO color pipeline before reaching the screen or being exported to files.
 
-On **Windows**, the pipeline uses Direct3D 11 for video decoding and rendering, with D3D11-OpenGL interop to share textures with the ImGui UI layer. On **Linux**, the pipeline uses **Vulkan** throughout — VA-API for hardware video decoding with DMA-BUF zero-copy import into Vulkan, GLSL shaders compiled to SPIR-V for YUV conversion and OCIO processing, and PipeWire for audio. The diagrams below show both the Windows/D3D11 and Linux/Vulkan pipelines.
+On **Windows**, the pipeline uses Direct3D 11 for video decoding and rendering, with D3D11-OpenGL interop to share textures with the ImGui UI layer. On **macOS**, the pipeline uses **Metal** throughout — VideoToolbox for hardware video decoding, Metal compute shaders for YUV conversion and OCIO processing, and a native NSWindow/MTKView with EDR support for HDR display. On **Linux**, the pipeline uses **Vulkan** throughout — VA-API for hardware video decoding with DMA-BUF zero-copy import into Vulkan, GLSL shaders compiled to SPIR-V for YUV conversion and OCIO processing, and PipeWire for audio.
 
 ### Windows (D3D11 + OpenGL)
 
@@ -415,6 +415,153 @@ On **Windows**, the pipeline uses Direct3D 11 for video decoding and rendering, 
                       └──────────────────────────────┘
 ```
 
+### macOS (Metal)
+
+```
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              SOURCE MEDIA                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                │                                        │
+        ┌───────▼───────┐                        ┌───────▼───────┐
+        │  VIDEO FILES  │                        │    IMAGES     │
+        │  .mp4 .mov    │                        │  .exr .tiff   │
+        │  .mxf  etc    │                        │  .png .jpg    │
+        └───────┬───────┘                        └───────┬───────┘
+                │                                        │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              DECODE LAYER                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                │                                        │
+        ┌───────▼────────────────────┐           ┌───────▼───────────────────┐
+        │   MetalVideoDecoder        │           │  ImageSequenceDecoder     │
+        │   src/player/              │           │  src/player/              │
+        │                            │           │                           │
+        │  ┌──────────┐ ┌──────────┐ │           │  ┌─────────────────────┐  │
+        │  │VideoTool-│ │  FFmpeg  │ │           │  │     LOADERS         │  │
+        │  │  box HW  │ │ Software │ │           │  │  EXR, TIFF, PNG,    │  │
+        │  │  Decode  │ │  Decode  │ │           │  │  JPEG (mmap I/O)    │  │
+        │  └────┬─────┘ └────┬─────┘ │           │  └──────────┬──────────┘  │
+        │       └─────┬──────┘       │           │             │             │
+        │      ┌──────▼──────┐       │           │      ┌──────▼──────┐      │
+        │      │ CVPixelBuf  │       │           │      │  PixelData  │      │
+        │      │  (NV12/P010)│       │           │      │  (CPU RAM)  │      │
+        │      └──────┬──────┘       │           │      └┬────────────┘      │
+        └─────────────┼──────────────┘           └───────┼───────────────────┘
+                      │                                  │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              CACHE LAYER                                │
+    │                         (shared cross-platform)                         │
+    └─────────────────────────────────────────────────────────────────────────┘
+                      │                                  │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                         GPU CONVERSION LAYER                            │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼────────────────┐
+                       │   MetalHWFrameExtractor       │
+                       │   + MetalYUVRenderer          │
+                       │   src/gpu/                    │
+                       │                               │
+                       │  ┌─────────────────────────┐  │
+                       │  │  CVPixelBuffer → MTL    │  │
+                       │  │  (IOSurface-backed,     │  │
+                       │  │   zero-copy on Apple    │  │
+                       │  │   Silicon unified mem)  │  │
+                       │  └───────────┬─────────────┘  │
+                       │              │                │
+                       │  ┌───────────▼─────────────┐  │
+                       │  │   Metal Compute Shader  │  │
+                       │  │                         │  │
+                       │  │  • BT.709 matrix        │  │
+                       │  │  • BT.2020 matrix       │  │
+                       │  │  • Range expand         │  │
+                       │  │  • NEON UV interleave   │  │
+                       │  └───────────┬─────────────┘  │
+                       │              │                │
+                       │  Input:  CVPixelBuffer planes │
+                       │  Output: RGBA16F MTLTexture   │
+                       └──────────────┬────────────────┘
+                                      │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                            COLOR LAYER                                  │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼────────────────┐
+                       │    MetalOCIORenderer          │
+                       │    src/color/                 │
+                       │                               │
+                       │  ┌─────────────────────────┐  │
+                       │  │  OCIO → MSL Compute     │  │
+                       │  │  + 1D/3D LUT textures   │  │
+                       │  │  Async dispatch (no GPU │  │
+                       │  │  wait between frames)   │  │
+                       │  └───────────┬─────────────┘  │
+                       └──────────────┼────────────────┘
+                                      │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                            RENDER LAYER                                 │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼────────────────┐
+                       │         ImGui                 │
+                       │     + Metal Rendering         │
+                       │                               │
+                       │  ┌─────────────────────────┐  │
+                       │  │ ImGui_ImplMetal         │  │
+                       │  │ ImGui_ImplOSX           │  │
+                       │  │ (native NSWindow input) │  │
+                       │  └───────────┬─────────────┘  │
+                       │              │                │
+                       │  ┌───────────▼─────────────┐  │
+                       │  │    UI Components        │  │
+                       │  │  Video Display          │  │
+                       │  │  Timeline               │  │
+                       │  │  Inspector              │  │
+                       │  │  Color Controls         │  │
+                       │  └─────────────────────────┘  │
+                       │                               │
+                       │  MetalTexturePool (shared     │
+                       │  storage, unified memory)     │
+                       └──────────────┬────────────────┘
+                                      │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                           SWAPCHAIN LAYER                               │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼─────────────────┐
+                       │    MetalHDRSwapchain           │
+                       │    src/hdr/                    │
+                       │                                │
+                       │  ┌──────────────────────────┐  │
+                       │  │  CAMetalLayer + MTKView  │  │
+                       │  │                          │  │
+                       │  │ SDR: BGRA8Unorm          │  │
+                       │  │       kCGColorSpaceSRGB  │  │
+                       │  │                          │  │
+                       │  │ EDR: RGBA16Float         │  │
+                       │  │       ExtendedLinearSRGB │  │
+                       │  │    or ExtendedLinearP3   │  │
+                       │  │     wantsEDRContent=YES  │  │
+                       │  └──────────────────────────┘  │
+                       └──────────────┬─────────────────┘
+                                      │
+    ┌─────────────────────────────────────────────────────────────────────────┐
+    │                              DISPLAY                                    │
+    └─────────────────────────────────────────────────────────────────────────┘
+                                      │
+                       ┌──────────────▼────────────────┐
+                       │                               │
+                       │      ╔═══════════════╗        │
+                       │      ║               ║        │
+                       │      ║    DISPLAY    ║        │
+                       │      ║               ║        │
+                       │      ║   EDR / SDR   ║        │
+                       │      ║               ║        │
+                       │      ╚═══════════════╝        │
+                       │                               │
+                       └───────────────────────────────┘
+```
+
 ---
 
 ## Video
@@ -434,6 +581,17 @@ Videos are decoded using VA-API hardware acceleration (with FFmpeg software fall
 
 Supported YUV formats include NV12 (8-bit), P010 (10-bit), YUV420P/422P/444P planar, and GBRP/GBRAP for ProRes pathways.
 
+### macOS (Metal)
+
+Videos are decoded using VideoToolbox hardware acceleration (with FFmpeg software fallback). Hardware-decoded frames arrive as `CVPixelBuffer` objects backed by `IOSurface`, which are imported into Metal as `MTLTexture` with zero-copy on Apple Silicon's unified memory. The flow is:
+
+1. FFmpeg decodes with `AV_HWDEVICE_TYPE_VIDEOTOOLBOX`
+2. `CVPixelBuffer` is extracted from the AVFrame
+3. `MetalHWFrameExtractor` creates `MTLTexture` from the IOSurface-backed pixel buffer (zero-copy)
+4. Metal compute shaders perform YUV-to-RGBA16F conversion with NEON-accelerated UV interleave for software path
+
+VideoToolbox supports H.264, HEVC, ProRes, VP9, and AV1 (M3+) hardware decode.
+
 ---
 
 ## Image Sequences
@@ -446,7 +604,7 @@ Image sequences use OTIO for timeline control. When loading a sequence, QCView c
 
 Images are loaded into a ring buffer cache centered around the playhead position. The cache prioritizes: current frame > frames ahead > frames behind, with automatic eviction outside the window.
 
-Image sequence loading is cross-platform — the same loaders and cache engine are used on both Windows and Linux.
+Image sequence loading is cross-platform — the same loaders and cache engine are used on Windows, macOS, and Linux.
 
 ---
 
@@ -475,6 +633,12 @@ On Linux, the interop problem is different — there is no D3D11/OpenGL boundary
 
 The DMA-BUF path is zero-copy across the entire pipeline — the decoded frame never leaves GPU memory.
 
+### macOS: Metal Unified Memory
+
+On macOS with Apple Silicon, there is no interop boundary to cross. VideoToolbox decoded frames and Metal textures share the same unified memory. `CVPixelBuffer` objects backed by `IOSurface` are imported directly as `MTLTexture` — the GPU, VideoToolbox, and the CPU all operate on the same physical memory pages.
+
+The `MetalTexturePool` manages all texture allocation with shared storage mode, enabling both GPU rendering and CPU readback (for screenshots and annotation export) without staging copies.
+
 ---
 
 ## HDR Output
@@ -500,6 +664,17 @@ HDR output on Linux is toggleable at runtime within QCView. The Vulkan swapchain
 
 When HDR is active, the ImGui interface is converted to PQ via a GPU fragment shader with configurable target nits for UI brightness. HDR must also be enabled at the compositor level (e.g., KDE Plasma Display settings) for HDR output to reach the monitor.
 
+### macOS
+
+macOS uses Extended Dynamic Range (EDR) instead of PQ/ST.2084. The `MetalHDRSwapchain` configures the `CAMetalLayer` for EDR output:
+
+| Mode | Pixel Format | Layer Colorspace | EDR Content |
+|------|-------------|-----------------|-------------|
+| SDR | BGRA8Unorm | kCGColorSpaceSRGB | NO |
+| EDR | RGBA16Float | ExtendedLinearSRGB or ExtendedLinearDisplayP3 | YES |
+
+EDR is a linear-light system where `1.0 = SDR white` and values above `1.0` are brighter, up to the display's maximum headroom (queried via `NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue`). The ImGui UI is rendered with a custom Metal fragment shader that converts sRGB-encoded textures to linear and scales by the EDR UI brightness factor.
+
 ---
 
 ## Color Processing
@@ -512,6 +687,12 @@ OCIO color transforms are applied via `D3D11OCIORenderer` using DirectX shaders 
 
 OCIO color transforms are applied via `VulkanOCIORenderer`, which compiles OCIO-generated GLSL shaders to SPIR-V at runtime and builds 1D/3D LUT textures from the OCIO pipeline. The Vulkan graphics pipeline applies the transforms in a fullscreen rendering pass.
 
+### macOS
+
+OCIO color transforms are applied via `MetalOCIORenderer`, which compiles OCIO-generated MSL compute shaders at runtime and binds 1D/3D LUT textures as shader resources. Transforms are dispatched as Metal compute passes with async command buffer submission — no GPU wait between frames.
+
+For EDR workflows, the ACES 2.0 and Blender 5.1 configs include Linear sRGB EDR and Linear P3 EDR display outputs. These output linear-light values where `1.0 = 100 nit SDR white`, with HDR content producing values above 1.0 proportional to the selected peak luminance (500–4000 nits).
+
 ---
 
 ## Audio
@@ -519,9 +700,10 @@ OCIO color transforms are applied via `VulkanOCIORenderer`, which compiles OCIO-
 | Platform | Backend | Details |
 |----------|---------|---------|
 | Windows | WASAPI | Event-driven with MMCSS "Pro Audio" thread priority |
+| macOS | CoreAudio | AudioUnit output with callback-driven buffer fill |
 | Linux | PipeWire | Event-driven callback, low-latency buffer (default 10ms) |
 
-Both backends output float32 stereo at 48kHz and expose identical callback interfaces, so the audio mixer and SoundTouch time-stretch processing are shared cross-platform.
+All backends output float32 stereo at 48kHz and expose identical callback interfaces, so the audio mixer and SoundTouch time-stretch processing are shared cross-platform.
 
 ---
 

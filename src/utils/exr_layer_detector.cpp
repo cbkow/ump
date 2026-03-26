@@ -268,7 +268,7 @@ namespace qcview {
     }
 
     std::string EXRLayerDetector::ExtractLayerName(const std::string& channel_name) {
-        printf("EXRLayerDetector: Extracting layer from channel '%s'\n", channel_name.c_str());
+        //printf("EXRLayerDetector: Extracting layer from channel '%s'\n", channel_name.c_str());
 
         // Find the last dot separator
         size_t dot_pos = channel_name.find_last_of('.');
@@ -297,7 +297,7 @@ namespace qcview {
         // DirectEXRCache needs the full name to find channels
         // For "ViewLayer.Combined.R" -> return "ViewLayer.Combined" (NOT just "Combined")
         // For "beauty.R" -> return "beauty"
-        printf("EXRLayerDetector: Extracted FULL layer name '%s' from '%s'\n", before_last_dot.c_str(), channel_name.c_str());
+        //printf("EXRLayerDetector: Extracted FULL layer name '%s' from '%s'\n", before_last_dot.c_str(), channel_name.c_str());
         return before_last_dot;
     }
 

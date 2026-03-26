@@ -4,19 +4,11 @@ permalink: /controls/
 nav_order: 5
 ---
 
-# Sidebar Controls
+# Controls
 
 ## Panel Toggles
 
-The top of the sidebar has buttons to toggle each panel: Project Manager, Inspector, Timeline, Color, and Annotations.
-
-![Sidebar panel toggles](images/QCView_v011.webp)
-
-## Open / Save Shortcuts
-
-Below the panel toggles are quick-access buttons for opening media, opening projects, and saving projects.
-
-![Open and save shortcuts](images/QCView_v012.webp)
+Panel visibility is controlled from the **View** menu or the toolbar icons in the menu bar. Toggle individual panels with `Ctrl + 1` through `Ctrl + 5`, show all panels with `Ctrl + 9`, or switch to a minimal view with `Ctrl + -`.
 
 ---
 

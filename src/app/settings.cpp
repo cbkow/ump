@@ -9,7 +9,11 @@
 #include "player/video_decoder_factory.h"
 #include "transcode/transcode_settings.h"
 #include <imgui.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <filesystem>
@@ -50,8 +54,16 @@ std::string Application::GetSettingsPath() {
         std::filesystem::create_directories(base_path);
         return base_path + "\\settings.qcv";
     }
+#elif defined(__APPLE__)
+    // macOS: ~/Library/Application Support/qcview/settings.qcv
+    const char* home = std::getenv("HOME");
+    if (home) {
+        std::string base_path = std::string(home) + "/Library/Application Support/qcview";
+        std::filesystem::create_directories(base_path);
+        return base_path + "/settings.qcv";
+    }
 #else
-    // XDG Base Directory: ~/.config/qcview/settings.qcv
+    // Linux: XDG Base Directory — ~/.config/qcview/settings.qcv
     const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
     std::string base_path;
     if (xdg_config) {
@@ -78,7 +90,16 @@ std::string Application::GetLayoutIniPath() {
         std::filesystem::create_directories(base_path);
         return base_path + "\\layout.ini";
     }
+#elif defined(__APPLE__)
+    // macOS: ~/Library/Application Support/qcview/layout.ini
+    const char* home = std::getenv("HOME");
+    if (home) {
+        std::string base_path = std::string(home) + "/Library/Application Support/qcview";
+        std::filesystem::create_directories(base_path);
+        return base_path + "/layout.ini";
+    }
 #else
+    // Linux: XDG Base Directory — ~/.config/qcview/layout.ini
     const char* xdg_config = std::getenv("XDG_CONFIG_HOME");
     std::string base_path;
     if (xdg_config) {
@@ -148,9 +169,14 @@ void Application::LoadSettings() {
             }
             if (j["appearance"].contains("font_scale")) {
                 g_font_scale = j["appearance"]["font_scale"].get<float>();
-                // Clamp to valid range
                 if (g_font_scale < 0.5f) g_font_scale = 0.5f;
                 if (g_font_scale > 2.0f) g_font_scale = 2.0f;
+            }
+            if (j["appearance"].contains("ui_scale")) {
+                extern float g_ui_scale;
+                g_ui_scale = j["appearance"]["ui_scale"].get<float>();
+                if (g_ui_scale < 0.5f) g_ui_scale = 0.5f;
+                if (g_ui_scale > 1.5f) g_ui_scale = 1.5f;
             }
             if (j["appearance"].contains("hdr_ui_nits")) {
                 hdr_ui_nits_ = j["appearance"]["hdr_ui_nits"].get<float>();
@@ -160,6 +186,22 @@ void Application::LoadSettings() {
 #ifdef QCVIEW_USE_VULKAN
             if (j["appearance"].contains("hdr_enabled")) {
                 hdr_preferred_ = j["appearance"]["hdr_enabled"].get<bool>();
+            }
+#elif defined(QCVIEW_USE_METAL)
+            if (j["appearance"].contains("hdr_enabled")) {
+                hdr_preferred_ = j["appearance"]["hdr_enabled"].get<bool>();
+            }
+            if (j["appearance"].contains("edr_ui_scale")) {
+                float scale = j["appearance"]["edr_ui_scale"].get<float>();
+                if (scale < 0.5f) scale = 0.5f;
+                if (scale > 3.0f) scale = 3.0f;
+                if (metal_swapchain_) metal_swapchain_->SetUIBrightness(scale);
+            }
+            if (j["appearance"].contains("edr_colorspace")) {
+                int cs = j["appearance"]["edr_colorspace"].get<int>();
+                if (cs >= 0 && cs < static_cast<int>(qcview::EDRColorspace::Count)) {
+                    if (metal_swapchain_) metal_swapchain_->SetEDRColorspace(static_cast<qcview::EDRColorspace>(cs));
+                }
             }
 #endif
         }
@@ -433,6 +475,23 @@ void Application::LoadSettings() {
             }
         }
 
+        // Recent files
+        if (j.contains("recent_files") && j["recent_files"].is_array()) {
+            recent_files.clear();
+            for (const auto& rf : j["recent_files"]) {
+                if (rf.is_string()) {
+                    std::string path = rf.get<std::string>();
+                    // Only add files that still exist on disk
+                    if (std::filesystem::exists(path)) {
+                        recent_files.push_back(path);
+                    }
+                }
+            }
+            if (!recent_files.empty()) {
+                Debug::Log("Loaded " + std::to_string(recent_files.size()) + " recent files");
+            }
+        }
+
         // Store ImGui layout to load after ImGui is initialized
         if (j.contains("imgui_layout")) {
             saved_imgui_layout = j["imgui_layout"].get<std::string>();
@@ -495,16 +554,29 @@ void Application::SaveSettings() {
         }
         j["appearance"]["video_background"] = bg_str;
         j["appearance"]["font_scale"] = g_font_scale;
+        {
+            extern float g_ui_scale;
+            j["appearance"]["ui_scale"] = g_ui_scale;
+        }
         j["appearance"]["hdr_ui_nits"] = hdr_ui_nits_;
 #ifdef QCVIEW_USE_VULKAN
         j["appearance"]["hdr_enabled"] = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : hdr_preferred_;
+#elif defined(QCVIEW_USE_METAL)
+        j["appearance"]["hdr_enabled"] = metal_swapchain_ ? metal_swapchain_->IsHDRActive() : hdr_preferred_;
+        j["appearance"]["edr_ui_scale"] = metal_swapchain_ ? metal_swapchain_->GetUIBrightness() : 1.0f;
+        j["appearance"]["edr_colorspace"] = metal_swapchain_ ? static_cast<int>(metal_swapchain_->GetEDRColorspace()) : 0;
 #endif
 
         // Window position and size
         if (window) {
             int x, y, width, height;
+#ifdef QCVIEW_USE_METAL
+            MacOS_GetWindowPos(&x, &y);
+            MacOS_GetWindowSize(&width, &height);
+#else
             glfwGetWindowPos(window, &x, &y);
             glfwGetWindowSize(window, &width, &height);
+#endif
             j["window"]["x"] = x;
             j["window"]["y"] = y;
             j["window"]["width"] = width;
@@ -610,6 +682,12 @@ void Application::SaveSettings() {
         j["transcode"]["prefetch_ahead"] = transcode_settings.prefetch_ahead_count;
         j["transcode"]["concurrent_loads"] = transcode_settings.concurrent_loads;
         j["transcode"]["openexr_threads"] = transcode_settings.openexr_threads;
+
+        // Recent files
+        j["recent_files"] = nlohmann::json::array();
+        for (const auto& rf : recent_files) {
+            j["recent_files"].push_back(rf);
+        }
 
         // Save ImGui layout to memory
         size_t ini_size = 0;

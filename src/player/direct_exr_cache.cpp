@@ -3,6 +3,8 @@
 
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
 #endif
 
 #ifdef _WIN32
@@ -26,6 +28,9 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
 #endif
 
 namespace qcview {
@@ -166,6 +171,11 @@ DirectEXRCache::DirectEXRCache() {
     ioRunning_ = true;
     ioWorkerThread_ = std::thread(&DirectEXRCache::IOWorkerThread, this);
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    gpu_upload_running_ = true;
+    gpu_upload_thread_ = std::thread(&DirectEXRCache::GPUUploadThread, this);
+#endif
+
     //Debug::Log("DirectEXRCache: Permanent background threads started (ready for sequences)");
 }
 
@@ -178,7 +188,7 @@ DirectEXRCache::~DirectEXRCache() {
         //Debug::Log("DirectEXRCache: Setting cacheRunning_ = false");
         cacheRunning_ = false;
         //Debug::Log("DirectEXRCache: Notifying cache thread to wake up");
-        cv_.notify_all();  // Wake threads to check running flag
+        cache_cv_.notify_all();  // Wake cache thread to check running flag
         if (cacheThread_.joinable()) {
             //Debug::Log("DirectEXRCache: Waiting for cache thread to join (this may block if thread is stuck)...");
             cacheThread_.join();
@@ -196,7 +206,7 @@ DirectEXRCache::~DirectEXRCache() {
         //Debug::Log("DirectEXRCache: Setting ioRunning_ = false");
         ioRunning_ = false;
         //Debug::Log("DirectEXRCache: Notifying I/O worker thread to wake up");
-        cv_.notify_all();
+        io_cv_.notify_all();
         if (ioWorkerThread_.joinable()) {
             //Debug::Log("DirectEXRCache: Waiting for I/O worker thread to join (this may block if thread is stuck)...");
             ioWorkerThread_.join();
@@ -208,12 +218,26 @@ DirectEXRCache::~DirectEXRCache() {
         //Debug::Log("DirectEXRCache: I/O worker thread was not running");
     }
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Stop GPU upload thread
+    if (gpu_upload_running_) {
+        gpu_upload_running_ = false;
+        gpu_upload_cv_.notify_all();
+        if (gpu_upload_thread_.joinable()) {
+            gpu_upload_thread_.join();
+        }
+    }
+    ClearGPUTextures();
+#endif
+
     // Clean up textures before clearing cache
     int texture_count = 0;
     for (auto& pair : glTextureCache_) {
         if (pair.second && pair.second->texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
             qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(pair.second->texture_id));
+#elif defined(QCVIEW_USE_METAL)
+            qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(pair.second->texture_id));
 #else
             glDeleteTextures(1, &pair.second->texture_id);
 #endif
@@ -227,6 +251,8 @@ DirectEXRCache::~DirectEXRCache() {
         if (tex_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
             qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(tex_id));
+#elif defined(QCVIEW_USE_METAL)
+            qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(tex_id));
 #else
             glDeleteTextures(1, &tex_id);
 #endif
@@ -305,6 +331,13 @@ bool DirectEXRCache::Initialize(const std::vector<std::string>& files,
     size_t estimatedMaxBytes = static_cast<size_t>(totalWindowFrames) * 64 * 1024 * 1024;
     pixelCache_.SetMaxSize(estimatedMaxBytes);
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Evict GPU texture when pixel data is evicted from LRU cache
+    pixelCache_.SetEvictionCallback([this](const int& frame, const std::shared_ptr<PixelData>&) {
+        EvictGPUTexture(frame);
+    });
+#endif
+
     initialized_ = true;
 
     auto init_end = std::chrono::steady_clock::now();
@@ -363,6 +396,10 @@ void DirectEXRCache::Shutdown() {
 
     pixelCache_.Clear();
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    ClearGPUTextures();
+#endif
+
     {
         std::lock_guard<std::mutex> fl(failed_frames_mutex_);
         failed_frames_.clear();
@@ -387,8 +424,6 @@ void DirectEXRCache::RequestFrame(int frame) {
         }
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
-
     // Already in cache?
     if (pixelCache_.Contains(frame)) {
         return;
@@ -400,23 +435,56 @@ void DirectEXRCache::RequestFrame(int frame) {
         if (failed_frames_.count(frame)) return;
     }
 
-    // Already in progress?
-    if (requestsInProgress_.find(frame) != requestsInProgress_.end()) {
-        return;
-    }
+    {
+        std::lock_guard<std::mutex> lock(io_mutex_);
 
-    // Already in queue?
-    for (int req : videoRequests_) {
-        if (req == frame) return;
-    }
+        // Already in progress?
+        if (requestsInProgress_.find(frame) != requestsInProgress_.end()) {
+            return;
+        }
 
-    // Add to queue
-    videoRequests_.push_back(frame);
-    cv_.notify_one();
+        // Already in queue?
+        for (int req : videoRequests_) {
+            if (req == frame) return;
+        }
+
+        // Add to queue
+        videoRequests_.push_back(frame);
+    }
+    io_cv_.notify_one();
 }
 
 GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
-    // Cache holds CPU pixel data, create GL textures on-demand
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Metal/Vulkan fast path: GPU textures are pre-created by the upload thread
+    {
+        std::shared_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+        auto it = gpu_texture_ready_.find(frame);
+        if (it != gpu_texture_ready_.end()) {
+            GLuint tex_id = static_cast<GLuint>(it->second.pool_id);
+            width = it->second.width;
+            height = it->second.height;
+
+            // Track as last good frame for fallback
+            last_good_texture_ = tex_id;
+            last_good_width_ = width;
+            last_good_height_ = height;
+            return tex_id;
+        }
+    }
+
+    // GPU texture not ready yet — return last good frame (upload thread will create it shortly)
+    if (last_good_texture_ != 0) {
+        width = last_good_width_;
+        height = last_good_height_;
+        return last_good_texture_;
+    }
+    width = 0;
+    height = 0;
+    return 0;
+
+#else
+    // OpenGL path: create GL textures on-demand on the main thread
 
     // Step 1: Check if we have pixel data in the cache
     std::shared_ptr<PixelData> pixels;
@@ -471,7 +539,6 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
 
         // Evict oldest GL texture if cache is full
         if (glTextureCache_.size() >= MAX_GL_TEXTURE_CACHE) {
-            // Find oldest (assuming map order, but we should really track access time)
             auto oldest = glTextureCache_.begin();
             if (oldest->second && oldest->second->texture_id != 0) {
                 texturesToDelete_.push_back(oldest->second->texture_id);
@@ -496,6 +563,7 @@ GLuint DirectEXRCache::GetTexture(int frame, int& width, int& height) {
     last_good_width_ = width;
     last_good_height_ = height;
     return texId;
+#endif
 }
 
 bool DirectEXRCache::IsFrameCached(int frame) const {
@@ -504,56 +572,59 @@ bool DirectEXRCache::IsFrameCached(int frame) const {
 }
 
 bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int& height) {
-    // CRITICAL: Check pixel cache directly to detect true cache hits vs fallback textures
-    // GetTexture() returns last_good_texture_ on miss, which masks the actual cache state
-    bool is_actually_cached = pixelCache_.Contains(frame);
-
-    // Get texture (may return fallback if not cached)
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Metal/Vulkan: Check gpu_texture_ready_ directly — O(1) lookup, no pixel cache lock.
+    // This avoids contention with the I/O thread's pixelCache_.Add() which holds unique_lock.
     texture = GetTexture(frame, width, height);
 
-    // Calculate SEQUENTIAL frames ahead (for adaptive speed decisions)
-    // Count contiguous cached frames starting from frame+1
-    // If frame+1 is missing, frames_ahead = 0 (even if frame+2 onwards are cached)
-    int frames_ahead = 0;
     {
-        auto keys = pixelCache_.GetKeys();
-        std::sort(keys.begin(), keys.end());
-
-        // Find first frame > current and count contiguous run
-        for (int check_frame = frame + 1; check_frame <= frame + config_.readAheadFrames; ++check_frame) {
-            if (std::binary_search(keys.begin(), keys.end(), check_frame)) {
-                frames_ahead++;
-            } else {
-                break;  // Gap found - stop counting
-            }
+        std::shared_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+        if (gpu_texture_ready_.count(frame)) {
+            // GPU texture exists — this is a true cache hit
+            consecutive_misses_.store(0);
+            last_was_sync_load_.store(false);
+            return true;
         }
-        frames_ahead_count_.store(frames_ahead);
     }
 
-    // If frame is actually in pixel cache, it's a true cache hit
+    // GPU texture not ready — cache miss
+    last_was_sync_load_.store(true);
+#else
+    // OpenGL: Must check pixel cache since textures are created on-demand on main thread
+    bool is_actually_cached = pixelCache_.Contains(frame);
+    texture = GetTexture(frame, width, height);
+
     if (is_actually_cached && texture != 0) {
         consecutive_misses_.store(0);
-        last_was_sync_load_.store(false);  // Cache hit - not a sync load
+        last_was_sync_load_.store(false);
         return true;
     }
 
-    // === CACHE MISS (frame not in pixel cache) ===
     last_was_sync_load_.store(true);
+#endif
 
     // When stride > 1, don't reactively request frames — read-ahead is the sole loader.
     // Just return the fallback texture immediately (zero I/O for skipped frames).
-    if (config_.playbackStride <= 1) {
-        // Request frame via background thread (always keep prefetching!)
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Metal/Vulkan: CacheThread manages readahead window — don't call RequestFrame
+    // from main thread during playback. It takes mutex_ which contends with I/O thread.
+    // Only request reactively when NOT playing (scrubbing, seeking).
+    if (config_.playbackStride <= 1 && !isPlaying_.load()) {
         RequestFrame(frame);
-
-        // Also request next frame for lookahead
         if (frame + 1 < (int)sequenceFiles_.size()) {
             RequestFrame(frame + 1);
         }
-
-        // Wake up IO thread immediately
-        cv_.notify_one();
+        io_cv_.notify_one();
     }
+#else
+    if (config_.playbackStride <= 1) {
+        RequestFrame(frame);
+        if (frame + 1 < (int)sequenceFiles_.size()) {
+            RequestFrame(frame + 1);
+        }
+        io_cv_.notify_one();
+    }
+#endif
 
     // Return last good frame for display continuity
     if (last_good_texture_ != 0) {
@@ -567,41 +638,41 @@ bool DirectEXRCache::GetFrameOrLoad(int frame, GLuint& texture, int& width, int&
 void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
     int current_frame = static_cast<int>(timestamp * fps_ + 0.5);
 
-    // Detect seeks and cancel in-flight requests
+    // Detect seeks and cancel in-flight requests — lock-free using atomics
     bool isSeek = false;
     bool isOverrunSeek = false;
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
+    bool isLoopWrap = false;
+    int prev = previousFrame_.load(std::memory_order_relaxed);
 
-        // Detect seek: forward jump > 20 frames, OR backward jump > 2 frames
-        // Backward seeks (loops, user scrub) should always reset overrun mode
-        // Forward threshold is higher to avoid false positives from playback jitter
-        if (previousFrame_ >= 0) {
-            int delta = current_frame - previousFrame_;
-            if (delta < -2 || delta > 20) {
+    if (prev >= 0) {
+        int delta = current_frame - prev;
+        if (delta < -2 || delta > 20) {
+            // Check if this is a loop wrap-around (jumping from near out to in).
+            // The cache already pre-warms in-point frames via wrap-around read-ahead,
+            // so clearing requests would flush the pipeline and cause a stutter.
+            if (has_loop_range_ && is_looping_ &&
+                prev >= loop_out_frame_ - 2 &&
+                current_frame >= loop_in_frame_ && current_frame <= loop_in_frame_ + 2) {
+                isLoopWrap = true;
+            } else {
                 isSeek = true;
             }
         }
-
-        // In overrun mode, ANY position change (even 1 frame jump from user seek) should clear queue
-        // This ensures immediate response when user scrubs during overrun playback
-        if (overrun_mode_.load() && previousFrame_ >= 0 && current_frame != previousFrame_) {
-            // Check if this is a user-initiated seek (not our own stepping)
-            // Stepping increments by 1, seeks typically jump more or go backwards
-            int delta = current_frame - previousFrame_;
-            if (delta != 1) {  // Not a forward step - must be user seek
-                isOverrunSeek = true;
-            }
-        }
-
-        previousFrame_ = current_frame;
-        lastCacheUpdateFrame_ = current_frame;
-        lastCacheUpdateTime_ = timestamp;
     }
 
-    // Cancel all in-flight requests on seek
+    if (overrun_mode_.load() && prev >= 0 && current_frame != prev) {
+        int delta = current_frame - prev;
+        if (delta != 1 && !isLoopWrap) {
+            isOverrunSeek = true;
+        }
+    }
+
+    previousFrame_.store(current_frame, std::memory_order_relaxed);
+    lastCacheUpdateFrame_.store(current_frame, std::memory_order_relaxed);
+    lastCacheUpdateTime_.store(timestamp, std::memory_order_relaxed);
+
+    // Cancel all in-flight requests on seek (but NOT on loop wrap-arounds)
     if (isSeek) {
-        //Debug::Log("DirectEXRCache: [SEEK DETECTED] Canceling all in-flight requests");
         ClearRequests();
 
         // Reset overrun mode on seek - user is repositioning, give cache a fresh start
@@ -615,15 +686,15 @@ void DirectEXRCache::UpdateCurrentPosition(double timestamp) {
 
     // Wake up cache thread immediately (don't wait for next tick)
     // This ensures instant response on seeks and initial load
-    cv_.notify_one();
+    cache_cv_.notify_one();
 }
 
 void DirectEXRCache::UpdatePlaybackState(bool is_playing) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    isPlaying_ = is_playing;
+    // Lock-free — isPlaying_ is atomic, overrun_mode_ is atomic
+    bool was_playing = isPlaying_.exchange(is_playing);
 
-    // Reset overrun mode when paused - user interaction resets state
-    if (!is_playing) {
+    // Reset overrun mode when transitioning to paused
+    if (was_playing && !is_playing) {
         ResetOverrunMode();
     }
 }
@@ -743,6 +814,13 @@ void DirectEXRCache::ProcessReadyTextures() {
             pool.QueueDelete(static_cast<uint64_t>(id));
         }
         pool.ProcessPendingDeletions();
+#elif defined(QCVIEW_USE_METAL)
+        // Metal path: Queue deletions via MetalTexturePool
+        auto& pool = MetalTexturePool::Instance();
+        for (GLuint id : toDelete) {
+            pool.QueueDelete(static_cast<uint64_t>(id));
+        }
+        pool.ProcessPendingDeletions();
 #else
         glDeleteTextures(static_cast<GLsizei>(toDelete.size()), toDelete.data());
 #endif
@@ -751,6 +829,9 @@ void DirectEXRCache::ProcessReadyTextures() {
 #ifdef QCVIEW_USE_VULKAN
     // Also process any pending Vulkan deletions from other sources
     VulkanTexturePool::Instance().ProcessPendingDeletions();
+#elif defined(QCVIEW_USE_METAL)
+    // Also process any pending Metal deletions from other sources
+    MetalTexturePool::Instance().ProcessPendingDeletions();
 #endif
 }
 
@@ -764,7 +845,7 @@ void DirectEXRCache::ClearRequests() {
     size_t inProgress = 0;
 
     {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::lock_guard<std::mutex> lock(io_mutex_);
         pending = videoRequests_.size();
         inProgress = requestsInProgress_.size();
 
@@ -831,6 +912,15 @@ void DirectEXRCache::ClearCache() {
                                 textures_to_delete.end());
     }
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    ClearGPUTextures();
+#endif
+
+    // Reset last good texture — cache is empty, stale reference would be invalid
+    last_good_texture_ = 0;
+    last_good_width_ = 0;
+    last_good_height_ = 0;
+
     //Debug::Log("DirectEXRCache: Cleared cache (" + std::to_string(pixel_count) +
     //           " pixel frames) + requests, queued " + std::to_string(textures_to_delete.size()) +
     //           " GL textures for deletion");
@@ -870,80 +960,58 @@ void DirectEXRCache::SetConfig(const EXRCacheConfig& config) {
 }
 
 DirectEXRCache::Stats DirectEXRCache::GetStats() const {
+    // Lock-free — reads atomics updated by I/O thread
     Stats stats;
     stats.totalFrames = static_cast<int>(sequenceFiles_.size());
-    stats.cachedFrames = static_cast<int>(pixelCache_.GetKeys().size());
+    stats.cachedFrames = static_cast<int>(pixelCache_.GetCount());
     stats.cacheBytes = pixelCache_.GetSize();
-
-    std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(mutex_));
-    stats.pendingRequests = static_cast<int>(videoRequests_.size());
-    stats.inProgressRequests = static_cast<int>(requestsInProgress_.size());
-
+    stats.pendingRequests = cached_pending_count_.load(std::memory_order_relaxed);
+    stats.inProgressRequests = cached_in_progress_count_.load(std::memory_order_relaxed);
     return stats;
 }
 
 std::vector<CacheSegment> DirectEXRCache::GetCacheSegments() const {
-    // Use cached segments, only rebuild when dirty
-    // Avoid expensive iteration/sort on every UI frame
+    // Always return cached — CacheThread rebuilds in background when dirty
+    std::lock_guard<std::mutex> lock(segmentMutex_);
+    return cachedSegments_;
+}
 
-    // Quick check without lock
-    if (!segmentsDirty_.load()) {
-        std::lock_guard<std::mutex> lock(segmentMutex_);
-        return cachedSegments_;
-    }
-
-    // Rebuild segments (dirty)
+void DirectEXRCache::RebuildCacheSegments(const std::vector<int>& sorted_keys) {
     std::vector<CacheSegment> segments;
 
-    // Get all cached frame indices
-    auto keys = pixelCache_.GetKeys();
-    if (keys.empty()) {
+    if (sorted_keys.empty()) {
         std::lock_guard<std::mutex> lock(segmentMutex_);
         cachedSegments_ = segments;
         segmentsDirty_ = false;
-        return segments;
+        return;
     }
 
-    // Sort frame indices
-    std::sort(keys.begin(), keys.end());
-
-    // Group into contiguous segments and convert to time
-    // Note: end_time uses (frame + 1) / fps to include the full duration of the last frame
     CacheSegment current;
-    current.start_frame = keys[0];
-    current.end_frame = keys[0];
-    current.start_time = keys[0] / fps_;
-    current.end_time = (keys[0] + 1) / fps_;  // End of frame, not start
+    current.start_frame = sorted_keys[0];
+    current.end_frame = sorted_keys[0];
+    current.start_time = sorted_keys[0] / fps_;
+    current.end_time = (sorted_keys[0] + 1) / fps_;
 
-    for (size_t i = 1; i < keys.size(); ++i) {
-        if (keys[i] == current.end_frame + 1) {
-            // Contiguous - extend current segment
-            current.end_frame = keys[i];
-            current.end_time = (keys[i] + 1) / fps_;  // End of frame, not start
+    for (size_t i = 1; i < sorted_keys.size(); ++i) {
+        if (sorted_keys[i] == current.end_frame + 1) {
+            current.end_frame = sorted_keys[i];
+            current.end_time = (sorted_keys[i] + 1) / fps_;
         } else {
-            // Gap - save current segment and start new one
-            current.density = 1.0; // Full density
+            current.density = 1.0;
             segments.push_back(current);
-
-            current.start_frame = keys[i];
-            current.end_frame = keys[i];
-            current.start_time = keys[i] / fps_;
-            current.end_time = (keys[i] + 1) / fps_;  // End of frame, not start
+            current.start_frame = sorted_keys[i];
+            current.end_frame = sorted_keys[i];
+            current.start_time = sorted_keys[i] / fps_;
+            current.end_time = (sorted_keys[i] + 1) / fps_;
         }
     }
 
-    // Add final segment
     current.density = 1.0;
     segments.push_back(current);
 
-    // Cache the result
-    {
-        std::lock_guard<std::mutex> lock(segmentMutex_);
-        cachedSegments_ = segments;
-        segmentsDirty_ = false;
-    }
-
-    return segments;
+    std::lock_guard<std::mutex> lock(segmentMutex_);
+    cachedSegments_ = segments;
+    segmentsDirty_ = false;
 }
 
 //=============================================================================
@@ -958,11 +1026,10 @@ void DirectEXRCache::CacheThread() {
     int iteration = 0;
 
     while (cacheRunning_) {
-        // Wait with timeout (interruptible via cv_.notify_one())
-        // This allows instant response on seeks/position updates instead of waiting up to 100ms
+        // Wait with timeout — uses cache_sleep_mutex_ (no contention with I/O thread)
         {
-            std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait_for(lock, interval);
+            std::unique_lock<std::mutex> lock(cache_sleep_mutex_);
+            cache_cv_.wait_for(lock, interval);
         }
 
         // If no sequence loaded, just sleep and check again
@@ -982,21 +1049,13 @@ void DirectEXRCache::CacheThread() {
         }
 
         // Get current playback position (mutex-protected state exchange)
-        int current_frame = -1;
-        bool needsReset = false;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            current_frame = lastCacheUpdateFrame_;
-            needsReset = needsFillReset_;
+        // Lock-free reads — these are all atomics now
+        int current_frame = lastCacheUpdateFrame_.load(std::memory_order_relaxed);
+        bool needsReset = needsFillReset_.exchange(false, std::memory_order_relaxed);
 
-            // Reset fill counters on seek
-            if (needsFillReset_) {
-                cacheFillFrame_ = 0;
-                cacheFillByteCount_ = 0;
-                needsFillReset_ = false;
-          /*      Debug::Log("DirectEXRCache: [FILL-RESET] Reset fill counters to start from frame " +
-                           std::to_string(current_frame));*/
-            }
+        if (needsReset) {
+            cacheFillFrame_ = 0;
+            cacheFillByteCount_ = 0;
         }
 
         // Periodic status logging every 2 seconds (20 iterations @ 100ms)
@@ -1066,6 +1125,9 @@ void DirectEXRCache::CacheThread() {
 
                     if (should_evict) {
                         RemoveFromPool(frame);  // Remove from SharedMemoryPool first
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+                        EvictGPUTexture(frame);  // Clean up GPU texture BEFORE pixel data removal
+#endif
                         pixelCache_.Remove(frame);
                         immediate_evicted++;
                     }
@@ -1138,6 +1200,9 @@ void DirectEXRCache::CacheThread() {
 
                 if (should_evict) {
                     RemoveFromPool(frame);  // Remove from SharedMemoryPool first
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+                    EvictGPUTexture(frame);  // Clean up GPU texture BEFORE pixel data removal
+#endif
                     pixelCache_.Remove(frame);
                     evicted_count++;
                 }
@@ -1161,7 +1226,7 @@ void DirectEXRCache::CacheThread() {
 
             if (cached_bytes < max_bytes) {
                 // Calculate available space, accounting for in-progress AND ready-for-texture
-                std::lock_guard<std::mutex> lock(mutex_);
+                std::lock_guard<std::mutex> lock(io_mutex_);
 
                 // Use pre-calculated actual frame size
                 int estimated_frame_size = 3840 * 2160 * 4 * sizeof(half); // Default estimate ~64MB
@@ -1437,9 +1502,16 @@ void DirectEXRCache::CacheThread() {
                                "MB + in-progress: " + std::to_string(in_progress_bytes / (1024*1024)) +
                                "MB = " + std::to_string(total_committed / (1024*1024)) +
                                "MB / " + std::to_string(max_bytes / (1024*1024)) + "MB)");*/
-                    cv_.notify_one();  // Wake up I/O worker
+                    io_cv_.notify_one();  // Wake up I/O worker
                 }
             }
+        }
+
+        // Rebuild cache segments in background if dirty
+        if (segmentsDirty_.load()) {
+            auto keys = pixelCache_.GetKeys();
+            std::sort(keys.begin(), keys.end());
+            RebuildCacheSegments(keys);
         }
 
         // Sleep until next iteration
@@ -1454,17 +1526,19 @@ void DirectEXRCache::CacheThread() {
 //=============================================================================
 
 void DirectEXRCache::IOWorkerThread() {
-    //Debug::Log("DirectEXRCache: I/O worker thread started");
+#ifdef __APPLE__
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
 
     // Short timeout - check frequently for completed tasks so we can spawn more
     // Aggressive task spawning for fast cache fill
     const std::chrono::milliseconds timeout(10);
 
     while (ioRunning_) {
-        //Wait for work (condition variable)
+        // Wait for work — uses io_mutex_/io_cv_ (no contention with CacheThread)
         {
-            std::unique_lock<std::mutex> lock(mutex_);
-            cv_.wait_for(lock, timeout, [this] {
+            std::unique_lock<std::mutex> lock(io_mutex_);
+            io_cv_.wait_for(lock, timeout, [this] {
                 return !videoRequests_.empty() ||
                        !requestsInProgress_.empty() ||
                        !ioRunning_;
@@ -1474,93 +1548,102 @@ void DirectEXRCache::IOWorkerThread() {
         if (!ioRunning_) break;
 
         // Use full thread count for maximum cache fill rate
-        // Adaptive speed control handles playback pacing, so we always want fast cache filling
         const size_t max_concurrent = config_.threadCount;
 
-        // Spawn async tasks (up to max_concurrent)
+        // Collect frames to spawn under mutex, then spawn outside it.
+        // This prevents std::async from blocking while mutex_ is held,
+        // which would stall the main thread's UpdateCurrentPosition.
+        struct SpawnItem {
+            int frame;
+            std::string path;
+            uint64_t generation;
+        };
+        std::vector<SpawnItem> to_spawn;
+
         {
-            std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(io_mutex_);
 
             // Check if sequence has been cleared (Shutdown() was called)
             if (!initialized_ || sequenceFiles_.empty()) {
-                videoRequests_.clear();  // Clear stale requests
+                videoRequests_.clear();
                 continue;
             }
 
-            int spawned = 0;
             while (!videoRequests_.empty() &&
-                   requestsInProgress_.size() < max_concurrent) {
+                   requestsInProgress_.size() + to_spawn.size() < max_concurrent) {
 
                 int frame = videoRequests_.front();
                 videoRequests_.pop_front();
 
-                // Validate frame index before accessing sequenceFiles_
-                // After a seek, old requests may have invalid frame indices
                 if (frame < 0 || frame >= (int)sequenceFiles_.size()) {
-             /*       Debug::Log("DirectEXRCache: [IO-SKIP] Frame " + std::to_string(frame) +
-                               " out of bounds (0-" + std::to_string(sequenceFiles_.size()) + "), skipping");*/
                     continue;
                 }
 
-                // Create request
-                EXRRequest request;
-                request.frame = frame;
-                request.byteCount = 3840 * 2160 * 4 * sizeof(half);  // Estimate
-                request.generation = request_generation_.load();  // Capture generation for stale detection
-
-                // Spawn async task
                 const std::string path = sequenceFiles_[frame];
-                const std::string layer = layerName_;
 
-                // Gap frame (empty path from padded vector) → cache sentinel immediately
+                // Gap frame (empty path) → handle outside lock
                 if (path.empty()) {
-                    auto sentinel = MakeGapSentinel(frameWidth_, frameHeight_);
-                    pixelCache_.Add(frame, sentinel, kSentinelCacheByteSize);
-                    {
-                        std::lock_guard<std::mutex> fl(failed_frames_mutex_);
-                        failed_frames_.insert(frame);
-                    }
-                    segmentsDirty_ = true;
+                    to_spawn.push_back({frame, "", request_generation_.load()});
                     continue;
                 }
 
-                request.future = std::async(std::launch::async, [this, path, frame]() {
-                    try {
-                        auto load_start = std::chrono::steady_clock::now();
-                        auto result = LoadPixels(path);
-                        auto load_end = std::chrono::steady_clock::now();
-                        auto load_ms = std::chrono::duration_cast<std::chrono::milliseconds>(load_end - load_start).count();
+                to_spawn.push_back({frame, path, request_generation_.load()});
+            }
+        } // mutex_ released BEFORE spawning async tasks
 
-                        if (result) {
-                           /* Debug::Log("DirectEXRCache: [IO-LOAD] Frame " + std::to_string(frame) +
-                                       " loaded in " + std::to_string(load_ms) + "ms (" +
-                                       std::to_string(result->pixels.size() / (1024*1024)) + "MB)");*/
-                        } else {
-                            //Debug::Log("DirectEXRCache: [IO-LOAD] Frame " + std::to_string(frame) + " returned null");
-                        }
-                        return result;
-                    } catch (const std::exception& e) {
-                        //Debug::Log("DirectEXRCache: [IO-LOAD] ERROR frame " + std::to_string(frame) + " - " + std::string(e.what()));
-                        return std::shared_ptr<PixelData>(nullptr);
-                    }
-                });
-
-                requestsInProgress_[frame] = std::move(request);
-                spawned++;
+        // Process collected items outside the lock
+        for (auto& item : to_spawn) {
+            if (item.path.empty()) {
+                // Gap sentinel
+                auto sentinel = MakeGapSentinel(frameWidth_, frameHeight_);
+                pixelCache_.Add(item.frame, sentinel, kSentinelCacheByteSize);
+                {
+                    std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                    failed_frames_.insert(item.frame);
+                }
+                segmentsDirty_ = true;
+                continue;
             }
 
-            if (spawned > 0) {
-               /* Debug::Log("DirectEXRCache: [IO-SPAWN] Launched " + std::to_string(spawned) +
-                           " async tasks (" + std::to_string(requestsInProgress_.size()) +
-                           " in-progress, " + std::to_string(videoRequests_.size()) + " pending)");*/
+            // Spawn async task — std::async may block waiting for thread pool,
+            // but we no longer hold mutex_ so main thread isn't stalled
+            EXRRequest request;
+            request.frame = item.frame;
+            request.byteCount = 3840 * 2160 * 4 * sizeof(half);
+            request.generation = item.generation;
+
+            const std::string spawn_path = item.path;
+            request.future = std::async(std::launch::async, [this, spawn_path]() {
+#ifdef __APPLE__
+                pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
+                try {
+                    return LoadPixels(spawn_path);
+                } catch (const std::exception&) {
+                    return std::shared_ptr<PixelData>(nullptr);
+                }
+            });
+
+            {
+                std::lock_guard<std::mutex> lock(io_mutex_);
+                requestsInProgress_[item.frame] = std::move(request);
             }
         }
 
         // Check completed requests (non-blocking poll)
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
+        // Collect completed futures under mutex_, process results outside it.
+        // This prevents the I/O thread from blocking the main thread during
+        // pixelCache_.Add() which can trigger LRU eviction.
+        struct CompletedResult {
+            int frame;
+            std::shared_ptr<PixelData> pixels;
+            uint64_t generation;
+        };
+        std::vector<CompletedResult> completed_results;
 
-            int completed = 0;
+        {
+            std::lock_guard<std::mutex> lock(io_mutex_);
+
             auto it = requestsInProgress_.begin();
             while (it != requestsInProgress_.end()) {
                 if (it->second.future.valid() &&
@@ -1568,45 +1651,9 @@ void DirectEXRCache::IOWorkerThread() {
 
                     try {
                         auto pixelData = it->second.future.get();
-
-                        // Check if request is stale (user seeked since this was requested)
-                        uint64_t current_gen = request_generation_.load();
-                        bool is_stale = (it->second.generation != current_gen);
-
-                        if (is_stale) {
-                            // Discard stale result - user has seeked since this was requested
-                            // Debug::Log("DirectEXRCache: [STALE] Discarding frame " + std::to_string(it->first));
-                        } else if (pixelData && !pixelData->pixels.empty()) {
-                            // Sentinels use minimal LRU weight so they don't evict real frames
-                            size_t byteCount = pixelData->is_sentinel ? kSentinelCacheByteSize : pixelData->pixels.size();
-                            pixelCache_.Add(it->first, pixelData, byteCount);
-
-                            // Track sentinel frames as failed (never retry)
-                            if (pixelData->is_sentinel) {
-                                std::lock_guard<std::mutex> fl(failed_frames_mutex_);
-                                failed_frames_.insert(it->first);
-                            }
-
-                            // Register with SharedMemoryPool for global LRU coordination
-                            RegisterWithPool(it->first, byteCount);
-
-                            segmentsDirty_ = true;  // Mark segments dirty for UI update
-                            completed++;
-                          /*  Debug::Log("DirectEXRCache: [IO-COMPLETE] Frame " + std::to_string(it->first) +
-                                       " added to pixel cache (" + std::to_string(byteCount / (1024*1024)) + "MB)");*/
-                        } else if (!is_stale) {
-                            // Load failure (nullptr or empty) → red sentinel + never retry
-                            auto sentinel = MakeBrokenSentinel(frameWidth_, frameHeight_);
-                            pixelCache_.Add(it->first, sentinel, kSentinelCacheByteSize);
-                            {
-                                std::lock_guard<std::mutex> fl(failed_frames_mutex_);
-                                failed_frames_.insert(it->first);
-                            }
-                            segmentsDirty_ = true;
-                        }
-                    } catch (const std::exception& e) {
-                       /* Debug::Log("DirectEXRCache: Error processing completed request - " +
-                                   std::string(e.what()));*/
+                        completed_results.push_back({it->first, pixelData, it->second.generation});
+                    } catch (const std::exception&) {
+                        completed_results.push_back({it->first, nullptr, it->second.generation});
                     }
 
                     it = requestsInProgress_.erase(it);
@@ -1614,11 +1661,184 @@ void DirectEXRCache::IOWorkerThread() {
                     ++it;
                 }
             }
+        } // mutex_ released — main thread can now access requestsInProgress_ freely
+
+        // Process completed results outside the mutex
+        bool any_new_pixels = false;
+        for (auto& result : completed_results) {
+            uint64_t current_gen = request_generation_.load();
+            bool is_stale = (result.generation != current_gen);
+
+            if (is_stale) {
+                // Discard stale result — user seeked since this was requested
+            } else if (result.pixels && !result.pixels->pixels.empty()) {
+                size_t byteCount = result.pixels->is_sentinel ? kSentinelCacheByteSize : result.pixels->pixels.size();
+                pixelCache_.Add(result.frame, result.pixels, byteCount);
+
+                if (result.pixels->is_sentinel) {
+                    std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                    failed_frames_.insert(result.frame);
+                }
+
+                RegisterWithPool(result.frame, byteCount);
+                segmentsDirty_ = true;
+
+                if (!result.pixels->is_sentinel) {
+                    any_new_pixels = true;
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+                    // Push to GPU upload queue — separate from pixelCache_ to avoid contention
+                    {
+                        std::lock_guard<std::mutex> ql(gpu_upload_queue_mutex_);
+                        gpu_upload_queue_.push_back({result.frame, result.pixels, result.generation});
+                    }
+#endif
+                }
+            } else if (!is_stale) {
+                auto sentinel = MakeBrokenSentinel(frameWidth_, frameHeight_);
+                pixelCache_.Add(result.frame, sentinel, kSentinelCacheByteSize);
+                {
+                    std::lock_guard<std::mutex> fl(failed_frames_mutex_);
+                    failed_frames_.insert(result.frame);
+                }
+                segmentsDirty_ = true;
+            }
+        }
+
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+        if (any_new_pixels) {
+            gpu_upload_cv_.notify_one();
+        }
+#endif
+        // Update cached counts for lock-free GetStats()
+        {
+            std::lock_guard<std::mutex> lock(io_mutex_);
+            cached_pending_count_.store(static_cast<int>(videoRequests_.size()), std::memory_order_relaxed);
+            cached_in_progress_count_.store(static_cast<int>(requestsInProgress_.size()), std::memory_order_relaxed);
         }
     }
 
     //Debug::Log("DirectEXRCache: I/O worker thread stopped");
 }
+
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+//=============================================================================
+// GPU Upload Thread (Metal/Vulkan) — creates textures off the main thread
+//=============================================================================
+
+void DirectEXRCache::GPUUploadThread() {
+#ifdef __APPLE__
+    pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
+
+    while (gpu_upload_running_) {
+        // Wait for I/O thread to push items or shutdown
+        {
+            std::unique_lock<std::mutex> lock(gpu_upload_mutex_);
+            gpu_upload_cv_.wait_for(lock, std::chrono::milliseconds(16), [this] {
+                return !gpu_upload_running_;
+            });
+        }
+
+        if (!gpu_upload_running_) break;
+
+        // Drain the upload queue — I/O thread pushes completed pixel data here
+        // This never touches pixelCache_, eliminating shared_mutex contention
+        std::deque<GPUUploadItem> items;
+        {
+            std::lock_guard<std::mutex> ql(gpu_upload_queue_mutex_);
+            items.swap(gpu_upload_queue_);  // O(1) swap, clears queue
+        }
+
+        // Limit uploads per cycle to avoid starving the main render thread
+        // Metal texture creation is fast (shared storage), so allow higher throughput
+        int uploads_this_cycle = 0;
+        constexpr int kMaxUploadsPerCycle = 8;
+
+        size_t i = 0;
+        for (; i < items.size(); ++i) {
+            auto& item = items[i];
+            if (!gpu_upload_running_) break;
+
+            // Check for stale generation (user seeked since I/O started)
+            if (item.generation != request_generation_.load()) continue;
+
+            // Already have a GPU texture for this frame?
+            {
+                std::shared_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+                if (gpu_texture_ready_.count(item.frame)) continue;
+            }
+
+            // Limit texture creation per cycle to avoid starving main render thread
+            if (++uploads_this_cycle > kMaxUploadsPerCycle) {
+                break;  // Put remaining back in queue
+            }
+
+            // Create GPU texture (thread-safe on Metal/Vulkan)
+            GLuint tex_id = CreateGLTexture(item.pixels);
+            if (tex_id == 0) continue;
+
+            // Store in ready map
+            {
+                std::unique_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+                if (item.generation != request_generation_.load()) {
+                    // Seek happened — delete stale texture
+#ifdef QCVIEW_USE_VULKAN
+                    VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(tex_id));
+#elif defined(QCVIEW_USE_METAL)
+                    MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(tex_id));
+#endif
+                    continue;
+                }
+                gpu_texture_ready_[item.frame] = {
+                    static_cast<uint64_t>(tex_id),
+                    item.pixels->width,
+                    item.pixels->height
+                };
+            }
+        }
+
+        // Put unprocessed items back in the queue for next cycle
+        if (i < items.size()) {
+            std::lock_guard<std::mutex> ql(gpu_upload_queue_mutex_);
+            for (size_t j = i; j < items.size(); ++j) {
+                gpu_upload_queue_.push_back(std::move(items[j]));
+            }
+        }
+    }
+}
+
+void DirectEXRCache::EvictGPUTexture(int frame) {
+    std::unique_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+    auto it = gpu_texture_ready_.find(frame);
+    if (it != gpu_texture_ready_.end()) {
+#ifdef QCVIEW_USE_VULKAN
+        VulkanTexturePool::Instance().QueueDelete(it->second.pool_id);
+#elif defined(QCVIEW_USE_METAL)
+        MetalTexturePool::Instance().QueueDelete(it->second.pool_id);
+#endif
+        gpu_texture_ready_.erase(it);
+    }
+}
+
+void DirectEXRCache::ClearGPUTextures() {
+    std::unique_lock<std::shared_mutex> lock(gpu_texture_mutex_);
+    for (auto& [frame, entry] : gpu_texture_ready_) {
+#ifdef QCVIEW_USE_VULKAN
+        VulkanTexturePool::Instance().QueueDelete(entry.pool_id);
+#elif defined(QCVIEW_USE_METAL)
+        MetalTexturePool::Instance().QueueDelete(entry.pool_id);
+#endif
+    }
+    gpu_texture_ready_.clear();
+
+    // Clear the upload queue too — stale pixel data shouldn't create textures
+    {
+        std::lock_guard<std::mutex> ql(gpu_upload_queue_mutex_);
+        gpu_upload_queue_.clear();
+    }
+}
+
+#endif // QCVIEW_USE_METAL || QCVIEW_USE_VULKAN
 
 //=============================================================================
 // Universal Image Loading (wraps EXR or IImageLoader)
@@ -1630,50 +1850,30 @@ std::shared_ptr<PixelData> DirectEXRCache::LoadPixels(const std::string& path) {
         return MakeGapSentinel(frameWidth_, frameHeight_);
     }
 
-    // Gap sentinel: file doesn't exist on disk
-    std::error_code ec;
-    if (!std::filesystem::exists(path, ec) || ec) {
+    // If custom loader is provided, use it (handles missing/broken files internally)
+    if (loader_) {
+        try {
+            return loader_->LoadFrame(path, layerName_, pipelineMode_);
+        } catch (...) {
+            return MakeGapSentinel(frameWidth_, frameHeight_);
+        }
+    }
+
+    // EXR path: MemoryMappedIStream constructor opens + stats the file,
+    // throwing on missing/unreadable files. No need for separate stat() calls.
+    try {
+        return LoadEXRPixels(path, layerName_);
+    } catch (...) {
         return MakeGapSentinel(frameWidth_, frameHeight_);
     }
-
-    // Broken sentinel: file too small (likely truncated/corrupt render)
-    auto fsize = std::filesystem::file_size(path, ec);
-    if (!ec && fsize < kBrokenFileThresholdBytes) {
-        return MakeBrokenSentinel(frameWidth_, frameHeight_);
-    }
-
-    // If custom loader is provided, use it
-    if (loader_) {
-        return loader_->LoadFrame(path, layerName_, pipelineMode_);
-    }
-
-    // Otherwise, fall back to legacy EXR loading and convert
-    auto exr_pixels = LoadEXRPixels(path, layerName_);
-    if (!exr_pixels) {
-        return nullptr;
-    }
-
-    // Convert EXRPixelData to PixelData
-    auto pixels = std::make_shared<PixelData>();
-    pixels->width = exr_pixels->width;
-    pixels->height = exr_pixels->height;
-    pixels->SetFormat(PixelFormat::RGBA16F);
-    pixels->pipeline_mode = PipelineMode::HDR_RES;  // EXR is always HDR
-
-    // Convert half vector to uint8_t vector (reinterpret bytes)
-    size_t byte_count = exr_pixels->pixels.size() * sizeof(half);
-    pixels->pixels.resize(byte_count);
-    std::memcpy(pixels->pixels.data(), exr_pixels->pixels.data(), byte_count);
-
-    return pixels;
 }
 
 //=============================================================================
 // EXR Loading (memory-mapped pattern vs. the regular cache setup)
 //=============================================================================
 
-std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& path,
-                                                             const std::string& layer) {
+std::shared_ptr<PixelData> DirectEXRCache::LoadEXRPixels(const std::string& path,
+                                                         const std::string& layer) {
     // Memory-mapped stream
     auto stream = std::make_unique<MemoryMappedIStream>(path);
     Imf::MultiPartInputFile file(*stream);
@@ -1711,16 +1911,18 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
     // Setup frame buffer
     const Imf::ChannelList& channels = header.channels();
 
-    // Allocate pixel buffer with optimizations
-    auto data = std::make_shared<EXRPixelData>();
+    // Allocate PixelData directly — no intermediate EXRPixelData + memcpy
+    auto data = std::make_shared<PixelData>();
     data->width = width;
     data->height = height;
+    data->SetFormat(PixelFormat::RGBA16F);
+    data->pipeline_mode = PipelineMode::HDR_RES;
 
-    // Optimization: Reserve capacity first to avoid reallocation during resize
-    // With aligned allocator, this ensures single allocation at proper alignment
+    // Allocate as bytes, interpret as half* for OpenEXR framebuffer slices
     const size_t pixelCount = static_cast<size_t>(width) * static_cast<size_t>(height) * 4;
-    data->pixels.reserve(pixelCount);
-    data->pixels.resize(pixelCount);  // RGBA
+    const size_t byteCount = pixelCount * sizeof(half);
+    data->pixels.resize(byteCount);
+    half* halfPtr = reinterpret_cast<half*>(data->pixels.data());
     Imf::FrameBuffer frameBuffer;
 
     // Try with layer prefix first, then without (for single-layer EXRs)
@@ -1799,7 +2001,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
                 fullChannelNames[c].c_str(),
                 Imf::Slice(
                     Imf::HALF,  // CRITICAL: Buffer type, not file's pixelType! OpenEXR converts automatically
-                    (char*)(data->pixels.data()) + (c * channelByteCount),
+                    (char*)(halfPtr) + (c * channelByteCount),
                     cb,   // xStride - move 4 channels per pixel
                     scb,  // yStride - full scanline
                     1, 1, // x,y sampling
@@ -1811,7 +2013,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         // Fill alpha with 1.0 if no alpha channel (before read)
         if (!hasAlpha) {
             for (int i = 0; i < width * height; ++i) {
-                data->pixels[i * 4 + 3] = 1.0f;
+                halfPtr[i * 4 + 3] = 1.0f;
             }
         }
 
@@ -1857,7 +2059,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         // Read scanline by scanline and copy to output
         const size_t scb = width * 4 * channelByteCount;
         for (int y = displayWindow.min.y; y <= displayWindow.max.y; ++y) {
-            uint8_t* p = reinterpret_cast<uint8_t*>(data->pixels.data()) +
+            uint8_t* p = data->pixels.data() +
                         ((y - displayWindow.min.y) * scb);
             uint8_t* end = p + scb;
 
@@ -1884,7 +2086,7 @@ std::shared_ptr<EXRPixelData> DirectEXRCache::LoadEXRPixels(const std::string& p
         // Fill alpha with 1.0 if no alpha channel
         if (!hasAlpha) {
             for (int i = 0; i < width * height; ++i) {
-                data->pixels[i * 4 + 3] = 1.0f;
+                halfPtr[i * 4 + 3] = 1.0f;
             }
         }
     }
@@ -1915,6 +2117,31 @@ GLuint DirectEXRCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels)
     uint64_t pool_id = pool.CreateTextureFromPixels(
         pixels->width, pixels->height,
         vk_format,
+        pixels->pixels.data(),
+        pixels->pixels.size()
+    );
+
+    // Pool IDs are small sequential integers, safe to truncate to GLuint
+    return static_cast<GLuint>(pool_id);
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: Create texture via MetalTexturePool
+    auto& pool = MetalTexturePool::Instance();
+    if (!pool.IsInitialized()) {
+        return 0;
+    }
+
+    // Map PixelFormat to Metal format constant
+    // 0 = RGBA8Unorm/RGBA16Unorm, 1 = RGBA16Float
+    int metal_format = 0;
+    switch (pixels->pixel_format) {
+        case PixelFormat::RGBA8:  metal_format = 0; break;
+        case PixelFormat::RGBA16: metal_format = 0; break;
+        case PixelFormat::RGBA16F: metal_format = 1; break;
+    }
+
+    uint64_t pool_id = pool.CreateTextureFromPixels(
+        pixels->width, pixels->height,
+        metal_format,
         pixels->pixels.data(),
         pixels->pixels.size()
     );

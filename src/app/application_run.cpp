@@ -5,20 +5,37 @@
 #include <windows.h>
 #endif
 
+#ifdef __APPLE__
+#include <pthread.h>
+#endif
+
 #include <glad/gl.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 
 #include <imgui.h>
+#ifndef QCVIEW_USE_METAL
 #include <imgui_impl_glfw.h>
+#endif
 #ifdef QCVIEW_USE_VULKAN
 #include <imgui_impl_vulkan.h>
 #include "gpu/vulkan_device.h"
 #include "gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
+#include "gpu/metal_texture_pool.h"
 #else
 #include <imgui_impl_opengl3.h>
 #endif
 #include <imgui_internal.h>
 #include <implot.h>
+
+#ifdef __APPLE__
+#include "app/macos_menu_bar.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -37,6 +54,9 @@
 #include "utils/system_pressure_monitor.h"
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
 #include "utils/single_instance.h"
+#endif
+#ifdef __APPLE__
+#include "utils/macos_single_instance.h"
 #endif
 #include "player/video_player.h"
 #include "project/project_manager.h"
@@ -84,6 +104,7 @@ extern qcview::TimelinePlaybackController::DualViewTextures cached_dual_view_tex
 extern std::vector<GLuint> g_pending_texture_deletions;
 extern std::unique_ptr<qcview::TimelineCommandManager> timeline_command_manager;
 extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
+
 extern bool timeline_thumbnail_cache_clear_deferred;
 extern std::unique_ptr<qcview::SystemPressureMonitor> pressure_monitor;
 extern bool auto_play_buffering;
@@ -151,12 +172,68 @@ qcview::TimelineCacheConfig GetCurrentTimelineCacheConfig();
 std::string GetAssetPath(const std::string& relative_path);
 
 void Application::Run() {
+#ifdef __APPLE__
+        // Ensure main/render thread runs on performance cores and isn't preempted
+        // by the 16+ I/O worker threads doing EXR decompression
+        pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
+
+#ifdef QCVIEW_USE_METAL
+        // Native macOS: MTKView calls DrawFrame() via display-linked callback
+        // Store this pointer for the lambda, then run the app
+        MacOS_SetDrawCallback([this]() { this->DrawFrame(); });
+        MacOS_RunApp();  // Blocks until app terminates
+}
+
+// DrawFrame — called by MTKView's drawInMTKView: at display refresh rate (macOS)
+// or from the while loop (Linux/Windows)
+void Application::DrawFrame() {
+#endif
+        static auto _loop_end = std::chrono::steady_clock::now();
+#ifndef QCVIEW_USE_METAL
         while (!glfwWindowShouldClose(window)) {
+#endif
+            auto _loop_start = std::chrono::steady_clock::now();
+#ifndef QCVIEW_USE_METAL
             glfwPollEvents();
+#endif
+            auto _poll_end = std::chrono::steady_clock::now();
+            // Actual FPS counter
+            {
+                static int _fps_count = 0;
+                static auto _fps_start = std::chrono::steady_clock::now();
+                _fps_count++;
+                auto now = std::chrono::steady_clock::now();
+                double elapsed = std::chrono::duration<double>(now - _fps_start).count();
+                if (elapsed >= 2.0) {
+                    // FPS logging disabled (was: "[FPS] X fps")
+                    _fps_count = 0;
+                    _fps_start = now;
+                }
+            }
+
+#ifndef QCVIEW_USE_METAL
+            {
+                static int _gap_count = 0;
+                static double _gap_max = 0, _poll_max = 0;
+                double gap_ms = std::chrono::duration<double, std::milli>(_loop_start - _loop_end).count();
+                double poll_ms = std::chrono::duration<double, std::milli>(_poll_end - _loop_start).count();
+                if (gap_ms > _gap_max) _gap_max = gap_ms;
+                if (poll_ms > _poll_max) _poll_max = poll_ms;
+                if (++_gap_count % 60 == 0) {
+                    Debug::Log("[LOOP 60f] gap_max=" + std::to_string(_gap_max) +
+                               "ms poll_max=" + std::to_string(_poll_max) + "ms");
+                    _gap_max = 0; _poll_max = 0;
+                }
+            }
+#endif
 
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
             // Poll for incoming D-Bus messages (single-instance file opens)
             if (single_instance_) single_instance_->Poll();
+#endif
+#ifdef __APPLE__
+            if (macos_single_instance_) macos_single_instance_->Poll();
 #endif
 
             // Process deferred fullscreen toggle AFTER all events are processed
@@ -243,34 +320,9 @@ void Application::Run() {
                             project_manager->SetCacheEnabled(true);
                         }
 
-                        // Restore EXR cache if it was active before shutdown
-                        Debug::Log("Recovery: exr_cache_was_active=" + std::string(exr_cache_was_active ? "yes" : "no") +
-                                   ", video_player=" + std::string(video_player ? "yes" : "no"));
-
-                        if (exr_cache_was_active && video_player) {
-                            Debug::Log("Restoring EXR cache for: " + exr_video_path_before_shutdown);
-
-                            const auto& exr_files = video_player->GetEXRSequenceFiles();
-                            std::string exr_layer = video_player->GetEXRLayerName();
-                            double exr_fps = video_player->GetEXRFrameRate();
-
-                            Debug::Log("EXR restore: files=" + std::to_string(exr_files.size()) +
-                                       ", layer=" + exr_layer + ", fps=" + std::to_string(exr_fps));
-
-                            if (!exr_files.empty()) {
-                                video_player->InitializeEXRCache(exr_files, exr_layer, exr_fps);
-                                Debug::Log("EXR cache restored with " + std::to_string(exr_files.size()) + " frames");
-                            } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                                Debug::Log("WARNING: Cannot restore EXR cache - sequence files empty");
-                            }
-
-                            exr_cache_was_active = false;
-                            exr_video_path_before_shutdown.clear();
-                        } else {
-                        // Playback controller already exists - reload dummy video and re-enable timeline mode
-                            Debug::Log("Skipping EXR restore (was not active during emergency)");
-                        }
+                        // EXR cache restore removed — DirectEXRCache lives in TimelineCache
+                        // and will resume naturally when the timeline playback controller restarts
+                        Debug::Log("Recovery: timeline cache will resume on next playback");
 
                         // Show recovery notification (timed, 8 seconds)
                         stats_bar_notification_message = "RAM recovered - caching resumed";
@@ -281,6 +333,9 @@ void Application::Run() {
                     }
                 }
             }
+
+            // Phase timing diagnostic (macOS frame stutter debug)
+            auto phase_start = std::chrono::steady_clock::now();
 
             if (video_player) {
                 // NOTE: UpdateVideoTexture() is now called from ProcessPendingTextureUploads()
@@ -329,7 +384,15 @@ void Application::Run() {
                 // Boundaries are ALWAYS defined: [In,Out] if set, otherwise [0,total-1]
                 // IMPORTANT: In dual view mode, BOTH caches need the same boundaries
                 // Use the MAX of both cache durations to ensure all frames are valid
+                //
+                // PERF: Skip during playback when boundaries are already set.
+                // GetStats() contends with EXR I/O thread locks (60ms+ stalls).
+                // Boundaries only change on content load or In/Out point changes.
                 if (otio_timeline_mode && timeline_view) {
+                    static int cached_in = -1, cached_out = -1;
+                    static bool cached_has_inout = false;
+                    static bool full_range_valid = false;  // GetStats() result cached
+
                     auto* playback_ctrl = timeline_view->GetEffectivePlaybackController();
                     auto* left_cache = playback_ctrl ? playback_ctrl->GetCache() : nullptr;
                     auto* right_cache = playback_ctrl ? playback_ctrl->GetRightCache() : nullptr;
@@ -337,63 +400,108 @@ void Application::Run() {
                     if (left_cache) {
                         double fps = timeline_view->GetFrameRate();
                         if (fps > 0) {
+                            bool has_inout = timeline_view->HasTimelineInOutPoints();
                             int in_frame, out_frame;
-                            if (timeline_view->HasTimelineInOutPoints()) {
+
+                            if (has_inout) {
+                                // In/Out path: lock-free, safe to check every frame
                                 in_frame = static_cast<int>(timeline_view->GetTimelineInPoint() * fps);
                                 out_frame = static_cast<int>(timeline_view->GetTimelineOutPoint() * fps);
-                            } else {
-                                // No In/Out points - use full timeline as boundaries
-                                // For dual view: use MAX of both cache durations to cover all content
+                            } else if (!full_range_valid) {
+                                // Full-range path: GetStats() contends with I/O locks.
+                                // Only compute once; invalidate when In/Out state changes.
                                 in_frame = 0;
                                 int left_frames = left_cache->GetStats().total_timeline_frames;
                                 int right_frames = right_cache ? right_cache->GetStats().total_timeline_frames : 0;
                                 out_frame = std::max(left_frames, right_frames) - 1;
+                                full_range_valid = true;
+                            } else {
+                                // Full-range already computed, reuse cached values
+                                in_frame = cached_in;
+                                out_frame = cached_out;
+                            }
+
+                            // Invalidate full_range cache when In/Out state toggles
+                            if (has_inout != cached_has_inout) {
+                                cached_has_inout = has_inout;
+                                full_range_valid = false;
                             }
 
                             if (out_frame > 0) {
-                                // Set boundaries on LEFT cache
-                                left_cache->SetLoopBoundaries(in_frame, out_frame);
-
-                                // Set boundaries on RIGHT cache too (dual view mode)
-                                if (right_cache) {
-                                    right_cache->SetLoopBoundaries(in_frame, out_frame);
+                                if (in_frame != cached_in || out_frame != cached_out) {
+                                    cached_in = in_frame;
+                                    cached_out = out_frame;
+                                    left_cache->SetLoopBoundaries(in_frame, out_frame);
+                                    if (right_cache) {
+                                        right_cache->SetLoopBoundaries(in_frame, out_frame);
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
+
                 // Process pending thumbnail uploads (async -> GL texture upload on main thread)
+                auto phase_mark = std::chrono::steady_clock::now();
+                auto _cm0 = phase_mark;
                 if (video_player->HasThumbnailCache()) {
                     video_player->GetThumbnailCache()->ProcessPendingUploads();
                 }
+                auto _cm1 = std::chrono::steady_clock::now();
 
+                if (timeline_thumbnail_cache_clear_deferred) {
+                    timeline_thumbnail_cache.reset();  // Full destroy — stops worker threads
+                    timeline_thumbnail_cache_clear_deferred = false;
+                }
                 // Process timeline thumbnail cache uploads (for trim/slip preview)
                 if (timeline_thumbnail_cache) {
-                    // Handle deferred clear - must happen BEFORE ProcessPendingUploads
-                    // This ensures textures deleted at end of previous frame are cleared
-                    // before any new texture operations, avoiding font atlas corruption
-                    if (timeline_thumbnail_cache_clear_deferred) {
-                        timeline_thumbnail_cache->Clear();
-                        timeline_thumbnail_cache_clear_deferred = false;
-                    }
                     timeline_thumbnail_cache->ProcessPendingUploads();
                 }
+                auto _cm2 = std::chrono::steady_clock::now();
 
                 // Update timeline manager first to handle cache logic
                 if (timeline_manager) {
                     timeline_manager->Update(video_player.get());
                 }
+                auto _cm3 = std::chrono::steady_clock::now();
 
                 // Only update fast seeking if timeline manager isn't using cached frames
-                // In timeline mode, skip this check since TimelineCache handles frames independently
                 bool skip_cache_check = video_player && video_player->IsInTimelineMode();
                 if (!timeline_manager || skip_cache_check || !timeline_manager->IsHoldingCachedFrame()) {
                     video_player->UpdateFastSeek();
                 }
 
+                auto phase_pre_tex = std::chrono::steady_clock::now();
+
+                {
+                    double loop_ms = std::chrono::duration<double, std::milli>(_cm0 - phase_mark).count();
+                    double thumb_ms = std::chrono::duration<double, std::milli>(_cm1 - _cm0).count();
+                    double tl_thumb_ms = std::chrono::duration<double, std::milli>(_cm2 - _cm1).count();
+                    double tl_mgr_ms = std::chrono::duration<double, std::milli>(_cm3 - _cm2).count();
+                    double fast_seek_ms = std::chrono::duration<double, std::milli>(phase_pre_tex - _cm3).count();
+                    double total = loop_ms + thumb_ms + tl_thumb_ms + tl_mgr_ms + fast_seek_ms;
+                    if (total > 10.0) {
+                        Debug::Log("[CM] loop=" + std::to_string(loop_ms) +
+                                   " thumb=" + std::to_string(thumb_ms) +
+                                   " tl_thumb=" + std::to_string(tl_thumb_ms) +
+                                   " tl_mgr=" + std::to_string(tl_mgr_ms) +
+                                   " fast_seek=" + std::to_string(fast_seek_ms) + "ms");
+                    }
+                }
+                double pre_tex_ms = std::chrono::duration<double, std::milli>(phase_pre_tex - phase_mark).count();
+                phase_mark = phase_pre_tex;
+
                 // Process video texture uploads BEFORE ImGui frame to avoid GL state corruption
                 video_player->ProcessPendingTextureUploads();
+
+                auto phase_after_tex = std::chrono::steady_clock::now();
+                double tex_ms = std::chrono::duration<double, std::milli>(phase_after_tex - phase_mark).count();
+                phase_mark = phase_after_tex;
+                if (pre_tex_ms + tex_ms > 10.0) {
+                    Debug::Log("[PHASE] pre-ImGui: cache_mgmt=" + std::to_string(pre_tex_ms) +
+                               "ms tex_upload=" + std::to_string(tex_ms) + "ms");
+                }
             }
 
             // Process deferred reload BEFORE any texture operations
@@ -414,7 +522,7 @@ void Application::Run() {
                 }
             }
 
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
             // Pre-render color-corrected textures with GPU fence sync (OpenGL only)
             // On Vulkan, color correction is done in ApplyColorPipelineVulkan()
             // Double-buffered: keep previous frame as fallback if GPU isn't done with new textures
@@ -541,7 +649,35 @@ void Application::Run() {
                                  g_pending_texture_deletions.data());
                 g_pending_texture_deletions.clear();
             }
-#else
+#elif defined(QCVIEW_USE_METAL)
+            // Metal OCIO pre-rendering for dual view composite
+            if (video_player && video_player->HasColorPipeline()) {
+                if (scratch_timeline_controller && scratch_timeline_controller->IsDualViewMode()) {
+                    if (cached_dual_view_textures.is_unified &&
+                        cached_dual_view_textures.composite_texture != 0 &&
+                        cached_dual_view_textures.composite_width > 0 &&
+                        cached_dual_view_textures.composite_height > 0) {
+                        // Queue-delete previous OCIO composite pool texture
+                        if (g_color_corrected_cache.composite_texture != 0) {
+                            qcview::MetalTexturePool::Instance().QueueDelete(
+                                static_cast<uint64_t>(g_color_corrected_cache.composite_texture));
+                        }
+                        // Apply OCIO to the unified composite pool texture
+                        uint64_t color_pool_id = video_player->CreateColorCorrectedPoolTextureMetal(
+                            static_cast<uint64_t>(cached_dual_view_textures.composite_texture),
+                            cached_dual_view_textures.composite_width,
+                            cached_dual_view_textures.composite_height);
+                        if (color_pool_id != 0) {
+                            g_color_corrected_cache.composite_texture = static_cast<GLuint>(color_pool_id);
+                            g_color_corrected_cache.composite_width = cached_dual_view_textures.composite_width;
+                            g_color_corrected_cache.composite_height = cached_dual_view_textures.composite_height;
+                            g_color_corrected_cache.current_ready = true;
+                        }
+                    }
+                }
+                // Single video OCIO is handled in ApplyColorPipelineMetal()
+            }
+#elif defined(QCVIEW_USE_VULKAN)
             // Vulkan OCIO pre-rendering for dual view composite
             if (video_player && video_player->HasColorPipeline()) {
                 if (scratch_timeline_controller && scratch_timeline_controller->IsDualViewMode()) {
@@ -573,7 +709,11 @@ void Application::Run() {
 
             // Frame rate limiter - skip ImGui rendering if not enough time has passed
             // This limits UI updates while video processing continues at full rate
+            // NOTE: On Metal/Vulkan, vsync (displaySyncEnabled / swapchain present mode)
+            // already handles frame pacing. The software limiter causes stutter on macOS
+            // due to imprecise sleep_for() granularity (~4-16ms vs requested 1ms).
             bool should_render_frame = true;
+#if !defined(QCVIEW_USE_METAL) && !defined(QCVIEW_USE_VULKAN)
             if (g_limit_imgui_fps) {
                 auto now = std::chrono::steady_clock::now();
                 double elapsed = std::chrono::duration<double>(now - g_last_frame_time).count();
@@ -583,21 +723,79 @@ void Application::Run() {
                     std::this_thread::sleep_for(std::chrono::milliseconds(1));
                 }
             }
+#endif
 
             if (should_render_frame) {
                 g_last_frame_time = std::chrono::steady_clock::now();
+                auto imgui_start = std::chrono::steady_clock::now();
+                {
+                    (void)_poll_end; // PRE-IMGUI logging disabled
+                }
 
 #ifdef QCVIEW_USE_VULKAN
                 ImGui_ImplVulkan_NewFrame();
+#elif defined(QCVIEW_USE_METAL)
+                {
+                    extern void MetalImGuiNewFrame();
+                    MetalImGuiNewFrame();
+                }
 #else
                 ImGui_ImplOpenGL3_NewFrame();
 #endif
+#ifdef QCVIEW_USE_METAL
+                extern void ImGuiOSXNewFrame(void* ns_view);
+                ImGuiOSXNewFrame(MacOS_GetNSView());
+#else
                 ImGui_ImplGlfw_NewFrame();
+#endif
+
                 ImGui::NewFrame();
+
+                // One-time display scaling diagnostic
+                {
+                    static bool logged_scale_info = false;
+                    if (!logged_scale_info) {
+                        logged_scale_info = true;
+                        int win_w, win_h, fb_w, fb_h;
+                        float cs_x, cs_y;
+#ifdef QCVIEW_USE_METAL
+                        MacOS_GetWindowSize(&win_w, &win_h);
+                        MacOS_GetFramebufferSize(&fb_w, &fb_h);
+                        MacOS_GetContentScale(&cs_x, &cs_y);
+#else
+                        glfwGetWindowSize(window, &win_w, &win_h);
+                        glfwGetFramebufferSize(window, &fb_w, &fb_h);
+                        glfwGetWindowContentScale(window, &cs_x, &cs_y);
+#endif
+                        ImGuiIO& dbg_io = ImGui::GetIO();
+                        Debug::Log("=== DISPLAY SCALE DIAGNOSTIC ===");
+                        Debug::Log("  windowSize: " + std::to_string(win_w) + "x" + std::to_string(win_h));
+                        Debug::Log("  framebufferSize: " + std::to_string(fb_w) + "x" + std::to_string(fb_h));
+                        Debug::Log("  contentScale: " + std::to_string(cs_x) + "x" + std::to_string(cs_y));
+                        Debug::Log("  ImGui DisplaySize: " + std::to_string(dbg_io.DisplaySize.x) + "x" + std::to_string(dbg_io.DisplaySize.y));
+                        Debug::Log("  ImGui FbScale: " + std::to_string(dbg_io.DisplayFramebufferScale.x) + "x" + std::to_string(dbg_io.DisplayFramebufferScale.y));
+                        Debug::Log("  ImGui FontGlobalScale: " + std::to_string(dbg_io.FontGlobalScale));
+                        Debug::Log("================================");
+                    }
+                }
 
                 // Process keyboard shortcuts after ImGui state is updated
                 // (fixes spacebar triggering multiple times when frames are skipped)
                 HandleKeyboardShortcuts();
+
+#ifdef __APPLE__
+                // Sync native menu bar checkmarks and enabled state
+                {
+                    qcview::NativeMenuState menu_state;
+                    NativeMenuGetState(
+                        menu_state.fullscreen, menu_state.show_project, menu_state.show_inspector,
+                        menu_state.show_timeline, menu_state.show_color, menu_state.show_annotations,
+                        menu_state.show_ann_toolbar, menu_state.show_sidebar,
+                        menu_state.can_undo, menu_state.can_redo, menu_state.has_project);
+                    menu_state.has_media = !current_file_path.empty();
+                    qcview::SyncNativeMenuState(menu_state);
+                }
+#endif
 
                 CreateDockingLayout();
 
@@ -613,7 +811,11 @@ void Application::Run() {
 
                 ImGui::Render();
                 int display_w, display_h;
+#ifdef QCVIEW_USE_METAL
+                MacOS_GetFramebufferSize(&display_w, &display_h);
+#else
                 glfwGetFramebufferSize(window, &display_w, &display_h);
+#endif
 
 #ifdef _WIN32
                 // HDR presentation: render to D3D11-backed FBO, present via DXGI
@@ -750,7 +952,48 @@ void Application::Run() {
                     glfwSwapBuffers(window);
                 }
 #else
-#ifdef QCVIEW_USE_VULKAN
+#ifdef QCVIEW_USE_METAL
+                // ============================================================
+                // Metal render path (macOS)
+                // Metal rendering done from .mm helper (ObjC types can't appear in .cpp)
+                // ============================================================
+                {
+                    auto imgui_end = std::chrono::steady_clock::now();
+                    double imgui_ms = std::chrono::duration<double, std::milli>(imgui_end - imgui_start).count();
+                    if (imgui_ms > 10.0) {
+                        Debug::Log("[PHASE] ImGui frame: " + std::to_string(imgui_ms) + "ms");
+                    }
+
+                    extern bool MetalRenderFrame(void* metal_layer, void* command_queue, void* imgui_draw_data);
+                    auto& mgr = qcview::MetalDeviceManager::Instance();
+
+                    if (metal_swapchain_) {
+                        metal_swapchain_->RecreateIfNeeded(window);
+                    }
+
+                    auto metal_t0 = std::chrono::steady_clock::now();
+                    if (!MetalRenderFrame(mgr.GetMetalLayer(), mgr.GetCommandQueue(), ImGui::GetDrawData())) {
+#ifdef QCVIEW_USE_METAL
+                        return;  // Not in a loop — DrawFrame() returns to MTKView
+#else
+                        continue;
+#endif
+                    }
+                    auto metal_t1 = std::chrono::steady_clock::now();
+
+                    qcview::MetalTexturePool::Instance().ProcessPendingDeletions();
+                    qcview::MetalTexturePool::ThumbnailInstance().ProcessPendingDeletions();
+                    auto metal_t2 = std::chrono::steady_clock::now();
+
+                    _loop_end = metal_t2;  // Mark end of frame for gap measurement
+                    double render_ms = std::chrono::duration<double, std::milli>(metal_t1 - metal_t0).count();
+                    double delete_ms = std::chrono::duration<double, std::milli>(metal_t2 - metal_t1).count();
+                    double total_frame = std::chrono::duration<double, std::milli>(metal_t2 - imgui_start).count();
+                    {
+                        (void)total_frame; (void)imgui_ms; (void)render_ms; // FRAME logging disabled
+                    }
+                }
+#elif defined(QCVIEW_USE_VULKAN)
                 // ============================================================
                 // Vulkan render path (Linux)
                 // ============================================================
@@ -914,5 +1157,7 @@ void Application::Run() {
                     }
                 }
             }
-        }
+#ifndef QCVIEW_USE_METAL
+        }  // end while loop (GLFW only)
+#endif
     }

@@ -5,13 +5,16 @@
 #include <memory>
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <condition_variable>
 #include <future>
 #include <map>
 #include <deque>
 #include <functional>
 #include <chrono>
+#include <unordered_map>
 #include <unordered_set>
+#include <atomic>
 
 #include <glad/gl.h>
 #include <half.h>
@@ -153,14 +156,6 @@ public:
     bool operator!=(const AlignedAllocator<U, Alignment>&) const { return false; }
 };
 
-// Pixel data loaded from EXR (CPU-side, background thread safe)
-// Using 64-byte aligned allocation for SIMD/cache line optimization
-struct EXRPixelData {
-    std::vector<half, AlignedAllocator<half, 64>> pixels;  // RGBA half-float (64-byte aligned)
-    int width = 0;
-    int height = 0;
-};
-
 // GL texture (GPU-side, main thread only)
 struct EXRTexture {
     GLuint texture_id = 0;
@@ -182,15 +177,19 @@ public:
     void SetMaxSize(size_t bytes) { maxBytes_ = bytes; }
     size_t GetMaxSize() const { return maxBytes_; }
     size_t GetSize() const { return currentBytes_; }
+    size_t GetCount() const {
+        std::shared_lock<std::shared_mutex> lock(mutex_);
+        return cache_.size();
+    }
     void SetEvictionCallback(EvictionCallback callback) { evictionCallback_ = callback; }
 
     bool Contains(const K& key) const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         return cache_.find(key) != cache_.end();
     }
 
     bool Get(const K& key, V& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             value = it->second;
@@ -201,7 +200,7 @@ public:
     }
 
     bool Get(const K& key, V& value) const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             value = it->second;
@@ -213,7 +212,7 @@ public:
 
     // Peek without updating LRU (for playback - don't keep old frames fresh)
     bool Peek(const K& key, V& value) const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             value = it->second;
@@ -223,78 +222,98 @@ public:
     }
 
     void Add(const K& key, const V& value, size_t bytes) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // Collect evicted entries, fire callbacks OUTSIDE the lock
+        // to prevent priority inversion (eviction callback may acquire other mutexes)
+        std::vector<std::pair<K, V>> evicted;
 
-        // Remove old entry
-        auto it = cache_.find(key);
-        if (it != cache_.end()) {
-            currentBytes_ -= sizes_[key];
-            cache_.erase(it);
-            sizes_.erase(key);
-        }
+        {
+            std::unique_lock<std::shared_mutex> lock(mutex_);
 
-        // Add new
-        cache_[key] = value;
-        sizes_[key] = bytes;
-        currentBytes_ += bytes;
-        Touch(key);
-
-        // Evict if needed
-        while (currentBytes_ > maxBytes_ && !lruList_.empty()) {
-            K oldest = lruList_.front();
-            lruList_.pop_front();
-
-            // Call eviction callback BEFORE erasing (so callback can access the value)
-            if (evictionCallback_) {
-                auto it = cache_.find(oldest);
-                if (it != cache_.end()) {
-                    evictionCallback_(oldest, it->second);
-                }
+            // Remove old entry
+            auto it = cache_.find(key);
+            if (it != cache_.end()) {
+                currentBytes_ -= sizes_[key];
+                cache_.erase(it);
+                sizes_.erase(key);
             }
 
-            currentBytes_ -= sizes_[oldest];
-            cache_.erase(oldest);
-            sizes_.erase(oldest);
+            // Add new
+            cache_[key] = value;
+            sizes_[key] = bytes;
+            currentBytes_ += bytes;
+            Touch(key);
+
+            // Evict if needed — collect evicted entries
+            while (currentBytes_ > maxBytes_ && !lruList_.empty()) {
+                K oldest = lruList_.front();
+                lruList_.pop_front();
+                iterMap_.erase(oldest);
+
+                auto eit = cache_.find(oldest);
+                if (eit != cache_.end()) {
+                    evicted.emplace_back(oldest, eit->second);
+                }
+
+                currentBytes_ -= sizes_[oldest];
+                cache_.erase(oldest);
+                sizes_.erase(oldest);
+            }
+        } // mutex_ released
+
+        // Fire eviction callbacks outside the lock
+        if (evictionCallback_) {
+            for (auto& [k, v] : evicted) {
+                evictionCallback_(k, v);
+            }
         }
     }
 
     void Clear() {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(mutex_);
         cache_.clear();
         sizes_.clear();
         lruList_.clear();
+        iterMap_.clear();
         currentBytes_ = 0;
     }
 
     // Remove without returning the value (for eviction without texture deletion callback)
     void Remove(const K& key) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             currentBytes_ -= sizes_[key];
             cache_.erase(it);
             sizes_.erase(key);
-            lruList_.remove(key);
+            auto iit = iterMap_.find(key);
+            if (iit != iterMap_.end()) {
+                lruList_.erase(iit->second);
+                iterMap_.erase(iit);
+            }
         }
     }
 
     // Remove and return the value (so caller can extract GL texture ID for deletion)
     bool RemoveAndGet(const K& key, V& value) {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::shared_mutex> lock(mutex_);
         auto it = cache_.find(key);
         if (it != cache_.end()) {
             value = it->second;
             currentBytes_ -= sizes_[key];
             cache_.erase(it);
             sizes_.erase(key);
-            lruList_.remove(key);
+            auto iit = iterMap_.find(key);
+            if (iit != iterMap_.end()) {
+                lruList_.erase(iit->second);
+                iterMap_.erase(iit);
+            }
             return true;
         }
         return false;
     }
 
     std::vector<K> GetKeys() const {
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::shared_lock<std::shared_mutex> lock(mutex_);
         std::vector<K> keys;
         for (const auto& p : cache_) keys.push_back(p.first);
         return keys;
@@ -302,14 +321,19 @@ public:
 
 private:
     void Touch(const K& key) {
-        lruList_.remove(key);
+        auto it = iterMap_.find(key);
+        if (it != iterMap_.end()) {
+            lruList_.erase(it->second);
+        }
         lruList_.push_back(key);
+        iterMap_[key] = std::prev(lruList_.end());
     }
 
-    mutable std::mutex mutex_;
+    mutable std::shared_mutex mutex_;
     std::map<K, V> cache_;
     std::map<K, size_t> sizes_;
     std::list<K> lruList_;
+    std::unordered_map<K, typename std::list<K>::iterator> iterMap_;  // O(1) Touch/Remove
     size_t maxBytes_ = 0;
     size_t currentBytes_ = 0;
     EvictionCallback evictionCallback_;
@@ -427,6 +451,7 @@ public:
 
     Stats GetStats() const;
     std::vector<CacheSegment> GetCacheSegments() const;
+    void RebuildCacheSegments(const std::vector<int>& sorted_keys);
 
     // Compatibility methods
     bool GetFrameDimensions(int& width, int& height) const;
@@ -465,12 +490,24 @@ private:
 
     std::thread ioWorkerThread_;
     std::atomic<bool> ioRunning_{false};
-    std::mutex mutex_;
-    std::condition_variable cv_;
+    std::mutex mutex_;                                 // Init/Shutdown only (rare paths)
+    std::condition_variable cv_;                       // Legacy — used to wake CacheThread from seeks
 
-    std::deque<int> videoRequests_;                    // Pending frames to load
-    std::map<int, EXRRequest> requestsInProgress_;     // Currently loading
-    bool needsFillReset_ = false;                      // Flag to reset fill counters on next cache update
+    // I/O dispatch — separate from CacheThread to avoid contention
+    std::mutex io_mutex_;                              // Protects videoRequests_ + requestsInProgress_
+    std::condition_variable io_cv_;                    // Wakes IOWorkerThread
+
+    // CacheThread sleep — separate from I/O to avoid contention
+    std::mutex cache_sleep_mutex_;
+    std::condition_variable cache_cv_;
+
+    std::deque<int> videoRequests_;                    // Pending frames to load (guarded by io_mutex_)
+    std::map<int, EXRRequest> requestsInProgress_;     // Currently loading (guarded by io_mutex_)
+    std::atomic<bool> needsFillReset_{false};          // Flag to reset fill counters on next cache update
+
+    // Atomic cached counts for lock-free GetStats() (updated by I/O thread)
+    std::atomic<int> cached_pending_count_{0};
+    std::atomic<int> cached_in_progress_count_{0};
 
     //=========================================================================
     // GL Texture Management (main thread only)
@@ -479,6 +516,44 @@ private:
     std::vector<GLuint> texturesToDelete_;  // GL textures marked for deletion (deleted on main thread)
     mutable std::mutex textureMutex_;  // mutable for const HasPendingTextureDeletions()
 
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    //=========================================================================
+    // GPU Upload Thread (Metal/Vulkan only)
+    // Creates GPU textures from cached pixel data off the main thread.
+    //=========================================================================
+
+    void GPUUploadThread();
+
+    std::thread gpu_upload_thread_;
+    std::atomic<bool> gpu_upload_running_{false};
+    std::condition_variable gpu_upload_cv_;
+    std::mutex gpu_upload_mutex_;
+
+    // Upload queue: I/O thread pushes completed pixels here, GPU thread pops.
+    // Separate from pixelCache_ to eliminate shared_mutex contention.
+    struct GPUUploadItem {
+        int frame;
+        std::shared_ptr<PixelData> pixels;
+        uint64_t generation;
+    };
+    std::deque<GPUUploadItem> gpu_upload_queue_;
+    std::mutex gpu_upload_queue_mutex_;  // Lightweight, only protects the queue
+
+    // Pre-created GPU textures: frame → {pool_id, width, height}
+    struct GPUReadyEntry {
+        uint64_t pool_id;
+        int width;
+        int height;
+    };
+    std::unordered_map<int, GPUReadyEntry> gpu_texture_ready_;
+    mutable std::shared_mutex gpu_texture_mutex_;
+
+    // Clean up GPU texture for a specific frame
+    void EvictGPUTexture(int frame);
+    // Clean up all GPU textures
+    void ClearGPUTextures();
+#endif
+
     //=========================================================================
     // Universal Image Loading (replaces EXR-only loading)
     //=========================================================================
@@ -486,8 +561,8 @@ private:
     // NEW: Universal loader (runtime polymorphism)
     std::shared_ptr<PixelData> LoadPixels(const std::string& path);
 
-    // LEGACY: EXR-specific loading (preserved for backward compatibility)
-    std::shared_ptr<EXRPixelData> LoadEXRPixels(const std::string& path, const std::string& layer);
+    // EXR-specific loading (writes directly into PixelData — zero copy)
+    std::shared_ptr<PixelData> LoadEXRPixels(const std::string& path, const std::string& layer);
 
     // GL texture creation (now handles multiple formats via PixelData)
     GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
@@ -525,11 +600,11 @@ private:
     const size_t MAX_GL_TEXTURE_CACHE = 16;  // Max number of resident GL textures
 
     // Track playback state for cache direction
-    double lastCacheUpdateTime_ = 0.0;
-    int lastCacheUpdateFrame_ = -1;
-    int previousFrame_ = -1;  // Track previous frame to detect direction
+    std::atomic<double> lastCacheUpdateTime_{0.0};
+    std::atomic<int> lastCacheUpdateFrame_{-1};
+    std::atomic<int> previousFrame_{-1};  // Track previous frame to detect direction
     CacheDirection cacheDirection_ = CacheDirection::Forward;
-    bool isPlaying_ = false;
+    std::atomic<bool> isPlaying_{false};
     bool is_looping_ = true;  // Wrap-around caching always enabled for seamless looping
 
     // Loop range for In/Out point constrained playback
@@ -547,8 +622,6 @@ private:
     std::atomic<bool> last_was_sync_load_{false}; // True if last GetFrameOrLoad required sync load
     static constexpr int OVERRUN_THRESHOLD = 1;   // Activate overrun on first miss (immediate)
     std::atomic<uint64_t> request_generation_{0}; // Incremented on seek - stale results discarded
-
-    std::atomic<int> frames_ahead_count_{0};          // How many frames are cached ahead of playhead
 
     // Frames that failed to load — never retry (gap/broken sentinel already cached)
     std::unordered_set<int> failed_frames_;

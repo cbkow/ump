@@ -4,6 +4,7 @@
 
 #include "app/application.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "project/project_manager.h"
 #include "utils/debug_utils.h"
 #include "timeline/timeline_view.h"
@@ -11,13 +12,23 @@
 #include "player/video_player.h"
 #include <imgui.h>
 #include <imgui_internal.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 
 #ifdef QCVIEW_USE_VULKAN
 #include "gpu/vulkan_texture_pool.h"
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
     if (id == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
 }
 #else
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
@@ -39,6 +50,39 @@ extern bool show_delete_prefs_confirm;
 
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
 
+#ifdef QCVIEW_USE_METAL
+        // macOS native fullscreen: stay in the dockspace (don't use the separate
+        // "Fullscreen Player" window). The dockspace already hides panels when
+        // is_fullscreen is true (line ~344), so the viewport expands to fill.
+        // This avoids swapping between two different ImGui windows during the
+        // macOS fullscreen animation, which caused visual pops.
+        {
+            bool was_fullscreen = is_fullscreen;
+            is_fullscreen = MacOS_IsNativeFullscreen();
+            if (is_fullscreen != was_fullscreen) {
+                if (!is_fullscreen) {
+                    // Exiting fullscreen — restore panel visibility now that animation is complete.
+                    // Panels were hidden in ToggleFullscreen() and stay hidden during the exit
+                    // animation to prevent the timeline background from showing during zoom-out.
+                    show_project_panel = saved_show_project_panel;
+                    show_inspector_panel = saved_show_inspector_panel;
+                    show_color_panels = saved_show_color_panels;
+                    show_annotation_panel = saved_show_annotation_panel;
+                    show_annotation_toolbar = saved_show_annotation_toolbar;
+                    show_sidebar_panel = saved_show_sidebar_panel;
+                    show_timeline_panel = saved_show_timeline_panel;
+                    show_transport_controls = saved_show_transport_controls;
+                    if (annotation_toolbar) annotation_toolbar->SetVisible(saved_show_annotation_toolbar);
+                }
+                first_time_setup = true;
+            }
+        }
+        // Fall through to the dockspace path below — skip the "Fullscreen Player" window
+#else
+        // Windows/Linux: use the dedicated "Fullscreen Player" window (instant GLFW toggle)
+#endif
+
+#ifndef QCVIEW_USE_METAL
         if (is_fullscreen) {
             // Fullscreen ImGui window - use full monitor/window size (no decorations)
 #ifdef _WIN32
@@ -49,6 +93,9 @@ extern bool show_delete_prefs_confirm;
             glfwGetMonitorPos(monitor, &mon_x, &mon_y);
             ImGui::SetNextWindowPos(ImVec2((float)mon_x, (float)mon_y));
             ImGui::SetNextWindowSize(ImVec2((float)mode->width, (float)mode->height));
+#elif defined(QCVIEW_USE_METAL)
+            ImGui::SetNextWindowPos(viewport->WorkPos);
+            ImGui::SetNextWindowSize(viewport->WorkSize);
 #else
             // Linux/Wayland: use framebuffer size divided by content scale to get
             // logical coordinates that match ImGui's coordinate space.
@@ -138,7 +185,7 @@ extern bool show_delete_prefs_confirm;
                     draw_list->AddLine(
                         ImVec2(split_x, canvas_pos.y),
                         ImVec2(split_x, canvas_pos.y + canvas_size.y),
-                        IM_COL32(255, 255, 255, 180), 2.0f
+                        IM_COL32(255, 255, 255, 180), S(2.0f)
                     );
                 } else {
                     // SIDE-BY-SIDE MODE in fullscreen
@@ -148,7 +195,7 @@ extern bool show_delete_prefs_confirm;
                     if (cached_dual_view_textures.left_texture != 0) {
                         int left_w = cached_dual_view_textures.left_width;
                         int left_h = cached_dual_view_textures.left_height;
-                        ImVec2 left_fit = calculate_fit_size(left_w, left_h, half_width - 2, canvas_size.y);
+                        ImVec2 left_fit = calculate_fit_size(left_w, left_h, half_width - S(2), canvas_size.y);
                         ImVec2 left_pos = ImVec2(
                             canvas_pos.x + (half_width - left_fit.x) * 0.5f,
                             canvas_pos.y + (canvas_size.y - left_fit.y) * 0.5f
@@ -164,7 +211,7 @@ extern bool show_delete_prefs_confirm;
                     if (cached_dual_view_textures.right_texture != 0) {
                         int right_w = cached_dual_view_textures.right_width;
                         int right_h = cached_dual_view_textures.right_height;
-                        ImVec2 right_fit = calculate_fit_size(right_w, right_h, half_width - 2, canvas_size.y);
+                        ImVec2 right_fit = calculate_fit_size(right_w, right_h, half_width - S(2), canvas_size.y);
                         ImVec2 right_pos = ImVec2(
                             canvas_pos.x + half_width + (half_width - right_fit.x) * 0.5f,
                             canvas_pos.y + (canvas_size.y - right_fit.y) * 0.5f
@@ -181,7 +228,7 @@ extern bool show_delete_prefs_confirm;
                     draw_list->AddLine(
                         ImVec2(mid_x, canvas_pos.y),
                         ImVec2(mid_x, canvas_pos.y + canvas_size.y),
-                        IM_COL32(80, 80, 80, 255), 2.0f
+                        IM_COL32(80, 80, 80, 255), S(2.0f)
                     );
                 }
             } else if (video_player) {
@@ -192,13 +239,21 @@ extern bool show_delete_prefs_confirm;
             ImGui::End();
             return;
         }
+#endif // !QCVIEW_USE_METAL
 
-        // Normal windowed mode
+        // Normal windowed/dockspace mode (also used for Metal fullscreen)
         ImGui::SetNextWindowPos(viewport->WorkPos);
         ImGui::SetNextWindowSize(viewport->WorkSize);
         ImGui::SetNextWindowViewport(viewport->ID);
 
-        ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDocking;
+        // Hide menu bar during fullscreen and transitions (same condition as borders)
+        bool hide_menu = is_fullscreen
+            || (!show_timeline_panel && !show_sidebar_panel && !show_project_panel && !show_inspector_panel)
+            || MacOS_IsFullscreenAnimating();
+        if (!hide_menu) {
+            window_flags |= ImGuiWindowFlags_MenuBar;
+        }
         window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
         window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
 
@@ -211,10 +266,29 @@ extern bool show_delete_prefs_confirm;
         ImGui::PopStyleVar(3);
 
         ImGuiID dockspace_id = ImGui::GetID("MainDockspace");
+        // Hide all visual borders/separators when panels are hidden (fullscreen or transitioning).
+        // During enter animation, is_fullscreen is still false but panels are already hidden.
+        // Also hide during the macOS fullscreen exit animation to mask the rebuild frame.
+        bool hide_borders = is_fullscreen
+            || (!show_timeline_panel && !show_sidebar_panel && !show_project_panel && !show_inspector_panel)
+            || MacOS_IsFullscreenAnimating();
+        if (hide_borders) {
+            ImGui::PushStyleVar(ImGuiStyleVar_DockingSeparatorSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+            ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 0.0f);
+            // Match all backgrounds to video background so nothing peeks through
+            ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(27, 27, 27, 255));
+            ImGui::PushStyleColor(ImGuiCol_WindowBg, IM_COL32(27, 27, 27, 255));
+            ImGui::PushStyleColor(ImGuiCol_DockingEmptyBg, IM_COL32(27, 27, 27, 255));
+        }
         ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f),
             ImGuiDockNodeFlags_NoTabBar |
             ImGuiDockNodeFlags_NoUndocking |
             ImGuiDockNodeFlags_NoDockingSplit);
+        if (hide_borders) {
+            ImGui::PopStyleColor(3);
+            ImGui::PopStyleVar(3);
+        }
 
         if (first_time_setup) {
 
@@ -222,16 +296,7 @@ extern bool show_delete_prefs_confirm;
             ImGui::DockBuilderAddNode(dockspace_id, ImGuiDockNodeFlags_DockSpace);
             ImGui::DockBuilderSetNodeSize(dockspace_id, ImGui::GetMainViewport()->Size);
 
-            // Calculate sidebar width based on UI scale
-            const float ui_scale = ImGui::GetIO().FontGlobalScale;
-            const float sidebar_width = (28.0f * ui_scale) + 12.0f + 4.0f;  // button + padding + border
-            const float sidebar_ratio = sidebar_width / ImGui::GetMainViewport()->Size.x;
-
-            // Split sidebar on far left (if shown)
-            ImGuiID dock_id_sidebar = 0;
-            if (show_sidebar_panel) {
-                dock_id_sidebar = ImGui::DockBuilderSplitNode(dockspace_id, ImGuiDir_Left, sidebar_ratio, nullptr, &dockspace_id);
-            }
+            // Sidebar removed — panel toggles are now in the menu bar toolbar
 
             if (show_color_panels) {
                 // COLOR VIEW: Color panel at very bottom, video/timeline above it
@@ -254,7 +319,7 @@ extern bool show_delete_prefs_confirm;
                     auto dock_id_playlist = dock_id_right;
 
                     // Dock windows
-                    if (show_sidebar_panel) ImGui::DockBuilderDockWindow("Sidebar", dock_id_sidebar);
+
                     ImGui::DockBuilderDockWindow("Project", dock_id_project);
                     ImGui::DockBuilderDockWindow("Inspector", dock_id_inspector);
                     ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
@@ -274,7 +339,7 @@ extern bool show_delete_prefs_confirm;
                     auto dock_id_playlist = dock_id_right;
 
                     // Dock windows
-                    if (show_sidebar_panel) ImGui::DockBuilderDockWindow("Sidebar", dock_id_sidebar);
+
                     ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
                     ImGui::DockBuilderDockWindow("Annotations", dock_id_annotations);
                     ImGui::DockBuilderDockWindow("Playlist", dock_id_playlist);
@@ -298,7 +363,6 @@ extern bool show_delete_prefs_confirm;
                 auto dock_id_playlist = dock_id_right;
 
                 // Dock windows
-                if (show_sidebar_panel) ImGui::DockBuilderDockWindow("Sidebar", dock_id_sidebar);
                 ImGui::DockBuilderDockWindow("Project", dock_id_project);
                 ImGui::DockBuilderDockWindow("Inspector", dock_id_inspector);
                 ImGui::DockBuilderDockWindow("Video Viewport", dock_id_video);
@@ -310,32 +374,41 @@ extern bool show_delete_prefs_confirm;
             first_time_setup = false;
         }
 
-        // Hide menu bar during export for clean screenshots
-        if (!export_state.active) {
+        // Hide menu bar during export and fullscreen transitions
+        if (!export_state.active && !hide_menu) {
             CreateMenuBar();
         }
         ImGui::End();
 
-        // Render panels based on visibility
+        // Render panels based on visibility — with per-panel timing during playback
+        auto _pp0 = std::chrono::steady_clock::now();
         CreateVideoViewport();  // Timeline now renders inside viewport
+        auto _pp1 = std::chrono::steady_clock::now();
         if (!is_fullscreen) {
             if (show_project_panel) CreateProjectPanel();
             if (show_inspector_panel) CreateInspectorPanel();
             if (show_annotation_panel) CreateAnnotationPanel();
-            CreateAnnotationToolbar(); // Always try to render toolbar (it handles visibility internally)
+            CreateAnnotationToolbar();
             if (show_color_panels) CreateColorPanels();
-            CreateCacheStatsWindow(); // Add cache monitoring window
-            CreateAudioDiagnosticsWindow(); // Add audio monitoring window (Ctrl+Shift+A)
-            CreateCacheSettingsWindow(); // Add cache settings popup
-            CreateFontSettingsWindow(); // Add font settings popup
-            CreateKeyboardShortcutsPopup(); // Add keyboard shortcuts popup
-            CreateLutExportPopup(); // Add LUT export progress popup
+            CreateCacheStatsWindow();
+            CreateAudioDiagnosticsWindow();
+            CreateCacheSettingsWindow();
+            CreateFontSettingsWindow();
+            CreateKeyboardShortcutsPopup();
+            CreateLutExportPopup();
+        }
+        auto _pp2 = std::chrono::steady_clock::now();
+        {
+            (void)_pp0; (void)_pp1; (void)_pp2; // PANELS logging disabled
         }
         RenderBackgroundSelectionPanel(video_background_type, show_background_panel);
         RenderSafetyOverlayPanel(show_safety_overlay_panel);
         RenderColorspacePresetsPanel(show_colorspace_panel);
         RenderTrimToolbarPanel();  // Trim toolbar overlay for dual view modes
-        RenderSidebarPanel();  // Left sidebar with panel toggles and HDR indicator
+        if (!is_fullscreen) {
+            // Sidebar panel replaced by toolbar buttons in menu bar
+            // RenderSidebarPanel();
+        }
 
         // Handle project manager dialogs (including image sequence frame rate dialog)
         if (project_manager) {
@@ -379,13 +452,13 @@ extern bool show_delete_prefs_confirm;
             );
 
             // Modal box
-            const float modal_width = 320.0f;
-            const float modal_height = 80.0f;
+            const float modal_width = S(320.0f);
+            const float modal_height = S(80.0f);
             ImVec2 modal_pos = ImVec2(center.x - modal_width * 0.5f, center.y - modal_height * 0.5f);
             ImVec2 modal_end = ImVec2(modal_pos.x + modal_width, modal_pos.y + modal_height);
 
-            draw_list->AddRectFilled(modal_pos, modal_end, IM_COL32(33, 33, 33, 240), 4.0f);
-            draw_list->AddRect(modal_pos, modal_end, IM_COL32(77, 77, 89, 255), 4.0f, 0, 1.0f);
+            draw_list->AddRectFilled(modal_pos, modal_end, IM_COL32(33, 33, 33, 240), S(4.0f));
+            draw_list->AddRect(modal_pos, modal_end, IM_COL32(77, 77, 89, 255), S(4.0f), 0, S(1.0f));
 
             // Message
             const char* msg = loading_message_.empty() ? "Loading..." : loading_message_.c_str();
@@ -409,7 +482,7 @@ extern bool show_delete_prefs_confirm;
             ImGui::Separator();
             ImGui::Spacing();
 
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float okW = ImGui::CalcTextSize("OK").x + btnPadding;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
             PushOutlineButtonStyle();
@@ -429,7 +502,7 @@ extern bool show_delete_prefs_confirm;
             ImGui::Separator();
             ImGui::Spacing();
 
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float okW = ImGui::CalcTextSize("OK").x + btnPadding;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
             PushOutlineButtonStyle();
@@ -455,14 +528,14 @@ extern bool show_delete_prefs_confirm;
             ImGui::Spacing();
 
             PushOutlineButtonStyle();
-            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+            if (ImGui::Button("Cancel", ImVec2(S(120), 0))) {
                 ImGui::CloseCurrentPopup();
             }
             PopOutlineButtonStyle();
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
-            if (ImGui::Button("Delete All", ImVec2(120, 0))) {
+            if (ImGui::Button("Delete All", ImVec2(S(120), 0))) {
                 ImGui::CloseCurrentPopup();
                 DeleteAllPreferences();
             }
@@ -478,7 +551,7 @@ extern bool show_delete_prefs_confirm;
             ImGui::Separator();
             ImGui::Spacing();
 
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float okW = ImGui::CalcTextSize("OK").x + btnPadding;
             ImGui::SetCursorPosX((ImGui::GetWindowContentRegionMax().x - okW) * 0.5f);
             PushOutlineButtonStyle();

@@ -12,6 +12,9 @@
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
 #include "utils/single_instance.h"
 #endif
+#ifdef __APPLE__
+#include "utils/macos_single_instance.h"
+#endif
 #include "timeline/timeline_view.h"
 #include "timeline/timeline_playback_controller.h"
 #include "annotations/annotation_manager.h"
@@ -21,7 +24,11 @@
 #include "ui/timeline_manager.h"
 #include "player/video_player.h"
 #include <imgui.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 #include <nfd.h>
 #include <string>
 #include <vector>
@@ -41,6 +48,10 @@
 #include <GLFW/glfw3native.h>
 #endif
 
+#ifdef __APPLE__
+#include "app/macos_menu_bar.h"
+#endif
+
 // Globals defined in main.cpp
 extern ImFont* font_regular;
 extern ImFont* font_icons;
@@ -53,7 +64,21 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     // ------------------------------------------------------------------------
     // FILE OPERATIONS
     // ------------------------------------------------------------------------
+    // Clear stale key state after modal dialogs (NFD runModal consumes key-up events,
+    // leaving ImGui thinking keys are still pressed → shortcuts re-trigger on next frame)
+    static void ClearImGuiKeyState() {
+        ImGui::GetIO().ClearInputKeys();
+    }
+
+    // Global NFD dialog guard (shared with project_manager.cpp)
+    extern bool g_nfd_dialog_open;
+
     void Application::OpenFileDialog() {
+        // Re-entry guard: native macOS menu (NSMenu Cmd+O) and ImGui keyboard shortcut
+        // handler can both fire for the same key combo, causing two dialogs
+        if (g_nfd_dialog_open) return;
+        g_nfd_dialog_open = true;
+
         const nfdpathset_t* outPaths = nullptr;
 
         // Supported formats: Video (MP4/AVI/MKV/MOV/etc), Audio (WAV/MP3/etc), Images (JPEG/PNG/TIFF/EXR)
@@ -134,6 +159,11 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             Debug::Log("OpenFileDialog: Failed after " + std::to_string(max_attempts) + " attempts");
             std::cerr << "Error opening file dialog: " << NFD_GetError() << std::endl;
         }
+
+        // Clear stale key state — modal dialog consumed key-up events
+        ClearImGuiKeyState();
+
+        g_nfd_dialog_open = false;
     }
 
     void Application::TriggerAutoPlay(qcview::MediaType media_type) {
@@ -167,6 +197,10 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         if (recent_files.size() > max_recent_files) {
             recent_files.resize(max_recent_files);
         }
+
+#ifdef __APPLE__
+        qcview::UpdateNativeRecentFiles(recent_files);
+#endif
     }
 
     // ------------------------------------------------------------------------
@@ -200,6 +234,12 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         }
 
         ResetTimecodeStateForNewVideo();
+
+        // Add to recent files (skip virtual paths like edl://)
+        if (new_file_path.find("://") == std::string::npos &&
+            std::filesystem::exists(new_file_path)) {
+            AddToRecentFiles(new_file_path);
+        }
 
         // Reset trim mode when video changes (unless we're loading a trimmed version)
         if (trim_mode_left && original_video_path_left != new_file_path &&
@@ -395,6 +435,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     }
 
     void Application::ApplyBackgroundColor() {
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
         switch (video_background_type) {
         case VideoBackgroundType::DEFAULT:
             glClearColor(0.08f, 0.08f, 0.08f, 1.0f); // Dark professional background
@@ -409,6 +450,8 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             glClearColor(0.85f, 0.85f, 0.85f, 1.0f); // Light grey for checkerboard base
             break;
         }
+#endif
+        // On Vulkan/Metal, background color is set in the render pass clear color
     }
 
     void Application::ToggleMute() {
@@ -557,7 +600,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
                 if (files.empty()) {
                     // Just raise the window
                     if (window) {
-                        glfwFocusWindow(window);
+                        MacOS_FocusWindow();
                     }
                     return;
                 }
@@ -592,7 +635,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
 
                 // Bring window to front
                 if (window) {
-                    glfwFocusWindow(window);
+                    MacOS_FocusWindow();
                 }
 
                 Debug::Log("SingleInstance: Processed " + std::to_string(files.size()) + " file(s)");
@@ -601,19 +644,114 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
     }
 #endif
 
+#ifdef __APPLE__
+    void Application::SetMacOSSingleInstance(qcview::MacOSSingleInstance* si) {
+        macos_single_instance_ = si;
+        if (macos_single_instance_) {
+            // Register Apple Event handler now that GLFW/NSApplication is initialized
+            macos_single_instance_->RegisterEventHandler();
+
+            macos_single_instance_->SetFileCallback([this](const std::vector<std::string>& files) {
+                if (files.empty()) {
+                    // Just raise the window
+                    if (window) {
+                        MacOS_FocusWindow();
+                    }
+                    return;
+                }
+
+                if (!project_manager) return;
+
+                if (files.size() == 1) {
+                    const std::string& arg = files[0];
+
+                    // qcview:// URI
+                    if (arg.substr(0, 10) == "qcview:///") {
+                        std::string project_path = ParseProjectURI(arg);
+                        if (!project_path.empty()) {
+                            project_manager->LoadProject(project_path);
+                            show_project_panel = true;
+                            show_inspector_panel = true;
+                        }
+                    }
+                    // Project file
+                    else if (arg.find(".qcvproj") != std::string::npos ||
+                             arg.find(".umproj") != std::string::npos) {
+                        project_manager->LoadProject(arg);
+                    }
+                    // Regular media file
+                    else {
+                        project_manager->LoadSingleFileFromDrop(arg);
+                    }
+                } else {
+                    show_project_panel = true;
+                    project_manager->LoadMultipleFilesFromDrop(files);
+                }
+
+                // Bring window to front
+                if (window) {
+                    MacOS_FocusWindow();
+                }
+
+                Debug::Log("MacOSSingleInstance: Processed " + std::to_string(files.size()) + " file(s)");
+            });
+        }
+    }
+#endif
+
     void Application::ToggleFullscreen() {
         static int saved_x, saved_y, saved_width, saved_height;
 
+#ifdef QCVIEW_USE_METAL
+        // macOS native fullscreen: just call toggleFullScreen and let the
+        // NSWindowDelegate callbacks manage the is_fullscreen state.
+        // Don't set is_fullscreen here — it's synced from MacOS_IsNativeFullscreen()
+        // in the render loop AFTER the animation completes. This prevents the
+        // docking layout from rebuilding 40+ times during the 0.7s animation.
+        if (MacOS_IsFullscreenAnimating()) return;  // Ignore if mid-animation
+
+        if (!MacOS_IsNativeFullscreen()) {
+            Debug::Log("Entering fullscreen — hiding panels");
+            MacOS_GetWindowPos(&saved_x, &saved_y);
+            MacOS_GetWindowSize(&saved_width, &saved_height);
+
+            // Save panel states before hiding
+            saved_show_project_panel = show_project_panel;
+            saved_show_inspector_panel = show_inspector_panel;
+            saved_show_color_panels = show_color_panels;
+            saved_show_annotation_panel = show_annotation_panel;
+            saved_show_annotation_toolbar = show_annotation_toolbar;
+            saved_show_sidebar_panel = show_sidebar_panel;
+            saved_show_timeline_panel = show_timeline_panel;
+            saved_show_transport_controls = show_transport_controls;
+
+            // Hide all panels — viewport expands to fill
+            show_project_panel = false;
+            show_inspector_panel = false;
+            show_color_panels = false;
+            show_annotation_panel = false;
+            show_annotation_toolbar = false;
+            show_sidebar_panel = false;
+            show_timeline_panel = false;
+            show_transport_controls = false;
+            if (annotation_toolbar) annotation_toolbar->SetVisible(false);
+            first_time_setup = true;  // Rebuild dockspace immediately (no empty panel slots during animation)
+        } else {
+            Debug::Log("Exiting fullscreen");
+            // Don't restore panels here — they stay hidden during the exit animation.
+            // CreateDockingLayout() restores them when windowDidExitFullScreen fires
+            // (is_fullscreen changes from true to false), so the darker timeline
+            // background doesn't show during the zoom-out.
+        }
+        MacOS_ToggleNativeFullscreen();
+#else
         is_fullscreen = !is_fullscreen;
 
         if (is_fullscreen) {
             Debug::Log("Entering fullscreen");
-
-            // Save current window state
             glfwGetWindowPos(window, &saved_x, &saved_y);
             glfwGetWindowSize(window, &saved_width, &saved_height);
 
-            // Find the monitor the window is currently on
             int win_cx = saved_x + saved_width / 2;
             int win_cy = saved_y + saved_height / 2;
             int monitor_count = 0;
@@ -630,38 +768,30 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             fullscreen_monitor = best_monitor;
 
 #ifdef _WIN32
-            // Windows: borderless fullscreen (remove decorations, cover monitor)
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_FALSE);
-
             int mon_x, mon_y;
             glfwGetMonitorPos(fullscreen_monitor, &mon_x, &mon_y);
             const GLFWvidmode* mode = glfwGetVideoMode(fullscreen_monitor);
             glfwSetWindowPos(window, mon_x, mon_y);
             glfwSetWindowSize(window, mode->width, mode->height);
 #else
-            // Linux/Wayland: use glfwSetWindowMonitor for proper fullscreen
-            // This handles compositor decorations and DPI scaling correctly
             const GLFWvidmode* mode = glfwGetVideoMode(fullscreen_monitor);
             glfwSetWindowMonitor(window, fullscreen_monitor, 0, 0,
                                  mode->width, mode->height, mode->refreshRate);
 #endif
 
 #ifdef QCVIEW_USE_VULKAN
-            // Swapchain must match the new framebuffer size
             vulkan_swapchain_->Recreate();
 #endif
-        }
-        else {
+        } else {
             Debug::Log("Exiting fullscreen");
             fullscreen_monitor = nullptr;
 
 #ifdef _WIN32
-            // Windows: restore decorations and position
             glfwSetWindowAttrib(window, GLFW_DECORATED, GLFW_TRUE);
             glfwSetWindowSize(window, saved_width > 0 ? saved_width : 1914, saved_height > 0 ? saved_height : 1060);
             glfwSetWindowPos(window, saved_x, saved_y);
 #else
-            // Linux/Wayland: exit fullscreen by setting monitor to nullptr
             glfwSetWindowMonitor(window, nullptr, saved_x, saved_y,
                                  saved_width > 0 ? saved_width : 1914,
                                  saved_height > 0 ? saved_height : 1060, 0);
@@ -671,6 +801,7 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
             vulkan_swapchain_->Recreate();
 #endif
         }
+#endif // QCVIEW_USE_METAL
     }
 
 // RecreateVulkanSwapchain is now handled by VulkanHDRSwapchain::Recreate()
@@ -694,6 +825,10 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
 
             Debug::Log("Copied to clipboard: " + text);
         }
+#elif defined(QCVIEW_USE_METAL)
+        // macOS native clipboard — ImGui_ImplOSX handles clipboard via NSPasteboard
+        ImGui::SetClipboardText(text.c_str());
+        Debug::Log("Copied to clipboard: " + text);
 #else
         if (window) {
             glfwSetClipboardString(window, text.c_str());
@@ -712,6 +847,12 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
         std::wstring wide_path(windows_path.begin(), windows_path.end());
         std::wstring params = L"/select,\"" + wide_path + L"\"";
         ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+        // macOS: 'open -R' reveals (selects) the file in Finder
+        std::thread([file_path]() {
+            std::string cmd = "open -R \"" + file_path + "\"";
+            system(cmd.c_str());
+        }).detach();
 #else
         // Linux: open parent directory (xdg-open can't select a specific file)
         std::filesystem::path fs_path(file_path);

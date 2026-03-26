@@ -22,6 +22,10 @@
 #include "../gpu/vulkan_texture_pool.h"
 #include "../gpu/vulkan_dual_compositor.h"
 #include "../gpu/dual_view_layout.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
+#include "../gpu/metal_dual_compositor.h"
+#include "../gpu/dual_view_layout.h"
 #endif
 
 #include <cmath>
@@ -268,10 +272,19 @@ void TimelinePlaybackController::Shutdown() {
     }
 #endif
 
+#ifdef QCVIEW_USE_METAL
+    if (metal_compositor_) {
+        metal_compositor_->Shutdown();
+        metal_compositor_.reset();
+    }
+#endif
+
     // Clear texture
     if (current_texture_ != 0) {
 #ifdef QCVIEW_USE_VULKAN
         qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(current_texture_));
+#elif defined(QCVIEW_USE_METAL)
+        qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(current_texture_));
 #else
         glDeleteTextures(1, &current_texture_);
 #endif
@@ -509,12 +522,13 @@ GLuint TimelinePlaybackController::Update(int& width, int& height) {
     int frame = current_frame_.load();
     bool playing = is_playing_.load();
 
-    // Update cache with current playhead
+    // Update playhead on all backends (CacheServiceThread removed — main thread drives this)
     cache_->UpdatePlayhead(frame, playing);
 
     // Try to get frame from cache
     int tex_width = 0, tex_height = 0;
     bool got_exact_frame = false;
+
     GLuint texture = cache_->GetFrame(frame, tex_width, tex_height, &got_exact_frame);
 
     // Debug: Log cache result during post-edit period
@@ -1402,6 +1416,13 @@ void TimelinePlaybackController::Play() {
         }
         if (cache_) {
             cache_->UpdatePlayhead(current_frame_.load(), true);
+            cache_->SetPlayingOnLoaders(true);
+        }
+        // Dual view: sync right cache on play start (otherwise right side
+        // decoder has stale playhead and disappears on second playback)
+        if (dual_view_mode_ && right_cache_) {
+            right_cache_->UpdatePlayhead(current_frame_.load(), true);
+            right_cache_->SetPlayingOnLoaders(true);
         }
     }
 }
@@ -1449,6 +1470,11 @@ void TimelinePlaybackController::Pause() {
         // Reset DirectEXRCache adaptive speed (IMAGE_SEQUENCE mode)
         if (cache_) {
             cache_->ResetPlaybackSpeed();
+            cache_->SetPlayingOnLoaders(false);
+        }
+        if (dual_view_mode_ && right_cache_) {
+            right_cache_->ResetPlaybackSpeed();
+            right_cache_->SetPlayingOnLoaders(false);
         }
     }
 }
@@ -1695,20 +1721,12 @@ void TimelinePlaybackController::StartRewind() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
-    // Route to appropriate scrub mode based on timeline source mode
+    // FF/RW uses ScrubDecoder via aggressive scrub mode.
+    // Async decoders are paused to give ScrubDecoder exclusive VideoToolbox access.
     if (cache_) {
-        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::VIDEO_FILE;
-
-        if (mode == TimelineSourceMode::DUAL_VIEW) {
-            // Use aggressive scrub mode for dual view
-            cache_->SetAggressiveScrubMode(true);
-            if (right_cache_) {
-                right_cache_->SetAggressiveScrubMode(true);
-            }
-        } else {
-            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            cache_->SetShuttleMode(true, -1);  // -1 = backward
+        cache_->SetAggressiveScrubMode(true);
+        if (right_cache_) {
+            right_cache_->SetAggressiveScrubMode(true);
         }
     }
 
@@ -1729,20 +1747,11 @@ void TimelinePlaybackController::StartFastForward() {
     fast_seek_start_time_ = std::chrono::steady_clock::now();
     last_fast_seek_update_ = fast_seek_start_time_;
 
-    // Route to appropriate scrub mode based on timeline source mode
+    // FF/RW uses ScrubDecoder via aggressive scrub mode.
     if (cache_) {
-        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::VIDEO_FILE;
-
-        if (mode == TimelineSourceMode::DUAL_VIEW) {
-            // Use aggressive scrub mode for dual view
-            cache_->SetAggressiveScrubMode(true);
-            if (right_cache_) {
-                right_cache_->SetAggressiveScrubMode(true);
-            }
-        } else {
-            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            cache_->SetShuttleMode(true, 1);  // 1 = forward
+        cache_->SetAggressiveScrubMode(true);
+        if (right_cache_) {
+            right_cache_->SetAggressiveScrubMode(true);
         }
     }
 
@@ -1755,20 +1764,11 @@ void TimelinePlaybackController::StopFastSeek() {
     is_fast_seeking_ = false;
     fast_seek_speed_ = 1.0;
 
-    // Disable scrub/shuttle mode based on timeline source mode
+    // Disable aggressive scrub mode (triggers SETTLING → decoder repositioned → INACTIVE)
     if (cache_) {
-        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::VIDEO_FILE;
-
-        if (mode == TimelineSourceMode::DUAL_VIEW) {
-            // Disable aggressive scrub mode for dual view
-            cache_->SetAggressiveScrubMode(false);
-            if (right_cache_) {
-                right_cache_->SetAggressiveScrubMode(false);
-            }
-        } else {
-            // Disable normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            cache_->SetShuttleMode(false, 0);
+        cache_->SetAggressiveScrubMode(false);
+        if (right_cache_) {
+            right_cache_->SetAggressiveScrubMode(false);
         }
     }
 
@@ -1780,20 +1780,13 @@ void TimelinePlaybackController::SetScrubMode(bool enabled) {
 
     is_scrubbing_ = enabled;
 
-    // Route to appropriate scrub mode based on timeline source mode
+    // Playhead drag scrub: use ScrubDecoder (synchronous, exact-frame decode).
+    // Don't set shuttle mode — async decoders are paused during scrub to avoid
+    // VideoToolbox/Metal GPU contention with the ScrubDecoder.
     if (cache_) {
-        TimelineSourceMode mode = timeline_view_ ? timeline_view_->GetSourceMode()
-                                                  : TimelineSourceMode::VIDEO_FILE;
-
-        if (mode == TimelineSourceMode::DUAL_VIEW || mode == TimelineSourceMode::PLAYLIST) {
-            // Use aggressive scrub mode for dual view and playlist
-            cache_->SetAggressiveScrubMode(enabled);
-            if (right_cache_) {
-                right_cache_->SetAggressiveScrubMode(enabled);
-            }
-        } else {
-            // Use normal shuttle mode for VIDEO_FILE/IMAGE_SEQUENCE
-            cache_->SetShuttleMode(enabled, 0);  // 0 = no direction preference during scrub
+        cache_->SetAggressiveScrubMode(enabled);
+        if (right_cache_) {
+            right_cache_->SetAggressiveScrubMode(enabled);
         }
     }
 
@@ -2445,6 +2438,100 @@ TimelinePlaybackController::DualViewTextures TimelinePlaybackController::UpdateD
                     result.right_uv_max_y = layout.right_uv.v_max;
 
                     // Set individual dimensions for aspect calculations
+                    result.left_width = layout.left_source_width;
+                    result.left_height = layout.left_source_height;
+                    result.right_width = layout.right_source_width;
+                    result.right_height = layout.right_source_height;
+
+                    return result;
+                }
+            }
+        }
+    }
+#endif
+
+#ifdef QCVIEW_USE_METAL
+    // Metal unified composite pipeline — mirrors D3D11's direct-decoder flow.
+    // D3D11 bypasses GetFrame() entirely: GetSourceCoords → decoder → compositor.
+    // GetFrame() clamps frames and loses gap info, which breaks dual view.
+    {
+        // Lazy-initialize compositor
+        if (!metal_compositor_) {
+            metal_compositor_ = std::make_unique<qcview::MetalDualCompositor>();
+            if (!metal_compositor_->Initialize()) {
+                Debug::Log("TimelinePlaybackController: Failed to initialize MetalDualCompositor");
+                metal_compositor_.reset();
+            }
+        }
+
+        if (metal_compositor_) {
+            // Step 1: Map timeline frame to source frames (mirrors D3D11 lines 2313-2334)
+            // GetSourceCoords preserves gap info — valid=false means no clip at this position.
+            int left_source_frame = -1, right_source_frame = -1;
+            bool left_is_gap = true, right_is_gap = true;
+            std::string left_path, right_path;
+
+            if (cache_) {
+                SourceCoords lc = cache_->GetSourceCoords(frame);
+                if (lc.valid) {
+                    left_source_frame = lc.source_frame;
+                    left_is_gap = false;
+                    left_path = lc.source_path;
+                }
+            }
+            if (right_cache_) {
+                SourceCoords rc = right_cache_->GetSourceCoords(frame);
+                if (rc.valid) {
+                    right_source_frame = rc.source_frame;
+                    right_is_gap = false;
+                    right_path = rc.source_path;
+                }
+            }
+
+            // Step 2: Fetch frames directly from decoders (bypass GetFrame entirely)
+            // This eliminates clamping, last_good_texture_ fallbacks, and gap info loss.
+            uint64_t left_pool = 0, right_pool = 0;
+            int left_w = 0, left_h = 0, right_w = 0, right_h = 0;
+
+            if (!left_is_gap && cache_) {
+                left_pool = cache_->GetFrameAsPoolTextureDirect(
+                    left_source_frame, left_path, left_w, left_h);
+            }
+            if (!right_is_gap && right_cache_) {
+                right_pool = right_cache_->GetFrameAsPoolTextureDirect(
+                    right_source_frame, right_path, right_w, right_h);
+            }
+
+            // Step 3: Composite (compositor handles pool_id=0 as gap via hasLeft/hasRight)
+            if ((left_pool != 0 || right_pool != 0) && (left_w > 0 || right_w > 0)) {
+                int eff_left_w = left_w > 0 ? left_w : right_w;
+                int eff_left_h = left_h > 0 ? left_h : right_h;
+                int eff_right_w = right_w > 0 ? right_w : left_w;
+                int eff_right_h = right_h > 0 ? right_h : left_h;
+
+                qcview::DualViewLayout layout = qcview::ComputeDualViewLayout(
+                    eff_left_w, eff_left_h, eff_right_w, eff_right_h);
+
+                uint64_t composite_id = metal_compositor_->Composite(
+                    left_pool, right_pool,
+                    layout.composite_width, layout.composite_height, layout);
+
+                if (composite_id != 0) {
+                    result.is_unified = true;
+                    result.composite_texture = static_cast<GLuint>(composite_id);
+                    result.composite_width = layout.composite_width;
+                    result.composite_height = layout.composite_height;
+
+                    result.left_uv_min_x = layout.left_uv.u_min;
+                    result.left_uv_max_x = layout.left_uv.u_max;
+                    result.left_uv_min_y = layout.left_uv.v_min;
+                    result.left_uv_max_y = layout.left_uv.v_max;
+
+                    result.right_uv_min_x = layout.right_uv.u_min;
+                    result.right_uv_max_x = layout.right_uv.u_max;
+                    result.right_uv_min_y = layout.right_uv.v_min;
+                    result.right_uv_max_y = layout.right_uv.v_max;
+
                     result.left_width = layout.left_source_width;
                     result.left_height = layout.left_source_height;
                     result.right_width = layout.right_source_width;

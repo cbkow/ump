@@ -68,18 +68,21 @@ public:
     AVBufferRef* GetQSVContext();
     AVBufferRef* GetDXVA2Context();
     AVBufferRef* GetVAAPIContext();
+    AVBufferRef* GetVideoToolboxContext();
 
     int GetCUDAPixelFormat() const { return cuda_pix_fmt_; }
     int GetD3D11VAPixelFormat() const { return d3d11va_pix_fmt_; }
     int GetQSVPixelFormat() const { return qsv_pix_fmt_; }
     int GetDXVA2PixelFormat() const { return dxva2_pix_fmt_; }
     int GetVAAPIPixelFormat() const { return vaapi_pix_fmt_; }
+    int GetVideoToolboxPixelFormat() const { return videotoolbox_pix_fmt_; }
 
     bool HasCUDA() const { return cuda_initialized_.load() && cuda_ctx_ != nullptr; }
     bool HasD3D11VA() const { return d3d11va_initialized_.load() && d3d11va_ctx_ != nullptr; }
     bool HasQSV() const { return qsv_initialized_.load() && qsv_ctx_ != nullptr; }
     bool HasDXVA2() const { return dxva2_initialized_.load() && dxva2_ctx_ != nullptr; }
     bool HasVAAPI() const { return vaapi_initialized_.load() && vaapi_ctx_ != nullptr; }
+    bool HasVideoToolbox() const { return videotoolbox_initialized_.load() && videotoolbox_ctx_ != nullptr; }
 
     //=========================================================================
     // Lifecycle
@@ -98,6 +101,7 @@ private:
     void InitializeQSV();
     void InitializeDXVA2();
     void InitializeVAAPI();
+    void InitializeVideoToolbox();
 
     // CUDA context (NVIDIA NVDEC)
     AVBufferRef* cuda_ctx_ = nullptr;
@@ -128,6 +132,12 @@ private:
     int vaapi_pix_fmt_ = -1;
     std::atomic<bool> vaapi_initialized_{false};
     std::mutex vaapi_mutex_;
+
+    // VideoToolbox context (macOS)
+    AVBufferRef* videotoolbox_ctx_ = nullptr;
+    int videotoolbox_pix_fmt_ = -1;
+    std::atomic<bool> videotoolbox_initialized_{false};
+    std::mutex videotoolbox_mutex_;
 
     // Global shutdown flag
     std::atomic<bool> shutdown_{false};

@@ -5,6 +5,7 @@
 #include "app/timecode.h"
 #include "app/application.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "project/project_manager.h"
 #include "utils/debug_utils.h"
 #include "utils/frame_indexing.h"
@@ -346,7 +347,7 @@ void Application::RenderGotoTimecodeModal() {
     // Center modal on screen
     float scale = ImGui::GetIO().FontGlobalScale;
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(450 * scale, 0), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(S(450), 0), ImGuiCond_Appearing);
 
     // Open modal with darkened background
     if (ImGui::BeginPopupModal("Go To Timecode/Frame", &show_goto_timecode_modal,
@@ -387,6 +388,9 @@ void Application::RenderGotoTimecodeModal() {
 
         bool navigate = false;
 
+        // Focus the first input field when the dialog appears
+        bool focus_first_input = ImGui::IsWindowAppearing();
+
         if (goto_use_frame_input) {
             // FRAME NUMBER INPUT MODE
             if (is_solo_video_tc_mode) {
@@ -396,8 +400,9 @@ void Application::RenderGotoTimecodeModal() {
             }
             ImGui::Spacing();
 
-            ImGui::PushItemWidth(200);
+            ImGui::PushItemWidth(S(200));
 
+            if (focus_first_input) ImGui::SetKeyboardFocusHere();
             // Detect paste in frame input
             bool input_active = ImGui::InputText("##frame_input", goto_frame_buffer,
                 sizeof(goto_frame_buffer),
@@ -432,8 +437,9 @@ void Application::RenderGotoTimecodeModal() {
             }
             ImGui::Spacing();
 
-            ImGui::PushItemWidth(60);
+            ImGui::PushItemWidth(S(60));
 
+            if (focus_first_input) ImGui::SetKeyboardFocusHere();
             // Four separate input fields
             bool hours_changed = ImGui::InputText("##hours", goto_timecode_hours,
                 sizeof(goto_timecode_hours),

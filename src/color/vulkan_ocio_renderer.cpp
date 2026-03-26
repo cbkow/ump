@@ -504,7 +504,9 @@ bool VulkanOCIORenderer::ApplyPassthrough(
 
     vkCmdEndRenderPass(cmd);
 
-    dev.EndSingleTimeCommands(cmd);
+    // Fire-and-forget: GPU serialization on the same queue guarantees this
+    // completes before ImGui's render pass reads the texture.
+    dev.EndSingleTimeCommandsAsync(cmd);
 
     return true;
 }
@@ -585,7 +587,9 @@ bool VulkanOCIORenderer::Apply(
 
     vkCmdEndRenderPass(cmd);
 
-    dev.EndSingleTimeCommands(cmd);
+    // Fire-and-forget: GPU serialization on the same queue guarantees this
+    // completes before ImGui's render pass reads the texture.
+    dev.EndSingleTimeCommandsAsync(cmd);
 
     return true;
 }

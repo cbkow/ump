@@ -2,9 +2,11 @@
 // Video viewport panel (viewport, background selection, background drawing)
 // ============================================================================
 
+#include <chrono>
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "app/app_config.h"
 #include "app/drawing_utils.h"
 #include "project/project_manager.h"
@@ -34,6 +36,13 @@ static inline ImTextureID PoolIDToImTexture(GLuint id) {
     if (id == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
 }
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_texture_pool.h"
+#include "annotations/metal_annotation_renderer.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
 #else
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
     return (ImTextureID)(intptr_t)id;
@@ -42,14 +51,14 @@ static inline ImTextureID PoolIDToImTexture(GLuint id) {
 
 // OTIO Timeline UI Constants (duplicated from panel_timeline.cpp — shared constants)
 namespace OTIOTimeline {
-    constexpr float TRACK_HEADER_WIDTH = 140.0f;
-    constexpr float TRACK_LANE_HEIGHT = 32.0f;
-    constexpr float TIMELINE_RULER_HEIGHT = 48.0f;
-    constexpr float TRACK_SEPARATOR_HEIGHT = 4.0f;
-    constexpr float OVERVIEW_TRACK_HEIGHT = 28.0f;
-    constexpr float MIN_PIXELS_PER_SECOND = 2.5f;
-    constexpr float MAX_PIXELS_PER_SECOND = 1400.0f;
-    constexpr float DEFAULT_PIXELS_PER_SECOND = 50.0f;
+    const float TRACK_HEADER_WIDTH = S(140.0f);
+    const float TRACK_LANE_HEIGHT = S(32.0f);
+    const float TIMELINE_RULER_HEIGHT = S(48.0f);
+    const float TRACK_SEPARATOR_HEIGHT = S(4.0f);
+    const float OVERVIEW_TRACK_HEIGHT = S(28.0f);
+    const float MIN_PIXELS_PER_SECOND = S(2.5f);
+    const float MAX_PIXELS_PER_SECOND = S(1400.0f);
+    const float DEFAULT_PIXELS_PER_SECOND = S(50.0f);
 }
 
 // ColorCorrectedTextureCache struct (defined in main.cpp)
@@ -106,8 +115,10 @@ extern float g_font_scale;
 extern bool g_skip_viewport_render_frame;
 
     void Application::CreateVideoViewport() {
+        auto _vp_start = std::chrono::steady_clock::now();
+        auto _tl_t0 = _vp_start, _tl_t1 = _vp_start;  // Timeline timing (updated if timeline renders)
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));  // Override global 8,8 for viewport controls
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(5.0f), S(2.0f)));  // Override global 8,8 for viewport controls
         ImGui::PushStyleColor(ImGuiCol_Border, kTransparentBorder);
         if (ImGui::Begin("Video Viewport", nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
 
@@ -116,13 +127,13 @@ extern bool g_skip_viewport_render_frame;
             const float ui_scale = ImGui::GetIO().FontGlobalScale;
             const float scale_factor = 1.0f + (ui_scale - 1.0f) * 0.5f;  // Half the scaling effect
             const bool modal_edit_open = annotation_panel && annotation_panel->IsEditModalOpen();
-            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode() && !modal_edit_open) ? 36.0f * scale_factor : 0.0f;
+            const float toolbar_height = (viewport_annotator && viewport_annotator->IsAnnotationMode() && !modal_edit_open) ? S(36.0f) : 0.0f;
 
             // Timeline height: dynamic based on mode
             // OTIO mode: expanded height for multi-track view
             // Dual view mode: expanded height for two tracks + bottom toolbar
-            const float transport_row_h = 50.0f * scale_factor;  // Base 50px
-            const float bottom_row_h = 36.0f * scale_factor;     // Base 36px
+            const float transport_row_h = S(50.0f);  // Base 50px
+            const float bottom_row_h = S(36.0f);     // Base 36px
             float timeline_height = 0.0f;
             if (show_timeline_panel) {
                 if (timeline_view && timeline_view->IsDualViewMode()) {
@@ -149,7 +160,7 @@ extern bool g_skip_viewport_render_frame;
                         track_count = 5.0f;
                     }
                     // Add breadcrumb height when viewing nested timeline
-                    float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? 58.0f : 0.0f;
+                    float breadcrumb_height = (timeline_view && timeline_view->IsViewingNestedTimeline()) ? S(58.0f) : 0.0f;
                     timeline_height = transport_row_h +
                                      OTIOTimeline::OVERVIEW_TRACK_HEIGHT +    // Overview minimap track
                                      OTIOTimeline::TRACK_SEPARATOR_HEIGHT +   // Separator below overview
@@ -163,7 +174,7 @@ extern bool g_skip_viewport_render_frame;
                     // Check if this is an image sequence (needs extra height for audio track)
                     bool is_image_sequence = video_player &&
                         (video_player->IsImageSequence() || video_player->IsInEXRMode());
-                    float track_area_height = is_image_sequence ? 64.0f : 40.0f;  // Extra 24px for audio track
+                    float track_area_height = is_image_sequence ? S(64.0f) : S(40.0f);  // Extra 24px for audio track
 
                     timeline_height = transport_row_h +
                                      OTIOTimeline::TIMELINE_RULER_HEIGHT +
@@ -305,11 +316,11 @@ extern bool g_skip_viewport_render_frame;
                         ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
                     // Add vertical spacing at top (scale with toolbar height)
-                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 12.0f);
+                    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + S(12.0f));
                     ImGui::AlignTextToFramePadding();
 
                     // Add left padding
-                    const float toolbar_h_padding = 4.0f;
+                    const float toolbar_h_padding = S(4.0f);
                     ImGui::Dummy(ImVec2(toolbar_h_padding, 0));
                     ImGui::SameLine();
 
@@ -337,7 +348,7 @@ extern bool g_skip_viewport_render_frame;
             ImVec2 canvas_pos = ImGui::GetCursorScreenPos();
             ImVec2 canvas_size = ImGui::GetContentRegionAvail();
 
-            DrawVideoBackground(canvas_pos, canvas_size, 20.0f);
+            DrawVideoBackground(canvas_pos, canvas_size, S(20.0f));
 
             // Process annotation drawing input if in annotation mode
             if (viewport_annotator && viewport_annotator->IsAnnotationMode() && video_player) {
@@ -463,12 +474,15 @@ extern bool g_skip_viewport_render_frame;
                         }
                     }
 
-                    // Render the display texture (either original or color-corrected)
-                    ImGui::GetWindowDrawList()->AddImage(
-                        PoolIDToImTexture(display_texture),
-                        display_pos,
-                        ImVec2(display_pos.x + display_size.x, display_pos.y + display_size.y)
-                    );
+                    // Render the display texture (either original or color-corrected).
+                    // Skip if texture ID is 0 — renders as transparent (shows viewport background).
+                    if (display_texture != 0) {
+                        ImGui::GetWindowDrawList()->AddImage(
+                            PoolIDToImTexture(display_texture),
+                            display_pos,
+                            ImVec2(display_pos.x + display_size.x, display_pos.y + display_size.y)
+                        );
+                    }
 
                     used_cached_frame = true;
                 }
@@ -660,13 +674,13 @@ extern bool g_skip_viewport_render_frame;
                         }
 
                         // Draw vertical split line (draggable)
-                        float divider_half_width = 2.0f;
+                        float divider_half_width = S(2.0f);
                         ImVec2 divider_min = ImVec2(split_x - divider_half_width, canvas_pos.y);
                         ImVec2 divider_max = ImVec2(split_x + divider_half_width, canvas_pos.y + canvas_size.y);
 
                         // Invisible button for dragging
-                        ImGui::SetCursorScreenPos(ImVec2(split_x - 8, canvas_pos.y));
-                        ImGui::InvisibleButton("##split_divider", ImVec2(16, canvas_size.y));
+                        ImGui::SetCursorScreenPos(ImVec2(split_x - S(8), canvas_pos.y));
+                        ImGui::InvisibleButton("##split_divider", ImVec2(S(16), canvas_size.y));
                         bool divider_hovered = ImGui::IsItemHovered();
                         bool divider_active = ImGui::IsItemActive();
 
@@ -688,7 +702,7 @@ extern bool g_skip_viewport_render_frame;
                         draw_list->AddLine(
                             ImVec2(split_x, canvas_pos.y),
                             ImVec2(split_x, canvas_pos.y + canvas_size.y),
-                            divider_color, divider_active ? 3.0f : 2.0f
+                            divider_color, divider_active ? S(3.0f) : S(2.0f)
                         );
 
                     } else {
@@ -703,7 +717,7 @@ extern bool g_skip_viewport_render_frame;
                         if ((use_unified_composite && composite_texture != 0) ||
                             (left_texture != 0 && left_width > 0 && left_height > 0)) {
 
-                            ImVec2 left_size = calculate_fit_size(left_width, left_height, half_width - 4, canvas_size.y);
+                            ImVec2 left_size = calculate_fit_size(left_width, left_height, half_width - S(4), canvas_size.y);
                             ImVec2 left_pos = ImVec2(
                                 canvas_pos.x + (half_width - left_size.x) * 0.5f,
                                 canvas_pos.y + (canvas_size.y - left_size.y) * 0.5f
@@ -750,7 +764,7 @@ extern bool g_skip_viewport_render_frame;
                         if ((use_unified_composite && composite_texture != 0) ||
                             (right_texture != 0 && right_width > 0 && right_height > 0)) {
 
-                            ImVec2 right_size = calculate_fit_size(right_width, right_height, half_width - 4, canvas_size.y);
+                            ImVec2 right_size = calculate_fit_size(right_width, right_height, half_width - S(4), canvas_size.y);
                             ImVec2 right_pos = ImVec2(
                                 mid_x + (half_width - right_size.x) * 0.5f,
                                 canvas_pos.y + (canvas_size.y - right_size.y) * 0.5f
@@ -796,7 +810,7 @@ extern bool g_skip_viewport_render_frame;
                         draw_list->AddLine(
                             ImVec2(mid_x, canvas_pos.y),
                             ImVec2(mid_x, canvas_pos.y + canvas_size.y),
-                            IM_COL32(80, 80, 80, 255), 2.0f
+                            IM_COL32(80, 80, 80, 255), S(2.0f)
                         );
                     }
                     }  // End of else block (skip viewport render check)
@@ -951,11 +965,27 @@ extern bool g_skip_viewport_render_frame;
                                     } else {
                                         vulkan_annotation_texture_id_ = 0;
                                     }
+#elif defined(QCVIEW_USE_METAL)
+                                    // Render annotations via Metal tessellation pipeline
+                                    if (pending_nvg_render_ && metal_annotation_renderer_ &&
+                                        metal_annotation_renderer_->IsInitialized()) {
+                                        float lws = (video_width > 0) ? (display_size.x / (float)video_width) : 1.0f;
+                                        metal_annotation_texture_id_ = metal_annotation_renderer_->RenderAnnotations(
+                                            nvg_strokes_to_render_,
+                                            (int)display_size.x, (int)display_size.y,
+                                            0.0f, 0.0f, display_size.x, display_size.y,
+                                            lws, true);
+                                        pending_nvg_render_ = false;  // Metal handled it
+                                    } else {
+                                        metal_annotation_texture_id_ = 0;
+                                    }
 #endif
                                 } else {
                                     pending_nvg_render_ = false;
 #ifdef QCVIEW_USE_VULKAN
                                     vulkan_annotation_texture_id_ = 0;
+#elif defined(QCVIEW_USE_METAL)
+                                    metal_annotation_texture_id_ = 0;
 #endif
                                 }
                             }
@@ -967,8 +997,25 @@ extern bool g_skip_viewport_render_frame;
                     if (vulkan_annotation_texture_id_ != 0) {
                         auto ann_tex = qcview::VulkanTexturePool::Instance().GetImTextureID(vulkan_annotation_texture_id_);
                         if (ann_tex) {
-                            ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                            // Use the display area calculated during annotation rendering
+                            // Use foreground draw list when modal is open so annotations
+                            // render on top of the popup, otherwise use the viewport draw list
+                            bool modal_open = annotation_panel && annotation_panel->IsEditModalOpen();
+                            ImDrawList* draw_list = modal_open ?
+                                ImGui::GetForegroundDrawList() : ImGui::GetWindowDrawList();
+                            ImVec2 ann_pos = nvg_display_pos_;
+                            ImVec2 ann_size = nvg_display_size_;
+                            draw_list->AddImage(ann_tex, ann_pos,
+                                ImVec2(ann_pos.x + ann_size.x, ann_pos.y + ann_size.y));
+                        }
+                    }
+#elif defined(QCVIEW_USE_METAL)
+                    // Overlay Metal annotation texture on top of video
+                    if (metal_annotation_texture_id_ != 0) {
+                        auto ann_tex = qcview::MetalTexturePool::Instance().GetImTextureID(metal_annotation_texture_id_);
+                        if (ann_tex) {
+                            bool modal_open = annotation_panel && annotation_panel->IsEditModalOpen();
+                            ImDrawList* draw_list = modal_open ?
+                                ImGui::GetForegroundDrawList() : ImGui::GetWindowDrawList();
                             ImVec2 ann_pos = nvg_display_pos_;
                             ImVec2 ann_size = nvg_display_size_;
                             draw_list->AddImage(ann_tex, ann_pos,
@@ -1196,7 +1243,7 @@ extern bool g_skip_viewport_render_frame;
             ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
             // Add padding around modal content
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(20), S(16)));
 
             if (ImGui::BeginPopupModal("Add to Dual View", nullptr,
                     ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
@@ -1215,8 +1262,8 @@ extern bool g_skip_viewport_render_frame;
                 ImGui::Spacing();
 
                 // Track selection buttons - side by side
-                const float button_width = 140.0f;
-                const float button_height = 32.0f;
+                const float button_width = S(140.0f);
+                const float button_height = S(32.0f);
 
                 PushOutlineButtonStyle();
                 bool add_to_left = ImGui::Button("LEFT Track", ImVec2(button_width, button_height));
@@ -1319,7 +1366,7 @@ extern bool g_skip_viewport_render_frame;
                 ImGui::Spacing();
 
                 // Cancel button - flush right
-                float cancel_width = 100.0f;
+                float cancel_width = S(100.0f);
                 float avail_width = ImGui::GetContentRegionAvail().x;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail_width - cancel_width);
                 PushOutlineButtonStyle();
@@ -1334,29 +1381,42 @@ extern bool g_skip_viewport_render_frame;
             ImGui::PopStyleVar();  // WindowPadding
 
             ImGui::EndChild();  // End ##VideoArea
-            ImGui::PopStyleVar();
+            ImGui::PopStyleVar();  // WindowPadding
 
             // Render timeline as child window at bottom (dynamic height based on playlist mode)
             if (show_timeline_panel) {
+                // Match timeline area background to video background so it doesn't
+                // flash a darker color during fullscreen transitions
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(27, 27, 27, 255));
                 ImGui::BeginChild("##TimelineArea", ImVec2(0, timeline_height), true,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
                 // Add left/right padding with inner child window
-                const float h_padding = 12.0f;
+                const float h_padding = S(12.0f);
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + h_padding);
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, IM_COL32(27, 27, 27, 255));
                 ImGui::BeginChild("##TimelineContent", ImVec2(-h_padding, 0), false,
                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
+                _tl_t0 = std::chrono::steady_clock::now();
                 RenderTimelineContent();
+                _tl_t1 = std::chrono::steady_clock::now();
 
                 ImGui::EndChild();  // ##TimelineContent
+                ImGui::PopStyleColor();  // ChildBg for TimelineContent
 
                 ImGui::EndChild();  // ##TimelineArea
+                ImGui::PopStyleColor();  // ChildBg for TimelineArea
             }
         }
         ImGui::End();
         ImGui::PopStyleColor();  // kTransparentBorder
         ImGui::PopStyleVar(2);   // FramePadding, WindowPadding
+
+        auto _vp_end = std::chrono::steady_clock::now();
+        {
+            (void)_vp_end; (void)_vp_start; (void)_tl_t1; (void)_tl_t0; // VP logging disabled
+        }
     }
 
     void Application::RenderBackgroundSelectionPanel(VideoBackgroundType& bg_type, bool& show_panel) {
@@ -1371,9 +1431,9 @@ extern bool g_skip_viewport_render_frame;
         // Scale panel dimensions with font (full width, dampened height)
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
         const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-        const float panel_width = 200.0f * ui_scale;
-        const float panel_height = 116.0f * height_scale;
-        const float margin = 10.0f;
+        const float panel_width = S(200.0f);
+        const float panel_height = S(116.0f);
+        const float margin = S(10.0f);
 
         // Position in top-right corner
         ImGui::SetNextWindowPos(ImVec2(
@@ -1390,8 +1450,8 @@ extern bool g_skip_viewport_render_frame;
             ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoTitleBar;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 2.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, S(2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, S(1.0f));
         ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.15f, 0.15f, 0.15f, 0.85f));
         ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.4f, 0.4f, 0.4f, 2.0f));
 

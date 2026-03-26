@@ -5,6 +5,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "project/project_manager.h"
 #include "timeline/timeline_view.h"
 #include "timeline/timeline_playback_controller.h"
@@ -150,7 +151,7 @@ extern bool otio_dual_view_mode;
                 ImGui::Spacing();
 
                 // Properties table
-                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(S(6.0f), S(6.0f)));
                 if (ImGui::BeginTable("DualViewProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                     ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                     ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);
@@ -225,7 +226,7 @@ extern bool otio_dual_view_mode;
         if (font_bold) ImGui::PopFont();
                         ImGui::Separator();
 
-                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(6.0f, 6.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(S(6.0f), S(6.0f)));
                         if (ImGui::BeginTable("ImageSeqProps", 2, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_PadOuterX)) {
                             ImGui::TableSetupColumn("Property", ImGuiTableColumnFlags_WidthFixed, 120.0f);
                             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch);

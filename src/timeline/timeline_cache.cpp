@@ -1,15 +1,63 @@
 #include "timeline_cache.h"
 #include "timeline_view.h"
 #include "../player/image_loaders.h"
+#include "../player/video_decoder_factory.h"  // g_video_range_override
 #include "../utils/debug_utils.h"
 
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
+#include "../gpu/metal_device_manager.h"
+extern "C" bool MetalLetterboxComposite(void* src_texture, void* dst_texture,
+                                        int canvas_w, int canvas_h,
+                                        float rect_x, float rect_y,
+                                        float rect_w, float rect_h);
+#endif
+
+// GPU texture pool abstraction — same API on Vulkan and Metal
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+#define QCVIEW_HAS_GPU_TEXTURE_POOL 1
+namespace {
+    inline auto& GPUTexturePool() {
+#ifdef QCVIEW_USE_VULKAN
+        return qcview::VulkanTexturePool::Instance();
+#else
+        return qcview::MetalTexturePool::Instance();
+#endif
+    }
+
+    // Create a texture in the GPU pool with a platform-agnostic pixel format
+    inline uint64_t GPUPoolCreateTexture(int width, int height, qcview::PixelFormat fmt,
+                                          const void* data, size_t data_size) {
+#ifdef QCVIEW_USE_VULKAN
+        VkFormat vk_fmt = VK_FORMAT_R8G8B8A8_UNORM;
+        switch (fmt) {
+            case qcview::PixelFormat::RGBA8:  vk_fmt = VK_FORMAT_R8G8B8A8_UNORM; break;
+            case qcview::PixelFormat::RGBA16: vk_fmt = VK_FORMAT_R16G16B16A16_UNORM; break;
+            case qcview::PixelFormat::RGBA16F: vk_fmt = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+        }
+        return GPUTexturePool().CreateTextureFromPixels(width, height, vk_fmt, data, data_size);
+#else  // QCVIEW_USE_METAL
+        int mtl_fmt = 0; // RGBA8Unorm
+        switch (fmt) {
+            case qcview::PixelFormat::RGBA8:  mtl_fmt = 0; break;
+            case qcview::PixelFormat::RGBA16: mtl_fmt = 0; break;
+            case qcview::PixelFormat::RGBA16F: mtl_fmt = 1; break;
+        }
+        return GPUTexturePool().CreateTextureFromPixels(width, height, mtl_fmt, data, data_size);
+#endif
+    }
+}
 #endif
 
 #ifdef _WIN32
 #include "../gpu/d3d11_device_manager.h"
 #include "../gpu/d3d11_video_interop.h"
+#endif
+
+#ifdef QCVIEW_USE_METAL
+#include "../player/metal_video_decoder.h"
 #endif
 
 #include <algorithm>
@@ -409,12 +457,12 @@ void TimelineCache::Shutdown() {
         if (!textures_to_delete_.empty()) {
             int delete_count = static_cast<int>(textures_to_delete_.size());
             Debug::Log("TimelineCache: [SHUTDOWN] Deleting " + std::to_string(delete_count) + " textures");
-#ifdef QCVIEW_USE_VULKAN
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
             for (int i = 0; i < delete_count; i++) {
-                qcview::VulkanTexturePool::Instance().QueueDelete(
+                GPUTexturePool().QueueDelete(
                     static_cast<uint64_t>(textures_to_delete_[i]));
             }
-            qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+            GPUTexturePool().ProcessPendingDeletions();
 #else
             glDeleteTextures(static_cast<GLsizei>(delete_count), textures_to_delete_.data());
 #endif
@@ -430,8 +478,8 @@ void TimelineCache::Shutdown() {
 
     // Cleanup aggressive scrub held texture
     if (aggressive_held_texture_ != 0) {
-#ifdef QCVIEW_USE_VULKAN
-        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+        GPUTexturePool().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
 #else
         glDeleteTextures(1, &aggressive_held_texture_);
 #endif
@@ -445,8 +493,8 @@ void TimelineCache::Shutdown() {
 
     // Cleanup shuttle mode textures
     if (shuttle_last_texture_ != 0) {
-#ifdef QCVIEW_USE_VULKAN
-        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+        GPUTexturePool().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
 #else
         glDeleteTextures(1, &shuttle_last_texture_);
 #endif
@@ -488,9 +536,32 @@ void TimelineCache::Shutdown() {
     use_direct_exr_cache_ = false;
     direct_exr_cache_source_path_.clear();
 
-    // Clear loaders
+    // Two-pass loader shutdown: signal all decoder threads to stop first, then destroy.
+    // This allows all decode threads to begin their exit path in parallel,
+    // so joining waits for the slowest one instead of the sum of all.
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
+
+        // Pass 1: Signal all decoders to stop (non-blocking — just sets atomic flag + notifies CV)
+        for (auto& [path, loader] : loaders_) {
+            if (!loader) continue;
+#ifdef QCVIEW_USE_METAL
+            if (loader->metal_decoder) {
+                loader->metal_decoder->RequestShutdown();
+            }
+#endif
+#ifdef QCVIEW_USE_VULKAN
+            if (loader->vulkan_decoder) {
+                loader->vulkan_decoder->RequestShutdown();
+            }
+#endif
+            if (loader->video_decoder) {
+                loader->video_decoder->RequestShutdown();
+            }
+        }
+
+        // Pass 2: Destroy (destructors call Shutdown() which joins threads — now fast since
+        // all threads were already signaled and are exiting in parallel)
         loaders_.clear();
     }
 
@@ -718,9 +789,27 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     // AGGRESSIVE SCRUB PATH - For DUAL_VIEW and PLAYLIST responsive scrubbing
     // Bypass CacheWindowEngine entirely - go direct to decoder buffer
     // This avoids SetNeededFrames() calls which would trigger full-window pre-buffering
+    //
     //=========================================================================
-    if ((source_mode_ == TimelineSourceMode::DUAL_VIEW ||
-         source_mode_ == TimelineSourceMode::PLAYLIST) &&
+    // ScrubDecoder path: synchronous decode for responsive scrubbing.
+    // - Intra codecs (ProRes/DNxHD): exact frame (every frame is a keyframe)
+    // - Inter-frame codecs (H.264/HEVC): keyframe-only (fast) + refine on settle
+    //=========================================================================
+    bool is_intra_media = false;
+#ifdef QCVIEW_USE_METAL
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        auto it = loaders_.find(coords.source_path);
+        if (it != loaders_.end() && it->second && it->second->metal_decoder) {
+            is_intra_media = it->second->metal_decoder->IsIntraFrameCodec();
+        }
+    }
+#endif
+
+    // Only use ScrubDecoder for intra codecs on Metal (ProRes: instant exact frames).
+    // Inter-frame codecs (H.264/HEVC): MetalVideoDecoder with VT handles all seeks.
+    // ScrubDecoder for H.264 uses CPU decode which is too slow for 4K long-GOP.
+    if (is_intra_media &&
         aggressive_scrub_mode_.load() == AggressiveScrubMode::ACTIVE_SCRUBBING) {
 
         // Update timestamp on any scrub movement
@@ -745,18 +834,47 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
             return maybeComposite(aggressive_held_texture_, aggressive_held_width_, aggressive_held_height_);
         }
 
-        // SCRUB PATH: Use ScrubDecoder with small buffers and keyframe-only seeks for fast response
+        // SCRUB PATH: ScrubDecoder for synchronous exact-frame scrubbing.
+        // VideoToolbox HW decode: seeks to keyframe, decodes forward to target.
+        // Intra codecs: instant (every frame is keyframe).
+        // Inter-frame codecs: ~1-30ms depending on distance from keyframe.
         {
-            // ScrubDecoder path (non-D3D11 clips)
             ScrubDecoder* scrub_decoder = scrub_decoders_.GetDecoder(coords.source_path);
 
             if (scrub_decoder) {
-                // Try exact frame first (might be buffered from recent decode)
+#ifdef QCVIEW_USE_METAL
+                // Metal zero-copy path: VideoToolbox → Metal compute → pool texture
+                int actual_frame = -1;
+                uint64_t pool_id = scrub_decoder->GetFrameAsPoolTexture(coords.source_frame, &actual_frame);
+                if (pool_id != 0) {
+                    shuttle_last_texture_time_ = now;
+
+                    // Clean up previous held texture if it was a pool texture
+                    // (pool textures are managed by the pool's LRU, not us)
+                    aggressive_held_texture_ = static_cast<GLuint>(pool_id);
+                    aggressive_held_width_ = scrub_decoder->GetWidth();
+                    aggressive_held_height_ = scrub_decoder->GetHeight();
+                    aggressive_held_frame_ = timeline_frame;
+                    aggressive_held_source_ = coords.source_path;
+
+                    last_good_texture_ = aggressive_held_texture_;
+                    last_good_width_ = aggressive_held_width_;
+                    last_good_height_ = aggressive_held_height_;
+                    last_good_frame_ = timeline_frame;
+                    last_good_source_path_ = coords.source_path;
+
+                    GPUTexturePool().Touch(pool_id);
+                    setOutputDimensions(aggressive_held_width_, aggressive_held_height_);
+                    if (got_exact_frame) *got_exact_frame = (actual_frame == coords.source_frame);
+                    return maybeComposite(aggressive_held_texture_, aggressive_held_width_, aggressive_held_height_);
+                }
+                // Fall through to PixelData path if pool texture failed
+#endif
+                // PixelData path (CPU decode + texture upload)
                 auto pixels = scrub_decoder->GetFrame(coords.source_frame);
                 bool is_exact_frame = (pixels != nullptr);
 
                 if (!pixels) {
-                    // Fall back to closest frame in buffer (fast keyframe access)
                     int actual_frame = -1;
                     pixels = scrub_decoder->GetClosestFrame(coords.source_frame, &actual_frame);
                 }
@@ -764,13 +882,11 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                 if (pixels) {
                     shuttle_last_texture_time_ = now;
 
-                    // Reuse texture if dimensions match, otherwise recreate
                     if (aggressive_held_texture_ != 0 &&
                         aggressive_held_width_ == pixels->width &&
                         aggressive_held_height_ == pixels->height) {
-                        // Reuse existing texture, just update content
-#ifdef QCVIEW_USE_VULKAN
-                        qcview::VulkanTexturePool::Instance().UpdateTexture(
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                        GPUTexturePool().UpdateTexture(
                             static_cast<uint64_t>(aggressive_held_texture_),
                             pixels->pixels.data(), pixels->pixels.size());
 #else
@@ -782,10 +898,9 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                         glBindTexture(GL_TEXTURE_2D, 0);
 #endif
                     } else {
-                        // Need new texture
                         if (aggressive_held_texture_ != 0) {
-#ifdef QCVIEW_USE_VULKAN
-                            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                            GPUTexturePool().QueueDelete(static_cast<uint64_t>(aggressive_held_texture_));
 #else
                             glDeleteTextures(1, &aggressive_held_texture_);
 #endif
@@ -798,7 +913,6 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
                     aggressive_held_frame_ = timeline_frame;
                     aggressive_held_source_ = coords.source_path;
 
-                    // Also update last_good for fallback chain
                     last_good_texture_ = aggressive_held_texture_;
                     last_good_width_ = aggressive_held_width_;
                     last_good_height_ = aggressive_held_height_;
@@ -952,6 +1066,82 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
     }
 #endif
 
+#ifdef QCVIEW_USE_METAL
+    // Metal video path — MetalVideoDecoder for playback, seeking, and inter-frame scrub.
+    // Intra scrub is handled by ScrubDecoder above (zero-copy VT, instant).
+    // Inter-frame scrub falls through here — MetalVideoDecoder with burst decode.
+    if (media_type == ClipMediaType::VIDEO &&
+        (aggressive_scrub_mode_.load() != AggressiveScrubMode::ACTIVE_SCRUBBING || !is_intra_media)) {
+        std::shared_ptr<ClipLoaderInfo> loader_info;
+        {
+            std::lock_guard<std::mutex> lock(loaders_mutex_);
+            auto it = loaders_.find(coords.source_path);
+            if (it != loaders_.end()) {
+                loader_info = it->second;
+            }
+        }
+
+        if (!loader_info) {
+            loader_info = GetOrCreateLoader(coords.source_path);
+        }
+
+        if (loader_info && loader_info->metal_decoder) {
+            loader_info->metal_decoder->UpdatePlayhead(coords.source_frame);
+
+            // Rate-limit texture updates during shuttle for inter-frame codecs
+            // to prevent GPU starvation on 4K+ H.264/HEVC (decode is expensive).
+            // Intra codecs (ProRes/DNxHD): no rate limiting — HW decode is fast enough.
+            if (shuttle_active_ && !loader_info->metal_decoder->IsIntraFrameCodec()) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - shuttle_last_texture_time_).count();
+                constexpr int kMinTextureUpdateMs = 33;  // ~30fps
+                if (elapsed_ms < kMinTextureUpdateMs && last_good_texture_ != 0) {
+                    GPUTexturePool().Touch(static_cast<uint64_t>(last_good_texture_));
+                    setOutputDimensions(last_good_width_, last_good_height_);
+                    if (got_exact_frame) *got_exact_frame = false;
+                    return maybeComposite(last_good_texture_, last_good_width_, last_good_height_);
+                }
+                shuttle_last_texture_time_ = now;
+            }
+
+            // If decoder is seeking to a different frame than what we last showed,
+            // clear stale fallback to avoid flashing the old position's frame.
+            if (last_good_frame_ >= 0 &&
+                std::abs(coords.source_frame - last_good_frame_) > 1) {
+                last_good_texture_ = 0;
+            }
+
+            uint64_t pool_id = loader_info->metal_decoder->GetFrameAsPoolTexture(coords.source_frame);
+            if (pool_id != 0) {
+                int w = loader_info->width;
+                int h = loader_info->height;
+                last_good_texture_ = static_cast<GLuint>(pool_id);
+                last_good_width_ = w;
+                last_good_height_ = h;
+                last_good_frame_ = timeline_frame;
+                last_good_source_path_ = coords.source_path;
+                // Touch to protect from LRU eviction while it's our fallback
+                GPUTexturePool().Touch(pool_id);
+                setOutputDimensions(w, h);
+                if (got_exact_frame) *got_exact_frame = loader_info->metal_decoder->HasFrame(coords.source_frame);
+                cache_hits_++;
+                return maybeComposite(static_cast<GLuint>(pool_id), w, h);
+            }
+
+            // Decoder hasn't caught up — show last good frame for visual continuity
+            cache_misses_++;
+            if (last_good_texture_ != 0) {
+                GPUTexturePool().Touch(static_cast<uint64_t>(last_good_texture_));
+                setOutputDimensions(last_good_width_, last_good_height_);
+                if (got_exact_frame) *got_exact_frame = false;
+                return maybeComposite(last_good_texture_, last_good_width_, last_good_height_);
+            }
+            return 0;
+        }
+    }
+#endif
+
     if (media_type == ClipMediaType::VIDEO && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
         std::shared_ptr<ClipLoaderInfo> loader_info;
         {
@@ -989,20 +1179,30 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
 
             if (pixels) {
                 // Upload to reusable texture (create if needed, resize if needed)
-#ifdef QCVIEW_USE_VULKAN
-                VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
-                switch (pixels->pixel_format) {
-                    case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
-                    case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
-                    case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                auto& pool = GPUTexturePool();
+                if (loader_info->video_texture != 0) {
+                    pool.QueueDelete(static_cast<uint64_t>(loader_info->video_texture));
                 }
-                auto& pool = qcview::VulkanTexturePool::Instance();
-                // Always recreate for simplicity (pool handles cleanup)
+                uint64_t pool_id = GPUPoolCreateTexture(
+                    pixels->width, pixels->height, pixels->pixel_format,
+                    pixels->pixels.data(), pixels->pixels.size());
+                loader_info->video_texture = static_cast<GLuint>(pool_id);
+                loader_info->video_texture_width = pixels->width;
+                loader_info->video_texture_height = pixels->height;
+#elif defined(QCVIEW_USE_METAL)
+                int mtl_format = 0; // RGBA8Unorm
+                switch (pixels->pixel_format) {
+                    case PixelFormat::RGBA8:  mtl_format = 0; break;
+                    case PixelFormat::RGBA16: mtl_format = 0; break; // TODO: RGBA16 format
+                    case PixelFormat::RGBA16F: mtl_format = 1; break;
+                }
+                auto& pool = qcview::MetalTexturePool::Instance();
                 if (loader_info->video_texture != 0) {
                     pool.QueueDelete(static_cast<uint64_t>(loader_info->video_texture));
                 }
                 uint64_t pool_id = pool.CreateTextureFromPixels(
-                    pixels->width, pixels->height, vk_format,
+                    pixels->width, pixels->height, mtl_format,
                     pixels->pixels.data(), pixels->pixels.size());
                 loader_info->video_texture = static_cast<GLuint>(pool_id);
                 loader_info->video_texture_width = pixels->width;
@@ -1075,8 +1275,8 @@ GLuint TimelineCache::GetFrame(int timeline_frame, int& width, int& height, bool
 //=============================================================================
 
 void TimelineCache::UpdatePlayhead(int timeline_frame, bool is_playing) {
-    // CRITICAL: Skip all expensive work during shuttle mode
-    // Shuttle has its own frame management system; playhead just needs to update atomically
+    // CRITICAL: Skip all expensive work during shuttle mode (matches backup).
+    // Shuttle has its own frame management system; playhead just needs to update atomically.
     if (shuttle_active_) {
         current_frame_ = timeline_frame;
         return;
@@ -1262,13 +1462,13 @@ void TimelineCache::ProcessPendingUploads() {
             /*Debug::Log("TimelineCache: [GL DELETE] Deleting " + std::to_string(delete_count) +
                        " of " + std::to_string(total_queued) + " queued textures");*/
 
-#ifdef QCVIEW_USE_VULKAN
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
             // Vulkan path: Queue deletions via VulkanTexturePool
             for (int i = 0; i < delete_count; i++) {
-                qcview::VulkanTexturePool::Instance().QueueDelete(
+                GPUTexturePool().QueueDelete(
                     static_cast<uint64_t>(textures_to_delete_[i]));
             }
-            qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+            GPUTexturePool().ProcessPendingDeletions();
 #else
             glDeleteTextures(static_cast<GLsizei>(delete_count),
                              textures_to_delete_.data());
@@ -1768,6 +1968,15 @@ void TimelineCache::ResetPlaybackSpeed() {
     // IMAGE_SEQUENCE mode: reset DirectEXRCache overrun state
     if (use_direct_exr_cache_ && direct_exr_cache_) {
         direct_exr_cache_->ResetPlaybackSpeed();
+    }
+}
+
+void TimelineCache::SetPlayingOnLoaders(bool playing) {
+    std::lock_guard<std::mutex> lock(loaders_mutex_);
+    for (auto& [path, loader] : loaders_) {
+        if (loader) {
+            loader->SetPlaying(playing);
+        }
     }
 }
 
@@ -2818,6 +3027,10 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                 dec_config.readBehindFrames = config_.readBehindFrames;
                 decoder->SetConfig(dec_config);
 
+                if (qcview::g_video_range_override != VideoRangeMode::AUTO) {
+                    decoder->SetVideoRangeOverride(qcview::g_video_range_override);
+                }
+
                 Debug::Log("TimelineCache: Calling D3D11VideoDecoder::Initialize()...");
                 if (decoder->Initialize()) {
                     info->d3d11_decoder = std::move(decoder);
@@ -2865,6 +3078,10 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                 dec_config.readBehindFrames = config_.readBehindFrames;
                 decoder->SetConfig(dec_config);
 
+                if (qcview::g_video_range_override != VideoRangeMode::AUTO) {
+                    decoder->SetVideoRangeOverride(qcview::g_video_range_override);
+                }
+
                 if (decoder->Initialize()) {
                     info->vulkan_decoder = std::move(decoder);
                     info->pipeline_mode = video_pipeline_mode_;
@@ -2887,6 +3104,41 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
                     break;
                 } else {
                     Debug::Log("TimelineCache: VulkanVideoDecoder init failed for " + source_path);
+                }
+            }
+            Debug::Log("TimelineCache: Failed to create video decoder for " + source_path);
+            return nullptr;
+#elif defined(QCVIEW_USE_METAL)
+            // macOS/Metal: Use MetalVideoDecoder (VideoToolbox + FFmpeg)
+            Debug::Log("TimelineCache: Attempting MetalVideoDecoder for " + source_path);
+            {
+                StreamingDecoderConfig dec_config;
+                dec_config.readAheadFrames = config_.readAheadFrames;
+                dec_config.readBehindFrames = config_.readBehindFrames;
+                dec_config.decodeThreads = config_.decodeThreads;
+
+                auto decoder = std::make_unique<qcview::MetalVideoDecoder>(source_path, dec_config);
+                if (qcview::g_video_range_override != VideoRangeMode::AUTO) {
+                    decoder->SetVideoRangeOverride(qcview::g_video_range_override);
+                }
+                if (decoder->Initialize()) {
+                    info->metal_decoder = std::move(decoder);
+                    info->pipeline_mode = video_pipeline_mode_;
+                    info->width = info->metal_decoder->GetWidth();
+                    info->height = info->metal_decoder->GetHeight();
+                    info->fps = info->metal_decoder->GetFPS();
+                    info->frame_count = info->metal_decoder->GetFrameCount();
+
+                    Debug::Log("TimelineCache: MetalVideoDecoder created for " + source_path +
+                               " (" + std::to_string(info->width) + "x" + std::to_string(info->height) +
+                               " @ " + std::to_string(info->fps) + " fps)");
+
+                    if (detected_media_fps_ <= 0 && source_mode_ == TimelineSourceMode::VIDEO_FILE) {
+                        detected_media_fps_ = info->fps;
+                    }
+                    break;
+                } else {
+                    Debug::Log("TimelineCache: MetalVideoDecoder init failed for " + source_path);
                 }
             }
             Debug::Log("TimelineCache: Failed to create video decoder for " + source_path);
@@ -3062,15 +3314,9 @@ std::shared_ptr<ClipLoaderInfo> TimelineCache::GetOrCreateLoader(const std::stri
 GLuint TimelineCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels) {
     if (!pixels || pixels->pixels.empty()) return 0;
 
-#ifdef QCVIEW_USE_VULKAN
-    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
-    switch (pixels->pixel_format) {
-        case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
-        case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
-        case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
-    }
-    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
-        pixels->width, pixels->height, vk_format,
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    uint64_t pool_id = GPUPoolCreateTexture(
+        pixels->width, pixels->height, pixels->pixel_format,
         pixels->pixels.data(), pixels->pixels.size());
     s_textures_created++;
     return static_cast<GLuint>(pool_id);
@@ -3335,6 +3581,54 @@ bool TimelineCache::HasImageSequenceContent() const {
     return false;
 }
 
+#ifdef QCVIEW_USE_METAL
+//=============================================================================
+// Direct decoder access for dual view (mirrors D3D11's direct-decoder pattern)
+//=============================================================================
+
+uint64_t TimelineCache::GetFrameAsPoolTextureDirect(int source_frame,
+                                                      const std::string& source_path,
+                                                      int& width, int& height) {
+    // Look up loader by source path
+    std::shared_ptr<ClipLoaderInfo> loader;
+    {
+        std::lock_guard<std::mutex> lock(loaders_mutex_);
+        auto it = loaders_.find(source_path);
+        if (it != loaders_.end()) loader = it->second;
+    }
+
+    // Create decoder on demand (same as GetFrame's lazy creation)
+    if (!loader) {
+        loader = GetOrCreateLoader(source_path);
+    }
+
+    if (!loader || !loader->metal_decoder) return 0;
+
+    // If decoder is at EOF (short clip finished) and we're requesting a frame
+    // that's before the current buffer, clear the buffer and force a seek.
+    // This handles the timeline loop case where the shorter clip needs to restart.
+    // Mirrors D3D11 behavior where the pipeline resets decoders on seek.
+    if (loader->metal_decoder->IsSeekPending() == false) {
+        int buf_start = 0, buf_end = 0;
+        loader->metal_decoder->GetBufferedRange(buf_start, buf_end);
+        if (buf_end > 0 && source_frame < buf_start - 8) {
+            loader->metal_decoder->ClearBuffer();
+        }
+    }
+
+    // Call decoder directly with source frame — no clamping, no fallbacks.
+    // This mirrors D3D11's decoder->GetFrameAsD3D11SRV(source_frame).
+    loader->metal_decoder->UpdatePlayhead(source_frame);
+    uint64_t pool_id = loader->metal_decoder->GetFrameAsPoolTexture(source_frame);
+
+    if (pool_id != 0) {
+        width = loader->width;
+        height = loader->height;
+    }
+    return pool_id;
+}
+#endif
+
 //=============================================================================
 // SharedMemoryPool Integration
 //=============================================================================
@@ -3417,10 +3711,10 @@ void TimelineCache::CreateGapTexture(int width, int height) {
         black_pixels[i] = 255;
     }
 
-#ifdef QCVIEW_USE_VULKAN
-    // Vulkan path: Create gap texture via VulkanTexturePool
-    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
-        width, height, VK_FORMAT_R8G8B8A8_UNORM,
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    // GPU pool path: Create gap texture
+    uint64_t pool_id = GPUPoolCreateTexture(
+        width, height, qcview::PixelFormat::RGBA8,
         black_pixels.data(), black_pixels.size());
     gap_texture_ = static_cast<GLuint>(pool_id);
 #else
@@ -3448,9 +3742,9 @@ void TimelineCache::DeleteGapTexture() {
     if (gap_texture_ != 0) {
         Debug::Log("TimelineCache::DeleteGapTexture: Deleting gap texture " +
                    std::to_string(gap_texture_));
-#ifdef QCVIEW_USE_VULKAN
-        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(gap_texture_));
-        qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+        GPUTexturePool().QueueDelete(static_cast<uint64_t>(gap_texture_));
+        GPUTexturePool().ProcessPendingDeletions();
 #else
         glDeleteTextures(1, &gap_texture_);
 #endif
@@ -3508,7 +3802,7 @@ void TimelineCache::InitializeLetterboxShader() {
         }
     )";
 
-#ifdef QCVIEW_USE_VULKAN
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
     // Letterbox compositing not needed on Vulkan - frames are passed through directly
     // (compositing will be done via Vulkan compute/graphics pipeline in Phase 2+)
     Debug::Log("TimelineCache::InitializeLetterboxShader: Skipped on Vulkan");
@@ -3593,11 +3887,11 @@ void TimelineCache::InitializeLetterboxShader() {
 }
 
 void TimelineCache::CleanupLetterboxResources() {
-#ifdef QCVIEW_USE_VULKAN
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
     // On Vulkan, letterbox resources (shader/FBO/VAO/VBO) are never created
     // Only the output texture needs cleanup if it exists
     if (letterbox_output_texture_ != 0) {
-        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(letterbox_output_texture_));
+        GPUTexturePool().QueueDelete(static_cast<uint64_t>(letterbox_output_texture_));
         letterbox_output_texture_ = 0;
     }
 #else
@@ -3635,6 +3929,66 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
     // Vulkan path: Skip GL compositing for Phase 1, return source directly
     (void)src_w; (void)src_h;
     return source_texture;
+#endif
+
+#ifdef QCVIEW_USE_METAL
+    // Metal letterbox compositing: scale source into canvas-sized texture with black bars.
+    // Uses a Metal compute shader to sample source bilinearly into the letterbox region.
+    {
+        auto& pool = qcview::MetalTexturePool::Instance();
+
+        // Calculate letterbox parameters
+        float src_aspect = (float)src_w / (float)src_h;
+        float canvas_aspect = (float)canvas_width_ / (float)canvas_height_;
+        float rect_x, rect_y, rect_w, rect_h;
+
+        if (src_aspect > canvas_aspect) {
+            rect_w = 1.0f;
+            rect_h = canvas_aspect / src_aspect;
+            rect_x = 0.0f;
+            rect_y = (1.0f - rect_h) / 2.0f;
+        } else {
+            rect_h = 1.0f;
+            rect_w = src_aspect / canvas_aspect;
+            rect_x = (1.0f - rect_w) / 2.0f;
+            rect_y = 0.0f;
+        }
+
+        // Same dimensions, no compositing needed
+        if (src_w == canvas_width_ && src_h == canvas_height_) {
+            return source_texture;
+        }
+
+        // Create or reuse canvas output texture
+        if (letterbox_output_texture_ == 0 ||
+            letterbox_output_width_ != canvas_width_ ||
+            letterbox_output_height_ != canvas_height_) {
+            if (letterbox_output_texture_ != 0) {
+                pool.QueueDelete(static_cast<uint64_t>(letterbox_output_texture_));
+            }
+            uint64_t canvas_id = pool.CreateEmptyTexture(canvas_width_, canvas_height_, 1 /* RGBA16Float */);
+            letterbox_output_texture_ = static_cast<GLuint>(canvas_id);
+            letterbox_output_width_ = canvas_width_;
+            letterbox_output_height_ = canvas_height_;
+            Debug::Log("TimelineCache: Created Metal letterbox canvas " +
+                       std::to_string(canvas_width_) + "x" + std::to_string(canvas_height_));
+        }
+
+        const auto* src_tex = pool.GetTexture(static_cast<uint64_t>(source_texture));
+        const auto* dst_tex = pool.GetTexture(static_cast<uint64_t>(letterbox_output_texture_));
+        if (!src_tex || !src_tex->is_valid || !dst_tex || !dst_tex->is_valid) {
+            return source_texture;
+        }
+
+        if (!MetalLetterboxComposite(src_tex->texture, dst_tex->texture,
+                                     canvas_width_, canvas_height_,
+                                     rect_x, rect_y, rect_w, rect_h)) {
+            return source_texture;  // Fallback if composite fails
+        }
+
+        pool.Touch(static_cast<uint64_t>(letterbox_output_texture_));
+        return letterbox_output_texture_;
+    }
 #endif
 
     // Initialize shader on first use
@@ -3767,24 +4121,22 @@ GLuint TimelineCache::CompositeFrameToCanvas(GLuint source_texture, int src_w, i
 //=============================================================================
 
 void TimelineCache::SetAggressiveScrubMode(bool enabled) {
-    // For DUAL_VIEW and PLAYLIST - VIDEO_FILE/IMAGE_SEQUENCE use normal shuttle
-    if (source_mode_ != TimelineSourceMode::DUAL_VIEW &&
-        source_mode_ != TimelineSourceMode::PLAYLIST) {
+    // IMAGE_SEQUENCE uses its own scrub path (EXR cache)
+    if (source_mode_ == TimelineSourceMode::IMAGE_SEQUENCE) {
         return;
     }
 
     if (enabled) {
-        AggressiveScrubMode expected = AggressiveScrubMode::INACTIVE;
-        if (aggressive_scrub_mode_.compare_exchange_strong(expected, AggressiveScrubMode::ACTIVE_SCRUBBING)) {
-            Debug::Log("TimelineCache: Aggressive scrub mode STARTED");
+        AggressiveScrubMode prev = aggressive_scrub_mode_.exchange(AggressiveScrubMode::ACTIVE_SCRUBBING);
+        if (prev != AggressiveScrubMode::ACTIVE_SCRUBBING) {
+            Debug::Log("TimelineCache: Aggressive scrub mode STARTED (was " +
+                       std::to_string(static_cast<int>(prev)) + ")");
 
-            // Put all decoders into shuttle mode (unthrottled decode)
+            // For intra codecs: ScrubDecoder takes over, no need for async decoder.
+            // For inter-frame codecs: MetalVideoDecoder handles scrub directly
+            // via burst decode — keep it running.
             std::lock_guard<std::mutex> lock(loaders_mutex_);
-            for (auto& [path, loader] : loaders_) {
-                if (loader && loader->video_decoder) {
-                    loader->SetShuttleMode(true, 0);  // 0 = no direction preference
-                }
-            }
+            (void)lock;  // Lock held for consistency
         }
         // Always update the timestamp when we get movement
         aggressive_scrub_last_move_ = std::chrono::steady_clock::now();
@@ -3795,10 +4147,28 @@ void TimelineCache::SetAggressiveScrubMode(bool enabled) {
             aggressive_scrub_last_move_ = std::chrono::steady_clock::now();
             Debug::Log("TimelineCache: Aggressive scrub mode -> SETTLING");
 
-            // Clear scrub decoders to free memory - normal decoders will take over
-            // This prevents having both scrub decoders and managed decoders active
-            scrub_decoders_.ClearAll();
+            // Seek the main decoder to the current frame — but only if it's not
+            // already targeting this frame (burst decode may be in progress).
+            int current_frame = current_frame_.load();
+            SourceCoords coords = TimelineToSource(current_frame);
+            if (coords.valid) {
+                std::lock_guard<std::mutex> lock(loaders_mutex_);
+                auto it = loaders_.find(coords.source_path);
+                if (it != loaders_.end() && it->second && it->second->HasBufferedDecoder()) {
+#ifdef QCVIEW_USE_METAL
+                    // Check if decoder is already seeking to this frame
+                    if (it->second->metal_decoder &&
+                        it->second->metal_decoder->GetLastSeekTarget() != coords.source_frame) {
+                        it->second->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+                    }
+#else
+                    it->second->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+#endif
+                }
+            }
 
+            // Keep scrub decoders alive during SETTLING — they provide the frame
+            // while the main decoder catches up. Cleared in HandleAggressiveScrubSettling.
         }
     }
 }
@@ -3832,29 +4202,38 @@ void TimelineCache::HandleAggressiveScrubSettling() {
     {
         std::lock_guard<std::mutex> lock(loaders_mutex_);
         for (auto& [path, loader] : loaders_) {
-            if (loader && loader->video_decoder && loader->IsShuttleMode()) {
-                loader->ExitShuttle();
+            if (loader && loader->HasBufferedDecoder()) {
+                if (loader->IsShuttleMode()) {
+                    loader->ExitShuttle();
+                }
 
-                // HardReset the decoder for the current clip to ensure exact frame
+                // Seek decoder to current frame — skip if already targeting it
                 if (coords.valid && coords.source_path == path) {
-                    loader->HardReset(coords.source_frame);
-                    Debug::Log("TimelineCache: HardReset decoder for " + path +
-                               " at frame " + std::to_string(coords.source_frame));
+#ifdef QCVIEW_USE_METAL
+                    bool already_targeting = loader->metal_decoder &&
+                        loader->metal_decoder->GetLastSeekTarget() == coords.source_frame;
+#else
+                    bool already_targeting = false;
+#endif
+                    if (!already_targeting) {
+                        loader->UpdatePlayhead(coords.source_frame, SeekQuality::NORMAL, true);
+                    }
+                    Debug::Log("TimelineCache: Post-scrub seek decoder for " + path +
+                               " to frame " + std::to_string(coords.source_frame));
                 }
             }
         }
     }
 
-    // Clean up held texture
-    if (aggressive_held_texture_ != 0) {
-        std::lock_guard<std::mutex> lock(delete_mutex_);
-        textures_to_delete_.push_back(aggressive_held_texture_);
-        aggressive_held_texture_ = 0;
-        aggressive_held_width_ = 0;
-        aggressive_held_height_ = 0;
-        aggressive_held_frame_ = -1;
-        aggressive_held_source_.clear();
-    }
+    // Clear held texture reference (pool textures are managed by pool LRU)
+    aggressive_held_texture_ = 0;
+    aggressive_held_width_ = 0;
+    aggressive_held_height_ = 0;
+    aggressive_held_frame_ = -1;
+    aggressive_held_source_.clear();
+
+    // Clear scrub decoders now that main decoders are positioned
+    scrub_decoders_.ClearAll();
 
     // Transition to INACTIVE
     aggressive_scrub_mode_ = AggressiveScrubMode::INACTIVE;
@@ -3944,8 +4323,8 @@ GLuint TimelineCache::GetShuttleFrame(int timeline_frame, int& width, int& heigh
             shuttle_last_width_ == pixels->width &&
             shuttle_last_height_ == pixels->height) {
             // Reuse existing texture, just update content
-#ifdef QCVIEW_USE_VULKAN
-            qcview::VulkanTexturePool::Instance().UpdateTexture(
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+            GPUTexturePool().UpdateTexture(
                 static_cast<uint64_t>(shuttle_last_texture_),
                 pixels->pixels.data(), pixels->pixels.size());
 #else
@@ -3959,8 +4338,8 @@ GLuint TimelineCache::GetShuttleFrame(int timeline_frame, int& width, int& heigh
         } else {
             // Need new texture
             if (shuttle_last_texture_ != 0) {
-#ifdef QCVIEW_USE_VULKAN
-                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                GPUTexturePool().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
 #else
                 glDeleteTextures(1, &shuttle_last_texture_);
 #endif
@@ -4041,8 +4420,8 @@ int TimelineCache::ExitShuttleMode() {
     shuttle_composited_texture_ = 0;
 
     if (shuttle_last_texture_ != 0) {
-#ifdef QCVIEW_USE_VULKAN
-        qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+        GPUTexturePool().QueueDelete(static_cast<uint64_t>(shuttle_last_texture_));
 #else
         glDeleteTextures(1, &shuttle_last_texture_);
 #endif

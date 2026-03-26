@@ -56,7 +56,7 @@ public:
 private:
     OCIO::ConstConfigRcPtr config;
     std::vector<OCIOConfigInfo> available_configs;
-    OCIOConfigType active_config_type = OCIOConfigType::BLENDER;
+    OCIOConfigType active_config_type = OCIOConfigType::BLENDER5;
 
     // Alias mapping tables (built when config loads)
     std::map<std::string, std::string> alias_to_full;     // alias -> full name

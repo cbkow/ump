@@ -1,4 +1,5 @@
 #include "transcode_queue_window.h"
+#include "../app/ui_scale.h"
 #include "../utils/debug_utils.h"
 #include "../app/app_ui_macros.h"
 #include <imgui.h>
@@ -652,7 +653,15 @@ void TranscodeQueueWindow::RenderJobDetailsPanel() {
             // Context menu for output path
             ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
             if (ImGui::BeginPopupContextItem("OutputPathContextMenu")) {
-                if (ImGui::MenuItem("Show in Explorer")) {
+                if (ImGui::MenuItem(
+#ifdef _WIN32
+                    "Show in Explorer"
+#elif defined(__APPLE__)
+                    "Reveal in Finder"
+#else
+                    "Show in File Browser"
+#endif
+                )) {
                     OpenOutputFolder();
                 }
                 ImGui::EndPopup();
@@ -1288,7 +1297,7 @@ void TranscodeQueueWindow::RenderSettingsTab() {
     // Apply button (settings take effect immediately, but save to disk on apply)
     if (settings_changed) {
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(accent.x, accent.y, accent.z, 0.8f));
-        if (ImGui::Button("Save Changes", ImVec2(150, 0))) {
+        if (ImGui::Button("Save Changes", ImVec2(S(150), 0))) {
             SaveSettings();
             Debug::Log("Transcode settings saved to disk");
             settings_changed = false;

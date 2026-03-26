@@ -223,13 +223,17 @@ private:
     };
     std::deque<ThumbnailRequest> request_queue_;
     std::set<TimelineThumbnailKey> in_progress_;
+    std::set<TimelineThumbnailKey> queued_keys_;   // O(1) dedup for request queue
     mutable std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
 
-    // Pending uploads (pixel data ready for GL texture creation)
+    // Pending uploads (pixel data ready for GL texture creation, or pre-created GPU texture)
     struct PendingUpload {
         TimelineThumbnailKey key;
-        std::shared_ptr<PixelData> pixels;
+        std::shared_ptr<PixelData> pixels;     // Pixel data for OpenGL path
+        GLuint gpu_texture_id = 0;             // Pre-created texture (Metal/Vulkan worker thread)
+        int width = 0;                          // Texture dimensions (when gpu_texture_id set)
+        int height = 0;
     };
     std::deque<PendingUpload> pending_uploads_;
     mutable std::mutex upload_mutex_;
@@ -237,6 +241,7 @@ private:
     // Worker threads (multiple for parallelism)
     std::vector<std::thread> worker_threads_;
     std::atomic<bool> running_{false};
+    std::atomic<uint64_t> clear_generation_{0};  // Incremented on Clear() — workers discard stale work
 
     // Worker state management
     std::atomic<ThumbnailWorkerState> worker_state_{ThumbnailWorkerState::STOPPED};

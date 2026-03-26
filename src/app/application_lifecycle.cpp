@@ -3,18 +3,32 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <process.h>  // _exit()
+#else
+#include <unistd.h>   // _exit()
 #endif
 
 #include <glad/gl.h>
+#ifndef QCVIEW_USE_METAL
 #include <GLFW/glfw3.h>
+#endif
 
 #include <imgui.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <imgui_impl_glfw.h>
+#endif
 #ifdef QCVIEW_USE_VULKAN
 #include <imgui_impl_vulkan.h>
 #include "gpu/vulkan_device.h"
 #include "gpu/vulkan_texture_pool.h"
 #include "annotations/vulkan_annotation_renderer.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
+#include "gpu/metal_texture_pool.h"
+#include "annotations/metal_annotation_renderer.h"
+#include "app/macos_menu_bar.h"
 #else
 #include <imgui_impl_opengl3.h>
 #endif
@@ -256,120 +270,89 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
     void Application::Cleanup() {
         Debug::Log("=== CLEANUP STARTED ===");
 
-        // Save settings before shutting down
-        Debug::Log("Cleanup: Saving settings...");
+        // =====================================================================
+        // Phase 1: Save persistent state (must complete before anything else)
+        // =====================================================================
         SaveSettings();
         SaveShortcuts();
-        Debug::Log("Cleanup: Settings saved");
 
-        // Shutdown audio/playback first for graceful exit
-        // This stops WASAPI threads before other resources are destroyed
-        Debug::Log("Cleanup: Shutting down playback controllers...");
-        if (scratch_timeline_controller) {
-            scratch_timeline_controller->Shutdown();
-            scratch_timeline_controller.reset();
-            Debug::Log("Cleanup: Scratch timeline controller shutdown");
-        }
-        if (timeline_view) {
-            timeline_view->ShutdownPlayback();
-            Debug::Log("Cleanup: Timeline view playback shutdown");
-        }
+        // =====================================================================
+        // Phase 2: Release GPU resources (Metal/Vulkan textures leak if not
+        //          explicitly freed — the OS does NOT reclaim them on exit)
+        // =====================================================================
 
-#ifdef _WIN32
-        // Shutdown HDR output manager
-        qcview::HDROutputManager::Instance().Shutdown();
-        Debug::Log("Cleanup: HDR output manager shutdown");
-#endif
-
-        // Now proceed with actual cleanup
-        // Stop pressure monitor before destroying other resources
-        Debug::Log("Cleanup: Stopping pressure monitor...");
-        if (pressure_monitor) {
-            pressure_monitor->Stop();
-            pressure_monitor.reset();
-            Debug::Log("Cleanup: Pressure monitor stopped and reset");
-        } else {
-            Debug::Log("Cleanup: No pressure monitor to stop");
-        }
-
-        // Clean up ProjectManager video caches BEFORE VideoPlayer cleanup
-        // This ensures FrameCache background threads are stopped while VideoPlayer is still valid
-        Debug::Log("Cleanup: Clearing ProjectManager video caches...");
-        if (project_manager) {
-            project_manager->ClearAllCaches();
-            Debug::Log("Cleanup: ProjectManager video caches cleared");
-        } else {
-            Debug::Log("Cleanup: No project manager to clean up");
-        }
-
-        // Clean up video player (caches, threads)
-        Debug::Log("Cleanup: Starting VideoPlayer cleanup...");
-        if (video_player) {
-            video_player->Cleanup();
-            Debug::Log("Cleanup: VideoPlayer cleanup complete");
-        } else {
-            Debug::Log("Cleanup: No video player to clean up");
-        }
-
-        // Shutdown hardware context manager (releases shared CUDA/D3D11VA contexts)
-        Debug::Log("Cleanup: Shutting down HW Context Manager...");
-        qcview::HWContextManager::Instance().Shutdown();
-
-        // Shutdown NFD (Native File Dialog)
-        Debug::Log("Cleanup: Shutting down NFD...");
-        NFD_Quit();
-
-        // Shutdown ImGui and related contexts
 #ifdef QCVIEW_USE_VULKAN
-        Debug::Log("Cleanup: Shutting down ImGui Vulkan...");
         auto& vk_dev = qcview::VulkanDeviceManager::Instance();
         vkDeviceWaitIdle(vk_dev.GetDevice());
         ImGui_ImplVulkan_Shutdown();
+#elif defined(QCVIEW_USE_METAL)
+        // HDR swapchain calls ImGui_ImplMetal_SetHDRMode — must go before ImGui teardown
+        metal_swapchain_.reset();
+
+        qcview::ShutdownNativeMenuBar();
+        {
+            extern void ShutdownMetalImGui();
+            ShutdownMetalImGui();
+        }
 #else
-        Debug::Log("Cleanup: Shutting down ImGui OpenGL3...");
         ImGui_ImplOpenGL3_Shutdown();
 #endif
-        Debug::Log("Cleanup: Shutting down ImGui GLFW...");
+
+#ifdef QCVIEW_USE_METAL
+        extern void ShutdownImGuiOSXBackend();
+        ShutdownImGuiOSXBackend();
+#else
         ImGui_ImplGlfw_Shutdown();
-        Debug::Log("Cleanup: Destroying ImNodes context...");
+#endif
         ImNodes::DestroyContext();
-        Debug::Log("Cleanup: Shutting down NanoVG context...");
         qcview::Annotations::NanoVGContext::Instance().Shutdown();
-        Debug::Log("Cleanup: Destroying ImPlot context...");
         ImPlot::DestroyContext();
-        Debug::Log("Cleanup: Destroying ImGui context...");
         ImGui::DestroyContext();
-        Debug::Log("Cleanup: All ImGui contexts destroyed");
 
 #ifdef QCVIEW_USE_VULKAN
-        // Destroy Vulkan presentation resources (swapchain manages all resources)
-        Debug::Log("Cleanup: Destroying Vulkan swapchain...");
         qcview::SetVulkanHDRSwapchain(nullptr);
         vulkan_swapchain_.reset();
-
-        // Shutdown Vulkan annotation renderer before texture pool
         if (vulkan_annotation_renderer_) {
-            Debug::Log("Cleanup: Shutting down VulkanAnnotationRenderer...");
             vulkan_annotation_renderer_->Shutdown();
             vulkan_annotation_renderer_.reset();
         }
-
-        Debug::Log("Cleanup: Shutting down VulkanTexturePool...");
         qcview::VulkanTexturePool::Instance().Shutdown();
-
-        Debug::Log("Cleanup: Shutting down VulkanDeviceManager...");
         vk_dev.Shutdown();
+#elif defined(QCVIEW_USE_METAL)
+        if (metal_annotation_renderer_) {
+            metal_annotation_renderer_->Shutdown();
+            metal_annotation_renderer_.reset();
+        }
+        qcview::MetalTexturePool::ThumbnailInstance().Shutdown();
+        qcview::MetalTexturePool::Instance().Shutdown();
+        qcview::MetalDeviceManager::Instance().Shutdown();
 #endif
 
-        // Destroy GLFW window and terminate
-        Debug::Log("Cleanup: Destroying GLFW window...");
+        // =====================================================================
+        // Phase 3: Tear down window system
+        // =====================================================================
+#ifdef QCVIEW_USE_METAL
+        MacOS_DestroyWindow();
+#else
         glfwDestroyWindow(window);
-        Debug::Log("Cleanup: Terminating GLFW...");
         glfwTerminate();
-        Debug::Log("=== CLEANUP COMPLETED SUCCESSFULLY ===");
+#endif
 
-        // Shutdown async logger last (flushes remaining messages)
+#ifdef _WIN32
+        qcview::HDROutputManager::Instance().Shutdown();
+#endif
+
+        // =====================================================================
+        // Phase 4: Fast exit — skip thread joins entirely.
+        //
+        // Background threads (DirectEXRCache I/O, thumbnail workers, frame
+        // cache, audio mixer) are all operating on process-private CPU memory.
+        // The OS reclaims all of it on _exit(). GPU resources were already
+        // released above. This avoids 1-3 seconds of blocking thread joins.
+        // =====================================================================
+        Debug::Log("=== CLEANUP COMPLETED (fast exit) ===");
         Debug::ShutdownLogging();
+        _exit(0);
     }
 
     // ------------------------------------------------------------------------
@@ -429,7 +412,9 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         // The controllers own the textures - we must clear our references first.
         cached_dual_view_textures = {};
 
-        // Queue color-corrected textures for deferred deletion (avoid GL ops during render)
+        // Queue color-corrected textures for deferred deletion
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
+        // OpenGL path: queue GL texture deletions for main thread
         if (g_color_corrected_cache.left_texture != 0) {
             g_pending_texture_deletions.push_back(g_color_corrected_cache.left_texture);
         }
@@ -454,7 +439,8 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
         if (g_color_corrected_cache.prev_composite_texture != 0) {
             g_pending_texture_deletions.push_back(g_color_corrected_cache.prev_composite_texture);
         }
-        // Reset the cache struct (textures will be deleted next frame)
+#endif
+        // Reset the cache struct (Vulkan/Metal don't use this for color correction)
         g_color_corrected_cache = ColorCorrectedTextureCache{};
 
         // === STEP 3: Shutdown all playback controllers ===

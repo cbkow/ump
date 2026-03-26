@@ -6,6 +6,7 @@
 #include "app/app_config.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "app/shortcut_manager.h"
 #include "project/project_manager.h"
 #include "utils/debug_utils.h"
@@ -25,7 +26,9 @@
 #endif
 #include <imgui.h>
 #include <nfd.h>
+#if !defined(QCVIEW_USE_METAL)
 #include <GLFW/glfw3.h>
+#endif
 #include <string>
 #include <chrono>
 #include <filesystem>
@@ -325,7 +328,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
         float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(500 * scale, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(500), 0), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("EXR Transcode Progress", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
             // Check if transcode completed (progress flag was cleared by completion callback)
@@ -542,7 +545,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
         float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(600 * scale, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(600), 0), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("System Critical", nullptr,
             ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoMove)) {
@@ -611,7 +614,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::Spacing();
 
             PushOutlineButtonStyle();
-            if (ImGui::Button("Open Settings", ImVec2(160, 0))) {
+            if (ImGui::Button("Open Settings", ImVec2(S(160), 0))) {
                 show_cache_settings = true;
                 show_pressure_critical_dialog = false;
                 in_emergency_mode = false;
@@ -622,7 +625,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::SameLine();
 
             PushOutlineButtonStyle();
-            if (ImGui::Button("Dismiss", ImVec2(120, 0))) {
+            if (ImGui::Button("Dismiss", ImVec2(S(120), 0))) {
                 show_pressure_critical_dialog = false;
                 in_emergency_mode = false;
                 ImGui::CloseCurrentPopup();
@@ -632,7 +635,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::SameLine();
 
             PushOutlineButtonStyle();
-            if (ImGui::Button("Close QCView", ImVec2(120, 0))) {
+            if (ImGui::Button("Close QCView", ImVec2(S(120), 0))) {
                 Debug::Log("User requested app shutdown from critical dialog");
                 exit(0);
             }
@@ -706,11 +709,12 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             ImGui::Spacing();
 
             // Tabbed layout for organized settings
-            if (ImGui::BeginChild("SettingsContent", ImVec2(0, -60), false)) {
+            if (ImGui::BeginChild("SettingsContent", ImVec2(0, S(-60)), false)) {
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.25f, 0.25f, 0.25f, 0.50f));
                 if (ImGui::BeginTabBar("SettingsTabs", ImGuiTabBarFlags_None)) {
 
-                    // === TAB 1: Video Decode ===
+                    // === TAB 1: Video Decode (hidden on macOS — VideoToolbox always available on Apple Silicon) ===
+#ifndef __APPLE__
                     if (ImGui::BeginTabItem("Video Decode")) {
                     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Hardware acceleration settings for video decode");
                     ImGui::Spacing();
@@ -725,6 +729,8 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                             "Forces software (CPU) video decoding.\n\n"
 #ifdef _WIN32
                             "When enabled, D3D11VA and NVDEC hardware decode are bypassed\n"
+#elif defined(__APPLE__)
+                            "When enabled, VideoToolbox hardware decode is bypassed\n"
 #else
                             "When enabled, VA-API hardware decode is bypassed\n"
 #endif
@@ -745,6 +751,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
                         ImGui::EndTabItem();
                     } // End Video Decode tab
+#endif
 
                     // === TAB 2: Image Playback ===
                     if (ImGui::BeginTabItem("Image Playback")) {
@@ -912,6 +919,8 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                     if (g_custom_cache_path.empty()) {
 #ifdef _WIN32
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: %%LOCALAPPDATA%%\\qcview\\");
+#elif defined(__APPLE__)
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: ~/Library/Application Support/qcview/");
 #else
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Default: ~/.cache/qcview/");
 #endif
@@ -1236,6 +1245,101 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                                 "Vulkan swapchain not initialized");
                             if (font_regular) ImGui::PopFont();
                         }
+#elif defined(QCVIEW_USE_METAL)
+                        if (metal_swapchain_) {
+                            bool hdr_supported = metal_swapchain_->IsHDRSupported();
+                            bool hdr_active = metal_swapchain_->IsHDRActive();
+                            float max_headroom = metal_swapchain_->GetMaxEDRHeadroom();
+
+                            // EDR status
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "Status");
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            if (hdr_supported) {
+                                ImGui::TextColored(ImVec4(0.5f, 0.8f, 0.5f, 1.0f),
+                                    "EDR (Extended Dynamic Range) supported");
+                                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                    "Max EDR headroom: %.1fx", max_headroom);
+                            } else {
+                                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f),
+                                    "EDR not supported on this display");
+                            }
+                            if (font_regular) ImGui::PopFont();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // HDR toggle
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "EDR Output");
+                            ImGui::Spacing();
+                            if (!hdr_supported) ImGui::BeginDisabled();
+                            bool toggle_hdr = hdr_active;
+                            if (ImGui::Checkbox("Enable EDR output", &toggle_hdr)) {
+                                metal_swapchain_->SetHDREnabled(toggle_hdr);
+                                settings_changed = true;
+                            }
+                            if (!hdr_supported) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // EDR colorspace selector
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "EDR Colorspace");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Determines the color encoding of the framebuffer.\n"
+                                "Match this to your OCIO output transform.");
+                            ImGui::Spacing();
+
+                            if (!hdr_active) ImGui::BeginDisabled();
+                            auto current_cs = metal_swapchain_->GetEDRColorspace();
+                            ImGui::SetNextItemWidth(-1);
+                            if (ImGui::BeginCombo("##EDRColorspace", qcview::EDRColorspaceName(current_cs))) {
+                                for (int i = 0; i < static_cast<int>(qcview::EDRColorspace::Count); i++) {
+                                    auto cs = static_cast<qcview::EDRColorspace>(i);
+                                    bool selected = (cs == current_cs);
+                                    if (ImGui::Selectable(qcview::EDRColorspaceName(cs), selected)) {
+                                        metal_swapchain_->SetEDRColorspace(cs);
+                                        settings_changed = true;
+                                    }
+                                    if (selected) ImGui::SetItemDefaultFocus();
+                                }
+                                ImGui::EndCombo();
+                            }
+                            if (!hdr_active) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            ImGui::Separator();
+                            ImGui::Spacing();
+
+                            // UI brightness slider (EDR scale: 1.0 = SDR white)
+                            ImGui::TextColored(Bright(GetWindowsAccentColor()), "UI Brightness");
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "Controls the brightness of UI elements in EDR mode.\n"
+                                "1.0 = SDR white (normal brightness).");
+                            ImGui::Spacing();
+
+                            if (!hdr_active) ImGui::BeginDisabled();
+                            static float edr_ui_scale = metal_swapchain_->GetUIBrightness();
+                            ImGui::SetNextItemWidth(-1);
+                            if (ImGui::SliderFloat("##EDRUIScale", &edr_ui_scale, 0.5f, 3.0f, "%.2fx")) {
+                                metal_swapchain_->SetUIBrightness(edr_ui_scale);
+                                settings_changed = true;
+                            }
+                            if (!hdr_active) ImGui::EndDisabled();
+
+                            ImGui::Spacing();
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f),
+                                "1.0x = SDR white (recommended default).\n"
+                                "macOS maps SDR white to display brightness automatically.");
+                            if (font_regular) ImGui::PopFont();
+                        } else {
+                            if (font_regular) ImGui::PushFont(font_regular);
+                            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f),
+                                "Metal HDR swapchain not initialized");
+                            if (font_regular) ImGui::PopFont();
+                        }
 #elif defined(_WIN32)
                         {
                             bool hdr_supported = qcview::HDROutputManager::Instance().IsHDRSupported();
@@ -1498,129 +1602,70 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
     void Application::CreateFontSettingsWindow() {
         // Open modal popup when flag is set
         if (show_font_settings_window) {
-            ImGui::OpenPopup("Font Settings");
-            font_settings_temp_scale = g_font_scale; // Initialize temp scale
-            show_font_settings_window = false; // Reset flag
+            ImGui::OpenPopup("UI Scale");
+            show_font_settings_window = false;
         }
 
-        // Set popup to center on screen — 80% of viewport
+        // Centered, compact modal
         ImGuiViewport* viewport = ImGui::GetMainViewport();
         ImVec2 center = viewport->GetCenter();
-        ImVec2 viewport_size = viewport->Size;
-
-        float max_width = viewport_size.x * 0.8f;
-        float max_height = viewport_size.y * 0.8f;
 
         ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(max_width, max_height), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(400), 0), ImGuiCond_Always);
 
         bool open = true;
 
         ImGuiWindowFlags modal_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-        if (ImGui::BeginPopupModal("Font Settings", &open, modal_flags)) {
+        if (ImGui::BeginPopupModal("UI Scale", &open, modal_flags)) {
 
-            ImGui::Text("Font Scale Settings");
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Adjust the user interface font size");
+            ImGui::Text("UI Scale");
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "Adjust the user interface size (requires restart)");
             ImGui::Separator();
             ImGui::Spacing();
 
-            ImGui::BeginChild("FontSettingsContent", ImVec2(0, -60), false);
+            // UI Scale slider
+            static float ui_scale_temp = g_ui_scale;
 
-            // ========================================================================
-            // PRESET BUTTONS
-            // ========================================================================
-            ImGui::Text("Presets:");
-            ImGui::SameLine();
-
-            PushOutlineButtonStyle();
-            if (ImGui::Button("Small")) {
-                font_settings_temp_scale = FONT_SCALE_SMALL;
+            // Reset temp to current on first open
+            static bool first_open = true;
+            if (first_open) {
+                ui_scale_temp = g_ui_scale;
+                first_open = false;
             }
-            PopOutlineButtonStyle();
 
-            ImGui::SameLine();
-
-            PushOutlineButtonStyle();
-            if (ImGui::Button("Medium")) {
-                font_settings_temp_scale = FONT_SCALE_MEDIUM;
-            }
-            PopOutlineButtonStyle();
-
-            ImGui::SameLine();
-
-            PushOutlineButtonStyle();
-            if (ImGui::Button("Large")) {
-                font_settings_temp_scale = FONT_SCALE_LARGE;
-            }
-            PopOutlineButtonStyle();
-
-            ImGui::SameLine();
-
-            PushOutlineButtonStyle();
-            if (ImGui::Button("X-Large")) {
-                font_settings_temp_scale = FONT_SCALE_XLARGE;
-            }
-            PopOutlineButtonStyle();
-
-            ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
-
-            // ========================================================================
-            // CUSTOM SLIDER
-            // ========================================================================
-            ImGui::Text("Custom Scale:");
+            ImGui::Text("Scale:");
             ImGui::SetNextItemWidth(-1);
-            ImGui::SliderFloat("##fontscale", &font_settings_temp_scale, 0.5f, 2.0f, "%.2fx");
+            ImGui::SliderFloat("##uiscale", &ui_scale_temp, 0.5f, 1.5f, "%.2fx");
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Current scale: %.2fx", font_settings_temp_scale);
+
+            // Preset buttons
+            PushOutlineButtonStyle();
+            if (ImGui::Button("Small")) { ui_scale_temp = 0.75f; }
+            PopOutlineButtonStyle();
+            ImGui::SameLine();
+            PushOutlineButtonStyle();
+            if (ImGui::Button("Default")) { ui_scale_temp = 1.0f; }
+            PopOutlineButtonStyle();
+            ImGui::SameLine();
+            PushOutlineButtonStyle();
+            if (ImGui::Button("Large")) { ui_scale_temp = 1.25f; }
+            PopOutlineButtonStyle();
 
             ImGui::Spacing();
-            ImGui::Separator();
-            ImGui::Spacing();
 
-            // ========================================================================
-            // LIVE PREVIEW
-            // ========================================================================
-            ImGui::Text("Preview:");
-
-            // Save current font scale
-            float original_scale = ImGui::GetIO().FontGlobalScale;
-
-            // Preview box with border
-            ImGui::BeginChild("FontPreview", ImVec2(-1, 150), true);
-
-            // Apply preview scale within child window
-            ImGui::GetIO().FontGlobalScale = font_settings_temp_scale;
-
-            // Regular font preview
-            if (font_regular) {
-                ImGui::PushFont(font_regular);
-                ImGui::Text("The quick brown fox jumps over the lazy dog");
-                ImGui::PopFont();
+            if (ui_scale_temp != g_ui_scale) {
+                ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.3f, 1.0f), "Restart required to apply changes");
             } else {
-                ImGui::Text("The quick brown fox jumps over the lazy dog");
+                ImGui::TextDisabled("Current: %.2fx", g_ui_scale);
             }
 
             ImGui::Spacing();
-            ImGui::TextDisabled("Scale: %.2fx", font_settings_temp_scale);
-
-            // Restore original scale BEFORE ending child window
-            ImGui::GetIO().FontGlobalScale = original_scale;
-
-            ImGui::EndChild();  // End FontPreview
-
-            ImGui::EndChild();  // End FontSettingsContent scrollable area
-
-            ImGui::Spacing();
             ImGui::Separator();
             ImGui::Spacing();
 
-            // ========================================================================
-            // BOTTOM BUTTONS (flush right)
-            // ========================================================================
-            float btnPadding = 8.0f * 2;
+            // Bottom buttons (flush right)
+            float btnPadding = S(8.0f) * 2;
             float saveW = ImGui::CalcTextSize("Save").x + btnPadding;
             float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
             float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
@@ -1628,16 +1673,11 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
 
             PushOutlineButtonStyle();
             if (ImGui::Button("Save")) {
-                // Apply the new scale
-                g_font_scale = font_settings_temp_scale;
-                ImGui::GetIO().FontGlobalScale = g_font_scale;
-
-                // Save settings
+                g_ui_scale = ui_scale_temp;
                 SaveSettings();
-
-                Debug::Log("Font scale changed to " + std::to_string(g_font_scale) + "x");
-
+                Debug::Log("UI scale changed to " + std::to_string(g_ui_scale) + "x");
                 ImGui::CloseCurrentPopup();
+                first_open = true;
             }
             PopOutlineButtonStyle();
 
@@ -1646,6 +1686,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
             PushOutlineButtonStyle();
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
+                first_open = true;
             }
             PopOutlineButtonStyle();
 
@@ -1745,7 +1786,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
                 }
             }
 
-            ImGui::BeginChild("ShortcutsContent", ImVec2(0, -60), false);
+            ImGui::BeginChild("ShortcutsContent", ImVec2(0, S(-60)), false);
 
             // Helper lambda for rendering one editable shortcut row (call between BeginTable/EndTable)
             auto RenderEditableRow = [&](ShortcutEntry& entry) {
@@ -2007,7 +2048,7 @@ void AutoConfigureEXRThreading(CacheSettings& settings);
         float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(400 * scale, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(400), 0), ImGuiCond_Always);
 
         bool open = true;
         if (ImGui::BeginPopupModal("Exporting LUT", &open, ImGuiWindowFlags_AlwaysAutoResize)) {

@@ -42,6 +42,7 @@ AVBufferRef* HWContextManager::GetContext(int hw_type) {
         case AV_HWDEVICE_TYPE_QSV:     return GetQSVContext();
         case AV_HWDEVICE_TYPE_DXVA2:   return GetDXVA2Context();
         case AV_HWDEVICE_TYPE_VAAPI:   return GetVAAPIContext();
+        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX: return GetVideoToolboxContext();
         default:                        return nullptr;
     }
 }
@@ -54,6 +55,7 @@ int HWContextManager::GetPixelFormat(int hw_type) const {
         case AV_HWDEVICE_TYPE_QSV:     return qsv_pix_fmt_;
         case AV_HWDEVICE_TYPE_DXVA2:   return dxva2_pix_fmt_;
         case AV_HWDEVICE_TYPE_VAAPI:   return vaapi_pix_fmt_;
+        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX: return videotoolbox_pix_fmt_;
         default:                        return -1;
     }
 }
@@ -66,6 +68,7 @@ bool HWContextManager::HasContext(int hw_type) const {
         case AV_HWDEVICE_TYPE_QSV:     return HasQSV();
         case AV_HWDEVICE_TYPE_DXVA2:   return HasDXVA2();
         case AV_HWDEVICE_TYPE_VAAPI:   return HasVAAPI();
+        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX: return HasVideoToolbox();
         default:                        return false;
     }
 }
@@ -162,6 +165,23 @@ AVBufferRef* HWContextManager::GetVAAPIContext() {
     return vaapi_ctx_;
 }
 
+AVBufferRef* HWContextManager::GetVideoToolboxContext() {
+    if (shutdown_.load()) return nullptr;
+
+    if (videotoolbox_initialized_.load()) {
+        return videotoolbox_ctx_;
+    }
+
+    std::lock_guard<std::mutex> lock(videotoolbox_mutex_);
+
+    if (videotoolbox_initialized_.load()) {
+        return videotoolbox_ctx_;
+    }
+
+    InitializeVideoToolbox();
+    return videotoolbox_ctx_;
+}
+
 //=============================================================================
 // Context Initialization
 //=============================================================================
@@ -256,6 +276,24 @@ void HWContextManager::InitializeVAAPI() {
     vaapi_initialized_ = true;
 }
 
+void HWContextManager::InitializeVideoToolbox() {
+    Debug::Log("HWContextManager: Creating shared VideoToolbox device context...");
+
+    int ret = av_hwdevice_ctx_create(&videotoolbox_ctx_, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nullptr, nullptr, 0);
+    if (ret < 0) {
+        char errbuf[256];
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        Debug::Log("HWContextManager: VideoToolbox not available: " + std::string(errbuf));
+        videotoolbox_ctx_ = nullptr;
+        videotoolbox_pix_fmt_ = -1;
+    } else {
+        videotoolbox_pix_fmt_ = static_cast<int>(AV_PIX_FMT_VIDEOTOOLBOX);
+        Debug::Log("HWContextManager: VideoToolbox context created successfully");
+    }
+
+    videotoolbox_initialized_ = true;
+}
+
 //=============================================================================
 // Lifecycle
 //=============================================================================
@@ -314,6 +352,16 @@ void HWContextManager::Shutdown() {
             av_buffer_unref(&vaapi_ctx_);
             vaapi_ctx_ = nullptr;
             Debug::Log("HWContextManager: VA-API context released");
+        }
+    }
+
+    // Free VideoToolbox context
+    {
+        std::lock_guard<std::mutex> lock(videotoolbox_mutex_);
+        if (videotoolbox_ctx_) {
+            av_buffer_unref(&videotoolbox_ctx_);
+            videotoolbox_ctx_ = nullptr;
+            Debug::Log("HWContextManager: VideoToolbox context released");
         }
     }
 

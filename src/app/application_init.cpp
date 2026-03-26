@@ -14,6 +14,10 @@
 #endif
 
 #include <glad/gl.h>
+#ifdef QCVIEW_USE_METAL
+// Native macOS — no GLFW
+#include "macos_app_delegate.h"
+#else
 #ifdef QCVIEW_USE_VULKAN
 #define GLFW_INCLUDE_VULKAN
 #endif
@@ -22,14 +26,25 @@
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #endif
+#endif // QCVIEW_USE_METAL
 
 #include <imgui.h>
+#ifdef QCVIEW_USE_METAL
+#include <imgui_impl_osx.h>
+#else
 #include <imgui_impl_glfw.h>
+#endif
 #ifdef QCVIEW_USE_VULKAN
 #include <imgui_impl_vulkan.h>
 #include "gpu/vulkan_device.h"
 #include "gpu/vulkan_texture_pool.h"
 #include "annotations/vulkan_annotation_renderer.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
+#include "gpu/metal_texture_pool.h"
+#include "hdr/metal_hdr_swapchain.h"
+#include "annotations/metal_annotation_renderer.h"
+#include "app/macos_menu_bar.h"
 #else
 #include <imgui_impl_opengl3.h>
 #endif
@@ -200,15 +215,33 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         InitShortcutDefaults();
         LoadShortcuts();
 
+#ifdef QCVIEW_USE_METAL
+        // Native macOS window — no GLFW
+        {
+            int wx = (has_saved_window_settings && saved_window_x >= 0) ? saved_window_x : -1;
+            int wy = (has_saved_window_settings && saved_window_y >= 0) ? saved_window_y : -1;
+            if (!MacOS_CreateWindow(saved_window_width, saved_window_height, wx, wy, "QCView v1.0.5")) {
+                std::cerr << "Failed to create native macOS window" << std::endl;
+                return false;
+            }
+            // Store opaque window pointer for code that needs it
+            window = MacOS_GetNSWindow();
+        }
+
+        SetupDragDrop();
+#else
+        // GLFW window (Linux/Windows)
+#ifdef __APPLE__
+        // Suppress GLFW's default macOS menu bar — we build our own NSMenu
+        glfwInitHint(GLFW_COCOA_MENUBAR, GLFW_FALSE);
+#endif
+
         if (!glfwInit()) {
             std::cerr << "Failed to initialize GLFW" << std::endl;
             return false;
         }
 
 #ifdef QCVIEW_USE_VULKAN
-        // Vulkan: No OpenGL context - GLFW creates a surface only
-        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-#else
         // OpenGL context configuration
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
@@ -232,7 +265,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #endif
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.4", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.0.5", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();
@@ -272,6 +305,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 stbi_image_free(pixels);
             }
         }
+#elif defined(__APPLE__)
+        // macOS icon is set via Info.plist (CFBundleIconFile)
+        // No need for glfwSetWindowIcon on macOS
 #endif
 
         SetupDragDrop();
@@ -279,6 +315,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #ifdef _WIN32
         EnableDarkModeWindow(window);
 #endif
+#endif // QCVIEW_USE_METAL (end of GLFW window creation path)
 
 #ifdef QCVIEW_USE_VULKAN
         // ============================================================
@@ -309,6 +346,50 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         } else {
             Debug::Log("WARNING: Failed to initialize VulkanAnnotationRenderer");
             vulkan_annotation_renderer_.reset();
+        }
+
+#elif defined(QCVIEW_USE_METAL)
+        // ============================================================
+        // Metal initialization path (macOS)
+        // ============================================================
+
+        // Initialize Metal device manager (uses MTKView's device and CAMetalLayer)
+        if (!qcview::MetalDeviceManager::Instance().Initialize(MacOS_GetNSView())) {
+            std::cerr << "Failed to initialize Metal device" << std::endl;
+            return false;
+        }
+        Debug::Log("Metal device initialized: " +
+                   qcview::MetalDeviceManager::Instance().GetDeviceName());
+
+        // Initialize Metal texture pools — separate pools for frames and thumbnails
+        if (!qcview::MetalTexturePool::Instance().Initialize()) {
+            Debug::Log("WARNING: Failed to initialize MetalTexturePool");
+        } else {
+            Debug::Log("MetalTexturePool initialized (max " +
+                       std::to_string(qcview::MetalTexturePool::Instance().GetMaxMemory() / (1024*1024)) + " MB)");
+        }
+        if (!qcview::MetalTexturePool::ThumbnailInstance().Initialize(512ULL * 1024 * 1024)) {
+            Debug::Log("WARNING: Failed to initialize MetalTexturePool (thumbnails)");
+        } else {
+            Debug::Log("MetalTexturePool (thumbnails) initialized (max " +
+                       std::to_string(qcview::MetalTexturePool::ThumbnailInstance().GetMaxMemory() / (1024*1024)) + " MB)");
+        }
+
+        // Initialize Metal annotation renderer (replaces NanoVG GL3 backend)
+        metal_annotation_renderer_ = std::make_unique<qcview::Annotations::MetalAnnotationRenderer>();
+        if (metal_annotation_renderer_->Initialize()) {
+            Debug::Log("MetalAnnotationRenderer: Initialized");
+        } else {
+            Debug::Log("WARNING: Failed to initialize MetalAnnotationRenderer");
+            metal_annotation_renderer_.reset();
+        }
+
+        // Initialize native macOS menu bar (replaces GLFW default + File/Edit/View/Help ImGui menus)
+        qcview::InitNativeMenuBar();
+
+        // Populate native Recent Files menu with persisted list from settings
+        if (!recent_files.empty()) {
+            qcview::UpdateNativeRecentFiles(recent_files);
         }
 
 #else
@@ -379,7 +460,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 
         io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
         io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable; // Enable multi-viewport (requires GL/D3D11)
 #endif
 
@@ -387,12 +468,53 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         LoadCustomFonts();
         SetupImGuiStyle();
 
-        // Apply font scale from settings
-        io.FontGlobalScale = g_font_scale;
-        Debug::Log("Applied font scale: " + std::to_string(g_font_scale) + "x");
+        // Apply UI scale (loaded from settings, default 1.0)
+        // User adjusts via View > UI Scale. Scales fonts, ImGui style, and all S() values.
+        {
+            extern float g_ui_scale;
+            if (g_ui_scale != 1.0f) {
+                ImGui::GetStyle().ScaleAllSizes(g_ui_scale);
+            }
+            io.FontGlobalScale = g_ui_scale;
+            Debug::Log("UI scale: " + std::to_string(g_ui_scale) + "x");
+        }
 
         // Setup Platform/Renderer backends
-#ifdef QCVIEW_USE_VULKAN
+#ifdef QCVIEW_USE_METAL
+        {
+            // Metal ImGui init is done from a .mm helper (ObjC types can't appear in .cpp)
+            extern bool InitMetalImGui(void* window, void* device);
+            extern void SetMetalLayerForImGui(void* metal_layer);
+            auto& mgr = qcview::MetalDeviceManager::Instance();
+            // ImGui_ImplOSX_Init called from .mm bridge (ObjC types)
+            extern bool InitImGuiOSXBackend(void* ns_view);
+            InitImGuiOSXBackend(MacOS_GetNSView());
+            if (!InitMetalImGui(MacOS_GetNSView(), mgr.GetDevice())) {
+                std::cerr << "Failed to initialize ImGui Metal backend" << std::endl;
+                return false;
+            }
+
+            // Set layer for ImGui NewFrame (needs valid texture for sampleCount)
+            SetMetalLayerForImGui(MacOS_GetMetalLayer());
+
+            // Initialize Metal HDR swapchain
+            metal_swapchain_ = std::make_unique<qcview::MetalHDRSwapchain>();
+            metal_swapchain_->Initialize(MacOS_GetNSWindow());
+
+            // Register with cross-platform HDR color query system
+            qcview::SetMetalHDRSwapchain(metal_swapchain_.get());
+
+            // EDR UI scale defaults to 1.0 (SDR white); no nits mapping needed
+
+            // Apply saved HDR preference if supported
+            if (hdr_preferred_ && metal_swapchain_->IsHDRSupported()) {
+                metal_swapchain_->SetHDREnabled(true);
+                Debug::Log("Metal EDR: restored from saved preference");
+            }
+
+            Debug::Log("ImGui Metal backend initialized");
+        }
+#elif defined(QCVIEW_USE_VULKAN)
         {
             auto& vk = qcview::VulkanDeviceManager::Instance();
 
@@ -550,6 +672,11 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             TriggerAutoPlay(qcview::MediaType::VIDEO);  // Use VIDEO type for playlists (not image sequences)
         });
 
+        // Set up recent file callback - adds loaded files to File > Recent Files
+        project_manager->SetRecentFileCallback([this](const std::string& path) {
+            AddToRecentFiles(path);
+        });
+
         // Set up loading modal callback - shows overlay before blocking operations
         project_manager->SetLoadingModalCallback([this](const std::string& message, std::function<void()> callback) {
             ScheduleLoadingOperation(message, callback);
@@ -629,6 +756,8 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 if (!timeline_view) {
                     timeline_view = std::make_unique<qcview::TimelineView>(video_player.get());
                 } else {
+                    // Destroy thumbnail cache before playback shutdown
+                    timeline_thumbnail_cache.reset();  // Full destroy — stops worker threads
                     // Shutdown existing playback from previous timeline (file-based or scratch)
                     timeline_view->ShutdownPlayback();
                 }
@@ -1115,13 +1244,24 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     }
                 }
                 timeline_view->SetExternalPlaybackController(nullptr);
-                // Shutdown playback controller for clean slate
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: destroying thumbnail cache...");
+                timeline_thumbnail_cache.reset();  // Full destroy — stops worker threads
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: thumbnail cache destroyed");
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: shutting down playback...");
                 timeline_view->ShutdownPlayback();
-                // Reset source mode
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: playback shut down");
                 timeline_view->ResetSourceMode();
             }
 
-            // Clear tracks to show empty state (new media will populate tracks)
+            // Shutdown scratch timeline controller (dual view, scratch timelines)
+            if (scratch_timeline_controller) {
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: shutting down scratch controller...");
+                scratch_timeline_controller->Shutdown();
+                scratch_timeline_controller.reset();
+                Debug::Log("[MEDIA_SWITCH] ExitTimeline: scratch controller destroyed");
+            }
+
+            // Clear tracks
             if (timeline_view) {
                 timeline_view->GetTracks().clear();
                 timeline_view->GetFlattener().SetTracks({});
@@ -1132,8 +1272,8 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                 video_player->SetTimelineMode(false);
             }
 
-            // Defer timeline thumbnail cache clear
-            timeline_thumbnail_cache_clear_deferred = true;
+            // Note: thumbnail cache already destroyed above via .reset()
+            // Do NOT set deferred flag — it would destroy the newly-created cache on next frame
         });
 
         // Set up flush timeline edits callback - called before SaveProject() to capture current edits
@@ -2023,6 +2163,15 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
                     strokes, target, target_view, w, h,
                     0.0f, 0.0f, (float)w, (float)h, 1.0f, true);
             });
+#elif defined(QCVIEW_USE_METAL)
+        // Metal annotation rendering callback (macOS)
+        video_player->SetMetalRenderAnnotationsToImageCallback(
+            [this](const std::vector<qcview::Annotations::ActiveStroke>& strokes,
+                   void* target_texture, int w, int h) {
+                if (!metal_annotation_renderer_ || !metal_annotation_renderer_->IsInitialized()) return;
+                metal_annotation_renderer_->RenderAnnotationsToImage(
+                    strokes, target_texture, w, h, 1.0f);
+            });
 #endif
 
         annotation_panel->SetGetCurrentStateCallback([this](double& timestamp, std::string& timecode, int& frame) {
@@ -2273,8 +2422,14 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
             }
 
             // Show file picker for export location
+            extern bool g_nfd_dialog_open;
+            if (g_nfd_dialog_open) return;
+            g_nfd_dialog_open = true;
+
             nfdu8char_t* out_path = nullptr;
             nfdresult_t result = NFD_PickFolderU8(&out_path, nullptr);
+            ImGui::GetIO().ClearInputKeys();
+            g_nfd_dialog_open = false;
 
             if (result != NFD_OKAY) {
                 if (result == NFD_ERROR) {
@@ -2379,6 +2534,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         }
 
         // Start system pressure monitor (background thread)
+        // macOS only: not started — all metrics are Windows-only (#ifdef _WIN32),
+        // and macOS handles memory pressure gracefully (compression + swap).
+#ifndef __APPLE__
         pressure_monitor = std::make_unique<qcview::SystemPressureMonitor>();
         pressure_monitor->SetRAMCriticalThreshold(0.90f);  // 90% critical
         pressure_monitor->SetRAMWarningThreshold(0.80f);   // 80% warning
@@ -2386,6 +2544,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         pressure_monitor->SetPollInterval(3.0);            // Poll every 3 seconds
         pressure_monitor->Start();
         Debug::Log("System pressure monitor started");
+#endif
 
         return true;
     }

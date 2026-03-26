@@ -85,7 +85,7 @@ public:
     void CancelExport();
 
     /**
-     * Reveal a file or folder in Windows Explorer
+     * Reveal a file or folder in the platform file manager
      * @param path Path to file or folder
      * @param is_folder True if path is a folder, false if it's a file
      */

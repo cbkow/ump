@@ -5,6 +5,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "app/app_config.h"
 #include "app/shortcut_manager.h"
 #include "app/timecode.h"
@@ -39,8 +40,25 @@ static inline ImTextureID PoolIDToImTexture(GLuint id) {
     if (id == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
 }
+static inline ImTextureID ThumbnailPoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::VulkanTexturePool::ThumbnailInstance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+static inline ImTextureID ThumbnailPoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::ThumbnailInstance().GetImTextureID(static_cast<uint64_t>(id));
+}
 #else
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    return (ImTextureID)(intptr_t)id;
+}
+static inline ImTextureID ThumbnailPoolIDToImTexture(GLuint id) {
     return (ImTextureID)(intptr_t)id;
 }
 #endif
@@ -100,7 +118,7 @@ extern bool show_link_results_popup;
 extern bool show_auto_relink_results;
 extern std::string auto_relink_timeline_id;
 extern std::string current_timeline_path;
-constexpr float kPlaylistDragThreshold = 15.0f;
+static const float kPlaylistDragThreshold = S(15.0f);
 
 // Free functions defined in main.cpp
 void SaveLinksToCache(const std::string& timeline_id);
@@ -117,14 +135,14 @@ extern ScreenshotFlashState g_screenshot_flash;
 
 // OTIO Timeline UI Constants
 namespace OTIOTimeline {
-    constexpr float TRACK_HEADER_WIDTH = 140.0f;
-    constexpr float TRACK_LANE_HEIGHT = 32.0f;
-    constexpr float TIMELINE_RULER_HEIGHT = 48.0f;
-    constexpr float TRACK_SEPARATOR_HEIGHT = 4.0f;
-    constexpr float OVERVIEW_TRACK_HEIGHT = 28.0f;
-    constexpr float MIN_PIXELS_PER_SECOND = 2.5f;
-    constexpr float MAX_PIXELS_PER_SECOND = 1400.0f;
-    constexpr float DEFAULT_PIXELS_PER_SECOND = 50.0f;
+    const float TRACK_HEADER_WIDTH = S(140.0f);
+    const float TRACK_LANE_HEIGHT = S(32.0f);
+    const float TIMELINE_RULER_HEIGHT = S(48.0f);
+    const float TRACK_SEPARATOR_HEIGHT = S(4.0f);
+    const float OVERVIEW_TRACK_HEIGHT = S(28.0f);
+    const float MIN_PIXELS_PER_SECOND = S(2.5f);
+    const float MAX_PIXELS_PER_SECOND = S(1400.0f);
+    const float DEFAULT_PIXELS_PER_SECOND = S(50.0f);
 }
 
 // Dual view timeline state (moved from main.cpp — only used by timeline panel)
@@ -348,8 +366,17 @@ static bool show_empty_area_context_menu = false;
     }
 
     void Application::RenderTimelineContent() {
+#ifdef __APPLE__
+        // Reduce control rounding inside timeline — dense UI looks better less round
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_GrabRounding, 4.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_TabRounding, 4.0f);
+#endif
         // OTIO timeline is now the only timeline mode
         RenderOTIOTimelinePanel();
+#ifdef __APPLE__
+        ImGui::PopStyleVar(3);
+#endif
     }
 
     // =========================================================================
@@ -423,7 +450,7 @@ static bool show_empty_area_context_menu = false;
             float max_scroll = std::max(0.0f, timeline_width_px - visible_width);
 
             // Define margins (keep playhead within 20px of edges)
-            float margin_px = 20.0f;
+            float margin_px = S(20.0f);
             float left_margin = margin_px;
             float right_margin = visible_width - margin_px;
 
@@ -471,14 +498,14 @@ static bool show_empty_area_context_menu = false;
         // Add breadcrumb bar height when viewing nested timeline
         float breadcrumb_bar_height = 0.0f;
         if (timeline_view && timeline_view->IsViewingNestedTimeline()) {
-            breadcrumb_bar_height = 58.0f;  // Match breadcrumb_height in panel calculations
+            breadcrumb_bar_height = S(58.0f);  // Match breadcrumb_height in panel calculations
         }
 
         // =====================================================================
         // ROW 1: Transport Controls (matching standard timeline style)
         // =====================================================================
         // Add top padding to transport row
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.7f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + S(3.7f));
 
         // Transport button sizes - use GetFrameHeight() which already scales with font
         float button_size = ImGui::GetFrameHeight() * 1.5f;
@@ -486,7 +513,7 @@ static bool show_empty_area_context_menu = false;
         float icon_scale = 1.6f;
         float utility_icon_scale = 1.3f;
         float item_spacing = ImGui::GetStyle().ItemSpacing.x;
-        float spacer_width = 10.0f;
+        float spacer_width = S(10.0f);
         ImVec4 disabled_color = ImVec4(0.29f, 0.29f, 0.29f, 1.0f);
 
         // Calculate total width for centering
@@ -494,14 +521,14 @@ static bool show_empty_area_context_menu = false;
         bool is_playlist_mode = timeline_view &&
             timeline_view->GetSourceMode() == qcview::TimelineSourceMode::PLAYLIST;
         int playback_button_count = is_playlist_mode ? 9 : 7;
-        float playback_box_padding = 5.0f;
-        float playback_box_width = (playback_button_count * small_button) + ((playback_button_count - 1) * item_spacing) + (playback_box_padding * 2 + 12);
+        float playback_box_padding = S(5.0f);
+        float playback_box_width = (playback_button_count * small_button) + ((playback_button_count - 1) * item_spacing) + (playback_box_padding * 2 + S(12));
 
         // Utility buttons after playback: 3 + 2 + 1 + 2 = 8 buttons
         int utility_button_count = 8;
         // Separators: 5 separators with spacers on each side (2 spacers each)
         int separator_count = 5;
-        float separator_spacing = spacer_width * 2 + 2.0f;  // Two spacers + separator width
+        float separator_spacing = spacer_width * 2 + S(2.0f);  // Two spacers + separator width
 
         // Resolution button at far left: 1 button + 1 separator + extra padding
         int resolution_button_count = 1;
@@ -548,7 +575,7 @@ static bool show_empty_area_context_menu = false;
         static bool otio_rw_active = false;
         static bool otio_ff_active = false;
 
-        float box_y_offset = 1.1f;  // Vertical offset for playback box and buttons
+        float box_y_offset = S(1.1f);  // Vertical offset for playback box and buttons
 
         // Store draw list for background box
         ImDrawList* transport_draw_list = ImGui::GetWindowDrawList();
@@ -560,14 +587,15 @@ static bool show_empty_area_context_menu = false;
         playback_box_start.y += box_y_offset;  // Offset the box down
 
         // Draw background box with rounded corners for playback controls
+        float transport_box_rounding = S(10.0f);
         transport_draw_list->AddRectFilled(
             playback_box_start,
             ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
-            IM_COL32(16, 16, 16, 60), 1.0f);
+            IM_COL32(16, 16, 16, 60), transport_box_rounding);
         transport_draw_list->AddRect(
             playback_box_start,
             ImVec2(playback_box_start.x + playback_box_width, playback_box_start.y + playback_box_height),
-            UI_WHITE_A(15), 1.0f, 0, 1.0f);
+            UI_WHITE_A(15), transport_box_rounding, 0, S(1.0f));
 
         // Offset buttons to match the box
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + box_y_offset);
@@ -913,73 +941,14 @@ static bool show_empty_area_context_menu = false;
 
             // === ALL PANELS BUTTON ===
             // Left-click: Show all panels
-            // Right-click: Open panels popup menu
             bool all_panels_shown_local = show_project_panel && show_inspector_panel && show_color_panels && !minimal_view_mode;
             ImGui::PushStyleColor(ImGuiCol_Text, all_panels_shown_local ? UI_WHITE_VEC4 : UI_GRAY_VEC4);
             if (ImGui::Button(ICON_GRID_VIEW "##otio_all_panels", ImVec2(small_button, button_size))) {
                 minimal_view_mode = false;
                 ShowAllPanels();
             }
-            // Right-click: Open panels popup
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-                ImGui::OpenPopup("PanelsPopup");
-            }
             ImGui::PopStyleColor();
             hover_all = ImGui::IsItemHovered();
-
-            // Panels popup menu - temporarily exit icon font for regular text
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::PopFont();
-
-            // Style popup to match Timecode Mode panel
-            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
-            ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
-            ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
-
-            if (ImGui::BeginPopup("PanelsPopup")) {
-                if (ImGui::MenuItem("Default View")) {
-                    // Restore default panel configuration
-                    show_sidebar_panel = true;
-                    show_project_panel = true;
-                    show_inspector_panel = true;
-                    show_timeline_panel = true;
-                    show_color_panels = false;
-                    show_annotation_panel = false;
-                    minimal_view_mode = false;
-                    first_time_setup = true;  // Trigger dock rebuild
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Sidebar", "Ctrl+7", show_sidebar_panel)) {
-                    show_sidebar_panel = !show_sidebar_panel;
-                    first_time_setup = true;  // Trigger dock rebuild
-                }
-                ImGui::Separator();
-                if (ImGui::MenuItem("Project", "Ctrl+1", show_project_panel)) {
-                    show_project_panel = !show_project_panel;
-                    if (show_project_panel) minimal_view_mode = false;
-                }
-                if (ImGui::MenuItem("Inspector", "Ctrl+2", show_inspector_panel)) {
-                    show_inspector_panel = !show_inspector_panel;
-                    if (show_inspector_panel) minimal_view_mode = false;
-                }
-                if (ImGui::MenuItem("Color", "Ctrl+4", show_color_panels)) {
-                    show_color_panels = !show_color_panels;
-                    first_time_setup = true;
-                }
-                if (ImGui::MenuItem("Annotations", "Ctrl+5", show_annotation_panel)) {
-                    show_annotation_panel = !show_annotation_panel;
-                    if (show_annotation_panel) minimal_view_mode = false;
-                }
-                ImGui::EndPopup();
-            }
-
-            ImGui::PopStyleColor(2);
-            ImGui::PopStyleVar(2);
-
-            // Restore icon font for subsequent buttons
-            ImGui::PushFont(font_icons);
-            ImGui::SetWindowFontScale(utility_icon_scale);
             ImGui::SameLine();
 
             // Minimal view (keeps sidebar visible)
@@ -1104,7 +1073,7 @@ static bool show_empty_area_context_menu = false;
         if (hover_ss_desk) ImGui::SetTooltip("Screenshot to desktop");
         if (hover_dual) ImGui::SetTooltip(dual_view_enabled ? "Dual View ON" : "Dual View OFF");
         if (hover_fullscreen) ImGui::SetTooltip("Fullscreen");
-        if (hover_all) ImGui::SetTooltip("Show All Panels (Ctrl+9)\nRight-click for panel menu");
+        if (hover_all) ImGui::SetTooltip("Show All Panels (Ctrl+9)");
         if (hover_minimal) ImGui::SetTooltip(minimal_view_mode ? "Exit Minimal View (Ctrl+-)" : "Minimal View (Ctrl+-)");
         if (hover_link) ImGui::SetTooltip("Link Media to Clips");
 
@@ -1119,7 +1088,7 @@ static bool show_empty_area_context_menu = false;
         if (timeline_view && timeline_view->IsViewingNestedTimeline()) {
             // Draw breadcrumb bar for nested timeline navigation
             ImVec2 breadcrumb_pos = ImGui::GetCursorScreenPos();
-            float breadcrumb_height = 24.0f;  // Actual breadcrumb bar height (panel adds 52px total for this + spacing)
+            float breadcrumb_height = S(24.0f);  // Actual breadcrumb bar height (panel adds 52px total for this + spacing)
             ImDrawList* bc_draw = ImGui::GetWindowDrawList();
 
             // Breadcrumb background
@@ -1131,8 +1100,8 @@ static bool show_empty_area_context_menu = false;
 
             // Draw breadcrumb path: Root > Nested1 > Nested2 > [Current]
             auto path = timeline_view->GetBreadcrumbPath();
-            float bc_x = breadcrumb_pos.x + 8.0f;
-            float bc_y = breadcrumb_pos.y + 3.0f;
+            float bc_x = breadcrumb_pos.x + S(8.0f);
+            float bc_y = breadcrumb_pos.y + S(3.0f);
 
             if (font_regular) ImGui::PushFont(font_regular);
 
@@ -1147,14 +1116,14 @@ static bool show_empty_area_context_menu = false;
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Exit to parent timeline");
                 }
-                bc_x += 28.0f;
+                bc_x += S(28.0f);
             }
 
             // Draw path segments
             for (size_t pi = 0; pi < path.size(); pi++) {
                 if (pi > 0) {
                     bc_draw->AddText(ImVec2(bc_x, bc_y), IM_COL32(100, 100, 100, 255), ">");
-                    bc_x += 12.0f;
+                    bc_x += S(12.0f);
                 }
 
                 bool is_current = (pi == path.size() - 1);
@@ -1172,11 +1141,11 @@ static bool show_empty_area_context_menu = false;
                             timeline_view->ExitNestedTimeline();
                         }
                     }
-                    bc_x += ImGui::GetItemRectSize().x + 4.0f;
+                    bc_x += ImGui::GetItemRectSize().x + S(4.0f);
                 } else {
                     // Current level - not clickable
                     bc_draw->AddText(ImVec2(bc_x, bc_y), text_color, path[pi].c_str());
-                    bc_x += ImGui::CalcTextSize(path[pi].c_str()).x + 4.0f;
+                    bc_x += ImGui::CalcTextSize(path[pi].c_str()).x + S(4.0f);
                 }
             }
 
@@ -1184,7 +1153,7 @@ static bool show_empty_area_context_menu = false;
             int depth = timeline_view->GetNestedDepth();
             if (depth > 0) {
                 std::string depth_str = "(Depth: " + std::to_string(depth) + ")";
-                float depth_x = breadcrumb_pos.x + content_region.x - ImGui::CalcTextSize(depth_str.c_str()).x - 8.0f;
+                float depth_x = breadcrumb_pos.x + content_region.x - ImGui::CalcTextSize(depth_str.c_str()).x - S(8.0f);
                 bc_draw->AddText(ImVec2(depth_x, bc_y), IM_COL32(100, 100, 100, 255), depth_str.c_str());
             }
 
@@ -1234,11 +1203,11 @@ static bool show_empty_area_context_menu = false;
             // Header icon and label (scaled like other tracks)
             const float hdr_ui_scale = ImGui::GetIO().FontGlobalScale;
             const float hdr_scale_factor = 1.0f + (hdr_ui_scale - 1.0f) * 0.5f;
-            const float track_icon_size = 16.0f * hdr_scale_factor;
+            const float track_icon_size = S(16.0f) * hdr_scale_factor;
             const float icon_v_offset = (overview_height - track_icon_size) * 0.5f;
 
             // Draw filmstrip/movie icon (no label - icon speaks for itself)
-            ImVec2 icon_pos(tracks_start_pos.x + 6, overview_y + icon_v_offset);
+            ImVec2 icon_pos(tracks_start_pos.x + S(6), overview_y + icon_v_offset);
             if (font_icons) {
                 draw_list->AddText(font_icons, track_icon_size, icon_pos, IM_COL32(180, 180, 180, 255), ICON_MOVIE);
             }
@@ -1247,18 +1216,18 @@ static bool show_empty_area_context_menu = false;
             draw_list->AddLine(
                 ImVec2(overview_lane_left, overview_y),
                 ImVec2(overview_lane_left, overview_y + overview_height),
-                IM_COL32(50, 50, 50, 255), 1.0f
+                IM_COL32(50, 50, 50, 255), S(1.0f)
             );
 
             // Timeline "clip" visual - represents full timeline duration
             if (duration > 0) {
-                float clip_padding = 2.0f;
+                float clip_padding = S(2.0f);
                 float clip_y_top = overview_y + clip_padding;
                 float clip_y_bottom = overview_y + overview_height - clip_padding;
                 float clip_x_start = overview_lane_left + clip_padding;
                 float clip_x_end = overview_lane_left + overview_lane_width - clip_padding;
                 float clip_width = clip_x_end - clip_x_start;
-                float clip_rounding = 1.0f;  // Flat style with minimal rounding
+                float clip_rounding = S(1.0f);  // Flat style with minimal rounding
 
                 // Clip color - slightly desaturated accent for distinction
                 ImVec4 accent = GetWindowsAccentColor();
@@ -1300,7 +1269,7 @@ static bool show_empty_area_context_menu = false;
                 }
                 if (!tl_name.empty() && font_mono) {
                     ImGui::PushFont(font_mono);
-                    float available_text_width = clip_width - 10.0f;
+                    float available_text_width = clip_width - S(10.0f);
                     std::string display_name = tl_name;
                     ImVec2 text_size = ImGui::CalcTextSize(display_name.c_str());
 
@@ -1323,7 +1292,7 @@ static bool show_empty_area_context_menu = false;
                     );
 
                     // Draw with shadow for readability
-                    draw_list->AddText(ImVec2(text_pos.x + 1, text_pos.y + 1), IM_COL32(0, 0, 0, 160), display_name.c_str());
+                    draw_list->AddText(ImVec2(text_pos.x + S(1), text_pos.y + S(1)), IM_COL32(0, 0, 0, 160), display_name.c_str());
                     draw_list->AddText(text_pos, IM_COL32(200, 200, 200, 255), display_name.c_str());
                     ImGui::PopFont();
                 }
@@ -1346,7 +1315,7 @@ static bool show_empty_area_context_menu = false;
                 float viewport_x_end = clip_x_start + visible_end_fraction * clip_width;
 
                 // Ensure minimum width for usability (never disappear)
-                float min_viewport_width = 12.0f;
+                float min_viewport_width = S(12.0f);
                 if (viewport_x_end - viewport_x_start < min_viewport_width) {
                     float center = (viewport_x_start + viewport_x_end) * 0.5f;
                     viewport_x_start = center - min_viewport_width * 0.5f;
@@ -1374,13 +1343,13 @@ static bool show_empty_area_context_menu = false;
                 ImVec2 mouse_pos = ImGui::GetMousePos();
 
                 // Edge detection zones for resize handles
-                const float edge_zone = 8.0f;
-                bool mouse_in_left_edge = (mouse_pos.x >= viewport_x_start - 2 &&
+                const float edge_zone = S(8.0f);
+                bool mouse_in_left_edge = (mouse_pos.x >= viewport_x_start - S(2) &&
                                            mouse_pos.x <= viewport_x_start + edge_zone &&
                                            mouse_pos.y >= clip_y_top &&
                                            mouse_pos.y <= clip_y_bottom);
                 bool mouse_in_right_edge = (mouse_pos.x >= viewport_x_end - edge_zone &&
-                                            mouse_pos.x <= viewport_x_end + 2 &&
+                                            mouse_pos.x <= viewport_x_end + S(2) &&
                                             mouse_pos.y >= clip_y_top &&
                                             mouse_pos.y <= clip_y_bottom);
                 bool mouse_in_viewport_middle = (mouse_pos.x > viewport_x_start + edge_zone &&
@@ -1543,7 +1512,7 @@ static bool show_empty_area_context_menu = false;
             draw_list->AddLine(
                 ImVec2(tracks_start_pos.x, sep_y),
                 ImVec2(tracks_start_pos.x + content_region.x, sep_y),
-                IM_COL32(60, 60, 60, 255), 2.0f
+                IM_COL32(60, 60, 60, 255), S(2.0f)
             );
         }
 
@@ -1615,7 +1584,7 @@ static bool show_empty_area_context_menu = false;
                 draw_list->AddLine(
                     ImVec2(tracks_start_pos.x, track_y),
                     ImVec2(tracks_start_pos.x + content_region.x, track_y),
-                    IM_COL32(60, 60, 60, 255), 2.0f
+                    IM_COL32(60, 60, 60, 255), S(2.0f)
                 );
                 current_y += OTIOTimeline::TRACK_SEPARATOR_HEIGHT;
                 track_y = current_y;
@@ -1625,10 +1594,10 @@ static bool show_empty_area_context_menu = false;
             // NOTE: Icon button must come FIRST so it can receive clicks before the header area
             const float hdr_ui_scale = ImGui::GetIO().FontGlobalScale;
             const float hdr_scale_factor = 1.0f + (hdr_ui_scale - 1.0f) * 0.5f;
-            const float track_icon_size = 18.0f * hdr_scale_factor;  // Icon font size (scaled)
+            const float track_icon_size = S(18.0f) * hdr_scale_factor;  // Icon font size (scaled)
             const float icon_v_offset = (OTIOTimeline::TRACK_LANE_HEIGHT - track_icon_size) * 0.5f;
-            ImVec2 icon_button_pos(tracks_start_pos.x + 4, track_y + icon_v_offset);
-            ImVec2 icon_button_size(24 * hdr_scale_factor, track_icon_size);
+            ImVec2 icon_button_pos(tracks_start_pos.x + S(4), track_y + icon_v_offset);
+            ImVec2 icon_button_size(S(24) * hdr_scale_factor, track_icon_size);
 
             ImGui::SetCursorScreenPos(icon_button_pos);
             char icon_btn_id[32];
@@ -1658,7 +1627,7 @@ static bool show_empty_area_context_menu = false;
                     icon_color = icon_hovered ? IM_COL32(180, 100, 100, 255) : IM_COL32(120, 70, 70, 255);
                 }
 
-                ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + icon_v_offset);
+                ImVec2 icon_pos(tracks_start_pos.x + S(6), track_y + icon_v_offset);
                 if (font_icons) {
                     draw_list->AddText(font_icons, track_icon_size, icon_pos, icon_color, vis_icon);
                 } else {
@@ -1674,7 +1643,7 @@ static bool show_empty_area_context_menu = false;
                     // VIDEO TRACK: Speaker icon for audio mute toggle (second icon)
                     char audio_btn_id[32];
                     snprintf(audio_btn_id, sizeof(audio_btn_id), "##track_audio_%d", i);
-                    ImVec2 audio_icon_pos(tracks_start_pos.x + 6 + icon_button_size.x, track_y + icon_v_offset);
+                    ImVec2 audio_icon_pos(tracks_start_pos.x + S(6) + icon_button_size.x, track_y + icon_v_offset);
                     ImGui::SetCursorScreenPos(audio_icon_pos);
                     if (ImGui::InvisibleButton(audio_btn_id, icon_button_size)) {
                         track.audio_muted = !track.audio_muted;
@@ -1695,7 +1664,7 @@ static bool show_empty_area_context_menu = false;
                         audio_icon_color = audio_icon_hovered ? IM_COL32(180, 100, 100, 255) : IM_COL32(120, 70, 70, 255);
                     }
 
-                    ImVec2 audio_draw_pos(tracks_start_pos.x + 6 + icon_button_size.x + 2, track_y + icon_v_offset);
+                    ImVec2 audio_draw_pos(tracks_start_pos.x + S(6) + icon_button_size.x + S(2), track_y + icon_v_offset);
                     if (font_icons) {
                         draw_list->AddText(font_icons, track_icon_size, audio_draw_pos, audio_icon_color, audio_icon);
                     } else {
@@ -1732,7 +1701,7 @@ static bool show_empty_area_context_menu = false;
                         icon_color = icon_hovered ? IM_COL32(180, 100, 100, 255) : IM_COL32(120, 70, 70, 255);
                     }
 
-                    ImVec2 icon_pos(tracks_start_pos.x + 6, track_y + icon_v_offset);
+                    ImVec2 icon_pos(tracks_start_pos.x + S(6), track_y + icon_v_offset);
                     if (font_icons) {
                         draw_list->AddText(font_icons, track_icon_size, icon_pos, icon_color, mute_icon);
                     } else {
@@ -1749,11 +1718,11 @@ static bool show_empty_area_context_menu = false;
                 bool video_icons_hidden = timeline_view &&
                     (timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE ||
                      timeline_view->GetSourceMode() == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
-                name_h_offset = video_icons_hidden ? (32.0f * hdr_scale_factor) : (56.0f * hdr_scale_factor);
+                name_h_offset = video_icons_hidden ? (S(32.0f) * hdr_scale_factor) : (S(56.0f) * hdr_scale_factor);
             } else {
                 bool audio_icons_hidden = timeline_view &&
                     timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE;
-                name_h_offset = audio_icons_hidden ? (8.0f * hdr_scale_factor) : (32.0f * hdr_scale_factor);
+                name_h_offset = audio_icons_hidden ? (S(8.0f) * hdr_scale_factor) : (S(32.0f) * hdr_scale_factor);
             }
             const float text_v_offset = (OTIOTimeline::TRACK_LANE_HEIGHT - ImGui::GetTextLineHeight()) * 0.5f;
             ImVec2 name_pos(tracks_start_pos.x + name_h_offset, track_y + text_v_offset);
@@ -1781,7 +1750,7 @@ static bool show_empty_area_context_menu = false;
                 ImVec2(tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH, track_y),
                 ImVec2(tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH,
                        track_y + OTIOTimeline::TRACK_LANE_HEIGHT),
-                IM_COL32(50, 50, 50, 255), 1.0f
+                IM_COL32(50, 50, 50, 255), S(1.0f)
             );
 
             // Track lane background (alternate colors)
@@ -1795,7 +1764,7 @@ static bool show_empty_area_context_menu = false;
 
             // Render actual clips on this track (fade if track is hidden)
             {
-                const float clip_rounding = 1.0f;  // Flat style with minimal rounding
+                const float clip_rounding = S(1.0f);  // Flat style with minimal rounding
                 const float fade_alpha = track.visible ? 1.0f : 0.35f;  // Fade hidden tracks
                 int clip_index = 0;
 
@@ -1816,8 +1785,8 @@ static bool show_empty_area_context_menu = false;
                     // Only render if visible in viewport
                     if (clip_x + clip_w > visible_left && clip_x < visible_right) {
                         // Clamp clip rendering to visible area
-                        float render_left = std::max(clip_x + 2, visible_left);
-                        float render_right = std::min(clip_x + clip_w - 2, visible_right);
+                        float render_left = std::max(clip_x + S(2), visible_left);
+                        float render_right = std::min(clip_x + clip_w - S(2), visible_right);
 
                         if (render_right > render_left) {
                             // Check selection state
@@ -1847,8 +1816,8 @@ static bool show_empty_area_context_menu = false;
                                 border_color = IM_COL32(90, 90, 90, (int)(255 * fade_alpha));
                             }
 
-                            float clip_top = track_y + 2;
-                            float clip_bottom = track_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+                            float clip_top = track_y + S(2);
+                            float clip_bottom = track_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
                             float clip_height = clip_bottom - clip_top;
                             float clip_render_width = render_right - render_left;
 
@@ -1904,12 +1873,12 @@ static bool show_empty_area_context_menu = false;
 
                                 if (show_clip_thumbnails) {
                                     // Calculate thumbnail dimensions to fit track height
-                                    float thumb_height = clip_height - 4.0f;  // Leave 2px padding top/bottom
+                                    float thumb_height = clip_height - S(4.0f);  // Leave 2px padding top/bottom
                                     float aspect_ratio = 16.0f / 9.0f;  // Default aspect ratio
                                     float thumb_width = thumb_height * aspect_ratio;
 
                                     // Calculate how many thumbnails can fit in VISIBLE area (cap at 30)
-                                    float available_width = clip_render_width - 4.0f;  // 2px padding each side
+                                    float available_width = clip_render_width - S(4.0f);  // 2px padding each side
                                     int num_thumbnails = std::max(1, static_cast<int>(available_width / thumb_width));
                                     num_thumbnails = std::min(num_thumbnails, 30);  // Cap BEFORE calculating width
                                     float actual_thumb_width = available_width / static_cast<float>(num_thumbnails);
@@ -1919,8 +1888,8 @@ static bool show_empty_area_context_menu = false;
                                     if (source_fps <= 0) source_fps = 24.0;  // Fallback
 
                                     // Render thumbnails - position-based sampling so they stick with zoom/pan
-                                    float thumb_x = render_left + 2.0f;
-                                    float thumb_y = clip_top + 2.0f;
+                                    float thumb_x = render_left + S(2.0f);
+                                    float thumb_y = clip_top + S(2.0f);
 
                                     for (int t = 0; t < num_thumbnails; ++t) {
                                         // Calculate the CENTER of this thumbnail slot
@@ -1987,7 +1956,7 @@ static bool show_empty_area_context_menu = false;
 
                                             // Draw thumbnail (full opacity now that we have letterbox background)
                                             draw_list->AddImage(
-                                                PoolIDToImTexture(thumb_texture),
+                                                ThumbnailPoolIDToImTexture(thumb_texture),
                                                 ImVec2(thumb_x + offset_x, thumb_y + offset_y),
                                                 ImVec2(thumb_x + offset_x + draw_width, thumb_y + offset_y + draw_height),
                                                 ImVec2(0, 0), ImVec2(1, 1),
@@ -2010,7 +1979,7 @@ static bool show_empty_area_context_menu = false;
                                 draw_list->AddRect(
                                     ImVec2(render_left, clip_top),
                                     ImVec2(render_right, clip_bottom),
-                                    selection_color, clip_rounding, 0, 2.0f
+                                    selection_color, clip_rounding, 0, S(2.0f)
                                 );
                             }
 
@@ -2036,7 +2005,7 @@ static bool show_empty_area_context_menu = false;
                                 std::string display_name = clip.name;
                                 ImVec2 text_size = ImGui::CalcTextSize(display_name.c_str());
 
-                                float available_text_width = clip_render_width - 6.0f;
+                                float available_text_width = clip_render_width - S(6.0f);
                                 if (text_size.x > available_text_width) {
                                     while (display_name.length() > 3 &&
                                            ImGui::CalcTextSize((display_name.substr(0, display_name.length() - 3) + "...").c_str()).x > available_text_width) {
@@ -2055,7 +2024,7 @@ static bool show_empty_area_context_menu = false;
                                 );
 
                                 // Draw text with shadow for readability
-                                draw_list->AddText(ImVec2(text_pos.x + 1, text_pos.y + 1), IM_COL32(0, 0, 0, 180), display_name.c_str());
+                                draw_list->AddText(ImVec2(text_pos.x + S(1), text_pos.y + S(1)), IM_COL32(0, 0, 0, 180), display_name.c_str());
                                 draw_list->AddText(text_pos, UI_WHITE, display_name.c_str());
 
                                 ImGui::PopFont();
@@ -2063,14 +2032,14 @@ static bool show_empty_area_context_menu = false;
 
                             // Nested composition indicator (top-left corner)
                             if (clip.is_nested && clip_render_width > 30.0f && font_icons) {
-                                const float nest_icon_size = 16.0f;
-                                const float nest_padding = 3.0f;
+                                const float nest_icon_size = S(16.0f);
+                                const float nest_padding = S(3.0f);
                                 ImVec2 nest_icon_pos(render_left + nest_padding, clip_top + nest_padding);
 
                                 // Draw layers icon to indicate nested composition
                                 ImU32 nest_icon_color = UI_WHITE_A(220);
                                 draw_list->AddText(font_icons, nest_icon_size,
-                                    ImVec2(nest_icon_pos.x + 1, nest_icon_pos.y + 1),
+                                    ImVec2(nest_icon_pos.x + S(1), nest_icon_pos.y + S(1)),
                                     IM_COL32(0, 0, 0, 180), ICON_LAYERS);
                                 draw_list->AddText(font_icons, nest_icon_size,
                                     nest_icon_pos, nest_icon_color, ICON_LAYERS);
@@ -2083,7 +2052,7 @@ static bool show_empty_area_context_menu = false;
 
                             if (ImGui::IsMouseHoveringRect(clip_min, clip_max)) {
                                 // Detect if mouse is near clip edges (for trim cursor)
-                                const float edge_zone = 8.0f;  // 8 pixels from edge
+                                const float edge_zone = S(8.0f);  // 8 pixels from edge
                                 bool near_left_edge = (current_mouse.x >= render_left && current_mouse.x <= render_left + edge_zone);
                                 bool near_right_edge = (current_mouse.x >= render_right - edge_zone && current_mouse.x <= render_right);
 
@@ -2268,7 +2237,7 @@ static bool show_empty_area_context_menu = false;
                                     ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(100, 100, 100, 100));
                                     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0f);
                                     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
-                                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 8));
+                                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(8), S(8)));
 
                                     ImGui::BeginTooltip();
 
@@ -2302,8 +2271,8 @@ static bool show_empty_area_context_menu = false;
                                             thumb_path, actual_thumb_frame, frame_width, frame_height, true);
 
                                         // Fixed preview size with aspect ratio preservation
-                                        const float preview_max_w = 200.0f;
-                                        const float preview_max_h = 120.0f;
+                                        const float preview_max_w = S(200.0f);
+                                        const float preview_max_h = S(120.0f);
 
                                         if (preview_texture != 0 && frame_width > 0 && frame_height > 0) {
                                             float aspect = static_cast<float>(frame_width) / frame_height;
@@ -2323,17 +2292,17 @@ static bool show_empty_area_context_menu = false;
                                             ImGui::GetWindowDrawList()->AddRectFilled(
                                                 ImVec2(ImGui::GetCursorScreenPos().x, ImGui::GetCursorScreenPos().y),
                                                 ImVec2(ImGui::GetCursorScreenPos().x + preview_max_w, ImGui::GetCursorScreenPos().y + preview_max_h),
-                                                IM_COL32(15, 15, 15, 255), 4.0f);
+                                                IM_COL32(15, 15, 15, 255), S(4.0f));
 
                                             ImGui::SetCursorPos(ImVec2(cursor.x + offset_x, cursor.y + offset_y));
-                                            ImGui::Image(PoolIDToImTexture(preview_texture), ImVec2(draw_w, draw_h));
-                                            ImGui::SetCursorPosY(cursor.y + preview_max_h + 6.0f);
+                                            ImGui::Image(ThumbnailPoolIDToImTexture(preview_texture), ImVec2(draw_w, draw_h));
+                                            ImGui::SetCursorPosY(cursor.y + preview_max_h + S(6.0f));
                                         } else {
                                             // Placeholder for loading thumbnail
                                             ImGui::GetWindowDrawList()->AddRectFilled(
                                                 ImGui::GetCursorScreenPos(),
                                                 ImVec2(ImGui::GetCursorScreenPos().x + preview_max_w, ImGui::GetCursorScreenPos().y + preview_max_h),
-                                                IM_COL32(30, 30, 30, 255), 4.0f);
+                                                IM_COL32(30, 30, 30, 255), S(4.0f));
                                             ImGui::Dummy(ImVec2(preview_max_w, preview_max_h));
                                         }
 
@@ -2391,8 +2360,8 @@ static bool show_empty_area_context_menu = false;
 
         // Right-click on empty area (track header column, below all tracks)
         // Add a small empty area at the bottom for adding tracks when timeline is empty
-        float empty_area_height = std::max(30.0f, content_region.y - tracks_height - OTIOTimeline::TIMELINE_RULER_HEIGHT - 100);
-        if (empty_area_height > 10.0f) {
+        float empty_area_height = std::max(S(30.0f), content_region.y - tracks_height - OTIOTimeline::TIMELINE_RULER_HEIGHT - S(100));
+        if (empty_area_height > S(10.0f)) {
             ImVec2 empty_header_pos(tracks_start_pos.x, current_y);
             ImVec2 empty_header_size(OTIOTimeline::TRACK_HEADER_WIDTH, empty_area_height);
 
@@ -2424,12 +2393,12 @@ static bool show_empty_area_context_menu = false;
         draw_list->AddLine(
             ImVec2(ruler_left, ruler_y),
             ImVec2(ruler_right, ruler_y),
-            ruler_border_color, 1.0f
+            ruler_border_color, S(1.0f)
         );
         draw_list->AddLine(
             ImVec2(ruler_left, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
             ImVec2(ruler_right, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-            ruler_border_color, 1.0f
+            ruler_border_color, S(1.0f)
         );
 
         // Loop region highlight - draw colored background between In/Out points
@@ -2451,13 +2420,13 @@ static bool show_empty_area_context_menu = false;
                     draw_list->AddLine(
                         ImVec2(loop_start_x, ruler_y),
                         ImVec2(loop_start_x, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-                        io_marker_color, 2.0f
+                        io_marker_color, S(2.0f)
                     );
                     // Triangle pointing right (In point)
                     draw_list->AddTriangleFilled(
                         ImVec2(loop_start_x, ruler_y),
-                        ImVec2(loop_start_x + 8, ruler_y + 8),
-                        ImVec2(loop_start_x, ruler_y + 8),
+                        ImVec2(loop_start_x + S(8), ruler_y + S(8)),
+                        ImVec2(loop_start_x, ruler_y + S(8)),
                         io_marker_color
                     );
                 }
@@ -2475,13 +2444,13 @@ static bool show_empty_area_context_menu = false;
                     draw_list->AddLine(
                         ImVec2(loop_end_x, ruler_y),
                         ImVec2(loop_end_x, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-                        io_marker_color, 2.0f
+                        io_marker_color, S(2.0f)
                     );
                     // Triangle pointing left (Out point)
                     draw_list->AddTriangleFilled(
                         ImVec2(loop_end_x, ruler_y),
-                        ImVec2(loop_end_x - 8, ruler_y + 8),
-                        ImVec2(loop_end_x, ruler_y + 8),
+                        ImVec2(loop_end_x - S(8), ruler_y + S(8)),
+                        ImVec2(loop_end_x, ruler_y + S(8)),
                         io_marker_color
                     );
                 }
@@ -2536,9 +2505,9 @@ static bool show_empty_area_context_menu = false;
 
             // Major tick every 5 markers, minor for others
             bool is_major = (marker_count % 5 == 0);
-            float tick_height = is_major ? 12.0f : 8.0f;  // Ticks from bottom
+            float tick_height = is_major ? S(12.0f) : S(8.0f);  // Ticks from bottom
             ImU32 tick_color = is_major ? IM_COL32(160, 160, 160, 255) : IM_COL32(120, 120, 120, 255);
-            float tick_width = is_major ? 1.5f : 1.0f;
+            float tick_width = is_major ? S(1.5f) : S(1.0f);
 
             // Draw tick from bottom of ruler
             float ruler_bottom = ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT;
@@ -2558,12 +2527,12 @@ static bool show_empty_area_context_menu = false;
 
                 if (font_regular) {
                     ImVec2 text_size = ImGui::CalcTextSize(time_str);
-                    draw_list->AddText(font_regular, 12.0f,
-                        ImVec2(x - text_size.x * 0.5f, ruler_y + 8),
+                    draw_list->AddText(font_regular, S(12.0f),
+                        ImVec2(x - text_size.x * 0.5f, ruler_y + S(8)),
                         IM_COL32(180, 180, 180, 255), time_str);
                 } else {
                     draw_list->AddText(
-                        ImVec2(x - 12, ruler_y + 8),
+                        ImVec2(x - S(12), ruler_y + S(8)),
                         IM_COL32(180, 180, 180, 255), time_str);
                 }
             }
@@ -2597,8 +2566,8 @@ static bool show_empty_area_context_menu = false;
         }
 
         if (show_cache_bar) {
-        const float cache_bar_height = 4.0f;
-        float cache_bar_y = ruler_y + 1.0f;  // Top of ruler area, above time markers
+        const float cache_bar_height = S(4.0f);
+        float cache_bar_y = ruler_y + S(1.0f);  // Top of ruler area, above time markers
         float cache_bar_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
         float cache_bar_right = tracks_start_pos.x + content_region.x;
 
@@ -2770,8 +2739,8 @@ static bool show_empty_area_context_menu = false;
             ImVec4 accent = GetWindowsAccentColor();
             ImU32 marker_color = ImGui::GetColorU32(accent);  // Use regular accent color
 
-            float marker_triangle_height = 8.0f;
-            float marker_triangle_width = 8.0f;
+            float marker_triangle_height = S(8.0f);
+            float marker_triangle_width = S(8.0f);
             float track_lane_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
             float track_lane_right = tracks_start_pos.x + content_region.x;
 
@@ -2784,7 +2753,7 @@ static bool show_empty_area_context_menu = false;
                 float marker_x = track_lane_left + (float)note.timestamp_seconds * pixels_per_second - scroll_offset_x;
 
                 // Skip if outside visible area
-                if (marker_x < track_lane_left - 10.0f || marker_x > track_lane_right + 10.0f) continue;
+                if (marker_x < track_lane_left - S(10.0f) || marker_x > track_lane_right + S(10.0f)) continue;
 
                 // Draw downward-pointing triangle at top of ruler
                 draw_list->AddTriangleFilled(
@@ -2795,15 +2764,15 @@ static bool show_empty_area_context_menu = false;
                 );
 
                 // Draw dotted line from triangle to bottom of ruler
-                float dash_length = 3.0f;
-                float gap_length = 3.0f;
+                float dash_length = S(3.0f);
+                float gap_length = S(3.0f);
                 float y = line_top;
                 while (y < line_bottom) {
                     float dash_end = std::min(y + dash_length, line_bottom);
                     draw_list->AddLine(
                         ImVec2(marker_x, y),
                         ImVec2(marker_x, dash_end),
-                        marker_color, 1.5f
+                        marker_color, S(1.5f)
                     );
                     y += dash_length + gap_length;
                 }
@@ -2823,14 +2792,14 @@ static bool show_empty_area_context_menu = false;
             draw_list->AddLine(
                 ImVec2(playhead_x, tracks_start_pos.y),
                 ImVec2(playhead_x, ruler_y + OTIOTimeline::TIMELINE_RULER_HEIGHT),
-                IM_COL32(255, 80, 80, 255), 2.0f
+                IM_COL32(255, 80, 80, 255), S(2.0f)
             );
 
             // Playhead triangle
             ImVec2 tri[3] = {
-                ImVec2(playhead_x - 6, ruler_y),
-                ImVec2(playhead_x + 6, ruler_y),
-                ImVec2(playhead_x, ruler_y + 8)
+                ImVec2(playhead_x - S(6), ruler_y),
+                ImVec2(playhead_x + S(6), ruler_y),
+                ImVec2(playhead_x, ruler_y + S(8))
             };
             draw_list->AddTriangleFilled(tri[0], tri[1], tri[2], IM_COL32(255, 80, 80, 255));
         }
@@ -2922,8 +2891,8 @@ static bool show_empty_area_context_menu = false;
                 float ghost_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
                                static_cast<float>(ghost_start) * pixels_per_second - scroll_offset_x;
                 float ghost_w = ghost_duration * pixels_per_second;
-                float ghost_top = ghost_track_y + 2;
-                float ghost_bottom = ghost_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+                float ghost_top = ghost_track_y + S(2);
+                float ghost_bottom = ghost_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
 
                 // Clamp to visible area
                 float visible_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
@@ -2947,11 +2916,11 @@ static bool show_empty_area_context_menu = false;
                     draw_list->AddRectFilled(
                         ImVec2(render_left, ghost_top),
                         ImVec2(render_right, ghost_bottom),
-                        ghost_fill, 2.0f);
+                        ghost_fill, S(2.0f));
                     draw_list->AddRect(
                         ImVec2(render_left, ghost_top),
                         ImVec2(render_right, ghost_bottom),
-                        ghost_border, 2.0f, 0, 2.0f);
+                        ghost_border, S(2.0f), 0, S(2.0f));
 
                     // Draw time indicator tooltip
                     char time_buf[32];
@@ -2962,13 +2931,13 @@ static bool show_empty_area_context_menu = false;
 
                     ImVec2 text_size = ImGui::CalcTextSize(time_buf);
                     float tooltip_x = render_left + (render_right - render_left - text_size.x) * 0.5f;
-                    float tooltip_y = ghost_top - text_size.y - 4;
+                    float tooltip_y = ghost_top - text_size.y - S(4);
 
                     // Background for time indicator
                     draw_list->AddRectFilled(
-                        ImVec2(tooltip_x - 4, tooltip_y - 2),
-                        ImVec2(tooltip_x + text_size.x + 4, tooltip_y + text_size.y + 2),
-                        IM_COL32(0, 0, 0, 200), 3.0f);
+                        ImVec2(tooltip_x - S(4), tooltip_y - S(2)),
+                        ImVec2(tooltip_x + text_size.x + S(4), tooltip_y + text_size.y + S(2)),
+                        IM_COL32(0, 0, 0, 200), S(3.0f));
                     draw_list->AddText(ImVec2(tooltip_x, tooltip_y), UI_WHITE, time_buf);
 
                     // =============================================================
@@ -3014,8 +2983,8 @@ static bool show_empty_area_context_menu = false;
                             float cg_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
                                         static_cast<float>(clip_ghost_start) * pixels_per_second - scroll_offset_x;
                             float cg_w = static_cast<float>(dc.duration) * pixels_per_second;
-                            float cg_top = clip_ghost_y + 2;
-                            float cg_bottom = clip_ghost_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+                            float cg_top = clip_ghost_y + S(2);
+                            float cg_bottom = clip_ghost_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
 
                             float cg_left = std::max(cg_x, visible_left);
                             float cg_right = std::min(cg_x + cg_w, visible_right);
@@ -3024,11 +2993,11 @@ static bool show_empty_area_context_menu = false;
                                 draw_list->AddRectFilled(
                                     ImVec2(cg_left, cg_top),
                                     ImVec2(cg_right, cg_bottom),
-                                    multi_ghost_fill, 2.0f);
+                                    multi_ghost_fill, S(2.0f));
                                 draw_list->AddRect(
                                     ImVec2(cg_left, cg_top),
                                     ImVec2(cg_right, cg_bottom),
-                                    multi_ghost_border, 2.0f, 0, 2.0f);
+                                    multi_ghost_border, S(2.0f), 0, S(2.0f));
                             }
                         }
                     }
@@ -3083,8 +3052,8 @@ static bool show_empty_area_context_menu = false;
 
                                     if (preview_texture != 0 && frame_width > 0 && frame_height > 0) {
                                         // Fixed size matching dual view style (200x120)
-                                        const float container_width = 200.0f;
-                                        const float container_height = 120.0f;
+                                        const float container_width = S(200.0f);
+                                        const float container_height = S(120.0f);
                                         float aspect = static_cast<float>(frame_width) / frame_height;
 
                                         // Calculate display size maintaining aspect ratio
@@ -3110,23 +3079,23 @@ static bool show_empty_area_context_menu = false;
                                         ImVec2 label_size = ImGui::CalcTextSize(frame_label);
 
                                         // Calculate total tooltip size (matching dual view style)
-                                        const float padding = 4.0f;
-                                        const float text_height = label_size.y + 4.0f;
+                                        const float padding = S(4.0f);
+                                        const float text_height = label_size.y + S(4.0f);
                                         const float tooltip_width = container_width + padding * 2;
                                         const float tooltip_height = container_height + text_height + padding * 2;
 
                                         // Position tooltip ABOVE mouse, centered (matching dual view style)
                                         ImVec2 mouse_pos = ImGui::GetMousePos();
                                         float tooltip_x = mouse_pos.x - tooltip_width * 0.5f;
-                                        float tooltip_y = mouse_pos.y - tooltip_height - 30.0f;
+                                        float tooltip_y = mouse_pos.y - tooltip_height - S(30.0f);
 
                                         // Keep within main viewport (window bounds, not screen bounds)
                                         ImGuiViewport* viewport = ImGui::GetMainViewport();
                                         float vp_min_x = viewport->Pos.x;
                                         float vp_max_x = viewport->Pos.x + viewport->Size.x;
                                         float vp_min_y = viewport->Pos.y;
-                                        tooltip_x = std::max(vp_min_x + 10.0f, std::min(tooltip_x, vp_max_x - tooltip_width - 10.0f));
-                                        tooltip_y = std::max(vp_min_y + 10.0f, tooltip_y);
+                                        tooltip_x = std::max(vp_min_x + S(10.0f), std::min(tooltip_x, vp_max_x - tooltip_width - S(10.0f)));
+                                        tooltip_y = std::max(vp_min_y + S(10.0f), tooltip_y);
 
                                         // Use foreground draw list
                                         ImDrawList* fg_draw = ImGui::GetForegroundDrawList();
@@ -3138,33 +3107,33 @@ static bool show_empty_area_context_menu = false;
 
                                         // Draw shadow (matching dual view style)
                                         fg_draw->AddRectFilled(
-                                            ImVec2(tooltip_x + 4, tooltip_y + 4),
-                                            ImVec2(tooltip_x + tooltip_width + 4, tooltip_y + tooltip_height + 4),
-                                            IM_COL32(0, 0, 0, 100), 6.0f);
+                                            ImVec2(tooltip_x + S(4), tooltip_y + S(4)),
+                                            ImVec2(tooltip_x + tooltip_width + S(4), tooltip_y + tooltip_height + S(4)),
+                                            IM_COL32(0, 0, 0, 100), S(6.0f));
 
                                         // Draw tooltip background (matching dual view style)
                                         fg_draw->AddRectFilled(
                                             ImVec2(tooltip_x, tooltip_y),
                                             ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                                            IM_COL32(30, 30, 30, 240), 6.0f);
+                                            IM_COL32(30, 30, 30, 240), S(6.0f));
 
                                         // Draw colored border (matching dual view style)
                                         fg_draw->AddRect(
                                             ImVec2(tooltip_x, tooltip_y),
                                             ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                                            border_color, 6.0f, 0, 2.0f);
+                                            border_color, S(6.0f), 0, S(2.0f));
 
                                         // Draw thumbnail (centered within container)
                                         float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                                         float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                                         fg_draw->AddImage(
-                                            PoolIDToImTexture(preview_texture),
+                                            ThumbnailPoolIDToImTexture(preview_texture),
                                             ImVec2(img_x, img_y),
                                             ImVec2(img_x + thumb_w, img_y + thumb_h));
 
                                         // Draw frame label centered below thumbnail
                                         float label_x = tooltip_x + (tooltip_width - label_size.x) * 0.5f;
-                                        float label_y = tooltip_y + padding + container_height + 4.0f;
+                                        float label_y = tooltip_y + padding + container_height + S(4.0f);
                                         fg_draw->AddText(ImVec2(label_x, label_y),
                                             UI_WHITE, frame_label);
                                     }
@@ -3187,7 +3156,7 @@ static bool show_empty_area_context_menu = false;
                     draw_list->AddLine(
                         ImVec2(snap_x, tracks_start_pos.y),
                         ImVec2(snap_x, tracks_start_pos.y + tracks_height),
-                        snap_color, 2.0f
+                        snap_color, S(2.0f)
                     );
                 }
             }
@@ -3224,8 +3193,8 @@ static bool show_empty_area_context_menu = false;
             float ghost_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH +
                            static_cast<float>(timeline_media_drop.drop_time) * pixels_per_second - scroll_offset_x;
             float ghost_w = static_cast<float>(timeline_media_drop.preview_duration) * pixels_per_second;
-            float ghost_top = ghost_track_y + 2;
-            float ghost_bottom = ghost_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+            float ghost_top = ghost_track_y + S(2);
+            float ghost_bottom = ghost_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
 
             // Clamp to visible area
             float visible_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
@@ -3248,15 +3217,15 @@ static bool show_empty_area_context_menu = false;
                 draw_list->AddRectFilled(
                     ImVec2(render_left, ghost_top),
                     ImVec2(render_right, ghost_bottom),
-                    ghost_fill, 2.0f);
+                    ghost_fill, S(2.0f));
                 draw_list->AddRect(
                     ImVec2(render_left, ghost_top),
                     ImVec2(render_right, ghost_bottom),
-                    ghost_border, 2.0f, 0, 2.0f);
+                    ghost_border, S(2.0f), 0, S(2.0f));
 
                 // Draw clip name in ghost
                 if (!timeline_media_drop.preview_name.empty()) {
-                    ImVec2 text_pos(render_left + 6, ghost_top + 4);
+                    ImVec2 text_pos(render_left + S(6), ghost_top + S(4));
                     draw_list->AddText(text_pos, UI_WHITE_A(200),
                                       timeline_media_drop.preview_name.c_str());
                 }
@@ -3270,13 +3239,13 @@ static bool show_empty_area_context_menu = false;
 
                 ImVec2 text_size = ImGui::CalcTextSize(time_buf);
                 float tooltip_x = render_left + (render_right - render_left - text_size.x) * 0.5f;
-                float tooltip_y = ghost_top - text_size.y - 4;
+                float tooltip_y = ghost_top - text_size.y - S(4);
 
                 // Background for time indicator
                 draw_list->AddRectFilled(
-                    ImVec2(tooltip_x - 4, tooltip_y - 2),
-                    ImVec2(tooltip_x + text_size.x + 4, tooltip_y + text_size.y + 2),
-                    IM_COL32(0, 0, 0, 200), 3.0f);
+                    ImVec2(tooltip_x - S(4), tooltip_y - S(2)),
+                    ImVec2(tooltip_x + text_size.x + S(4), tooltip_y + text_size.y + S(2)),
+                    IM_COL32(0, 0, 0, 200), S(3.0f));
                 draw_list->AddText(ImVec2(tooltip_x, tooltip_y), UI_WHITE, time_buf);
             }
         }
@@ -3308,8 +3277,8 @@ static bool show_empty_area_context_menu = false;
                     trim_track_y = tracks_start_pos.y + overview_offset + y_accum;
                 }
 
-                float clip_top = trim_track_y + 2;
-                float clip_bottom = trim_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+                float clip_top = trim_track_y + S(2);
+                float clip_bottom = trim_track_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
                 float visible_left = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
                 float visible_right = tracks_start_pos.x + content_region.x;
 
@@ -3330,15 +3299,15 @@ static bool show_empty_area_context_menu = false;
                     float orig_end_x = orig_clip_x + orig_clip_w;
 
                     // Clamp within valid range
-                    new_start_x = std::min(new_start_x, orig_end_x - 10);  // Min 10px clip width
+                    new_start_x = std::min(new_start_x, orig_end_x - S(10));  // Min 10px clip width
                     new_start_x = std::max(new_start_x, visible_left);
 
                     // Draw preview edge line
                     if (new_start_x >= visible_left && new_start_x <= visible_right) {
                         draw_list->AddLine(
-                            ImVec2(new_start_x, clip_top - 4),
-                            ImVec2(new_start_x, clip_bottom + 4),
-                            trim_color, 3.0f);
+                            ImVec2(new_start_x, clip_top - S(4)),
+                            ImVec2(new_start_x, clip_bottom + S(4)),
+                            trim_color, S(3.0f));
 
                         // Draw filled area showing trim region
                         float trim_right = std::min(orig_clip_x, visible_right);
@@ -3347,13 +3316,13 @@ static bool show_empty_area_context_menu = false;
                             draw_list->AddRectFilled(
                                 ImVec2(new_start_x, clip_top),
                                 ImVec2(trim_right, clip_bottom),
-                                IM_COL32(255, 100, 100, 60), 2.0f);
+                                IM_COL32(255, 100, 100, 60), S(2.0f));
                         } else if (new_start_x > orig_clip_x) {
                             // Show the area that will be removed
                             draw_list->AddRectFilled(
                                 ImVec2(std::max(orig_clip_x, visible_left), clip_top),
                                 ImVec2(new_start_x, clip_bottom),
-                                IM_COL32(255, 50, 50, 100), 2.0f);
+                                IM_COL32(255, 50, 50, 100), S(2.0f));
                         }
                     }
 
@@ -3366,12 +3335,12 @@ static bool show_empty_area_context_menu = false;
 
                     ImVec2 text_size = ImGui::CalcTextSize(time_buf);
                     float tooltip_x = new_start_x - text_size.x * 0.5f;
-                    float tooltip_y = clip_top - text_size.y - 6;
+                    float tooltip_y = clip_top - text_size.y - S(6);
 
                     draw_list->AddRectFilled(
-                        ImVec2(tooltip_x - 4, tooltip_y - 2),
-                        ImVec2(tooltip_x + text_size.x + 4, tooltip_y + text_size.y + 2),
-                        IM_COL32(0, 0, 0, 200), 3.0f);
+                        ImVec2(tooltip_x - S(4), tooltip_y - S(2)),
+                        ImVec2(tooltip_x + text_size.x + S(4), tooltip_y + text_size.y + S(2)),
+                        IM_COL32(0, 0, 0, 200), S(3.0f));
                     draw_list->AddText(ImVec2(tooltip_x, tooltip_y), UI_WHITE, time_buf);
 
                 } else {
@@ -3379,15 +3348,15 @@ static bool show_empty_area_context_menu = false;
                     float new_end_x = new_edge_x;
 
                     // Clamp within valid range
-                    new_end_x = std::max(new_end_x, orig_clip_x + 10);  // Min 10px clip width
+                    new_end_x = std::max(new_end_x, orig_clip_x + S(10));  // Min 10px clip width
                     new_end_x = std::min(new_end_x, visible_right);
 
                     // Draw preview edge line
                     if (new_end_x >= visible_left && new_end_x <= visible_right) {
                         draw_list->AddLine(
-                            ImVec2(new_end_x, clip_top - 4),
-                            ImVec2(new_end_x, clip_bottom + 4),
-                            trim_color, 3.0f);
+                            ImVec2(new_end_x, clip_top - S(4)),
+                            ImVec2(new_end_x, clip_bottom + S(4)),
+                            trim_color, S(3.0f));
 
                         // Show the area being trimmed
                         float orig_end_x = orig_clip_x + orig_clip_w;
@@ -3396,13 +3365,13 @@ static bool show_empty_area_context_menu = false;
                             draw_list->AddRectFilled(
                                 ImVec2(new_end_x, clip_top),
                                 ImVec2(std::min(orig_end_x, visible_right), clip_bottom),
-                                IM_COL32(255, 50, 50, 100), 2.0f);
+                                IM_COL32(255, 50, 50, 100), S(2.0f));
                         } else if (new_end_x > orig_end_x) {
                             // Extending - show new area
                             draw_list->AddRectFilled(
                                 ImVec2(std::max(orig_end_x, visible_left), clip_top),
                                 ImVec2(new_end_x, clip_bottom),
-                                IM_COL32(100, 255, 100, 60), 2.0f);
+                                IM_COL32(100, 255, 100, 60), S(2.0f));
                         }
                     }
 
@@ -3415,12 +3384,12 @@ static bool show_empty_area_context_menu = false;
 
                     ImVec2 text_size = ImGui::CalcTextSize(time_buf);
                     float tooltip_x = new_end_x - text_size.x * 0.5f;
-                    float tooltip_y = clip_top - text_size.y - 6;
+                    float tooltip_y = clip_top - text_size.y - S(6);
 
                     draw_list->AddRectFilled(
-                        ImVec2(tooltip_x - 4, tooltip_y - 2),
-                        ImVec2(tooltip_x + text_size.x + 4, tooltip_y + text_size.y + 2),
-                        IM_COL32(0, 0, 0, 200), 3.0f);
+                        ImVec2(tooltip_x - S(4), tooltip_y - S(2)),
+                        ImVec2(tooltip_x + text_size.x + S(4), tooltip_y + text_size.y + S(2)),
+                        IM_COL32(0, 0, 0, 200), S(3.0f));
                     draw_list->AddText(ImVec2(tooltip_x, tooltip_y), UI_WHITE, time_buf);
                 }
 
@@ -3488,8 +3457,8 @@ static bool show_empty_area_context_menu = false;
                             if (preview_texture != 0 && frame_width > 0 && frame_height > 0) {
                                 // Match existing thumbnail tooltip sizing
                                 // Fixed size matching dual view style (200x120)
-                                const float container_width = 200.0f;
-                                const float container_height = 120.0f;
+                                const float container_width = S(200.0f);
+                                const float container_height = S(120.0f);
                                 float aspect = static_cast<float>(frame_width) / frame_height;
 
                                 // Calculate display size maintaining aspect ratio
@@ -3515,23 +3484,23 @@ static bool show_empty_area_context_menu = false;
                                 ImVec2 label_size = ImGui::CalcTextSize(frame_label);
 
                                 // Calculate total tooltip size (matching dual view style)
-                                const float padding = 4.0f;
-                                const float text_height = label_size.y + 4.0f;
+                                const float padding = S(4.0f);
+                                const float text_height = label_size.y + S(4.0f);
                                 const float tooltip_width = container_width + padding * 2;
                                 const float tooltip_height = container_height + text_height + padding * 2;
 
                                 // Position tooltip ABOVE mouse, centered (matching dual view style)
                                 ImVec2 mouse_pos = ImGui::GetMousePos();
                                 float tooltip_x = mouse_pos.x - tooltip_width * 0.5f;
-                                float tooltip_y = mouse_pos.y - tooltip_height - 30.0f;
+                                float tooltip_y = mouse_pos.y - tooltip_height - S(30.0f);
 
                                 // Keep within main viewport (window bounds, not screen bounds)
                                 ImGuiViewport* viewport = ImGui::GetMainViewport();
                                 float vp_min_x = viewport->Pos.x;
                                 float vp_max_x = viewport->Pos.x + viewport->Size.x;
                                 float vp_min_y = viewport->Pos.y;
-                                tooltip_x = std::max(vp_min_x + 10.0f, std::min(tooltip_x, vp_max_x - tooltip_width - 10.0f));
-                                tooltip_y = std::max(vp_min_y + 10.0f, tooltip_y);
+                                tooltip_x = std::max(vp_min_x + S(10.0f), std::min(tooltip_x, vp_max_x - tooltip_width - S(10.0f)));
+                                tooltip_y = std::max(vp_min_y + S(10.0f), tooltip_y);
 
                                 // Use foreground draw list so it renders on top of everything
                                 ImDrawList* fg_draw = ImGui::GetForegroundDrawList();
@@ -3543,33 +3512,33 @@ static bool show_empty_area_context_menu = false;
 
                                 // Draw shadow (matching dual view style)
                                 fg_draw->AddRectFilled(
-                                    ImVec2(tooltip_x + 4, tooltip_y + 4),
-                                    ImVec2(tooltip_x + tooltip_width + 4, tooltip_y + tooltip_height + 4),
-                                    IM_COL32(0, 0, 0, 100), 6.0f);
+                                    ImVec2(tooltip_x + S(4), tooltip_y + S(4)),
+                                    ImVec2(tooltip_x + tooltip_width + S(4), tooltip_y + tooltip_height + S(4)),
+                                    IM_COL32(0, 0, 0, 100), S(6.0f));
 
                                 // Draw tooltip background (matching dual view style)
                                 fg_draw->AddRectFilled(
                                     ImVec2(tooltip_x, tooltip_y),
                                     ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                                    IM_COL32(30, 30, 30, 240), 6.0f);
+                                    IM_COL32(30, 30, 30, 240), S(6.0f));
 
                                 // Draw colored border (matching dual view style)
                                 fg_draw->AddRect(
                                     ImVec2(tooltip_x, tooltip_y),
                                     ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                                    border_color, 6.0f, 0, 2.0f);
+                                    border_color, S(6.0f), 0, S(2.0f));
 
                                 // Draw thumbnail (centered within container)
                                 float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                                 float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                                 fg_draw->AddImage(
-                                    PoolIDToImTexture(preview_texture),
+                                    ThumbnailPoolIDToImTexture(preview_texture),
                                     ImVec2(img_x, img_y),
                                     ImVec2(img_x + thumb_w, img_y + thumb_h));
 
                                 // Draw frame label centered below thumbnail
                                 float label_x = tooltip_x + (tooltip_width - label_size.x) * 0.5f;
-                                float label_y = tooltip_y + padding + container_height + 4.0f;
+                                float label_y = tooltip_y + padding + container_height + S(4.0f);
                                 fg_draw->AddText(ImVec2(label_x, label_y),
                                     UI_WHITE, frame_label);
                             }
@@ -3595,8 +3564,8 @@ static bool show_empty_area_context_menu = false;
 
                 // Track Y position (PLAYLIST uses only track 0 / V1)
                 float track_y = tracks_start_pos.y + overview_offset;
-                float clip_top = track_y + 2;
-                float clip_bottom = track_y + OTIOTimeline::TRACK_LANE_HEIGHT - 2;
+                float clip_top = track_y + S(2);
+                float clip_bottom = track_y + OTIOTimeline::TRACK_LANE_HEIGHT - S(2);
                 float track_content_x = tracks_start_pos.x + OTIOTimeline::TRACK_HEADER_WIDTH;
 
                 // Draw ghost rectangle at mouse position
@@ -3605,11 +3574,11 @@ static bool show_empty_area_context_menu = false;
                 draw_list->AddRectFilled(
                     ImVec2(ghost_x, clip_top),
                     ImVec2(ghost_x + ghost_w, clip_bottom),
-                    ghost_fill, 4.0f);
+                    ghost_fill, S(4.0f));
                 draw_list->AddRect(
                     ImVec2(ghost_x, clip_top),
                     ImVec2(ghost_x + ghost_w, clip_bottom),
-                    accent_color, 4.0f, 0, 2.0f);
+                    accent_color, S(4.0f), 0, S(2.0f));
 
                 // Find insertion position and draw insertion line
                 int target_idx = timeline_reorder_state.target_insert_index;
@@ -3630,23 +3599,23 @@ static bool show_empty_area_context_menu = false;
                 // Draw insertion line
                 float insert_x = track_content_x + static_cast<float>(insert_time) * pixels_per_second - scroll_offset_x;
                 draw_list->AddLine(
-                    ImVec2(insert_x, clip_top - 8),
-                    ImVec2(insert_x, clip_bottom + 8),
-                    accent_color, 3.0f);
+                    ImVec2(insert_x, clip_top - S(8)),
+                    ImVec2(insert_x, clip_bottom + S(8)),
+                    accent_color, S(3.0f));
 
                 // Draw small triangles at top and bottom of insertion line
-                float tri_size = 6.0f;
+                float tri_size = S(6.0f);
                 // Top triangle (pointing down)
                 draw_list->AddTriangleFilled(
-                    ImVec2(insert_x - tri_size, clip_top - 8),
-                    ImVec2(insert_x + tri_size, clip_top - 8),
-                    ImVec2(insert_x, clip_top - 2),
+                    ImVec2(insert_x - tri_size, clip_top - S(8)),
+                    ImVec2(insert_x + tri_size, clip_top - S(8)),
+                    ImVec2(insert_x, clip_top - S(2)),
                     accent_color);
                 // Bottom triangle (pointing up)
                 draw_list->AddTriangleFilled(
-                    ImVec2(insert_x - tri_size, clip_bottom + 8),
-                    ImVec2(insert_x + tri_size, clip_bottom + 8),
-                    ImVec2(insert_x, clip_bottom + 2),
+                    ImVec2(insert_x - tri_size, clip_bottom + S(8)),
+                    ImVec2(insert_x + tri_size, clip_bottom + S(8)),
+                    ImVec2(insert_x, clip_bottom + S(2)),
                     accent_color);
 
                 // Position label
@@ -3654,18 +3623,18 @@ static bool show_empty_area_context_menu = false;
                 snprintf(pos_buf, sizeof(pos_buf), "Pos: %d", target_idx + 1);
                 ImVec2 label_size = ImGui::CalcTextSize(pos_buf);
                 float label_x = insert_x - label_size.x * 0.5f;
-                float label_y = clip_top - 24;
+                float label_y = clip_top - S(24);
                 draw_list->AddRectFilled(
-                    ImVec2(label_x - 4, label_y - 2),
-                    ImVec2(label_x + label_size.x + 4, label_y + label_size.y + 2),
-                    IM_COL32(0, 0, 0, 200), 3.0f);
+                    ImVec2(label_x - S(4), label_y - S(2)),
+                    ImVec2(label_x + label_size.x + S(4), label_y + label_size.y + S(2)),
+                    IM_COL32(0, 0, 0, 200), S(3.0f));
                 draw_list->AddText(ImVec2(label_x, label_y), UI_WHITE, pos_buf);
             }
         }
 
         // Advance cursor past the drawn content (include breadcrumb height when nested)
         ImGui::Dummy(ImVec2(content_region.x,
-                           tracks_height + OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_bar_height + 10));
+                           tracks_height + OTIOTimeline::TIMELINE_RULER_HEIGHT + breadcrumb_bar_height + S(10)));
 
         // =====================================================================
         // INTERACTION ZONE 1: RULER - Scrubbing/Seeking Only
@@ -3781,8 +3750,8 @@ static bool show_empty_area_context_menu = false;
                         // NOTE: ProcessPendingUploads moved to before ImGui::NewFrame()
 
                         // Draw tooltip popup
-                        const float container_width = 200.0f;
-                        const float container_height = 120.0f;
+                        const float container_width = S(200.0f);
+                        const float container_height = S(120.0f);
                         float thumb_w = container_width;
                         float thumb_h = container_height;
 
@@ -3814,22 +3783,22 @@ static bool show_empty_area_context_menu = false;
                         ImVec2 label_size = ImGui::CalcTextSize(frame_label);
 
                         // Calculate tooltip size
-                        const float padding = 4.0f;
-                        const float text_height = label_size.y + 4.0f;
+                        const float padding = S(4.0f);
+                        const float text_height = label_size.y + S(4.0f);
                         const float tooltip_width = container_width + padding * 2;
                         const float tooltip_height = container_height + text_height + padding * 2;
 
                         // Position tooltip above mouse, centered
                         float tooltip_x = mouse.x - tooltip_width * 0.5f;
-                        float tooltip_y = ruler_y - tooltip_height - 10.0f;
+                        float tooltip_y = ruler_y - tooltip_height - S(10.0f);
 
                         // Keep within viewport
                         ImGuiViewport* viewport = ImGui::GetMainViewport();
                         float vp_min_x = viewport->Pos.x;
                         float vp_max_x = viewport->Pos.x + viewport->Size.x;
                         float vp_min_y = viewport->Pos.y;
-                        tooltip_x = std::max(vp_min_x + 10.0f, std::min(tooltip_x, vp_max_x - tooltip_width - 10.0f));
-                        tooltip_y = std::max(vp_min_y + 10.0f, tooltip_y);
+                        tooltip_x = std::max(vp_min_x + S(10.0f), std::min(tooltip_x, vp_max_x - tooltip_width - S(10.0f)));
+                        tooltip_y = std::max(vp_min_y + S(10.0f), tooltip_y);
 
                         // Draw using foreground draw list
                         ImDrawList* fg_draw = ImGui::GetForegroundDrawList();
@@ -3841,28 +3810,28 @@ static bool show_empty_area_context_menu = false;
 
                         // Draw shadow
                         fg_draw->AddRectFilled(
-                            ImVec2(tooltip_x + 4, tooltip_y + 4),
-                            ImVec2(tooltip_x + tooltip_width + 4, tooltip_y + tooltip_height + 4),
-                            IM_COL32(0, 0, 0, 100), 6.0f);
+                            ImVec2(tooltip_x + S(4), tooltip_y + S(4)),
+                            ImVec2(tooltip_x + tooltip_width + S(4), tooltip_y + tooltip_height + S(4)),
+                            IM_COL32(0, 0, 0, 100), S(6.0f));
 
                         // Draw background
                         fg_draw->AddRectFilled(
                             ImVec2(tooltip_x, tooltip_y),
                             ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                            IM_COL32(30, 30, 30, 240), 6.0f);
+                            IM_COL32(30, 30, 30, 240), S(6.0f));
 
                         // Draw border
                         fg_draw->AddRect(
                             ImVec2(tooltip_x, tooltip_y),
                             ImVec2(tooltip_x + tooltip_width, tooltip_y + tooltip_height),
-                            border_color, 6.0f, 0, 2.0f);
+                            border_color, S(6.0f), 0, S(2.0f));
 
                         if (hover_thumbnail != 0) {
                             // Draw thumbnail centered
                             float img_x = tooltip_x + padding + (container_width - thumb_w) * 0.5f;
                             float img_y = tooltip_y + padding + (container_height - thumb_h) * 0.5f;
                             fg_draw->AddImage(
-                                PoolIDToImTexture(hover_thumbnail),
+                                ThumbnailPoolIDToImTexture(hover_thumbnail),
                                 ImVec2(img_x, img_y),
                                 ImVec2(img_x + thumb_w, img_y + thumb_h));
                         } else {
@@ -3876,7 +3845,7 @@ static bool show_empty_area_context_menu = false;
 
                         // Draw frame label centered below thumbnail
                         float label_x = tooltip_x + (tooltip_width - label_size.x) * 0.5f;
-                        float label_y = tooltip_y + padding + container_height + 4.0f;
+                        float label_y = tooltip_y + padding + container_height + S(4.0f);
                         fg_draw->AddText(ImVec2(label_x, label_y), UI_WHITE, frame_label);
                     }
                 }
@@ -4889,7 +4858,7 @@ static bool show_empty_area_context_menu = false;
             if (wheel != 0) {
                 if (ImGui::GetIO().KeyCtrl) {
                     // Ctrl + mouse wheel = horizontal pan
-                    scroll_offset_x -= wheel * 50.0f;
+                    scroll_offset_x -= wheel * S(50.0f);
                     scroll_offset_x = std::clamp(scroll_offset_x, 0.0f, max_scroll);
                 } else {
                     // Regular scroll (no modifier) = zoom centered on playhead
@@ -5097,13 +5066,13 @@ static bool show_empty_area_context_menu = false;
 
             // Pan left/right
             if (IsShortcutPressed("tl_pan_left")) {
-                scroll_offset_x -= 100.0f;
+                scroll_offset_x -= S(100.0f);
                 scroll_offset_x = std::max(0.0f, scroll_offset_x);
                 timeline_view->SetScrollOffset(scroll_offset_x);
                 follow_playhead = false;
             }
             if (IsShortcutPressed("tl_pan_right")) {
-                scroll_offset_x += 100.0f;
+                scroll_offset_x += S(100.0f);
                 timeline_view->SetScrollOffset(scroll_offset_x);
                 follow_playhead = false;
             }
@@ -5152,12 +5121,12 @@ static bool show_empty_area_context_menu = false;
         // =====================================================================
         // VOLUME/MUTE/LOOP ROW (matching standard timeline panel)
         // =====================================================================
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 1.5f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + S(1.5f));
         ImGui::AlignTextToFramePadding();
 
         // Volume control on left
         if (font_regular) ImGui::PushFont(font_regular);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::Text("Volume:");
         ImGui::PopStyleColor();
@@ -5195,8 +5164,8 @@ static bool show_empty_area_context_menu = false;
         ImGui::SameLine();
 
         // Volume slider - disabled when muted
-        ImGui::SetNextItemWidth(120);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
+        ImGui::SetNextItemWidth(S(120));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + S(1)));
         ImGui::SetWindowFontScale(0.85f);
         ImGui::BeginDisabled(is_muted);
         if (ImGui::SliderInt("##otio_volume_slider", &current_volume, 0, 100, "%d%%")) {
@@ -5217,29 +5186,29 @@ static bool show_empty_area_context_menu = false;
         if (is_muted) {
             ImGui::SameLine();
             if (font_regular) ImGui::PushFont(font_regular);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
             ImGui::TextColored(MutedLight(GetWindowsAccentColor()), "Muted");
             if (font_regular) ImGui::PopFont();
         }
 
         // Vertical divider between volume and loop
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(2, 0));
+        ImGui::Dummy(ImVec2(S(2), 0));
         ImGui::SameLine();
         {
             ImVec2 p = ImGui::GetCursorScreenPos();
             float h = ImGui::GetFrameHeight();
-            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
-            ImGui::Dummy(ImVec2(1, 0));
-            ImGui::SameLine(0, 12);
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + S(2)), ImVec2(p.x, p.y + h - S(2)), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(S(1), 0));
+            ImGui::SameLine(0, S(12));
         }
 
-        ImGui::Dummy(ImVec2(1, 0));
+        ImGui::Dummy(ImVec2(S(1), 0));
         ImGui::SameLine();
 
         // Loop toggle
         if (font_regular) ImGui::PushFont(font_regular);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::Text("Loop:");
         ImGui::PopStyleColor();
@@ -5300,23 +5269,23 @@ static bool show_empty_area_context_menu = false;
 
         // Spacer
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(1, 0));
+        ImGui::Dummy(ImVec2(S(1), 0));
         ImGui::SameLine();
         {
             ImVec2 p = ImGui::GetCursorScreenPos();
             float h = ImGui::GetFrameHeight();
-            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
-            ImGui::Dummy(ImVec2(1, 0));
-            ImGui::SameLine(0, 12);
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + S(2)), ImVec2(p.x, p.y + h - S(2)), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(S(1), 0));
+            ImGui::SameLine(0, S(12));
         }
 
-        ImGui::Dummy(ImVec2(1, 0));
+        ImGui::Dummy(ImVec2(S(1), 0));
         ImGui::SameLine();
 
         // Follow Playhead toggle button (F key shortcut) - next to Loop button
         ImGui::SameLine();
         if (font_regular) ImGui::PushFont(font_regular);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::Text("Options:");
         ImGui::PopStyleColor();
@@ -5369,7 +5338,7 @@ static bool show_empty_area_context_menu = false;
 
             if (is_image_seq) {
                 ImGui::SameLine();
-                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::Dummy(ImVec2(S(1), 0));
                 ImGui::SameLine();
 
                 bool stride_active = (current_stride > 1);
@@ -5395,7 +5364,7 @@ static bool show_empty_area_context_menu = false;
                     ImGui::OpenPopup("FrameSkipPopup");
                 }
 
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(12), S(10)));
                 ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
                 ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x12/255.0f, 0x12/255.0f, 0x12/255.0f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
@@ -5436,17 +5405,17 @@ static bool show_empty_area_context_menu = false;
 
         // Spacer + separator before editing controls
         ImGui::SameLine();
-        ImGui::Dummy(ImVec2(1, 0));
+        ImGui::Dummy(ImVec2(S(1), 0));
         ImGui::SameLine();
         {
             ImVec2 p = ImGui::GetCursorScreenPos();
             float h = ImGui::GetFrameHeight();
-            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
-            ImGui::Dummy(ImVec2(1, 0));
-            ImGui::SameLine(0, 12);
+            ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + S(2)), ImVec2(p.x, p.y + h - S(2)), ImGui::GetColorU32(ImGuiCol_Separator));
+            ImGui::Dummy(ImVec2(S(1), 0));
+            ImGui::SameLine(0, S(12));
         }
 
-        ImGui::Dummy(ImVec2(1, 0));
+        ImGui::Dummy(ImVec2(S(1), 0));
         ImGui::SameLine();
 
         // === TIMELINE EDITING CONTROLS (same row, after F*) ===
@@ -5456,7 +5425,7 @@ static bool show_empty_area_context_menu = false;
 
             ImGui::SameLine();
             if (font_regular) ImGui::PushFont(font_regular);
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::Text("Set Range:");
             ImGui::PopStyleColor();
@@ -5537,19 +5506,19 @@ static bool show_empty_area_context_menu = false;
                 ImGui::SameLine();
 
                 // Spacer
-                ImGui::Dummy(ImVec2(1, 0));
+                ImGui::Dummy(ImVec2(S(1), 0));
                 ImGui::SameLine();
                 {
                     ImVec2 p = ImGui::GetCursorScreenPos();
                     float h = ImGui::GetFrameHeight();
-                    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2), ImGui::GetColorU32(ImGuiCol_Separator));
-                    ImGui::Dummy(ImVec2(1, 0));
-                    ImGui::SameLine(0, 12);
+                    ImGui::GetWindowDrawList()->AddLine(ImVec2(p.x, p.y + S(2)), ImVec2(p.x, p.y + h - S(2)), ImGui::GetColorU32(ImGuiCol_Separator));
+                    ImGui::Dummy(ImVec2(S(1), 0));
+                    ImGui::SameLine(0, S(12));
                 }
 
                 // Refresh
                 if (font_regular) ImGui::PushFont(font_regular);
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.7f);
+                ImGui::SetCursorPosY(ImGui::GetCursorPosY() - S(1.7f));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
                 ImGui::Text("Refresh:");
                 ImGui::PopStyleColor();
@@ -5610,18 +5579,18 @@ static bool show_empty_area_context_menu = false;
             // Calculate position for right-aligned text (with button)
             if (font_mono) ImGui::PushFont(font_mono);
             ImVec2 text_size = ImGui::CalcTextSize(frame_str.c_str());
-            float button_width = 25.0f;
+            float button_width = S(25.0f);
             // Check if this is a video file (only videos can have embedded timecode)
             bool is_video_source = timeline_view &&
                 timeline_view->GetSourceMode() == qcview::TimelineSourceMode::VIDEO_FILE;
             // Account for Go To button, plus Timecode Mode button if video
-            float total_width = text_size.x + button_width + (is_video_source ? button_width : 0.0f) + 5.0f;
-            float vertical_padding = 1.1f;
+            float total_width = text_size.x + button_width + (is_video_source ? button_width : 0.0f) + S(5.0f);
+            float vertical_padding = S(1.1f);
 
             // Right-align the frame counter
             float window_width = ImGui::GetWindowSize().x;
             float current_x = ImGui::GetCursorPosX();
-            float target_x = window_width - total_width - 15.0f;
+            float target_x = window_width - total_width - S(15.0f);
             if (target_x > current_x) {
                 ImGui::SetCursorPosX(target_x);
             }
@@ -5689,7 +5658,7 @@ static bool show_empty_area_context_menu = false;
                     ImGui::PopFont();
 
                     // Timecode mode popup menu - style with padding, dark background, and border
-                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(12), S(10)));
                     ImGui::PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0f);
                     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0x1A/255.0f, 0x1A/255.0f, 0x1A/255.0f, 1.0f));
                     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(1.0f, 1.0f, 1.0f, 0.1f));
@@ -5754,7 +5723,7 @@ static bool show_empty_area_context_menu = false;
         }
 
         // Bottom padding below the controls row
-        ImGui::Dummy(ImVec2(0, 30.0f));
+        ImGui::Dummy(ImVec2(0, S(30.0f)));
 
         // =====================================================================
         // LINK MEDIA POPUP
@@ -5768,10 +5737,10 @@ static bool show_empty_area_context_menu = false;
         float scale = ImGui::GetIO().FontGlobalScale;
         ImVec2 center = ImGui::GetMainViewport()->GetCenter();
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(520 * scale, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(520), 0), ImGuiCond_Always);
 
         // Push consistent window padding for modal
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(16.0f), S(16.0f)));
 
         if (ImGui::BeginPopupModal("Link Media##popup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Link timeline clips to media files by searching a directory.");
@@ -5791,17 +5760,24 @@ static bool show_empty_area_context_menu = false;
             path_buf[sizeof(path_buf) - 1] = '\0';
 
             ImGui::SetNextItemWidth(input_width);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             if (ImGui::InputText("##link_path", path_buf, sizeof(path_buf))) {
                 link_media_search_path = path_buf;
             }
             ImGui::SameLine();
             PushOutlineButtonStyle();
             if (ImGui::Button("Browse...", ImVec2(browse_width, 0))) {
-                nfdu8char_t* out_path = nullptr;
-                nfdresult_t result = NFD_PickFolderU8(&out_path, nullptr);
-                if (result == NFD_OKAY && out_path) {
-                    link_media_search_path = out_path;
-                    NFD_FreePathU8(out_path);
+                extern bool g_nfd_dialog_open;
+                if (!g_nfd_dialog_open) {
+                    g_nfd_dialog_open = true;
+                    nfdu8char_t* out_path = nullptr;
+                    nfdresult_t result = NFD_PickFolderU8(&out_path, nullptr);
+                    ImGui::GetIO().ClearInputKeys();
+                    g_nfd_dialog_open = false;
+                    if (result == NFD_OKAY && out_path) {
+                        link_media_search_path = out_path;
+                        NFD_FreePathU8(out_path);
+                    }
                 }
             }
             PopOutlineButtonStyle();
@@ -5822,7 +5798,7 @@ static bool show_empty_area_context_menu = false;
             ImGui::Spacing();
 
             // Action buttons (flush right)
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float linkW = ImGui::CalcTextSize("Link Media").x + btnPadding;
             float cancelW = ImGui::CalcTextSize("Cancel").x + btnPadding;
             float btnSpacing = ImGui::GetStyle().ItemSpacing.x;
@@ -5870,7 +5846,7 @@ static bool show_empty_area_context_menu = false;
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
 
         // Push consistent window padding for modal
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(16.0f), S(16.0f)));
 
         if (ImGui::BeginPopupModal("Link Results##popup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Media Linking Complete");
@@ -5896,7 +5872,7 @@ static bool show_empty_area_context_menu = false;
                 ImGui::Spacing();
 
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
-                ImGui::BeginChild("UnlinkedList", ImVec2(420, 150), true);
+                ImGui::BeginChild("UnlinkedList", ImVec2(S(420), S(150)), true);
                 for (const auto& result : last_link_summary.results) {
                     if (!result.success) {
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "  %s", result.clip_name.c_str());
@@ -5911,7 +5887,7 @@ static bool show_empty_area_context_menu = false;
             ImGui::Spacing();
 
             // OK button (flush right)
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float okW = ImGui::CalcTextSize("OK").x + btnPadding;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
             PushOutlineButtonStyle();
@@ -5980,7 +5956,7 @@ static bool show_empty_area_context_menu = false;
 
         // Center the results modal
         ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(16.0f, 16.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(16.0f), S(16.0f)));
 
         if (ImGui::BeginPopupModal("Auto-Relink Results##popup", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Automatic Media Linking Complete");
@@ -6007,7 +5983,7 @@ static bool show_empty_area_context_menu = false;
                 ImGui::Spacing();
 
                 ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
-                ImGui::BeginChild("UnlinkedListAuto", ImVec2(420, 150), true);
+                ImGui::BeginChild("UnlinkedListAuto", ImVec2(S(420), S(150)), true);
                 for (const auto& result : last_link_summary.results) {
                     if (!result.success) {
                         ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "  %s", result.clip_name.c_str());
@@ -6023,7 +5999,7 @@ static bool show_empty_area_context_menu = false;
             ImGui::Spacing();
 
             // OK button (flush right)
-            float btnPadding = 8.0f * 2;
+            float btnPadding = S(8.0f) * 2;
             float okW = ImGui::CalcTextSize("OK").x + btnPadding;
             ImGui::SetCursorPosX(ImGui::GetWindowContentRegionMax().x - okW);
 
@@ -6080,8 +6056,8 @@ static bool show_empty_area_context_menu = false;
 
         // Style the context menu with dark background (matching playlist context menu)
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(8.0f), S(8.0f)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8.0f), S(6.0f)));
 
         if (ImGui::BeginPopup("ClipContextMenu##popup")) {
             // Find the clicked clip
@@ -6115,55 +6091,20 @@ static bool show_empty_area_context_menu = false;
                     // === SIMPLIFIED MENU FOR PLAYLIST/DUAL_VIEW ===
                     // These modes have pre-linked media from project manager
 
-                    // Reveal in Explorer
+                    // Reveal in file manager
                     if (!clicked_clip->linked_path.empty()) {
-                        if (ImGui::MenuItem("Reveal in Explorer")) {
-                            #ifdef _WIN32
-                            std::string file_path = clicked_clip->linked_path;
-                            std::string resolved_path = file_path;
-
-                            // Handle mf:// URLs (image sequences)
-                            if (file_path.length() > 5 && file_path.substr(0, 5) == "mf://") {
-                                std::string path_part = file_path.substr(5);
-                                size_t fps_pos = path_part.find(":fps=");
-                                if (fps_pos != std::string::npos) {
-                                    path_part = path_part.substr(0, fps_pos);
-                                }
-                                size_t last_slash = path_part.find_last_of("/\\");
-                                if (last_slash != std::string::npos) {
-                                    resolved_path = path_part.substr(0, last_slash);
-                                } else {
-                                    resolved_path = path_part;
-                                }
+                        const char* reveal_label =
+#ifdef _WIN32
+                            "Reveal in Explorer";
+#elif defined(__APPLE__)
+                            "Reveal in Finder";
+#else
+                            "Reveal in File Browser";
+#endif
+                        if (ImGui::MenuItem(reveal_label)) {
+                            if (project_manager) {
+                                project_manager->ShowInExplorer(clicked_clip->linked_path);
                             }
-                            // Handle exr:// URLs (EXR sequences with layers)
-                            else if (file_path.length() > 6 && file_path.substr(0, 6) == "exr://") {
-                                std::string path_part = file_path.substr(6);
-                                size_t query_pos = path_part.find('?');
-                                if (query_pos != std::string::npos) {
-                                    path_part = path_part.substr(0, query_pos);
-                                }
-                                size_t last_slash = path_part.find_last_of("/\\");
-                                if (last_slash != std::string::npos) {
-                                    resolved_path = path_part.substr(0, last_slash);
-                                } else {
-                                    resolved_path = path_part;
-                                }
-                            }
-
-                            std::thread([resolved_path]() {
-                                std::string windows_path = resolved_path;
-                                std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
-                                std::filesystem::path fs_path(windows_path);
-                                std::string command;
-                                if (std::filesystem::is_directory(fs_path)) {
-                                    command = "explorer \"" + windows_path + "\"";
-                                } else {
-                                    command = "explorer /select,\"" + windows_path + "\"";
-                                }
-                                system(command.c_str());
-                            }).detach();
-                            #endif
                         }
                     }
 
@@ -6214,12 +6155,17 @@ static bool show_empty_area_context_menu = false;
                     // Link/Relink option
                     const char* link_label = clicked_clip->is_linked ? "Relink to File..." : "Link to File...";
                     if (ImGui::MenuItem(link_label)) {
+                        extern bool g_nfd_dialog_open;
+                        if (!g_nfd_dialog_open) {
+                        g_nfd_dialog_open = true;
                         nfdu8char_t* out_path = nullptr;
                         nfdfilteritem_t filters[2] = {
                             { "Media Files", "mov,mp4,mxf,avi,mkv,exr,dpx,tif,tiff,png,jpg,jpeg" },
                             { "All Files", "*" }
                         };
                         nfdresult_t result = NFD_OpenDialogU8(&out_path, filters, 2, nullptr);
+                        ImGui::GetIO().ClearInputKeys();
+                        g_nfd_dialog_open = false;
                         if (result == NFD_OKAY && out_path) {
                             if (!media_linker) {
                                 media_linker = std::make_unique<qcview::MediaLinker>();
@@ -6233,6 +6179,7 @@ static bool show_empty_area_context_menu = false;
                             }
                             NFD_FreePathU8(out_path);
                         }
+                        } // g_nfd_dialog_open guard
                     }
 
                     if (clicked_clip->is_linked) {
@@ -6249,50 +6196,18 @@ static bool show_empty_area_context_menu = false;
 
                         ImGui::Separator();
 
-                        if (ImGui::MenuItem("Reveal in Explorer")) {
-                            #ifdef _WIN32
-                            std::string file_path = clicked_clip->linked_path;
-                            std::string resolved_path = file_path;
-
-                            if (file_path.length() > 5 && file_path.substr(0, 5) == "mf://") {
-                                std::string path_part = file_path.substr(5);
-                                size_t fps_pos = path_part.find(":fps=");
-                                if (fps_pos != std::string::npos) {
-                                    path_part = path_part.substr(0, fps_pos);
-                                }
-                                size_t last_slash = path_part.find_last_of("/\\");
-                                if (last_slash != std::string::npos) {
-                                    resolved_path = path_part.substr(0, last_slash);
-                                } else {
-                                    resolved_path = path_part;
-                                }
-                            } else if (file_path.length() > 6 && file_path.substr(0, 6) == "exr://") {
-                                std::string path_part = file_path.substr(6);
-                                size_t query_pos = path_part.find('?');
-                                if (query_pos != std::string::npos) {
-                                    path_part = path_part.substr(0, query_pos);
-                                }
-                                size_t last_slash = path_part.find_last_of("/\\");
-                                if (last_slash != std::string::npos) {
-                                    resolved_path = path_part.substr(0, last_slash);
-                                } else {
-                                    resolved_path = path_part;
-                                }
+                        if (ImGui::MenuItem(
+#ifdef _WIN32
+                            "Reveal in Explorer"
+#elif defined(__APPLE__)
+                            "Reveal in Finder"
+#else
+                            "Reveal in File Browser"
+#endif
+                        )) {
+                            if (project_manager) {
+                                project_manager->ShowInExplorer(clicked_clip->linked_path);
                             }
-
-                            std::thread([resolved_path]() {
-                                std::string windows_path = resolved_path;
-                                std::replace(windows_path.begin(), windows_path.end(), '/', '\\');
-                                std::filesystem::path fs_path(windows_path);
-                                std::string command;
-                                if (std::filesystem::is_directory(fs_path)) {
-                                    command = "explorer \"" + windows_path + "\"";
-                                } else {
-                                    command = "explorer /select,\"" + windows_path + "\"";
-                                }
-                                system(command.c_str());
-                            }).detach();
-                            #endif
                         }
 
                         ImGui::Separator();
@@ -6368,8 +6283,8 @@ static bool show_empty_area_context_menu = false;
 
         // Style the context menu with dark background
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(8.0f), S(8.0f)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8.0f), S(6.0f)));
 
         if (ImGui::BeginPopup("TrackContextMenu##popup")) {
             if (tracks_ptr && right_clicked_track_header_index >= 0 &&
@@ -6448,8 +6363,8 @@ static bool show_empty_area_context_menu = false;
 
         // Style the context menu with dark background
         ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(8.0f), S(8.0f)));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(S(8.0f), S(6.0f)));
 
         if (ImGui::BeginPopup("EmptyAreaContextMenu##popup")) {
             ImGui::Text("Add Track");

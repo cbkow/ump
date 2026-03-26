@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <memory>
 #include <filesystem>
 
@@ -54,6 +55,12 @@ struct VideoMetadata {
     // NEW: Chroma subsampling detection (cached for later use)
     bool is_411_format = false;           // 4:1:1 chroma subsampling
     bool is_421_format = false;           // 4:2:1 chroma subsampling (rare, some DVCPro)
+
+    // Frame index cache (for project file persistence)
+    int stream_timebase_num = 0;
+    int stream_timebase_den = 1;
+    bool is_intra_codec = false;
+    std::vector<int64_t> keyframe_pts;  // Keyframe PTS values in stream timebase
 
     bool is_loaded = false;
 

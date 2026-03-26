@@ -1,4 +1,5 @@
 #include "annotation_panel.h"
+#include "../app/ui_scale.h"
 #include "../app/app_ui_macros.h"
 #include "../annotations/annotation_toolbar.h"
 #include "../annotations/viewport_annotator.h"
@@ -16,6 +17,12 @@
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
     if (id == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+}
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
+static inline ImTextureID PoolIDToImTexture(GLuint id) {
+    if (id == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
 }
 #else
 static inline ImTextureID PoolIDToImTexture(GLuint id) {
@@ -113,7 +120,7 @@ static void RenderLineWithInlineCode(const char* line_start, const char* line_en
         if (code_start < close) {
             if (!first_segment) ImGui::SameLine(0, 0);
 
-            const float pad_x = 3.0f;
+            const float pad_x = S(3.0f);
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + pad_x);
 
             if (font_mono) ImGui::PushFont(font_mono);
@@ -238,7 +245,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
         ImGui::PopStyleColor();
 
         // Close button on the right
-        float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
+        float button_size = ImGui::GetFontSize() + S(4.0f);  // Compact size
         ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
         ImVec2 button_pos = ImGui::GetCursorScreenPos();
         bool clicked = ImGui::InvisibleButton("##CloseAnnotations", ImVec2(button_size, button_size));
@@ -248,7 +255,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
             ImGui::PushFont(font_icons);
             ImVec2 icon_size = ImGui::CalcTextSize(ICON_CLOSE);
             ImVec2 icon_pos = ImVec2(button_pos.x + (button_size - icon_size.x) / 2,
-                                     button_pos.y + (button_size - icon_size.y) / 2 - 1.0f);
+                                     button_pos.y + (button_size - icon_size.y) / 2 - S(1.0f));
             ImU32 icon_col = hovered ? ImGui::GetColorU32(ImGuiCol_Text) : ImGui::GetColorU32(ImGuiCol_TextDisabled);
             ImGui::GetWindowDrawList()->AddText(icon_pos, icon_col, ICON_CLOSE);
             ImGui::PopFont();
@@ -307,10 +314,7 @@ void AnnotationPanel::Render(bool* p_open, ImVec4 accent_regular, ImVec4 accent_
             float available_height = ImGui::GetContentRegionAvail().y;
 
             // Reserve some minimum space for footer (just the enabled button now)
-            // Scale with font (0.65 dampened)
-            const float ui_scale = ImGui::GetIO().FontGlobalScale;
-            const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-            float footer_reserve = 50.0f * height_scale;
+            float footer_reserve = S(50.0f);
 
             // Scrollable notes list - use transparent background to show panel color
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -438,8 +442,8 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // Note: Unique ID is pushed by caller (RenderNotesList) using index
 
     // Padding and styling
-    const float padding = 8.0f;
-    const float rounding = 1.0f;
+    const float padding = S(8.0f);
+    const float rounding = S(1.0f);
 
     // Get draw list for background shape
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
@@ -456,7 +460,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     ImGui::Indent(padding);
 
     float content_width = ImGui::GetContentRegionAvail().x - padding;
-    const float column_spacing = 8.0f;
+    const float column_spacing = S(8.0f);
 
     // === ROW 1: Timecode (top-left) + Frame number (next to it) ===
     {
@@ -494,7 +498,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
 
     // === ROW 2: Thumbnail (left) + Text input (fills rest) ===
     {
-        const float thumbnail_width = 120.0f;
+        const float thumbnail_width = S(120.0f);
         GLuint thumbnail_id = 0;
         float thumbnail_aspect = video_aspect_ratio_;
         std::string full_image_path;
@@ -572,12 +576,12 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     }
 
     // === ROW 3: Addressed (left) + Edit & Delete buttons (flush right) ===
-    ImGui::Dummy(ImVec2(0, 1.0f));
+    ImGui::Dummy(ImVec2(0, S(1.0f)));
     {
         bool edit_button_enabled = !note.addressed;
 
         // Addressed checkbox (left side)
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(5.0f, 2.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(5.0f), S(2.0f)));
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
         ImGui::SetWindowFontScale(0.85f);
         bool addressed = note.addressed;
@@ -591,10 +595,10 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         ImGui::PopStyleVar();
 
         // Edit and Delete buttons flush right
-        const float button_spacing = 4.0f;
-        const float edit_padding_x = 12.0f;
+        const float button_spacing = S(4.0f);
+        const float edit_padding_x = S(12.0f);
         float edit_text_button_width = ImGui::CalcTextSize("Edit").x + edit_padding_x * 2;
-        const float delete_padding_x = 12.0f;
+        const float delete_padding_x = S(12.0f);
         float delete_button_width = ImGui::CalcTextSize("Delete").x + delete_padding_x * 2;
         float buttons_total_width = edit_text_button_width + delete_button_width + button_spacing;
         float indent_amount = padding;  // match our left indent
@@ -646,7 +650,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         // Delete button (extra horizontal padding for text breathing room)
         ImGui::SameLine(0.0f, button_spacing);
         PushOutlineButtonStyle();
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(12.0f), ImGui::GetStyle().FramePadding.y));
         if (ImGui::Button("Delete", ImVec2(0, 0))) {
             HandleDeleteNote(note.timecode);
         }
@@ -669,7 +673,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     ImVec2 group_size = ImVec2(group_end_pos.x - group_start_pos.x, group_end_pos.y - group_start_pos.y);
 
     // Extend the shape a few pixels on the right for better visual spacing
-    const float right_extension = 8.0f;
+    const float right_extension = S(8.0f);
 
     // Draw subtle border with rounded corners (always visible)
     draw_list->AddRect(
@@ -708,9 +712,7 @@ void AnnotationPanel::RenderPreviewTab(ImVec4 accent_regular) {
 
     // Layout: scrollable notes + footer
     float available_height = ImGui::GetContentRegionAvail().y;
-    const float ui_scale = ImGui::GetIO().FontGlobalScale;
-    const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-    float footer_reserve = 50.0f * height_scale;
+    float footer_reserve = S(50.0f);
 
     // Scrollable preview notes
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
@@ -743,8 +745,8 @@ void AnnotationPanel::RenderPreviewTab(ImVec4 accent_regular) {
 }
 
 void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
-    const float padding = 8.0f;
-    const float rounding = 1.0f;
+    const float padding = S(8.0f);
+    const float rounding = S(1.0f);
     ImDrawList* draw_list = ImGui::GetWindowDrawList();
     ImVec2 group_start_pos = ImGui::GetCursorScreenPos();
 
@@ -774,7 +776,7 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
         }
     }
     ImGui::Text("%s", note.timecode.c_str());
-    ImGui::SameLine(0.0f, 8.0f);
+    ImGui::SameLine(0.0f, S(8.0f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::Text("Frame: %d", note.frame);
     ImGui::PopStyleColor();
@@ -840,7 +842,7 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     // Draw rounded border (same style as Edit tab)
     ImVec2 group_end_pos = ImGui::GetItemRectMax();
     ImVec2 group_size = ImVec2(group_end_pos.x - group_start_pos.x, group_end_pos.y - group_start_pos.y);
-    const float right_extension = 8.0f;
+    const float right_extension = S(8.0f);
 
     draw_list->AddRect(
         group_start_pos,
@@ -877,7 +879,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
     // Modal height is fixed at 95% viewport; width wraps to image width
     // (clamped between 50% and 95% of viewport for tall/wide extremes).
     ImGuiViewport* vp = ImGui::GetMainViewport();
-    float padding = 16.0f;
+    float padding = S(16.0f);
 
     float modal_h = vp->Size.y * 0.95f;
 
@@ -891,7 +893,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
     float est_toolbar = est_line_h + est_frame_pad_y * 2.0f;
     float est_bottom = est_spacing_y + est_text_area + est_spacing_y + 2.0f + est_spacing_y + est_toolbar;
     float est_img_h = (modal_h - 2.0f * padding) - est_header - est_bottom;
-    if (est_img_h < 60.0f) est_img_h = 60.0f;
+    if (est_img_h < S(60.0f)) est_img_h = S(60.0f);
     float est_img_w = est_img_h * modal_image_aspect_;
 
     // Clamp modal width: at least 50% viewport, at most 95%
@@ -905,7 +907,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
 
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(padding, padding));
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, S(8.0f));
 
     bool modal_open = true;
     if (ImGui::BeginPopupModal("##EditAnnotationModal", &modal_open,
@@ -927,7 +929,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
         // === Header: Title + Close button ===
         {
             ImGui::Text("Edit Annotation");
-            ImGui::SameLine(content_w - 20.0f);
+            ImGui::SameLine(content_w - S(20.0f));
             if (font_icons) {
                 ImGui::PushFont(font_icons);
                 if (ImGui::SmallButton(ICON_CLOSE)) {
@@ -980,7 +982,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
 
         float avail_h = ImGui::GetContentRegionAvail().y;
         float img_h = avail_h - bottom_chrome;
-        if (img_h < 60.0f) img_h = 60.0f;
+        if (img_h < S(60.0f)) img_h = S(60.0f);
 
         // Constrain image by its actual aspect ratio (from the thumbnail file, not the video player)
         float img_w = img_h * modal_image_aspect_;
@@ -1035,7 +1037,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
         }
 
         // Delete Note button (accent dark, flush right)
-        ImGui::SameLine(content_w - ImGui::CalcTextSize("Delete Note").x - 24.0f);
+        ImGui::SameLine(content_w - ImGui::CalcTextSize("Delete Note").x - S(24.0f));
         ImVec4 del_hover(
             std::min(accent_muted_dark.x * 1.25f, 1.0f),
             std::min(accent_muted_dark.y * 1.25f, 1.0f),
@@ -1049,7 +1051,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
         ImGui::PushStyleColor(ImGuiCol_Button, accent_muted_dark);
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, del_hover);
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, del_active);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, ImGui::GetStyle().FramePadding.y));
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(S(12.0f), ImGui::GetStyle().FramePadding.y));
         if (ImGui::Button("Delete Note")) {
             std::string tc = modal_edit_timecode_;
             edit_modal_open_ = false;
@@ -1246,6 +1248,11 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
         width, height, VK_FORMAT_R8G8B8A8_UNORM,
         image_data.data(), image_data.size());
     GLuint texture_id = static_cast<GLuint>(pool_id);
+#elif defined(QCVIEW_USE_METAL)
+    uint64_t pool_id = qcview::MetalTexturePool::Instance().CreateTextureFromPixels(
+        width, height, 0 /* RGBA8 */,
+        image_data.data(), image_data.size());
+    GLuint texture_id = static_cast<GLuint>(pool_id);
 #else
     GLuint texture_id;
     glGenTextures(1, &texture_id);
@@ -1294,17 +1301,17 @@ std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) co
 void AnnotationPanel::InvalidateThumbnail(const std::string& image_path) {
     auto it = thumbnail_cache_.find(image_path);
     if (it != thumbnail_cache_.end()) {
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
         glDeleteTextures(1, &it->second);
 #endif
-        // On Vulkan, pool textures are small and cleaned up on pool shutdown
+        // On Vulkan/Metal, pool textures are small and cleaned up on pool shutdown
         thumbnail_cache_.erase(it);
         thumbnail_aspect_cache_.erase(image_path);
     }
 }
 
 void AnnotationPanel::CleanupThumbnails() {
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
     for (auto& pair : thumbnail_cache_) {
         glDeleteTextures(1, &pair.second);
     }

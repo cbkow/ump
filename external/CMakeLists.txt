@@ -1,9 +1,11 @@
-# GLFW - Build from source
-set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
-add_subdirectory(glfw)
+# GLFW - Build from source (not needed on macOS — native NSWindow/MTKView used instead)
+if(NOT APPLE)
+    set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(GLFW_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(glfw)
+endif()
 
 # GLAD (OpenGL loader - still built on Vulkan path for header compatibility)
 add_library(glad glad/src/gl.c)
@@ -16,8 +18,14 @@ set(IMGUI_SOURCES
     imgui/imgui_draw.cpp
     imgui/imgui_tables.cpp
     imgui/imgui_widgets.cpp
-    imgui/backends/imgui_impl_glfw.cpp
 )
+
+# Platform backend: native macOS (imgui_impl_osx) or GLFW (Linux/Windows)
+if(APPLE)
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_osx.mm)
+else()
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_glfw.cpp)
+endif()
 
 # OpenGL3 backend — Windows always, Linux when not using Vulkan
 if(WIN32 OR (QCVIEW_LINUX AND NOT QCVIEW_USE_VULKAN))
@@ -34,13 +42,24 @@ if(QCVIEW_LINUX AND QCVIEW_USE_VULKAN)
     list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_vulkan.cpp)
 endif()
 
+# Metal backend on macOS
+if(APPLE)
+    list(APPEND IMGUI_SOURCES imgui/backends/imgui_impl_metal.mm)
+endif()
+
 add_library(imgui ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC
     imgui
     imgui/backends
-    glfw/include
 )
-target_link_libraries(imgui glfw)
+
+# GLFW: link on non-Apple, headers-only on Apple (source files still #include it)
+if(NOT APPLE)
+    target_include_directories(imgui PUBLIC glfw/include)
+    target_link_libraries(imgui glfw)
+else()
+    target_include_directories(imgui PUBLIC glfw/include)
+endif()
 
 # Link D3D11 libraries for ImGui on Windows
 if(WIN32)
@@ -52,6 +71,21 @@ if(QCVIEW_LINUX AND QCVIEW_USE_VULKAN)
     find_package(Vulkan REQUIRED)
     target_link_libraries(imgui Vulkan::Vulkan)
     target_include_directories(imgui PUBLIC ${Vulkan_INCLUDE_DIRS})
+endif()
+
+# Link Metal for ImGui on macOS
+if(APPLE)
+    find_library(METAL_LIB Metal)
+    find_library(QUARTZCORE_LIB QuartzCore)
+    find_library(GAMECONTROLLER_LIB GameController)
+    target_link_libraries(imgui ${METAL_LIB} ${QUARTZCORE_LIB} ${GAMECONTROLLER_LIB})
+    # Enable ObjC ARC for .mm files in ImGui
+    set_source_files_properties(imgui/backends/imgui_impl_metal.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
+    set_source_files_properties(imgui/backends/imgui_impl_osx.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc"
+    )
 endif()
 
 # Enable docking features
@@ -89,12 +123,14 @@ set(LIBHPDF_STATIC ON CACHE BOOL "Build static library" FORCE)
 set(LIBHPDF_SHARED OFF CACHE BOOL "Don't build shared library" FORCE)
 set(LIBHPDF_INSTALL OFF CACHE BOOL "Don't install libharu" FORCE)
 set(DEVPAK OFF CACHE BOOL "Don't create DevPackage" FORCE)
-# Point libharu to existing PNG and ZLIB
-set(PNG_PNG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/png/include" CACHE PATH "PNG include dir" FORCE)
-set(PNG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/png/include" CACHE PATH "PNG include dir" FORCE)
-set(PNG_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/png/lib/libpng16.lib" CACHE FILEPATH "PNG library" FORCE)
-set(ZLIB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ocio/include" CACHE PATH "ZLIB include dir" FORCE)
-set(ZLIB_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/ocio/lib/zlib.lib" CACHE FILEPATH "ZLIB library" FORCE)
+# Point libharu to existing PNG and ZLIB (Windows vendored paths)
+if(WIN32)
+    set(PNG_PNG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/png/include" CACHE PATH "PNG include dir" FORCE)
+    set(PNG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/png/include" CACHE PATH "PNG include dir" FORCE)
+    set(PNG_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/png/lib/libpng16.lib" CACHE FILEPATH "PNG library" FORCE)
+    set(ZLIB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/ocio/include" CACHE PATH "ZLIB include dir" FORCE)
+    set(ZLIB_LIBRARY "${CMAKE_CURRENT_SOURCE_DIR}/ocio/lib/zlib.lib" CACHE FILEPATH "ZLIB library" FORCE)
+endif()
 FetchContent_MakeAvailable(libharu)
 
 # ========================================

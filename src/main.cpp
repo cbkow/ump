@@ -44,6 +44,9 @@ extern "C" {
 #ifdef QCVIEW_USE_VULKAN
 #include <imgui_impl_vulkan.h>
 #include "gpu/vulkan_device.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
+#include "annotations/metal_annotation_renderer.h"
 #else
 #include <imgui_impl_opengl3.h>
 #endif
@@ -83,6 +86,7 @@ extern "C" {
 // ============================================================================
 // PROJECT INCLUDES
 // ============================================================================
+#include <ImfThreading.h>  // Imf::setGlobalThreadCount — called once at startup
 #include "player/video_player.h"
 #include "player/thumbnail_cache.h"
 #include "utils/exiftool_helper.h"
@@ -97,8 +101,13 @@ extern "C" {
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
 #include "utils/single_instance.h"
 #endif
+#ifdef __APPLE__
+#include "utils/macos_single_instance.h"
+#endif
 #ifdef QCVIEW_USE_VULKAN
 #include "gpu/vulkan_device.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
 #endif
 #include "app/app_ui_macros.h"
 #include "project/project_manager.h"
@@ -487,6 +496,7 @@ std::string exr_video_path_before_shutdown;
 // FONT SETTINGS
 // ============================================================================
 float g_font_scale = 1.0f;  // Global font scale (0.5x - 2.0x)
+float g_ui_scale = 1.0f;    // UI scale factor for DPI compensation (applied to all hardcoded pixel values)
 bool show_font_settings_window = false;
 float font_settings_temp_scale = 1.0f;  // Temporary scale while editing
 
@@ -589,6 +599,11 @@ std::string GetAssetPath(const std::string& relative_path) {
     auto local_system_path = std::filesystem::path("/usr/local/share/qcview") / relative_path;
     if (std::filesystem::exists(local_system_path))
         return local_system_path.string();
+#elif defined(__APPLE__)
+    // Check app bundle Resources directory
+    auto bundle_path = g_exe_dir / relative_path;
+    if (std::filesystem::exists(bundle_path))
+        return bundle_path.string();
 #endif
 
     // Fallback to original path (may not exist, but caller can handle)
@@ -770,6 +785,37 @@ int main(int argc, char* argv[]) {
             Debug::Log("Warning: Could not get LOCALAPPDATA, using exe directory as working directory");
         }
     }
+    #elif defined(__APPLE__)
+    // macOS: resolve exe directory and set writable working directory
+    {
+        // Get executable path from argv[0] or _NSGetExecutablePath
+        try {
+            std::filesystem::path exe_path = std::filesystem::absolute(argv[0]);
+            g_exe_dir = exe_path.parent_path();
+            // If inside .app bundle, go from Contents/MacOS/ to Contents/Resources/
+            if (g_exe_dir.string().find(".app/Contents/MacOS") != std::string::npos) {
+                g_exe_dir = g_exe_dir.parent_path() / "Resources";
+            }
+            Debug::Log("Executable directory: " + g_exe_dir.string());
+        } catch (const std::exception& e) {
+            std::cerr << "Warning: Failed to determine executable directory: " << e.what() << std::endl;
+        }
+    }
+
+    // Set writable working directory on macOS (~/Library/Application Support/qcview/data)
+    {
+        const char* home = std::getenv("HOME");
+        if (home) {
+            std::filesystem::path data_dir = std::filesystem::path(home) / "Library" / "Application Support" / "qcview" / "data";
+            try {
+                std::filesystem::create_directories(data_dir);
+                std::filesystem::current_path(data_dir);
+                Debug::Log("Set working directory to: " + data_dir.string());
+            } catch (const std::exception& e) {
+                Debug::Log("Warning: Failed to set writable working directory: " + std::string(e.what()));
+            }
+        }
+    }
     #else
     // Linux: resolve exe directory and set writable working directory
     try {
@@ -871,6 +917,20 @@ int main(int argc, char* argv[]) {
     }
     #endif
 
+    // Single instance enforcement (macOS via NSRunningApplication + Apple Events)
+    #ifdef __APPLE__
+    qcview::MacOSSingleInstance macos_single_instance;
+    if (!macos_single_instance.TryAcquire(initial_files)) {
+        Debug::Log("Files sent to existing instance — exiting");
+        return 0;
+    }
+    #endif
+
+    // Set OpenEXR to single-threaded mode ONCE at startup.
+    // We parallelize at the file level (N worker threads), not the compression level.
+    // This must never be called again — calling it while EXR I/O is active corrupts the heap.
+    Imf::setGlobalThreadCount(0);
+
     Application app;
 
     #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
@@ -880,6 +940,11 @@ int main(int argc, char* argv[]) {
     if (!app.Initialize(initial_files)) {
         return -1;
     }
+
+    // Register macOS Apple Event handler after Initialize() (GLFW must be initialized first)
+    #ifdef __APPLE__
+    app.SetMacOSSingleInstance(&macos_single_instance);
+    #endif
 
     app.Run();
     app.Cleanup();

@@ -5,6 +5,8 @@
 #include <glad/gl.h>
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
 #endif
 
 // Prevent Windows min/max macros from conflicting with Imath
@@ -22,6 +24,21 @@
 #include "../../external/stb/stb_image_resize2.h"
 
 namespace qcview {
+
+ThumbnailEntry::~ThumbnailEntry() {
+    if (texture_id != 0) {
+#ifdef QCVIEW_USE_VULKAN
+        VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+#elif defined(QCVIEW_USE_METAL)
+        if (MetalTexturePool::ThumbnailInstance().IsInitialized()) {
+            MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(texture_id));
+        }
+#else
+        glDeleteTextures(1, &texture_id);
+#endif
+        texture_id = 0;
+    }
+}
 
 ThumbnailCache::ThumbnailCache(
     std::vector<std::string> sequence_files,
@@ -168,7 +185,18 @@ void ThumbnailCache::WorkerThread() {
         if (frame >= 0) {
             auto pending = GenerateThumbnailPixels(frame);
 
-            if (pending) {
+            if (pending && !shutdown_.load()) {
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                // Metal/Vulkan: create GPU texture on worker thread (API is thread-safe).
+                // This moves all GPU work off the main thread — main thread just inserts
+                // the texture ID into the cache map (zero GPU work).
+                GLuint texture_id = CreateGLTexture(*pending);
+                if (texture_id != 0) {
+                    pending->gpu_texture_id = texture_id;
+                    pending->pixels.clear();
+                    pending->pixels.shrink_to_fit();
+                }
+#endif
                 // Add to pending uploads queue for main thread
                 std::lock_guard<std::mutex> lock(queue_mutex_);
                 pending_uploads_.push(std::move(pending));
@@ -361,6 +389,21 @@ GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
         pending.width, pending.height, vk_format,
         pending.pixels.data(), pending.pixels.size());
     return static_cast<GLuint>(pool_id);
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: Create texture via MetalTexturePool
+    auto& pool = qcview::MetalTexturePool::ThumbnailInstance();
+    if (!pool.IsInitialized()) {
+        generation_failures_++;
+        return 0;
+    }
+
+    int mtl_format = 0; // RGBA8
+    if (pending.gl_type == GL_HALF_FLOAT) mtl_format = 1; // RGBA16F
+
+    uint64_t pool_id = pool.CreateTextureFromPixels(
+        pending.width, pending.height, mtl_format,
+        pending.pixels.data(), pending.pixels.size());
+    return static_cast<GLuint>(pool_id);
 #else
     // OpenGL path
     // Save current GL state to avoid corrupting ImGui during render
@@ -412,13 +455,25 @@ void ThumbnailCache::ProcessPendingUploads() {
    /* Debug::Log("ThumbnailCache::ProcessPendingUploads: Processing " +
                std::to_string(uploads_to_process.size()) + " pending thumbnails");*/
 
-    // Process uploads (create GL textures and add to cache)
+    // Process uploads and add to cache.
+    // Metal/Vulkan: textures already created on worker thread — just insert into cache (no limit needed).
+    // OpenGL: create textures here (GL requires main thread). Limit per frame to avoid GPU stalls.
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    constexpr int kMaxUploadsPerFrame = 64;  // No GPU work, just cache insertions
+#else
+    constexpr int kMaxUploadsPerFrame = 3;
+#endif
     int uploaded_count = 0;
-    while (!uploads_to_process.empty()) {
+    while (!uploads_to_process.empty() && uploaded_count < kMaxUploadsPerFrame) {
         auto pending = std::move(uploads_to_process.front());
         uploads_to_process.pop();
 
-        GLuint texture_id = CreateGLTexture(*pending);
+        // Use pre-created GPU texture if available (Metal/Vulkan worker thread path)
+        GLuint texture_id = pending->gpu_texture_id;
+        if (texture_id == 0) {
+            // OpenGL fallback: create texture on main thread
+            texture_id = CreateGLTexture(*pending);
+        }
 
         if (texture_id != 0) {
             std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -433,12 +488,18 @@ void ThumbnailCache::ProcessPendingUploads() {
             entry->texture_id = texture_id;
             entry->width = pending->width;
             entry->height = pending->height;
-            entry->access_count = 0;  // Will be incremented on next GetThumbnail()
+            entry->access_count = 0;
             cache_[pending->frame] = std::move(entry);
             uploaded_count++;
+        }
+    }
 
-            /*Debug::Log("ThumbnailCache: Uploaded frame " + std::to_string(pending->frame) +
-                       " -> GL texture " + std::to_string(texture_id));*/
+    // Put remaining uploads back for next frame
+    if (!uploads_to_process.empty()) {
+        std::lock_guard<std::mutex> lock(queue_mutex_);
+        while (!uploads_to_process.empty()) {
+            pending_uploads_.push(std::move(uploads_to_process.front()));
+            uploads_to_process.pop();
         }
     }
 

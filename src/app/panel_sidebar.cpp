@@ -5,6 +5,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "app/app_config.h"
 #include "project/project_manager.h"
 #include "timeline/timeline_view.h"
@@ -38,15 +39,15 @@ extern CacheSettings cache_settings;
 
         // Scale dimensions with font
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
-        const float button_size = 28.0f * ui_scale;
-        const float button_spacing = 4.0f * ui_scale;
+        const float button_size = S(28.0f);
+        const float button_spacing = S(4.0f);
 
         ImGuiWindowFlags panel_flags =
             ImGuiWindowFlags_NoCollapse |
             ImGuiWindowFlags_NoScrollbar |
             ImGuiWindowFlags_NoTitleBar;
 
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6.0f, 8.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(S(6.0f), S(8.0f)));
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));  // Remove button padding for centered icons
         ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);       // No borders on buttons
 
@@ -188,6 +189,10 @@ extern CacheSettings cache_settings;
                 bool hdr_active = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : false;
                 bool hdr_supported = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRSupported() : false;
                 bool hdr_toggleable = hdr_supported;
+#elif defined(QCVIEW_USE_METAL)
+                bool hdr_active = metal_swapchain_ ? metal_swapchain_->IsHDRActive() : false;
+                bool hdr_supported = metal_swapchain_ ? metal_swapchain_->IsHDRSupported() : false;
+                bool hdr_toggleable = hdr_supported;
 #else
                 bool hdr_active = false;
                 bool hdr_supported = false;
@@ -214,11 +219,40 @@ extern CacheSettings cache_settings;
                         vulkan_swapchain_->SetHDREnabled(!hdr_active);
                         SaveSettings();
                     }
+#elif defined(QCVIEW_USE_METAL)
+                    if (metal_swapchain_ && hdr_supported) {
+                        metal_swapchain_->SetHDREnabled(!hdr_active);
+                        SaveSettings();
+                    }
 #endif
                 }
                 if (!hdr_toggleable) ImGui::EndDisabled();
                 bool hover_hdr = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
                 ImGui::PopStyleColor(4);
+
+#ifdef QCVIEW_USE_METAL
+                // Right-click context menu for EDR colorspace selection
+                if (metal_swapchain_ && hdr_active) {
+                    if (ImGui::BeginPopupContextItem("##EDRColorspaceMenu")) {
+                        ImGui::SetWindowFontScale(1.0f);
+                        if (font_icons) ImGui::PopFont();
+                        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "EDR Colorspace");
+                        ImGui::Separator();
+                        auto current_cs = metal_swapchain_->GetEDRColorspace();
+                        for (int i = 0; i < static_cast<int>(qcview::EDRColorspace::Count); i++) {
+                            auto cs = static_cast<qcview::EDRColorspace>(i);
+                            bool selected = (cs == current_cs);
+                            if (ImGui::MenuItem(qcview::EDRColorspaceName(cs), nullptr, selected)) {
+                                metal_swapchain_->SetEDRColorspace(cs);
+                                SaveSettings();
+                            }
+                        }
+                        ImGui::EndPopup();
+                        if (font_icons) ImGui::PushFont(font_icons);
+                        ImGui::SetWindowFontScale(1.2f);
+                    }
+                }
+#endif
 
                 if (hover_hdr) {
                     ImGui::SetWindowFontScale(1.0f);
@@ -234,6 +268,14 @@ extern CacheSettings cache_settings;
                             "Click to enable HDR output.\nEnsure HDR is also enabled in your system display settings.");
                     } else {
                         ImGui::SetTooltip("HDR not available on this display.");
+                    }
+#elif defined(QCVIEW_USE_METAL)
+                    if (hdr_supported) {
+                        ImGui::SetTooltip(hdr_active ?
+                            "EDR output active (Extended Dynamic Range). Click to disable." :
+                            "Click to enable EDR (Extended Dynamic Range) output.");
+                    } else {
+                        ImGui::SetTooltip("EDR not available on this display.");
                     }
 #else
                     ImGui::SetTooltip("HDR not available on this platform.");
@@ -265,7 +307,7 @@ extern CacheSettings cache_settings;
         ImGui::OpenPopup("Import from Frame.io");
 
         float scale = ImGui::GetIO().FontGlobalScale;
-        ImGui::SetNextWindowSize(ImVec2(450 * scale + 50, 0), ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(S(450) + S(50), 0), ImGuiCond_Always);
 
         if (ImGui::BeginPopupModal("Import from Frame.io", &frameio_import_state.show_dialog, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::Text("Import annotations from Frame.io review links");
@@ -275,6 +317,7 @@ extern CacheSettings cache_settings;
             // API Token input (password style)
             ImGui::Text("API Token:");
             ImGui::PushItemWidth(-1);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             ImGui::InputText("##token", frameio_import_state.token_buffer, 256, ImGuiInputTextFlags_Password);
             ImGui::PopItemWidth();
 
@@ -471,9 +514,9 @@ extern CacheSettings cache_settings;
         // Scale panel dimensions with font (full width, dampened height)
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
         const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.75f;
-        const float panel_width = 315.0f * ui_scale;
-        const float panel_height = 655.0f * height_scale;
-        const float margin = 10.0f;
+        const float panel_width = S(315.0f);
+        const float panel_height = S(655.0f);
+        const float margin = S(10.0f);
 
         // Position in top-right corner (same as background panel)
         ImGui::SetNextWindowPos(ImVec2(
@@ -817,9 +860,9 @@ extern CacheSettings cache_settings;
         // Scale panel dimensions with font (full width, dampened height)
         const float ui_scale = ImGui::GetIO().FontGlobalScale;
         const float height_scale = 1.0f + (ui_scale - 1.0f) * 0.65f;
-        const float panel_width = 400.0f * ui_scale;
-        const float panel_height = 480.0f * height_scale; 
-        const float margin = 10.0f;
+        const float panel_width = S(400.0f);
+        const float panel_height = S(480.0f);
+        const float margin = S(10.0f);
 
         // Position in top-right corner (same as background panel)
         ImGui::SetNextWindowPos(ImVec2(
@@ -851,7 +894,7 @@ extern CacheSettings cache_settings;
             // Standard Presets Section (using Blender config internally)
             if (ImGui::CollapsingHeader("Standard Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PushID("StandardPresets##Panel");
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 CreateStandardPresets();
                 ImGui::Unindent(8.0f);
                 ImGui::PopID();
@@ -860,7 +903,7 @@ extern CacheSettings cache_settings;
             // ACES 1.3 Presets Section
             if (ImGui::CollapsingHeader("ACES 1.3 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PushID("ACES13Presets##Panel");
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 CreateACESPresets();
                 ImGui::Unindent(8.0f);
                 ImGui::PopID();
@@ -869,7 +912,7 @@ extern CacheSettings cache_settings;
             // ACES 2.0 Presets Section
             if (ImGui::CollapsingHeader("ACES 2.0 Workflows##PresetPanel")) {
                 ImGui::PushID("ACES20Presets##Panel");
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 CreateACES20Presets();
                 ImGui::Unindent(8.0f);
                 ImGui::PopID();
@@ -878,7 +921,7 @@ extern CacheSettings cache_settings;
             // Blender 4.5 Presets Section
             if (ImGui::CollapsingHeader("Blender 4.5 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PushID("Blender45Presets##Panel");
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 CreateBlenderPresets();
                 ImGui::Unindent(8.0f);
                 ImGui::PopID();
@@ -887,7 +930,7 @@ extern CacheSettings cache_settings;
             // Blender 5.0 Presets Section
             if (ImGui::CollapsingHeader("Blender 5.0 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PushID("Blender50Presets##Panel");
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 CreateBlender5Presets();
                 ImGui::Unindent(8.0f);
                 ImGui::PopID();

@@ -27,17 +27,12 @@ struct ThumbnailConfig {
 
 // Simple LRU cache entry for thumbnails
 struct ThumbnailEntry {
-    GLuint texture_id = 0;         // OpenGL texture ID
+    GLuint texture_id = 0;         // Texture ID (OpenGL, Vulkan pool, or Metal pool)
     int width = 0;                 // Actual thumbnail width
     int height = 0;                // Actual thumbnail height
     int access_count = 0;          // For LRU tracking
 
-    ~ThumbnailEntry() {
-        if (texture_id != 0) {
-            glDeleteTextures(1, &texture_id);
-            texture_id = 0;
-        }
-    }
+    ~ThumbnailEntry();
 };
 
 // Thumbnail pixel data waiting for GL texture creation (main thread only)
@@ -48,6 +43,7 @@ struct PendingThumbnail {
     std::vector<uint8_t> pixels;  // Raw pixel data (format determined by gl_type)
     GLenum gl_format = GL_RGBA;   // Always GL_RGBA
     GLenum gl_type = GL_UNSIGNED_BYTE;  // GL_UNSIGNED_BYTE (8-bit) or GL_HALF_FLOAT (16-bit HDR)
+    GLuint gpu_texture_id = 0;    // Pre-created GPU texture (Metal/Vulkan worker thread path)
 };
 
 /**

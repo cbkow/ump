@@ -18,6 +18,22 @@ Alternatively, download the unsigned `.exe` installer directly from [GitHub Rele
 
 ---
 
+## macOS
+
+Download the signed and notarized `.dmg` from [GitHub Releases](https://github.com/cbkow/QCView-Player/releases).
+
+1. Open the `.dmg` file
+2. Drag **QCView** to your **Applications** folder
+3. Launch from Applications or Spotlight
+
+### Requirements
+
+- macOS 13.0 (Ventura) or later
+- Apple Silicon (arm64) — native Metal rendering, no Rosetta
+- EDR-capable display recommended for HDR workflows
+
+---
+
 ## Linux (Experimental)
 
 The Linux build uses **Vulkan** for rendering and is currently experimental. It has been tested on **Kubuntu with KDE Plasma 6** running **Wayland**.

@@ -20,7 +20,8 @@ enum class HWAccelType {
     D3D11VA,        // Direct3D 11 Video Acceleration (NVIDIA/Intel/AMD)
     QSV,            // Intel Quick Sync Video
     DXVA2,          // Direct3D 9 Video Acceleration (legacy fallback)
-    VAAPI           // Video Acceleration API (Linux)
+    VAAPI,          // Video Acceleration API (Linux)
+    VIDEOTOOLBOX    // VideoToolbox (macOS)
 };
 
 // Convert HWAccelType to string for logging
@@ -31,6 +32,7 @@ inline const char* HWAccelTypeToString(HWAccelType type) {
         case HWAccelType::QSV: return "Quick Sync";
         case HWAccelType::DXVA2: return "DXVA2";
         case HWAccelType::VAAPI: return "VAAPI";
+        case HWAccelType::VIDEOTOOLBOX: return "VideoToolbox";
         default: return "Software";
     }
 }
@@ -52,7 +54,8 @@ enum class VideoDecoderBackend {
     AUTO,       // Auto-select best available
     FFMPEG,     // Force FFmpeg backend (CPU ring buffer)
     D3D11,      // D3D11 GPU-native backend (Windows only)
-    VULKAN      // Vulkan backend (Linux only)
+    VULKAN,     // Vulkan backend (Linux only)
+    METAL       // Metal/VideoToolbox backend (macOS only)
 };
 
 inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
@@ -60,6 +63,7 @@ inline const char* VideoDecoderBackendToString(VideoDecoderBackend backend) {
         case VideoDecoderBackend::FFMPEG: return "FFmpeg";
         case VideoDecoderBackend::D3D11: return "D3D11";
         case VideoDecoderBackend::VULKAN: return "Vulkan";
+        case VideoDecoderBackend::METAL: return "Metal";
         default: return "Auto";
     }
 }
@@ -114,6 +118,11 @@ public:
 
     // Stop decode thread and release resources
     virtual void Shutdown() = 0;
+
+    // Signal decode thread to stop without waiting for it to join.
+    // Call this on multiple decoders before destroying them to allow parallel exit.
+    // Default implementation calls Shutdown() for decoders that don't override.
+    virtual void RequestShutdown() { Shutdown(); }
 
     // Hard reset: close and reopen to recover from bad state
     // Thread-safe: can be called from any thread

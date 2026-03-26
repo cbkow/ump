@@ -1,6 +1,6 @@
 #include "ocio_pipeline.h"
 #include "ocio_config_manager.h"
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
 #include <glad/gl.h>
 #endif
 #include <cstring>
@@ -24,7 +24,7 @@ OCIOPipeline::OCIOPipeline()
 }
 
 OCIOPipeline::~OCIOPipeline() {
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
     CleanupShaders();
     if (!lut_texture_ids.empty()) {
         glDeleteTextures(lut_texture_ids.size(), lut_texture_ids.data());
@@ -375,6 +375,11 @@ bool OCIOPipeline::BuildFromDescription(const std::string& src_colorspace,
         is_valid = true;
         is_passthrough = false;
         return true;
+#elif defined(QCVIEW_USE_METAL)
+        // Metal: OCIO handled by MetalOCIORenderer
+        is_valid = true;
+        is_passthrough = false;
+        return true;
 #else
         return GenerateAndCompileShader();
 #endif
@@ -394,6 +399,11 @@ bool OCIOPipeline::CreatePassthroughPipeline() {
 #ifdef QCVIEW_USE_VULKAN
     // On Vulkan, passthrough is handled by VulkanOCIORenderer directly.
     // Just mark the pipeline as valid + passthrough, no GPU resources needed.
+    is_valid = true;
+    is_passthrough = true;
+    return true;
+#elif defined(QCVIEW_USE_METAL)
+    // Metal: passthrough handled by MetalOCIORenderer
     is_valid = true;
     is_passthrough = true;
     return true;
@@ -447,10 +457,10 @@ bool OCIOPipeline::CreatePassthroughPipeline() {
     is_passthrough = true;
     Debug::Log("Fallback tint pipeline created successfully");
     return true;
-#endif // !QCVIEW_USE_VULKAN
+#endif // !QCVIEW_USE_VULKAN && !QCVIEW_USE_METAL
 }
 
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
 bool OCIOPipeline::GenerateAndCompileShader() {
     if (!processor) return false;
 
@@ -867,7 +877,7 @@ void OCIOPipeline::CleanupShaders() {
     }
     is_valid = false;
 }
-#endif // !QCVIEW_USE_VULKAN
+#endif // !QCVIEW_USE_VULKAN && !QCVIEW_USE_METAL
 
 bool OCIOPipeline::BuildTestPipeline() {
     Debug::Log("Building test pipeline (passthrough with tint)");
@@ -1010,6 +1020,145 @@ bool OCIOPipeline::GenerateVulkanShaderInfo(VulkanShaderInfo& info) {
 }
 
 #endif // __linux__
+
+#ifdef __APPLE__
+//=============================================================================
+// Metal/MSL Shader Info Extraction
+//=============================================================================
+
+bool OCIOPipeline::GenerateMetalShaderInfo(MetalShaderInfo& info) {
+    info = MetalShaderInfo{};
+
+    if (!processor) {
+        Debug::Log("OCIOPipeline::GenerateMetalShaderInfo: No processor available");
+        return false;
+    }
+
+    try {
+        // Create GPU processor with MSL 2.0 output (native Metal shading language)
+        OCIO::GpuShaderDescRcPtr shaderDesc = OCIO::GpuShaderDesc::CreateShaderDesc();
+        shaderDesc->setLanguage(OCIO::GPU_LANGUAGE_MSL_2_0);
+        shaderDesc->setFunctionName("OCIODisplay");
+        shaderDesc->setResourcePrefix("ocio_");
+
+        OCIO::ConstGPUProcessorRcPtr gpuProc = processor->getDefaultGPUProcessor();
+        gpuProc->extractGpuShaderInfo(shaderDesc);
+
+        const char* shader_src = shaderDesc->getShaderText();
+        info.ocio_function_msl = shader_src ? shader_src : "";
+
+        Debug::Log("MetalShaderInfo: OCIO MSL function length: " +
+                   std::to_string(info.ocio_function_msl.length()) + " characters");
+
+        // Extract 1D LUT info
+        int num_1d_luts = shaderDesc->getNumTextures();
+        int num_3d_luts = shaderDesc->getNum3DTextures();
+        Debug::Log("MetalShaderInfo: " + std::to_string(num_1d_luts) + " 1D LUT(s), " +
+                   std::to_string(num_3d_luts) + " 3D LUT(s)");
+
+        for (int i = 0; i < num_1d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned width = 0, height = 0;
+            OCIO::GpuShaderDesc::TextureType channel;
+            OCIO::GpuShaderDesc::TextureDimensions dimensions;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->getTexture(i, textureName, samplerName, width, height,
+                                   channel, dimensions, interp);
+
+            if (width == 0) continue;
+
+            MetalLUTInfo lut;
+            lut.texture_name = textureName ? textureName : ("ocio_lut1d_" + std::to_string(i));
+            lut.sampler_name = samplerName ? samplerName : (lut.texture_name + "Sampler");
+            lut.is_3d = false;
+            lut.width = width;
+            lut.height = (dimensions == OCIO::GpuShaderDesc::TEXTURE_1D) ? 1 : height;
+            lut.is_red_channel = (channel == OCIO::GpuShaderDesc::TEXTURE_RED_CHANNEL);
+
+            // Copy LUT data
+            const float* lut_ptr = nullptr;
+            shaderDesc->getTextureValues(i, lut_ptr);
+            unsigned num_components = lut.is_red_channel ? 1 : 3;
+            unsigned total_pixels = lut.width * std::max(lut.height, 1u);
+            lut.data.resize(total_pixels * num_components);
+
+            if (lut_ptr) {
+                std::memcpy(lut.data.data(), lut_ptr, lut.data.size() * sizeof(float));
+            } else {
+                // Identity fallback
+                for (unsigned j = 0; j < total_pixels; ++j) {
+                    float val = float(j) / float(total_pixels - 1);
+                    if (lut.is_red_channel) {
+                        lut.data[j] = val;
+                    } else {
+                        lut.data[j * 3 + 0] = val;
+                        lut.data[j * 3 + 1] = val;
+                        lut.data[j * 3 + 2] = val;
+                    }
+                }
+            }
+
+            Debug::Log("MetalShaderInfo: 1D LUT '" + lut.sampler_name + "' " +
+                       std::to_string(lut.width) + "x" + std::to_string(lut.height) +
+                       " " + (lut.is_red_channel ? "R32F" : "RGB32F"));
+            info.luts.push_back(std::move(lut));
+        }
+
+        // Extract 3D LUT info
+        for (int i = 0; i < num_3d_luts; ++i) {
+            const char* textureName = nullptr;
+            const char* samplerName = nullptr;
+            unsigned edgelen = 0;
+            OCIO::Interpolation interp = OCIO::INTERP_LINEAR;
+
+            shaderDesc->get3DTexture(i, textureName, samplerName, edgelen, interp);
+
+            if (edgelen == 0) continue;
+
+            MetalLUTInfo lut;
+            lut.texture_name = textureName ? textureName : ("ocio_lut3d_" + std::to_string(i));
+            lut.sampler_name = samplerName ? samplerName : (lut.texture_name + "Sampler");
+            lut.is_3d = true;
+            lut.edge_len = edgelen;
+
+            // Copy 3D LUT data (RGB floats)
+            const float* lut_ptr = nullptr;
+            shaderDesc->get3DTextureValues(i, lut_ptr);
+            lut.data.resize(edgelen * edgelen * edgelen * 3);
+
+            if (lut_ptr) {
+                std::memcpy(lut.data.data(), lut_ptr, lut.data.size() * sizeof(float));
+            } else {
+                // Identity 3D LUT
+                for (unsigned z = 0; z < edgelen; ++z) {
+                    for (unsigned y = 0; y < edgelen; ++y) {
+                        for (unsigned x = 0; x < edgelen; ++x) {
+                            unsigned idx = 3 * (x + edgelen * (y + edgelen * z));
+                            lut.data[idx + 0] = float(x) / float(edgelen - 1);
+                            lut.data[idx + 1] = float(y) / float(edgelen - 1);
+                            lut.data[idx + 2] = float(z) / float(edgelen - 1);
+                        }
+                    }
+                }
+            }
+
+            Debug::Log("MetalShaderInfo: 3D LUT '" + lut.sampler_name + "' " +
+                       std::to_string(edgelen) + "^3");
+            info.luts.push_back(std::move(lut));
+        }
+
+        info.valid = true;
+        return true;
+
+    } catch (OCIO::Exception& e) {
+        Debug::Log("OCIOPipeline::GenerateMetalShaderInfo exception: " + std::string(e.what()));
+        return false;
+    }
+}
+
+#endif // __APPLE__
 
 #ifdef _WIN32
 //=============================================================================

@@ -5,6 +5,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "project/project_manager.h"
 #include "nodes/node_manager.h"
 #include "player/video_player.h"
@@ -114,7 +115,7 @@ static void DrawItemIcon(const char* icon) {
         PushOutlineHeaderStyle();
         if (CollapsingHeaderWithIcon("    Input Colorspaces##ConfigTab", font_icons, ICON_INPUT_CS, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("InputCS");  // Unique scope for input colorspaces
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             auto colorspaces = ocio_manager->GetInputColorSpaces();
             int cs_idx = 0;
             for (const auto& cs : colorspaces) {
@@ -163,7 +164,7 @@ static void DrawItemIcon(const char* icon) {
             PushOutlineHeaderStyle();
             if (CollapsingHeaderWithIcon("    Looks##ConfigTab", font_icons, ICON_LOOKS, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
                 ImGui::PushID("Looks");  // Unique scope for looks
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 int look_idx = 0;
                 for (const auto& look : looks) {
                     ImGui::PushID(look_idx++);
@@ -209,7 +210,7 @@ static void DrawItemIcon(const char* icon) {
         // LUT
         PushOutlineHeaderStyle();
         if (CollapsingHeaderWithIcon("    LUT##ConfigTab", font_icons, ICON_LUT, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             // Scene-Referred LUT (applied before display transform)
             ImGui::PushID("SceneLUT##ConfigTab");
             DrawItemIcon(ICON_LUT);
@@ -281,7 +282,7 @@ static void DrawItemIcon(const char* icon) {
             PushOutlineHeaderStyle();
             if (CollapsingHeaderWithIcon("    Output Displays##ConfigTab", font_icons, ICON_OUTPUT_DISP, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
                 ImGui::PushID("OutputDisp");  // Unique scope for output displays
-                ImGui::Indent(8.0f);
+                ImGui::Indent(S(8.0f));
                 int display_idx = 0;
                 for (const auto& display : displays) {
                     ImGui::PushID(display_idx++);
@@ -342,10 +343,10 @@ static void DrawItemIcon(const char* icon) {
         // Style for all collapsing headers in this tab
         PushOutlineHeaderStyle();
 
-        // Standard Presets (Top priority - using Blender config)
+        // Standard Presets
         if (CollapsingHeaderWithIcon("    Standard##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("StandardPresets##Tab");
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             CreateStandardPresets();
             ImGui::Unindent(8.0f);
             ImGui::PopID();
@@ -354,7 +355,7 @@ static void DrawItemIcon(const char* icon) {
         // ACES 1.3 Presets
         if (CollapsingHeaderWithIcon("    ACES 1.3##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("ACES13Presets##Tab");
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             CreateACESPresets();
             ImGui::Unindent(8.0f);
             ImGui::PopID();
@@ -363,25 +364,16 @@ static void DrawItemIcon(const char* icon) {
         // ACES 2.0 Presets
         if (CollapsingHeaderWithIcon("    ACES 2.0##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("ACES20Presets##Tab");
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             CreateACES20Presets();
             ImGui::Unindent(8.0f);
             ImGui::PopID();
         }
 
-        // Blender 4.5 Presets
-        if (CollapsingHeaderWithIcon("    Blender 4.5##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
-            ImGui::PushID("Blender45Presets##Tab");
-            ImGui::Indent(8.0f);
-            CreateBlenderPresets();
-            ImGui::Unindent(8.0f);
-            ImGui::PopID();
-        }
-
-        // Blender 5.0 Presets
-        if (CollapsingHeaderWithIcon("    Blender 5.0##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
-            ImGui::PushID("Blender50Presets##Tab");
-            ImGui::Indent(8.0f);
+        // Blender 5.1 Presets
+        if (CollapsingHeaderWithIcon("    Blender 5.1##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
+            ImGui::PushID("Blender51Presets##Tab");
+            ImGui::Indent(S(8.0f));
             CreateBlender5Presets();
             ImGui::Unindent(8.0f);
             ImGui::PopID();
@@ -390,7 +382,7 @@ static void DrawItemIcon(const char* icon) {
         // Custom Presets
         if (CollapsingHeaderWithIcon("    Custom##PresetsTab", font_icons, ICON_COLOR_ITEM, ImGui::GetStyleColorVec4(ImGuiCol_Text))) {
             ImGui::PushID("CustomPresets##Tab");
-            ImGui::Indent(8.0f);
+            ImGui::Indent(S(8.0f));
             CreateCustomPresets();
             ImGui::Unindent(8.0f);
             ImGui::PopID();
@@ -432,10 +424,9 @@ static void DrawItemIcon(const char* icon) {
         // SDR preset: Rec.709 -> sRGB
         DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Rec.709 -> sRGB")) {
-            // Uses Rec.1886 input (gamma corrected) to sRGB Standard output
             ApplyPreset(R"({
                 "name": "Rec.709 to sRGB Standard",
-                "ocio_config": "Blender",
+                "ocio_config": "Blender5.1",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "Rec.1886", "position": [100, 100]},
                     {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "Standard", "position": [400, 100]}
@@ -447,7 +438,8 @@ static void DrawItemIcon(const char* icon) {
             ImGui::SetTooltip("Standard Rec.1886 to sRGB transform");
         }
 
-        // HDR presets: SDR to Windows HDR (Rec.2100-PQ)
+#ifdef _WIN32
+        // Windows HDR presets
         DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("sRGB to Windows HDR")) {
             ApplyPreset(R"JSON({
@@ -479,51 +471,90 @@ static void DrawItemIcon(const char* icon) {
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Rec.1886/Rec.709 to Rec.2100-PQ (HDR10) colorimetric transform\nFor Windows HDR output");
         }
+#endif
+
+#ifdef __APPLE__
+        // macOS EDR presets
+        DrawItemIcon(ICON_COLOR_ITEM);
+        if (ImGui::Selectable("Linear Rec.709 -> EDR sRGB HDR 1000 nits")) {
+            ApplyPreset(R"JSON({
+                "name": "Linear Rec.709 to EDR sRGB HDR 1000 nits",
+                "ocio_config": "Blender5.1",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear sRGB EDR", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Linear Rec.709 to EDR linear sRGB with ACES 2.0 HDR 1000 nit tone mapping");
+        }
+
+        DrawItemIcon(ICON_COLOR_ITEM);
+        if (ImGui::Selectable("Linear Rec.709 -> EDR P3 HDR 1000 nits")) {
+            ApplyPreset(R"JSON({
+                "name": "Linear Rec.709 to EDR P3 HDR 1000 nits",
+                "ocio_config": "Blender5.1",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear P3 EDR", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Linear Rec.709 to EDR linear P3 with ACES 2.0 HDR 1000 nit tone mapping");
+        }
+
+        DrawItemIcon(ICON_COLOR_ITEM);
+        if (ImGui::Selectable("ACEScg -> EDR sRGB HDR 1000 nits")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to EDR sRGB HDR 1000 nits",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear sRGB EDR - Display", "view": "ACES 2.0 - HDR 1000 nits (P3 D65)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("ACEScg to EDR linear sRGB with ACES 2.0 HDR 1000 nit tone mapping");
+        }
+
+        DrawItemIcon(ICON_COLOR_ITEM);
+        if (ImGui::Selectable("ACEScg -> EDR P3 HDR 1000 nits")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to EDR P3 HDR 1000 nits",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear P3 EDR - Display", "view": "ACES 2.0 - HDR 1000 nits (P3 D65)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("ACEScg to EDR linear P3 with ACES 2.0 HDR 1000 nit tone mapping");
+        }
+#endif
 
         if (font_regular) ImGui::PopFont();
     }
 
     void Application::CreateBlenderPresets() {
-        if (font_regular) ImGui::PushFont(font_regular);
-
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard")) {
-            ApplyPreset(R"({
-                "name": "Linear Rec.709 to sRGB Standard",
-                "ocio_config": "Blender",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "Standard", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
-        }
-
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX")) {
-            ApplyPreset(R"({
-                "name": "Linear Rec.709 to sRGB AgX",
-                "ocio_config": "Blender",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "AgX", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
-        }
-
-        if (font_regular) ImGui::PopFont();
+        // Legacy Blender 4.5 — kept as empty stub for header declaration compatibility
     }
 
     void Application::CreateBlender5Presets() {
         if (font_regular) ImGui::PushFont(font_regular);
 
-        // Use ## to add unique IDs to prevent ImGui ID collisions with Blender 4.5 presets
         DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("Linear Rec.709 -> sRGB Standard##B5")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB Standard",
-                "ocio_config": "Blender5",
+                "ocio_config": "Blender5.1",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
                     {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "Standard", "position": [400, 100]}
@@ -536,7 +567,7 @@ static void DrawItemIcon(const char* icon) {
         if (ImGui::Selectable("Linear Rec.709 -> sRGB AgX##B5")) {
             ApplyPreset(R"({
                 "name": "Linear Rec.709 to sRGB AgX",
-                "ocio_config": "Blender5",
+                "ocio_config": "Blender5.1",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
                     {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "AgX", "position": [400, 100]}
@@ -546,56 +577,46 @@ static void DrawItemIcon(const char* icon) {
         }
 
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> sRGB ACES 2.0##B5")) {
+        if (ImGui::Selectable("Linear Rec.709 -> Display P3 Standard##B5")) {
             ApplyPreset(R"({
-                "name": "ACEScg to sRGB ACES 2.0",
-                "ocio_config": "Blender5",
+                "name": "Linear Rec.709 to Display P3 Standard",
+                "ocio_config": "Blender5.1",
                 "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "ACES 2.0", "position": [400, 100]}
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Display P3", "view": "Standard", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
             })");
         }
 
+#ifdef __APPLE__
+        // macOS EDR presets
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> sRGB AgX##B5")) {
-            ApplyPreset(R"({
-                "name": "ACEScg to sRGB AgX",
-                "ocio_config": "Blender5",
+        if (ImGui::Selectable("Linear Rec.709 -> EDR sRGB HDR 1000 nits##B5")) {
+            ApplyPreset(R"JSON({
+                "name": "Linear Rec.709 to EDR sRGB HDR 1000 nits",
+                "ocio_config": "Blender5.1",
                 "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "AgX", "position": [400, 100]}
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear sRGB EDR", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
+            })JSON");
         }
 
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> sRGB ACES 1.3##B5")) {
-            ApplyPreset(R"({
-                "name": "ACEScg to sRGB ACES 1.3",
-                "ocio_config": "Blender5",
+        if (ImGui::Selectable("Linear Rec.709 -> EDR P3 HDR 1000 nits##B5")) {
+            ApplyPreset(R"JSON({
+                "name": "Linear Rec.709 to EDR P3 HDR 1000 nits",
+                "ocio_config": "Blender5.1",
                 "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB", "view": "ACES 1.3", "position": [400, 100]}
+                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.709", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear P3 EDR", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
+            })JSON");
         }
-
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("Linear Rec.2020 -> Rec.2100-PQ HDR 1000 nits##B5")) {
-            ApplyPreset(R"({
-                "name": "Linear Rec.2020 to Rec.2100-PQ HDR 1000 nits",
-                "ocio_config": "Blender5",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "Linear Rec.2020", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ", "view": "ACES 2.0 - HDR 1000 nits", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })");
-        }
+#endif
 
         if (font_regular) ImGui::PopFont();
     }
@@ -603,34 +624,7 @@ static void DrawItemIcon(const char* icon) {
     void Application::CreateACES20Presets() {
         if (font_regular) ImGui::PushFont(font_regular);
 
-        // Use ##A20 to add unique IDs for ACES 2.0 presets
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 1000 nits##A20")) {
-            ApplyPreset(R"JSON({
-                "name": "ACEScg to Rec.2100-PQ HDR 1000 nits",
-                "ocio_config": "ACES_2.0",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 1000 nits (Rec.2020)", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })JSON");
-        }
-
-        // Video (colorimetric) presets
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACES2065-1 -> sRGB Video (colorimetric)##A20")) {
-            ApplyPreset(R"JSON({
-                "name": "ACES2065-1 to sRGB Video (colorimetric)",
-                "ocio_config": "ACES_2.0",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "sRGB - Display", "view": "Video (colorimetric)", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })JSON");
-        }
-
+        // SDR Video (colorimetric) presets
         DrawItemIcon(ICON_COLOR_ITEM);
         if (ImGui::Selectable("ACEScg -> sRGB Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
@@ -645,57 +639,59 @@ static void DrawItemIcon(const char* icon) {
         }
 
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACES2065-1 -> P3-D65 Video (colorimetric)##A20")) {
+        if (ImGui::Selectable("ACES2065-1 -> sRGB Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
-                "name": "ACES2065-1 to P3-D65 Video (colorimetric)",
+                "name": "ACES2065-1 to sRGB Video (colorimetric)",
                 "ocio_config": "ACES_2.0",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "P3-D65 - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                    {"type": "OUTPUT_DISPLAY", "display": "sRGB - Display", "view": "Video (colorimetric)", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
             })JSON");
         }
 
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> P3-D65 Video (colorimetric)##A20")) {
+        if (ImGui::Selectable("ACEScg -> Display P3 Video (colorimetric)##A20")) {
             ApplyPreset(R"JSON({
-                "name": "ACEScg to P3-D65 Video (colorimetric)",
+                "name": "ACEScg to Display P3 Video (colorimetric)",
                 "ocio_config": "ACES_2.0",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "P3-D65 - Display", "view": "Video (colorimetric)", "position": [400, 100]}
+                    {"type": "OUTPUT_DISPLAY", "display": "Display P3 - Display", "view": "Video (colorimetric)", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
             })JSON");
         }
 
-        // HDR 500 nits presets
+#ifdef __APPLE__
+        // macOS EDR presets
         DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACES2065-1 -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
+        if (ImGui::Selectable("ACEScg -> EDR sRGB HDR 1000 nits##A20")) {
             ApplyPreset(R"JSON({
-                "name": "ACES2065-1 to Rec.2100-PQ HDR 500 nits (Rec.2020)",
-                "ocio_config": "ACES_2.0",
-                "nodes": [
-                    {"type": "INPUT_COLORSPACE", "data": "ACES2065-1", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 500 nits (Rec.2020)", "position": [400, 100]}
-                ],
-                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
-            })JSON");
-        }
-
-        DrawItemIcon(ICON_COLOR_ITEM);
-        if (ImGui::Selectable("ACEScg -> Rec.2100-PQ HDR 500 nits (Rec.2020)##A20")) {
-            ApplyPreset(R"JSON({
-                "name": "ACEScg to Rec.2100-PQ HDR 500 nits (Rec.2020)",
+                "name": "ACEScg to EDR sRGB HDR 1000 nits",
                 "ocio_config": "ACES_2.0",
                 "nodes": [
                     {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
-                    {"type": "OUTPUT_DISPLAY", "display": "Rec.2100-PQ - Display", "view": "ACES 2.0 - HDR 500 nits (Rec.2020)", "position": [400, 100]}
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear sRGB EDR - Display", "view": "ACES 2.0 - HDR 1000 nits (P3 D65)", "position": [400, 100]}
                 ],
                 "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
             })JSON");
         }
+
+        DrawItemIcon(ICON_COLOR_ITEM);
+        if (ImGui::Selectable("ACEScg -> EDR P3 HDR 1000 nits##A20")) {
+            ApplyPreset(R"JSON({
+                "name": "ACEScg to EDR P3 HDR 1000 nits",
+                "ocio_config": "ACES_2.0",
+                "nodes": [
+                    {"type": "INPUT_COLORSPACE", "data": "ACEScg", "position": [100, 100]},
+                    {"type": "OUTPUT_DISPLAY", "display": "Linear P3 EDR - Display", "view": "ACES 2.0 - HDR 1000 nits (P3 D65)", "position": [400, 100]}
+                ],
+                "connections": [{"from_node": 0, "from_pin": 0, "to_node": 1, "to_pin": 0}]
+            })JSON");
+        }
+#endif
 
         if (font_regular) ImGui::PopFont();
     }
@@ -1278,7 +1274,7 @@ static void DrawItemIcon(const char* icon) {
         std::vector<int> node_ids;
 
         // Create input colorspace node
-        int input_node_id = node_manager->CreateInputColorSpaceNode(input_colorspace, ImVec2(100, 100));
+        int input_node_id = node_manager->CreateInputColorSpaceNode(input_colorspace, ImVec2(S(100), S(100)));
         if (input_node_id == -1) {
             Debug::Log("ERROR: Failed to create input colorspace node for: " + input_colorspace);
             return;
@@ -1287,7 +1283,7 @@ static void DrawItemIcon(const char* icon) {
         Debug::Log("Created Input ColorSpace node: " + input_colorspace);
 
         // Create display node with proper display AND view setup
-        int display_node_id = node_manager->CreateOutputDisplayNode(display_name, ImVec2(400, 100));
+        int display_node_id = node_manager->CreateOutputDisplayNode(display_name, ImVec2(S(400), S(100)));
         if (display_node_id == -1) {
             Debug::Log("ERROR: Failed to create display node for: " + display_name);
             return;

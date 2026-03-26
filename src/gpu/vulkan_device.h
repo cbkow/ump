@@ -81,6 +81,11 @@ public:
     // and free the command buffer after the fence signals.
     VkFence EndSingleTimeCommandsFenced(VkCommandBuffer cmd);
 
+    // End and submit without waiting (fire-and-forget).
+    // The command buffer from the previous call is freed (GPU is done with it
+    // since commands are serialized on the same queue).
+    void EndSingleTimeCommandsAsync(VkCommandBuffer cmd);
+
     //=========================================================================
     // Descriptor Pool
     //=========================================================================
@@ -167,6 +172,7 @@ private:
 
     // Transient command pool (for single-use commands on graphics queue)
     VkCommandPool transient_command_pool_ = VK_NULL_HANDLE;
+    VkCommandBuffer prev_async_cmd_ = VK_NULL_HANDLE;  // Previous fire-and-forget cmd (freed on next async submit)
 
     // Device info
     std::string device_name_;

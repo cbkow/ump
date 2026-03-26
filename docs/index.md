@@ -9,19 +9,19 @@ nav_order: 1
 
 ![QCView main interface](images/QCmain.webp)
 
-**QCView** is a professional media player and reviewer for Windows and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a professional media player and reviewer for Windows, macOS, and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
 
 ## Key Features
 
 ### Playback
-- Hardware-accelerated video decoding — D3D11VA on Windows, VA-API on Linux — with FFmpeg software fallback
-- HDR10 output (PQ/ST.2084, BT.2020) with adjustable interface tonemapping target nits
+- Hardware-accelerated video decoding — D3D11VA on Windows, VideoToolbox on macOS, VA-API on Linux
+- HDR output: HDR10 (PQ/ST.2084) on Windows/Linux, Extended Dynamic Range (EDR) on macOS
 - Frame-accurate stepping with press-and-hold fast forward/rewind
 - Playlists and hover thumbnails with filmstrip view
 - Embedded timecode support
-- Audio playback with tempo-preserving time stretch (WASAPI on Windows, PipeWire on Linux)
+- Audio playback with tempo-preserving time stretch
 
 ### Image Sequences
 - [OpenEXR](https://openexr.com/en/latest/) with multichannel and multipart support
@@ -30,6 +30,8 @@ nav_order: 1
 
 ### Color
 - Live [OCIO](https://opencolorio.org/) color correction with a node-based interface
+- Bundled OCIO configs: ACES 2.0, Blender 5.1, ACES 1.3
+- Linear EDR display outputs for macOS HDR workflows
 - Multiple pipeline modes: 8-bit, 12-bit, 16-bit float
 - Screenshots with OCIO transforms applied
 

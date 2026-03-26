@@ -5,10 +5,10 @@ environment:
 search_path: ""
 strictparsing: true
 luma: [0.2126, 0.7152, 0.0722]
-name: studio-config-v4.0.0_aces-v2.0_ocio-v2.5
+name: studio-config-all-views-v4.0.0_aces-v2.0_ocio-v2.5
 description: |
-  Academy Color Encoding System - Studio Config [COLORSPACES v4.0.0] [ACES v2.0] [OCIO v2.5]
-  ------------------------------------------------------------------------------------------
+  Academy Color Encoding System - Studio Config (All Views) [COLORSPACES v4.0.0] [ACES v2.0] [OCIO v2.5]
+  ------------------------------------------------------------------------------------------------------
 
   This "OpenColorIO" config is geared toward studios requiring a config that includes a wide variety of camera colorspaces, displays and looks.
 
@@ -34,54 +34,77 @@ viewing_rules:
 
 shared_views:
   - !<View> {name: ACES 2.0 - SDR 100 nits (Rec.709), view_transform: ACES 2.0 - SDR 100 nits (Rec.709), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), view_transform: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - SDR 100 nits (P3 D65), view_transform: ACES 2.0 - SDR 100 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 1000 nits (P3 D65), view_transform: ACES 2.0 - HDR 1000 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), view_transform: ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 500 nits (P3 D65), view_transform: ACES 2.0 - HDR 500 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 2000 nits (P3 D65), view_transform: ACES 2.0 - HDR 2000 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 4000 nits (P3 D65), view_transform: ACES 2.0 - HDR 4000 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 500 nits (P3 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 500 nits (P3 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 2000 nits (P3 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 2000 nits (P3 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 4000 nits (P3 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 4000 nits (P3 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 500 nits (Rec.2020), view_transform: ACES 2.0 - HDR 500 nits (Rec.2020), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 1000 nits (Rec.2020), view_transform: ACES 2.0 - HDR 1000 nits (Rec.2020), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 2000 nits (Rec.2020), view_transform: ACES 2.0 - HDR 2000 nits (Rec.2020), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 4000 nits (Rec.2020), view_transform: ACES 2.0 - HDR 4000 nits (Rec.2020), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 500 nits (Rec.2020 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 500 nits (Rec.2020 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 1000 nits (Rec.2020 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 1000 nits (Rec.2020 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 2000 nits (Rec.2020 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 2000 nits (Rec.2020 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 4000 nits (Rec.2020 D60 in Rec.2020 D65), view_transform: ACES 2.0 - HDR 4000 nits (Rec.2020 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65), view_transform: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: ACES 2.0 - HDR 108 nits (P3 D65), view_transform: ACES 2.0 - HDR 108 nits (P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 108 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - HDR 108 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 500 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - HDR 500 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 2000 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - HDR 2000 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
+  - !<View> {name: ACES 2.0 - HDR 4000 nits (P3 D60 in P3 D65), view_transform: ACES 2.0 - HDR 4000 nits (P3 D60 in P3 D65), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: Un-tone-mapped, view_transform: Un-tone-mapped, display_colorspace: <USE_DISPLAY_NAME>, rule: Any Scene-linear or Log}
   - !<View> {name: Video (colorimetric), view_transform: Video (colorimetric), display_colorspace: <USE_DISPLAY_NAME>, rule: Any Video}
 
 displays:
   sRGB - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), Un-tone-mapped, Video (colorimetric)]
   Gamma 2.2 Rec.709 - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), Un-tone-mapped, Video (colorimetric)]
   Display P3 - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - SDR 100 nits (P3 D65), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), Un-tone-mapped, Video (colorimetric)]
   Display P3 HDR - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), Un-tone-mapped, Video (colorimetric)]
   P3-D65 - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), Un-tone-mapped, Video (colorimetric)]
   Rec.1886 Rec.709 - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), Un-tone-mapped, Video (colorimetric)]
   Rec.2100-HLG - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - HDR 1000 nits (P3 D65), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65), Un-tone-mapped, Video (colorimetric)]
   Rec.2100-PQ - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - HDR 500 nits (Rec.2020), ACES 2.0 - HDR 1000 nits (Rec.2020), ACES 2.0 - HDR 2000 nits (Rec.2020), ACES 2.0 - HDR 4000 nits (Rec.2020), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - HDR 500 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 2000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 4000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 500 nits (Rec.2020), ACES 2.0 - HDR 1000 nits (Rec.2020), ACES 2.0 - HDR 2000 nits (Rec.2020), ACES 2.0 - HDR 4000 nits (Rec.2020), ACES 2.0 - HDR 500 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 1000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 2000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 4000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
   ST2084-P3-D65 - Display:
     - !<View> {name: Raw, colorspace: Raw}
-    - !<Views> [ACES 2.0 - HDR 108 nits (P3 D65), ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric)]
+    - !<Views> [ACES 2.0 - HDR 108 nits (P3 D65), ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - HDR 108 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 500 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 2000 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 4000 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65), Un-tone-mapped, Video (colorimetric)]
+  Linear sRGB EDR - Display:
+    - !<View> {name: Raw, colorspace: Raw}
+    - !<Views> [ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), Un-tone-mapped]
+  Linear P3 EDR - Display:
+    - !<View> {name: Raw, colorspace: Raw}
+    - !<Views> [ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (P3 D65), Un-tone-mapped]
 
 virtual_display:
   - !<View> {name: Raw, colorspace: Raw}
-  - !<Views> [ACES 2.0 - SDR 100 nits (P3 D65), Video (colorimetric), Un-tone-mapped, ACES 2.0 - SDR 100 nits (Rec.709)]
+  - !<Views> [Un-tone-mapped, ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), Video (colorimetric), ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65)]
 
-active_displays: [sRGB - Display, Display P3 - Display, Display P3 HDR - Display, Gamma 2.2 Rec.709 - Display, P3-D65 - Display, Rec.1886 Rec.709 - Display, Rec.2100-HLG - Display, Rec.2100-PQ - Display, ST2084-P3-D65 - Display]
-active_views: [ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 1000 nits (Rec.2020), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (Rec.2020), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (Rec.2020), ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 500 nits (Rec.2020), ACES 2.0 - HDR 108 nits (P3 D65), ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), Un-tone-mapped, Video (colorimetric), Raw]
+active_displays: [sRGB - Display, Display P3 - Display, Display P3 HDR - Display, Gamma 2.2 Rec.709 - Display, P3-D65 - Display, Rec.1886 Rec.709 - Display, Rec.2100-HLG - Display, Rec.2100-PQ - Display, ST2084-P3-D65 - Display, Linear sRGB EDR - Display, Linear P3 EDR - Display]
+active_views: [ACES 2.0 - HDR 1000 nits (P3 D65), ACES 2.0 - HDR 1000 nits (Rec.2020), ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 1000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 2000 nits (P3 D65), ACES 2.0 - HDR 2000 nits (Rec.2020), ACES 2.0 - HDR 2000 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 2000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 2000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 4000 nits (P3 D65), ACES 2.0 - HDR 4000 nits (Rec.2020), ACES 2.0 - HDR 4000 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 4000 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 4000 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 500 nits (P3 D65), ACES 2.0 - HDR 500 nits (Rec.2020), ACES 2.0 - HDR 500 nits (P3 D60 in P3 D65), ACES 2.0 - HDR 500 nits (P3 D60 in Rec.2020 D65), ACES 2.0 - HDR 500 nits (Rec.2020 D60 in Rec.2020 D65), ACES 2.0 - HDR 108 nits (P3 D65), ACES 2.0 - HDR 108 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (P3 D65), ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709), ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65), ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65), Un-tone-mapped, Video (colorimetric), Raw]
 inactive_colorspaces: [CIE XYZ-D65 - Display-referred, CIE XYZ-D65 - Scene-referred]
 
 looks:
@@ -129,6 +152,19 @@ view_transforms:
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-REC709_2.0}
 
   - !<ViewTransform>
+    name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.709 D65)
+    description: Component of ACES 2 Output Transforms for 100 nit SDR Rec709 simulating D60 white in Rec709
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_BT1886.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_BT1886.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-REC709-D60-in-REC709-D65_2.0}
+
+  - !<ViewTransform>
     name: ACES 2.0 - SDR 100 nits (P3 D65)
     description: Component of ACES 2 Output Transforms for 100 nit SDR P3-D65
     interchange:
@@ -140,6 +176,17 @@ view_transforms:
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_48nit_in_P3-D65_Gamma2pt6.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_48nit_in_XYZ-E_Gamma2pt6.a2.v1
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - SDR 100 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 100 nit SDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-P3-D60-in-P3-D65_2.0}
 
   - !<ViewTransform>
     name: ACES 2.0 - HDR 1000 nits (P3 D65)
@@ -155,6 +202,39 @@ view_transforms:
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_Rec2100-D65_HLG.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_Rec2100-D65_ST2084.a2.v1
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-1000nit-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 1000 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 1000 nit HDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-1000nit-P3-D60-in-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 100 nit SDR Rec709 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-REC709-D60-in-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 1000 nits (P3 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 1000 nit HDR P3-D60 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_Rec2100-D65_HLG.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_Rec2100-D65_HLG.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-1000nit-P3-D60-in-REC2020-D65_2.0}
 
   - !<ViewTransform>
     name: ACES 2.0 - HDR 500 nits (P3 D65)
@@ -188,6 +268,33 @@ view_transforms:
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_4000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_4000nit_in_Rec2100-D65_ST2084.a2.v1
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-4000nit-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 500 nits (P3 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 500 nit HDR P3-D60 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-500nit-P3-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 2000 nits (P3 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 2000 nit HDR P3-D60 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-2000nit-P3-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 4000 nits (P3 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 4000 nit HDR P3-D60 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-4000nit-P3-D60-in-REC2020-D65_2.0}
 
   - !<ViewTransform>
     name: ACES 2.0 - HDR 500 nits (Rec.2020)
@@ -226,6 +333,53 @@ view_transforms:
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-4000nit-REC2020_2.0}
 
   - !<ViewTransform>
+    name: ACES 2.0 - HDR 500 nits (Rec.2020 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 500 nit HDR Rec2020 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-500nit-REC2020-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 1000 nits (Rec.2020 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 1000 nit HDR Rec2020 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-1000nit-REC2020-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 2000 nits (Rec.2020 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 2000 nit HDR Rec2020 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-2000nit-REC2020-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 4000 nits (Rec.2020 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 4000 nit HDR Rec2020 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-4000nit-REC2020-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - SDR 100 nits (Rec.709 D60 in Rec.2020 D65)
+    description: Component of ACES 2 Output Transforms for 100 nit SDR Rec709 simulating D60 white in Rec2020
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec2100-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-REC709-D60-in-REC2020-D65_2.0}
+
+  - !<ViewTransform>
     name: ACES 2.0 - HDR 108 nits (P3 D65)
     description: Component of ACES 2 Output Transforms for 108 nit HDR P3-D65
     interchange:
@@ -233,6 +387,42 @@ view_transforms:
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_108nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_108nit_in_P3-D65_ST2084.a2.v1
     from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-108nit-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 108 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 108 nit HDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_108nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_108nit_in_P3-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-108nit-P3-D60-in-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 500 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 500 nit HDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_500nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_500nit_in_P3-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-500nit-P3-D60-in-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 2000 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 2000 nit HDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_2000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_2000nit_in_P3-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-2000nit-P3-D60-in-P3-D65_2.0}
+
+  - !<ViewTransform>
+    name: ACES 2.0 - HDR 4000 nits (P3 D60 in P3 D65)
+    description: Component of ACES 2 Output Transforms for 4000 nit HDR P3-D60 simulating D60 white in P3-D65
+    interchange:
+      amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_4000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_4000nit_in_P3-D65_ST2084.a2.v1
+    from_scene_reference: !<BuiltinTransform> {style: ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - HDR-4000nit-P3-D60-in-P3-D65_2.0}
 
 display_colorspaces:
   - !<ColorSpace>
@@ -260,7 +450,9 @@ display_colorspaces:
     encoding: sdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_Rec709-D65_sRGB-Piecewise.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_sRGB - MIRROR NEGS}
@@ -278,7 +470,9 @@ display_colorspaces:
     encoding: sdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_Rec709-D65_Gamma2pt2.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_G2.2-REC.709 - MIRROR NEGS}
@@ -296,7 +490,9 @@ display_colorspaces:
     encoding: sdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_DisplayP3}
@@ -314,9 +510,13 @@ display_colorspaces:
     encoding: edr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_P3-D65_sRGB-Piecewise.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_P3-D65_sRGB-Piecewise.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_DisplayP3-HDR}
@@ -334,9 +534,13 @@ display_colorspaces:
     encoding: sdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_48nit_in_P3-D65_Gamma2pt6.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_48nit_in_P3-D65_Gamma2pt6.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_48nit_in_P3-D65_Gamma2pt6.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_48nit_in_P3-D65_Gamma2pt6.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_48nit_in_P3-D65_Gamma2pt6.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_G2.6-P3-D65 - MIRROR NEGS}
@@ -354,7 +558,9 @@ display_colorspaces:
     encoding: sdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec709-D65_BT1886.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_Rec709-D65_BT1886.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec709-D65_BT1886.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_Rec709-D65_BT1886.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_REC.1886-REC.709 - MIRROR NEGS}
@@ -372,7 +578,9 @@ display_colorspaces:
     encoding: hdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_Rec2100-D65_HLG.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_1000nit_in_Rec2100-D65_HLG.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_Rec2100-D65_HLG.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_Rec2100-D65_HLG.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_REC.2100-HLG-1000nit}
@@ -390,23 +598,41 @@ display_colorspaces:
     encoding: hdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_1000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_2000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_4000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D65_1000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D65_2000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D65_4000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec2100-D65_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_2000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_4000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_1000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_2000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_4000nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D60_500nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D65_1000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D65_2000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D65_4000nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec2100-D65_500nit_in_Rec2100-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_Rec2100-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_Rec2100-D65_ST2084.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_REC.2100-PQ}
@@ -424,20 +650,64 @@ display_colorspaces:
     encoding: hdr-video
     interchange:
       amf_transform_ids: |
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_1000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_108nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_2000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_4000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D60_500nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_1000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_108nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_2000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_4000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.P3-D65_500nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D60_100nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:InvOutput.Academy.Rec709-D65_100nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_1000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_108nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_2000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_4000nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D60_500nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_1000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_108nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_2000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_4000nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.P3-D65_500nit_in_P3-D65_ST2084.a2.v1
+        urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D60_100nit_in_P3-D65_ST2084.a2.v1
         urn:ampas:aces:transformId:v2.0:Output.Academy.Rec709-D65_100nit_in_P3-D65_ST2084.a2.v1
     allocation: uniform
     from_display_reference: !<BuiltinTransform> {style: DISPLAY - CIE-XYZ-D65_to_ST2084-P3-D65}
+
+  - !<ColorSpace>
+    name: Linear sRGB EDR - Display
+    aliases: [lin_srgb_edr_display]
+    interop_id: lin_rec709_edr_display
+    family: Display
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Linear Rec.709/sRGB primaries for macOS EDR display.
+      No EOTF — linear-light output where 1.0 = 100 nit SDR white.
+      HDR views produce values > 1.0 (e.g. HDR 1000 nit peaks at ~10.0).
+    isdata: false
+    encoding: display-linear
+    allocation: uniform
+    from_display_reference: !<MatrixTransform> {matrix: [3.2409699, -1.5373832, -0.4986108, 0, -0.9692436, 1.8759675, 0.0415551, 0, 0.0556301, -0.2039770, 1.0569715, 0, 0, 0, 0, 1]}
+
+  - !<ColorSpace>
+    name: Linear P3 EDR - Display
+    aliases: [lin_p3d65_edr_display]
+    interop_id: lin_p3d65_edr_display
+    family: Display
+    equalitygroup: ""
+    bitdepth: 32f
+    description: |
+      Linear P3-D65 primaries for macOS EDR display.
+      No EOTF — linear-light output where 1.0 = 100 nit SDR white.
+      HDR views produce values > 1.0 (e.g. HDR 1000 nit peaks at ~10.0).
+    isdata: false
+    encoding: display-linear
+    allocation: uniform
+    from_display_reference: !<MatrixTransform> {matrix: [2.4934969, -0.9313836, -0.4027108, 0, -0.8294890, 1.7626641, 0.0236247, 0, 0.0358458, -0.0761724, 0.9568845, 0, 0, 0, 0, 1]}
 
 colorspaces:
   - !<ColorSpace>

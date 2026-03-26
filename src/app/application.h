@@ -19,6 +19,8 @@
 #ifdef QCVIEW_USE_VULKAN
 #include <vulkan/vulkan.h>
 #include "hdr/vulkan_hdr_swapchain.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "hdr/metal_hdr_swapchain.h"
 #endif
 
 // Project includes needed for member variable types
@@ -31,7 +33,9 @@
 #include "annotations/annotation_renderer.h"
 
 // Forward declarations
+#ifndef QCVIEW_USE_METAL
 struct GLFWwindow;
+#endif
 struct GLFWmonitor;
 class TimelineManager;
 class OCIOConfigManager;
@@ -46,10 +50,12 @@ namespace qcview {
     class TimelineThumbnailCache;
     class MediaLinker;
     class SingleInstance;
+    class MacOSSingleInstance;
     struct OTIOTrack;
     struct DualViewClip;
     namespace Annotations {
         class VulkanAnnotationRenderer;
+        class MetalAnnotationRenderer;
     }
 }
 // Need full definitions for nested types used in method signatures
@@ -74,12 +80,16 @@ public:
     // ------------------------------------------------------------------------
     bool Initialize(const std::vector<std::string>& initial_files = {});
     void Run();
+    void DrawFrame();  // Single frame — called from MTKView on macOS, from Run() loop on others
     void Cleanup();
     void RefreshCurrentFrame();
     void UpdateColorPipeline();
     void ForceReloadCurrentMedia();
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
     void SetSingleInstance(qcview::SingleInstance* si);
+#endif
+#ifdef __APPLE__
+    void SetMacOSSingleInstance(qcview::MacOSSingleInstance* si);
 #endif
 
     // ------------------------------------------------------------------------
@@ -97,11 +107,33 @@ public:
 #endif
     static Application* app_instance;
 
+#ifdef __APPLE__
+    // Native menu bar dispatch — called from macos_menu_bar.mm
+    void NativeMenuOpenMedia();
+    void NativeMenuOpenProject();
+    void NativeMenuSaveProject();
+    void NativeMenuSaveProjectAs();
+    void NativeMenuLoadRecentFile(const std::string& path);
+    void NativeMenuUndo();
+    void NativeMenuRedo();
+    void NativeMenuToggleFullscreen();
+    void NativeMenuTogglePanel(int panel_tag);
+    void NativeMenuShowSettings();
+    void NativeMenuGetState(bool& fullscreen, bool& show_project, bool& show_inspector,
+                            bool& show_timeline, bool& show_color, bool& show_annotations,
+                            bool& show_ann_toolbar, bool& show_sidebar,
+                            bool& can_undo, bool& can_redo, bool& has_project);
+#endif
+
 private:
     // ------------------------------------------------------------------------
     // MEMBER VARIABLES - Core Systems
     // ------------------------------------------------------------------------
+#ifdef QCVIEW_USE_METAL
+    void* window = nullptr;  // NSWindow* on macOS (native, no GLFW)
+#else
     GLFWwindow* window = nullptr;
+#endif
 
     // HDR UI brightness in nits (cross-platform, persisted in settings)
     float hdr_ui_nits_ = 400.0f;
@@ -111,12 +143,19 @@ private:
     std::unique_ptr<qcview::VulkanHDRSwapchain> vulkan_swapchain_;
     uint32_t vulkan_current_frame_ = 0;
     bool hdr_preferred_ = false;  // Loaded from settings, applied after swapchain init
+#elif defined(QCVIEW_USE_METAL)
+    // Metal presentation (EDR-capable)
+    std::unique_ptr<qcview::MetalHDRSwapchain> metal_swapchain_;
+    bool hdr_preferred_ = false;
 #endif
 
     std::unique_ptr<VideoPlayer> video_player;
     std::unique_ptr<qcview::ProjectManager> project_manager;
 #if defined(__linux__) && defined(QCVIEW_HAS_SDBUS)
     qcview::SingleInstance* single_instance_ = nullptr;
+#endif
+#ifdef __APPLE__
+    qcview::MacOSSingleInstance* macos_single_instance_ = nullptr;
 #endif
     std::unique_ptr<TimelineManager> timeline_manager;
     std::unique_ptr<qcview::AnnotationManager> annotation_manager;
@@ -142,6 +181,10 @@ private:
     // Vulkan annotation rendering (replaces NanoVG on Linux)
     std::unique_ptr<qcview::Annotations::VulkanAnnotationRenderer> vulkan_annotation_renderer_;
     uint64_t vulkan_annotation_texture_id_ = 0;
+#elif defined(QCVIEW_USE_METAL)
+    // Metal annotation rendering (replaces NanoVG on macOS)
+    std::unique_ptr<qcview::Annotations::MetalAnnotationRenderer> metal_annotation_renderer_;
+    uint64_t metal_annotation_texture_id_ = 0;
 #endif
 
     // Undo/redo stacks for annotation editing
@@ -183,11 +226,15 @@ private:
     bool minimal_view_mode = false;
     bool is_fullscreen = false;
     bool pending_fullscreen_toggle = false;
+#ifndef QCVIEW_USE_METAL
     GLFWmonitor* fullscreen_monitor = nullptr;
+#endif
     bool saved_show_project_panel = true;
     bool saved_show_inspector_panel = true;
     bool show_sidebar_panel = true;
     bool saved_show_sidebar_panel = true;
+    bool saved_show_timeline_panel = true;
+    bool saved_show_transport_controls = true;
     bool show_color = false;
 
     // Trim mode state
@@ -352,7 +399,11 @@ private:
     ImU32 ToImU32(const ImVec4& color);
     void SetupImGuiStyle();
     void SetupDragDrop();
+#ifdef QCVIEW_USE_METAL
+    void EnableDarkModeWindow(void* window);
+#else
     void EnableDarkModeWindow(GLFWwindow* window);
+#endif
 
     // ------------------------------------------------------------------------
     // INPUT & EVENT HANDLING

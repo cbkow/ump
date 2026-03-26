@@ -62,6 +62,7 @@ public:
 
     bool Initialize() override;
     void Shutdown() override;
+    void RequestShutdown() override;
     void HardReset(int target_frame) override;
     bool IsInitialized() const override { return initialized_.load(); }
 
@@ -172,6 +173,21 @@ public:
     bool IsHDRContent() const { return is_hdr_; }
     bool Is10BitOutput() const { return is_10bit_; }
     bool IsLimitedRange() const { return !is_full_range_; }
+
+    //=========================================================================
+    // Video Range Override
+    //=========================================================================
+
+    void SetVideoRangeOverride(VideoRangeMode mode) { video_range_override_ = mode; }
+    VideoRangeMode GetVideoRangeOverride() const { return video_range_override_; }
+
+    bool GetEffectiveFullRange() const {
+        switch (video_range_override_) {
+            case VideoRangeMode::FULL: return true;
+            case VideoRangeMode::LIMITED: return false;
+            default: return is_full_range_;
+        }
+    }
 
 private:
     //=========================================================================
@@ -338,6 +354,7 @@ private:
     bool is_hdr_ = false;
     bool is_10bit_ = false;
     bool is_full_range_ = false;
+    VideoRangeMode video_range_override_ = VideoRangeMode::AUTO;
 
     //=========================================================================
     // GPU Decode (DMA-BUF import + YUV shader)

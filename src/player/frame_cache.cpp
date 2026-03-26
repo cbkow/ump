@@ -12,6 +12,8 @@
 #endif
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
 #endif
 
 // FFmpeg time base constant
@@ -100,6 +102,17 @@ void CachedFrame::CreateTexture(int w, int h, const void* data, PipelineMode pip
         uint64_t pool_id = pool.CreateTextureFromPixels(w, h, vk_format, data, data_size);
         texture_id = static_cast<GLuint>(pool_id);
     }
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: Create texture via MetalTexturePool
+    if (data) {
+        int metal_format = 0; // RGBA8
+        if (config.data_type == GL_HALF_FLOAT) metal_format = 1; // RGBA16F
+
+        size_t data_size = static_cast<size_t>(w) * h * config.bytes_per_pixel;
+        uint64_t pool_id = qcview::MetalTexturePool::Instance().CreateTextureFromPixels(
+            w, h, metal_format, data, data_size);
+        texture_id = static_cast<GLuint>(pool_id);
+    }
 #else
     glGenTextures(1, &texture_id);
     glBindTexture(GL_TEXTURE_2D, texture_id);
@@ -133,7 +146,7 @@ bool CachedFrame::EnsureTextureCreated() {
     // Create texture from stored pixel data
     CreateTexture(width, height, pixel_data.data(), pipeline_mode);
 
-#ifndef QCVIEW_USE_VULKAN
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
     // Check for GL errors
     GLenum error = glGetError();
     if (error != GL_NO_ERROR) {
@@ -158,6 +171,8 @@ void CachedFrame::ReleaseTexture() {
     if (texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
         qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+#elif defined(QCVIEW_USE_METAL)
+        qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
 #else
         glDeleteTextures(1, &texture_id);
 #endif
@@ -712,6 +727,8 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, GLuint te
         if (texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
             qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+#elif defined(QCVIEW_USE_METAL)
+            qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
 #else
             glDeleteTextures(1, &texture_id);
 #endif
@@ -773,6 +790,16 @@ void FrameCache::AddExtractedFrame(int frame_number, double timestamp, const std
 
         uint64_t pool_id = pool.CreateTextureFromPixels(
             width, height, vk_format, pixel_data.data(), pixel_data.size());
+        texture_id = static_cast<GLuint>(pool_id);
+    }
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: Create texture via MetalTexturePool
+    {
+        int metal_format = 0; // RGBA8
+        if (pipeline_config.data_type == GL_HALF_FLOAT) metal_format = 1; // RGBA16F
+
+        uint64_t pool_id = qcview::MetalTexturePool::Instance().CreateTextureFromPixels(
+            width, height, metal_format, pixel_data.data(), pixel_data.size());
         texture_id = static_cast<GLuint>(pool_id);
     }
 #else

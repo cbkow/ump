@@ -12,6 +12,7 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -25,6 +26,12 @@
 #include "../gpu/vulkan_device.h"
 #include "../color/vulkan_ocio_renderer.h"
 #include <imgui_impl_vulkan.h>
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
+#include "../gpu/metal_device_manager.h"
+#include "../color/metal_ocio_renderer.h"
+#include "../utils/macos_clipboard.h"
+#include "../hdr/hdr_color_utils.h"
 #else
 #include <backends/imgui_impl_opengl3.h>
 #endif
@@ -154,6 +161,14 @@ ImTextureID VideoDisplayComponent::GetDisplayTextureID() const {
     GLuint tex = video_texture_;
     if (tex == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(tex));
+#elif defined(QCVIEW_USE_METAL)
+    // Prefer color-processed texture if available
+    if (metal_color_pool_id_ != 0) {
+        return qcview::MetalTexturePool::Instance().GetImTextureID(metal_color_pool_id_);
+    }
+    GLuint tex = video_texture_;
+    if (tex == 0) return ImTextureID{};
+    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(tex));
 #else
     return (ImTextureID)(intptr_t)color_texture_;
 #endif
@@ -177,6 +192,15 @@ bool VideoDisplayComponent::Initialize() {
     } else {
         Debug::Log("VideoDisplayComponent: WARNING - Failed to initialize Vulkan OCIO renderer");
         vulkan_ocio_renderer_.reset();
+    }
+#elif defined(QCVIEW_USE_METAL)
+    // Initialize Metal OCIO renderer
+    metal_ocio_renderer_ = std::make_unique<qcview::MetalOCIORenderer>();
+    if (metal_ocio_renderer_->Initialize()) {
+        Debug::Log("VideoDisplayComponent: Metal OCIO renderer initialized");
+    } else {
+        Debug::Log("VideoDisplayComponent: WARNING - Failed to initialize Metal OCIO renderer");
+        metal_ocio_renderer_.reset();
     }
 #else
     // Create default passthrough color pipeline (provides stable buffering during transitions)
@@ -258,6 +282,34 @@ void VideoDisplayComponent::Cleanup() {
     // Vulkan path: Queue texture deletions via VulkanTexturePool
     {
         auto& pool = qcview::VulkanTexturePool::Instance();
+        if (video_texture_ && video_texture_ != transition_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(video_texture_));
+            video_texture_ = 0;
+        }
+        if (transition_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(transition_placeholder_texture_));
+            transition_placeholder_texture_ = 0;
+        }
+        if (gap_placeholder_texture_) {
+            pool.QueueDelete(static_cast<uint64_t>(gap_placeholder_texture_));
+            gap_placeholder_texture_ = 0;
+        }
+        pool.ProcessPendingDeletions();
+    }
+#elif defined(QCVIEW_USE_METAL)
+    // Clean up Metal OCIO renderer and color textures (matches Vulkan cleanup)
+    if (metal_color_pool_id_ != 0) {
+        qcview::MetalTexturePool::Instance().QueueDelete(metal_color_pool_id_);
+        metal_color_pool_id_ = 0;
+    }
+    if (metal_ocio_renderer_) {
+        metal_ocio_renderer_->Shutdown();
+        metal_ocio_renderer_.reset();
+    }
+
+    // Metal path: Queue texture deletions via MetalTexturePool
+    {
+        auto& pool = qcview::MetalTexturePool::Instance();
         if (video_texture_ && video_texture_ != transition_placeholder_texture_) {
             pool.QueueDelete(static_cast<uint64_t>(video_texture_));
             video_texture_ = 0;
@@ -360,6 +412,12 @@ void VideoDisplayComponent::CreateVideoTexturesForMode(int width, int height, Pi
     video_height_ = height;
     current_internal_format_ = config.internal_format;
     Debug::Log("Vulkan: Set video dimensions: " + std::to_string(width) + "x" + std::to_string(height));
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: MetalTexturePool manages textures on-demand (same as Vulkan)
+    video_width_ = width;
+    video_height_ = height;
+    current_internal_format_ = config.internal_format;
+    Debug::Log("Metal: Set video dimensions: " + std::to_string(width) + "x" + std::to_string(height));
 #else
     // OpenGL path
     // Store old texture to delete AFTER new one is created
@@ -413,8 +471,8 @@ void VideoDisplayComponent::CreateVideoTexturesForMode(int width, int height, Pi
 }
 
 void VideoDisplayComponent::CreateColorProcessingResourcesForMode(int width, int height, PipelineMode mode) {
-#ifdef QCVIEW_USE_VULKAN
-    // Vulkan color processing is handled dynamically in ApplyColorPipelineVulkan()
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    // Vulkan/Metal color processing is handled dynamically by GPU OCIO renderer
     (void)width; (void)height; (void)mode;
     return;
 #else
@@ -496,6 +554,26 @@ void VideoDisplayComponent::CreateTransitionPlaceholder() {
     transition_placeholder_width_ = size;
     transition_placeholder_height_ = size;
     Debug::Log("VideoDisplayComponent: Created Vulkan transition placeholder");
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: Create placeholder via MetalTexturePool
+    if (transition_placeholder_texture_ != 0) {
+        qcview::MetalTexturePool::Instance().QueueDelete(static_cast<uint64_t>(transition_placeholder_texture_));
+        qcview::MetalTexturePool::Instance().ProcessPendingDeletions();
+        transition_placeholder_texture_ = 0;
+    }
+
+    const int size = 64;
+    std::vector<unsigned char> pixels(size * size * 4);
+    for (size_t i = 0; i < pixels.size(); i += 4) {
+        pixels[i] = 27; pixels[i + 1] = 27; pixels[i + 2] = 27; pixels[i + 3] = 255;
+    }
+
+    uint64_t pool_id = qcview::MetalTexturePool::Instance().CreateTextureFromPixels(
+        size, size, 0 /* RGBA8 */, pixels.data(), pixels.size());
+    transition_placeholder_texture_ = static_cast<GLuint>(pool_id);
+    transition_placeholder_width_ = size;
+    transition_placeholder_height_ = size;
+    Debug::Log("VideoDisplayComponent: Created Metal transition placeholder");
 #else
     // Delete existing if any
     if (transition_placeholder_texture_ != 0) {
@@ -530,8 +608,8 @@ void VideoDisplayComponent::CreateTransitionPlaceholder() {
 }
 
 void VideoDisplayComponent::ClearVideoTextureToBackground() {
-#ifdef QCVIEW_USE_VULKAN
-    // No-op on Vulkan — textures are managed by VulkanTexturePool
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    // No-op on Vulkan/Metal — textures are managed by pool
     return;
 #else
     if (fbo_ == 0 || video_texture_ == 0) {
@@ -550,8 +628,8 @@ void VideoDisplayComponent::ClearVideoTextureToBackground() {
 }
 
 void VideoDisplayComponent::ClearColorTextureToBackground() {
-#ifdef QCVIEW_USE_VULKAN
-    // No-op on Vulkan — color processing not yet implemented (Phase 2)
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    // No-op on Vulkan/Metal — color processing handled by GPU renderer
     return;
 #else
     if (color_fbo_ == 0 || color_texture_ == 0) {
@@ -574,13 +652,27 @@ void VideoDisplayComponent::ClearColorTextureToBackground() {
 //=============================================================================
 
 void VideoDisplayComponent::ProcessPendingTextureUploads() {
-    // Process EXR textures EVERY frame (even when paused)
-    // MUST be called BEFORE ImGui::NewFrame() to avoid GL state corruption
+#if defined(QCVIEW_USE_METAL) || defined(QCVIEW_USE_VULKAN)
+    // Metal/Vulkan: UpdatePlayhead now runs from TimelinePlaybackController on main thread.
+    // Process EXR texture deletions on main thread.
     if (exr_cache_) {
         exr_cache_->ProcessReadyTextures();
     }
 
-    // Process timeline textures EVERY frame
+    // Process pending timeline thumbnail uploads
+    if (is_timeline_mode_ && timeline_controller_ && timeline_controller_->IsInitialized()) {
+        timeline_controller_->ProcessPendingUploads();
+    }
+
+    if (has_video_ || (is_timeline_mode_ && timeline_controller_)) {
+        UpdateVideoTexture();
+    }
+#else
+    // OpenGL: everything on main thread (GL context is single-threaded)
+    if (exr_cache_) {
+        exr_cache_->ProcessReadyTextures();
+    }
+
     if (is_timeline_mode_ && timeline_controller_ && timeline_controller_->IsInitialized()) {
         auto* cache = timeline_controller_->GetCache();
         if (cache) {
@@ -592,11 +684,10 @@ void VideoDisplayComponent::ProcessPendingTextureUploads() {
         timeline_controller_->ProcessPendingUploads();
     }
 
-    // Update video texture (color pipeline, frame injection) BEFORE ImGui
-    // This ensures all GL operations complete before ImGui starts rendering
-    if (has_video_ && video_texture_) {
+    if (has_video_ || (is_timeline_mode_ && timeline_controller_)) {
         UpdateVideoTexture();
     }
+#endif
 }
 
 void VideoDisplayComponent::RenderVideoFrame() {
@@ -614,13 +705,39 @@ void VideoDisplayComponent::RenderVideoFrame() {
 void VideoDisplayComponent::UpdateVideoTexture() {
     // In timeline mode, inject frame from cache (D3D11VideoDecoder provides frames)
     if (is_timeline_mode_ && timeline_controller_) {
+        auto t0 = std::chrono::steady_clock::now();
         InjectCurrentTimelineFrame();
+        auto t1 = std::chrono::steady_clock::now();
+        double inject_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_ocio_renderer_ && video_texture_ != 0) {
+            ApplyColorPipelineVulkan();
+        }
+#elif defined(QCVIEW_USE_METAL)
+        if (metal_ocio_renderer_ && video_texture_ != 0) {
+            ApplyColorPipelineMetal();
+        }
+#else
+        if (color_pipeline_ && color_pipeline_->IsValid() && video_texture_ != 0) {
+            ApplyColorPipeline();
+        }
+#endif
+        auto t2 = std::chrono::steady_clock::now();
+        double ocio_ms = std::chrono::duration<double, std::milli>(t2 - t1).count();
+        (void)inject_ms; (void)ocio_ms; // inject timing logging disabled
+        return;
     }
 
 #ifdef QCVIEW_USE_VULKAN
     // Apply OCIO via Vulkan: video_texture_ (pool ID) → vulkan_color_tex_
     if (vulkan_ocio_renderer_ && video_texture_ != 0) {
         ApplyColorPipelineVulkan();
+    }
+#elif defined(QCVIEW_USE_METAL)
+    // Apply OCIO via Metal: video_texture_ (pool ID) → metal_color_pool_id_
+    if (metal_ocio_renderer_ && video_texture_ != 0) {
+        ApplyColorPipelineMetal();
     }
 #else
     // Apply OCIO color pipeline (GL path)
@@ -686,6 +803,25 @@ void VideoDisplayComponent::RenderVideoTexture() {
     ImGui_ImplVulkan_SetTextureHDRPassthrough(im_tex_id, true);
 
     ImGui::Image(im_tex_id, image_size);
+#elif defined(QCVIEW_USE_METAL)
+    // Metal path: prefer color-processed texture if available
+    if (display_texture == 0) return;
+
+    uint64_t display_pool_id = (metal_color_pool_id_ != 0)
+        ? metal_color_pool_id_
+        : static_cast<uint64_t>(display_texture);
+
+    ImTextureID im_tex_id = qcview::MetalTexturePool::Instance().GetImTextureID(display_pool_id);
+    if (im_tex_id == (ImTextureID)0) {
+        // Fallback to transition placeholder
+        if (transition_placeholder_texture_ != 0) {
+            im_tex_id = qcview::MetalTexturePool::Instance().GetImTextureID(
+                static_cast<uint64_t>(transition_placeholder_texture_));
+        }
+        if (im_tex_id == (ImTextureID)0) return;
+    }
+
+    ImGui::Image(im_tex_id, image_size);
 #else
     // OpenGL path
     // Use color-corrected texture if OCIO pipeline is active
@@ -708,7 +844,9 @@ void VideoDisplayComponent::RenderVideoTexture() {
 
     // Mark video texture as HDR passthrough (skip sRGB->PQ conversion)
     // Video content is already in HDR format from OCIO pipeline
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
     ImGui_ImplOpenGL3_SetTextureHDRPassthrough((ImTextureID)(intptr_t)display_texture, true);
+#endif
 
     // Display the texture
     ImGui::Image((void*)(intptr_t)display_texture, image_size);
@@ -776,6 +914,12 @@ void VideoDisplayComponent::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipel
         if (vulkan_ocio_renderer_) {
             vulkan_ocio_renderer_->InvalidateOCIOPipeline();
         }
+#elif defined(QCVIEW_USE_METAL)
+        // Invalidate cached Metal OCIO pipeline so it rebuilds with new shader
+        if (metal_ocio_renderer_) {
+            metal_ocio_renderer_->InvalidateCache();
+        }
+        metal_last_src_pool_id_ = 0;  // Force re-apply on current frame
 #else
         // Force OpenGL state cleanup
         glUseProgram(0);
@@ -802,6 +946,12 @@ void VideoDisplayComponent::ClearColorPipeline() {
     if (vulkan_ocio_renderer_) {
         vulkan_ocio_renderer_->InvalidateOCIOPipeline();
     }
+#elif defined(QCVIEW_USE_METAL)
+    // Invalidate cached Metal OCIO pipeline
+    if (metal_ocio_renderer_) {
+        metal_ocio_renderer_->InvalidateCache();
+    }
+    metal_last_src_pool_id_ = 0;  // Force re-apply on current frame
 #else
     // Clean up OpenGL state first
     glUseProgram(0);
@@ -811,8 +961,8 @@ void VideoDisplayComponent::ClearColorPipeline() {
     glBindTexture(GL_TEXTURE_2D, 0);
 #endif
 
-#ifdef QCVIEW_USE_VULKAN
-    // On Vulkan, just clear the pipeline — passthrough is handled by VulkanOCIORenderer
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    // On Vulkan/Metal, just clear the pipeline — GPU OCIO renderer handles passthrough
     color_pipeline_.reset();
 #else
     // Create passthrough pipeline
@@ -838,8 +988,8 @@ bool VideoDisplayComponent::HasActiveColorTransform() const {
 }
 
 void VideoDisplayComponent::SetupColorProcessingResources() {
-#ifdef QCVIEW_USE_VULKAN
-    return;  // Vulkan color processing handled in ApplyColorPipelineVulkan()
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    return;  // Vulkan/Metal color processing handled by GPU renderer
 #endif
     int target_width = (use_content_dimensions_ && content_width_ > 0) ? content_width_ : video_width_;
     int target_height = (use_content_dimensions_ && content_height_ > 0) ? content_height_ : video_height_;
@@ -879,8 +1029,8 @@ void VideoDisplayComponent::SetupColorProcessingResources() {
 }
 
 void VideoDisplayComponent::ApplyColorPipeline() {
-#ifdef QCVIEW_USE_VULKAN
-    return;  // Vulkan uses ApplyColorPipelineVulkan() instead
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    return;  // Vulkan/Metal use their own GPU OCIO renderers
 #endif
     if (!color_pipeline_ || !color_pipeline_->IsValid()) {
         return;
@@ -997,10 +1147,10 @@ void VideoDisplayComponent::ApplyColorPipeline() {
 
 GLuint VideoDisplayComponent::CreateColorCorrectedTexture(GLuint input_texture_id, int tex_width, int tex_height,
                                                           int output_width, int output_height) {
-#ifdef QCVIEW_USE_VULKAN
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
     (void)input_texture_id; (void)tex_width; (void)tex_height;
     (void)output_width; (void)output_height;
-    return 0;  // OCIO deferred to Phase 2
+    return 0;  // Color correction handled by GPU OCIO renderer
 #endif
     if (!color_pipeline_ || !color_pipeline_->IsValid() || quad_vao_ == 0) {
         return 0;
@@ -1370,6 +1520,29 @@ void VideoDisplayComponent::InjectCurrentTimelineFrame() {
                 gap_placeholder_width_ = placeholder_w;
                 gap_placeholder_height_ = placeholder_h;
             }
+#elif defined(QCVIEW_USE_METAL)
+            // Metal path: Create gap placeholder via MetalTexturePool
+            if (gap_placeholder_texture_ == 0 ||
+                gap_placeholder_width_ != placeholder_w ||
+                gap_placeholder_height_ != placeholder_h) {
+                auto& pool = qcview::MetalTexturePool::Instance();
+                if (gap_placeholder_texture_ != 0) {
+                    pool.QueueDelete(static_cast<uint64_t>(gap_placeholder_texture_));
+                    pool.ProcessPendingDeletions();
+                }
+
+                std::vector<unsigned char> black_pixels(placeholder_w * placeholder_h * 4, 0);
+                for (size_t i = 3; i < black_pixels.size(); i += 4) {
+                    black_pixels[i] = 255;
+                }
+
+                uint64_t pool_id = pool.CreateTextureFromPixels(
+                    placeholder_w, placeholder_h, 0 /* RGBA8 */,
+                    black_pixels.data(), black_pixels.size());
+                gap_placeholder_texture_ = static_cast<GLuint>(pool_id);
+                gap_placeholder_width_ = placeholder_w;
+                gap_placeholder_height_ = placeholder_h;
+            }
 #else
             // OpenGL path
             if (gap_placeholder_texture_ == 0 ||
@@ -1586,6 +1759,46 @@ bool VideoDisplayComponent::CaptureScreenshotToClipboard() {
                    std::to_string(video_width_) + "x" + std::to_string(video_height_) + ")");
     } else {
         Debug::Log("Screenshot (Vulkan): Native clipboard copy failed");
+    }
+    return success;
+#elif defined(QCVIEW_USE_METAL)
+    // Metal: save to temp file, read PNG, copy to clipboard
+    if (!HasValidTexture()) {
+        Debug::Log("Screenshot (Metal): No valid texture for clipboard");
+        return false;
+    }
+
+    std::string tmp_name = "qcview_clipboard_tmp.png";
+    std::string tmp_path = "/tmp/" + tmp_name;
+    if (!CaptureScreenshotToPath("/tmp", tmp_name)) {
+        Debug::Log("Screenshot (Metal): Failed to save temp PNG for clipboard");
+        return false;
+    }
+
+    // Read the PNG file into memory
+    std::vector<uint8_t> png_data;
+    {
+        std::ifstream file(tmp_path, std::ios::binary | std::ios::ate);
+        if (file.is_open()) {
+            auto size = file.tellg();
+            file.seekg(0);
+            png_data.resize(static_cast<size_t>(size));
+            file.read(reinterpret_cast<char*>(png_data.data()), size);
+        }
+    }
+    std::remove(tmp_path.c_str());
+
+    if (png_data.empty()) {
+        Debug::Log("Screenshot (Metal): Failed to read temp PNG");
+        return false;
+    }
+
+    bool success = CopyImageToClipboard(png_data);
+    if (success) {
+        Debug::Log("Screenshot copied to clipboard (" +
+                   std::to_string(video_width_) + "x" + std::to_string(video_height_) + ")");
+    } else {
+        Debug::Log("Screenshot (Metal): Clipboard copy failed");
     }
     return success;
 #else
@@ -2102,7 +2315,91 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
         Debug::Log("Screenshot (Vulkan): Failed to write " + output_filename);
     }
     return success;
+#elif defined(QCVIEW_USE_METAL)
+    //=========================================================================
+    // Metal screenshot path — readback via MTLTexture getBytes
+    //=========================================================================
+    if (!HasValidTexture()) {
+        Debug::Log("Screenshot (Metal): No valid texture");
+        return false;
+    }
+
+    std::string output_filename = directory_path;
+    if (!output_filename.empty() && output_filename.back() != '/') {
+        output_filename += "/";
+    }
+    output_filename += filename;
+
+    auto& pool = qcview::MetalTexturePool::Instance();
+
+    // Get a shared-storage texture safe for CPU readback.
+    // OCIO output textures are already shared storage on Apple Silicon.
+    // HW-decoded video_texture_ may be private storage, so we always run
+    // through OCIO (even passthrough) to get a shared-storage result,
+    // then sync the GPU before reading.
+    uint64_t src_pool_id = static_cast<uint64_t>(video_texture_);
+    uint64_t temp_pool_id = 0;  // Only set if we allocated a temp texture to delete
+    if (metal_ocio_renderer_) {
+        if (HasColorPipeline() && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+            // OCIO Apply: output is persistent shared-storage texture (no allocation)
+            uint64_t ocio_id = metal_ocio_renderer_->Apply(
+                color_pipeline_.get(), src_pool_id, video_width_, video_height_);
+            if (ocio_id != 0) src_pool_id = ocio_id;
+        } else {
+            // Passthrough: source may be private storage (HW decode).
+            // CopyTextureSync blits to a new shared-storage texture.
+            temp_pool_id = metal_ocio_renderer_->CopyTextureSync(
+                src_pool_id, video_width_, video_height_);
+            if (temp_pool_id != 0) src_pool_id = temp_pool_id;
+        }
+    }
+
+    const qcview::MetalTexture* src_tex = pool.GetTexture(src_pool_id);
+    if (!src_tex || !src_tex->texture) {
+        Debug::Log("Screenshot (Metal): Pool texture not found");
+        if (temp_pool_id) pool.QueueDelete(temp_pool_id);
+        return false;
+    }
+
+    int w = src_tex->width;
+    int h = src_tex->height;
+
+    // Check if we need to composite annotations
+    std::vector<qcview::Annotations::ActiveStroke> strokes;
+    if (get_annotation_strokes_callback_) {
+        strokes = get_annotation_strokes_callback_();
+    }
+
+    // Bake annotations onto the texture if needed
+    if (!strokes.empty() && metal_render_annotations_to_image_callback_) {
+        metal_render_annotations_to_image_callback_(strokes, src_tex->texture, w, h);
+    }
+
+    // Ensure all GPU work (OCIO + annotation render) is complete before CPU readback
+    qcview::MetalDeviceManager::Instance().WaitForGPU();
+
+    // Readback texture to CPU via MetalTexturePool
+    std::vector<unsigned char> pixels(w * h * 4);
+    bool success = pool.ReadbackTexture(src_pool_id, pixels.data());
+
+    if (success) {
+        int result = stbi_write_png(output_filename.c_str(), w, h, 4, pixels.data(), w * 4);
+        success = (result != 0);
+        if (success) {
+            Debug::Log("Screenshot saved to: " + output_filename);
+        } else {
+            Debug::Log("Screenshot (Metal): Failed to write PNG");
+        }
+    } else {
+        Debug::Log("Screenshot (Metal): Texture readback failed");
+    }
+
+    if (temp_pool_id) pool.QueueDelete(temp_pool_id);
+    return success;
 #else
+    //=========================================================================
+    // OpenGL / Windows screenshot path
+    //=========================================================================
     if (!HasValidTexture()) {
         return false;
     }
@@ -2282,7 +2579,7 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
     }
 
     return success;
-#endif // QCVIEW_USE_VULKAN else
+#endif // QCVIEW_USE_VULKAN / QCVIEW_USE_METAL / else
 }
 
 //=============================================================================
@@ -2585,8 +2882,16 @@ void VideoDisplayComponent::DestroyVulkanColorTexture() {
 void VideoDisplayComponent::ApplyColorPipelineVulkan() {
     if (!vulkan_ocio_renderer_ || video_texture_ == 0) return;
 
+    uint64_t src_pool_id = static_cast<uint64_t>(video_texture_);
+
+    // Skip if source texture hasn't changed (same frame displayed multiple times)
+    if (src_pool_id == vulkan_last_src_pool_id_ && vulkan_color_tex_.valid) {
+        return;  // Previous OCIO result is still valid
+    }
+    vulkan_last_src_pool_id_ = src_pool_id;
+
     auto& pool = qcview::VulkanTexturePool::Instance();
-    const auto* src_tex = pool.GetTexture(static_cast<uint64_t>(video_texture_));
+    const auto* src_tex = pool.GetTexture(src_pool_id);
     if (!src_tex || !src_tex->is_valid) return;
 
     // Ensure color texture matches video dimensions
@@ -2750,6 +3055,63 @@ uint64_t VideoDisplayComponent::CreateColorCorrectedPoolTexture(uint64_t input_p
 }
 
 #endif // QCVIEW_USE_VULKAN
+
+#ifdef QCVIEW_USE_METAL
+//=============================================================================
+// Metal OCIO Implementation (macOS)
+//=============================================================================
+
+void VideoDisplayComponent::ApplyColorPipelineMetal() {
+    if (!metal_ocio_renderer_ || video_texture_ == 0) return;
+
+    uint64_t src_pool_id = static_cast<uint64_t>(video_texture_);
+
+    // Skip if source texture hasn't changed (same frame displayed multiple times)
+    if (src_pool_id == metal_last_src_pool_id_ && metal_color_pool_id_ != 0) {
+        return;  // Previous OCIO result is still valid
+    }
+    metal_last_src_pool_id_ = src_pool_id;
+
+    // Apply OCIO (uses persistent output texture, no per-frame allocation)
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+        metal_color_pool_id_ = metal_ocio_renderer_->Apply(
+            color_pipeline_.get(), src_pool_id, video_width_, video_height_);
+    } else {
+        metal_color_pool_id_ = metal_ocio_renderer_->ApplyPassthrough(
+            src_pool_id, video_width_, video_height_);
+    }
+
+    // When linear EDR is active, pre-encode linear → sRGB so ImGui's EDR fragment
+    // shader can linearize back correctly. Not needed for gamma EDR modes.
+    if (qcview::IsEDRLinearActive() && metal_color_pool_id_ != 0) {
+        uint64_t srgb_id = metal_ocio_renderer_->ApplyLinearToSRGB(
+            metal_color_pool_id_, video_width_, video_height_);
+        if (srgb_id != 0) {
+            metal_color_pool_id_ = srgb_id;
+        }
+    }
+}
+
+uint64_t VideoDisplayComponent::CreateColorCorrectedPoolTextureMetal(uint64_t input_pool_id, int width, int height) {
+    if (!metal_ocio_renderer_ || input_pool_id == 0) return 0;
+
+    // Get the OCIO result (uses persistent texture, async commit)
+    uint64_t ocio_result;
+    if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
+        ocio_result = metal_ocio_renderer_->Apply(
+            color_pipeline_.get(), input_pool_id, width, height);
+    } else {
+        ocio_result = metal_ocio_renderer_->ApplyPassthrough(input_pool_id, width, height);
+    }
+    if (ocio_result == 0) return 0;
+
+    // For screenshots: synchronous copy to a new shared-storage texture.
+    // Needed because HW-decoded textures may use private storage, the
+    // persistent output is overwritten every frame, and the caller reads pixels.
+    return metal_ocio_renderer_->CopyTextureSync(ocio_result, width, height);
+}
+
+#endif // QCVIEW_USE_METAL
 
 
 #ifdef _WIN32

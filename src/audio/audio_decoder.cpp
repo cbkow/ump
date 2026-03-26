@@ -163,12 +163,7 @@ bool AudioDecoder::OpenAudioStream() {
     AVStream* audio_stream = format_ctx_->streams[audio_stream_idx_];
 
     // Get source audio info
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59, 37, 100)
-    // FFmpeg 5.1+
     source_channels_ = audio_stream->codecpar->ch_layout.nb_channels;
-#else
-    source_channels_ = audio_stream->codecpar->channels;
-#endif
     source_sample_rate_ = audio_stream->codecpar->sample_rate;
 
     // Get duration

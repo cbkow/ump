@@ -35,6 +35,9 @@
 #ifdef QCVIEW_USE_VULKAN
 #include "../player/vulkan_video_decoder.h"      // For VulkanVideoDecoder (Linux) - VIDEO_FILE mode
 #endif
+#ifdef QCVIEW_USE_METAL
+#include "../player/metal_video_decoder.h"       // For MetalVideoDecoder (macOS) - VIDEO_FILE mode
+#endif
 #include "cache_window_engine.h"                // Central circular cache engine
 #include "timeline_types.h"                     // For TimelineSourceMode
 #include "../utils/debug_utils.h"               // For Debug::Log
@@ -173,6 +176,11 @@ struct ClipLoaderInfo {
     std::unique_ptr<VulkanVideoDecoder> vulkan_decoder;
 #endif
 
+    // Metal video decoder for macOS VIDEO_FILE mode
+#ifdef QCVIEW_USE_METAL
+    std::unique_ptr<MetalVideoDecoder> metal_decoder;
+#endif
+
     ClipMediaType media_type = ClipMediaType::UNKNOWN;
     PipelineMode pipeline_mode = PipelineMode::NORMAL;
     int width = 0;
@@ -218,6 +226,9 @@ struct ClipLoaderInfo {
 #ifdef QCVIEW_USE_VULKAN
         if (vulkan_decoder) return vulkan_decoder->GetFrame(frame);
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->GetFrame(frame);
+#endif
         if (video_decoder) return video_decoder->GetFrame(frame);
         if (sequence_decoder) return sequence_decoder->GetFrame(frame);
         return nullptr;
@@ -231,6 +242,9 @@ struct ClipLoaderInfo {
 #ifdef QCVIEW_USE_VULKAN
         if (vulkan_decoder) return vulkan_decoder->GetClosestFrame(frame, actual);
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->GetClosestFrame(frame, actual);
+#endif
         if (video_decoder) return video_decoder->GetClosestFrame(frame, actual);
         if (sequence_decoder) return sequence_decoder->GetClosestFrame(frame, actual);
         return nullptr;
@@ -243,6 +257,9 @@ struct ClipLoaderInfo {
 #endif
 #ifdef QCVIEW_USE_VULKAN
         if (vulkan_decoder) { vulkan_decoder->UpdatePlayhead(frame, quality, force); return; }
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->UpdatePlayhead(frame, quality, force); return; }
 #endif
         if (video_decoder) video_decoder->UpdatePlayhead(frame, quality, force);
         if (sequence_decoder) sequence_decoder->UpdatePlayhead(frame, quality, force);
@@ -262,6 +279,9 @@ struct ClipLoaderInfo {
 #ifdef QCVIEW_USE_VULKAN
         if (vulkan_decoder) return vulkan_decoder->HasFrame(frame);
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->HasFrame(frame);
+#endif
         if (video_decoder) return video_decoder->HasFrame(frame);
         if (sequence_decoder) return sequence_decoder->HasFrame(frame);
         return false;
@@ -271,6 +291,9 @@ struct ClipLoaderInfo {
     void GetBufferedRange(int& start, int& end) const {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->GetBufferedRange(start, end); return; }
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->GetBufferedRange(start, end); return; }
 #endif
         if (video_decoder) { video_decoder->GetBufferedRange(start, end); return; }
         if (sequence_decoder) { sequence_decoder->GetBufferedRange(start, end); return; }
@@ -282,6 +305,9 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) return d3d11_decoder->GetBufferSize();
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->GetBufferSize();
+#endif
         if (video_decoder) return video_decoder->GetBufferSize();
         if (sequence_decoder) return sequence_decoder->GetBufferSize();
         return 0;
@@ -291,6 +317,9 @@ struct ClipLoaderInfo {
     void ClearBuffer() {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->ClearBuffer(); return; }
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->ClearBuffer(); return; }
 #endif
         if (video_decoder) video_decoder->ClearBuffer();
         if (sequence_decoder) sequence_decoder->ClearBuffer();
@@ -316,6 +345,9 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->HardReset(frame); return; }
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->HardReset(frame); return; }
+#endif
         if (video_decoder) video_decoder->HardReset(frame);
         if (sequence_decoder) sequence_decoder->HardReset(frame);
     }
@@ -327,6 +359,9 @@ struct ClipLoaderInfo {
 #endif
 #ifdef QCVIEW_USE_VULKAN
         if (vulkan_decoder) return true;
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return true;
 #endif
         return video_decoder != nullptr || sequence_decoder != nullptr;
     }
@@ -340,6 +375,9 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->SetNeededFrames(frames_by_priority); return; }
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->SetNeededFrames(frames_by_priority); return; }
+#endif
         if (video_decoder) video_decoder->SetNeededFrames(frames_by_priority);
         // ImageSequenceDecoder doesn't need this - it decodes on demand
     }
@@ -348,6 +386,9 @@ struct ClipLoaderInfo {
     void EvictOutsideWindow(const std::set<int>& keep_frames) {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->EvictOutsideWindow(keep_frames); return; }
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->EvictOutsideWindow(keep_frames); return; }
 #endif
         if (video_decoder) video_decoder->EvictOutsideWindow(keep_frames);
         // ImageSequenceDecoder doesn't need this - it manages its own buffer
@@ -358,8 +399,22 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) return d3d11_decoder->GetBufferedFramesSet();
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->GetBufferedFramesSet();
+#endif
         if (video_decoder) return video_decoder->GetBufferedFramesSet();
         return std::set<int>{};
+    }
+
+    //=========================================================================
+    // Play/Pause State — controls decoder prefetch behavior
+    //=========================================================================
+
+    void SetPlaying(bool playing) {
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->SetPlaying(playing); return; }
+#endif
+        // Other backends don't have play/pause state yet
     }
 
     //=========================================================================
@@ -370,13 +425,24 @@ struct ClipLoaderInfo {
 #ifdef _WIN32
         if (d3d11_decoder) { d3d11_decoder->SetShuttleMode(enabled); return; }
 #endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) { metal_decoder->SetShuttleMode(enabled); return; }
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) { vulkan_decoder->SetShuttleMode(enabled); return; }
+#endif
         if (video_decoder) video_decoder->SetShuttleMode(enabled);
-        // ImageSequenceDecoder doesn't need shuttle mode - it's fast enough
     }
 
     bool IsShuttleMode() const {
 #ifdef _WIN32
         if (d3d11_decoder) return d3d11_decoder->IsShuttleMode();
+#endif
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) return metal_decoder->IsShuttleMode();
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) return vulkan_decoder->IsShuttleMode();
 #endif
         if (video_decoder) return video_decoder->IsShuttleMode();
         return false;
@@ -400,10 +466,22 @@ struct ClipLoaderInfo {
             return 0;
         }
 #endif
-        // D3D11 - disable shuttle mode and return current position
+#ifdef QCVIEW_USE_METAL
+        if (metal_decoder) {
+            metal_decoder->SetShuttleMode(false);
+            metal_decoder->ClearBuffer();
+            return 0;
+        }
+#endif
+#ifdef QCVIEW_USE_VULKAN
+        if (vulkan_decoder) {
+            vulkan_decoder->SetShuttleMode(false);
+            vulkan_decoder->ClearBuffer();
+            return 0;
+        }
+#endif
         if (video_decoder) {
             video_decoder->SetShuttleMode(false);
-            // Clear buffer of scrubbed frames so normal buffering can restart fresh
             video_decoder->ClearBuffer();
         }
         return 0;
@@ -799,6 +877,9 @@ public:
     // Reset adaptive playback speed to 1.0 (call on pause/seek)
     void ResetPlaybackSpeed();
 
+    // Propagate play/pause state to all active decoders
+    void SetPlayingOnLoaders(bool playing);
+
     // Update DirectEXRCache config (for live settings changes)
     // Call when user changes Image Playback/Threading settings
     void UpdateDirectEXRCacheConfig(int read_ahead_frames, int read_behind_frames, int thread_count);
@@ -836,6 +917,14 @@ public:
     // Check if this cache has any image sequence content
     // Used to determine if D3D11 unified pipeline can be used (it can't with sequences)
     bool HasImageSequenceContent() const;
+
+#ifdef QCVIEW_USE_METAL
+    // Direct decoder access for dual view — bypasses GetFrame() clamping/fallbacks.
+    // Mirrors D3D11's pattern: GetSourceCoords → decoder → pool texture.
+    // Returns pool texture ID (0 if decoder not ready or source not found).
+    uint64_t GetFrameAsPoolTextureDirect(int source_frame, const std::string& source_path,
+                                          int& width, int& height);
+#endif
 
 private:
     //=========================================================================

@@ -7,6 +7,16 @@
 #include "../timeline/timeline_view.h"
 #include "../annotations/annotation_io.h"
 #include <imgui.h>
+
+// Global NFD dialog re-entry guard.
+// Prevents keyboard shortcuts from opening multiple dialogs simultaneously.
+// On macOS, NSMenu + ImGui shortcut can both fire for the same key combo.
+// Declared non-static so other translation units can extern it.
+bool g_nfd_dialog_open = false;
+
+static void ClearImGuiKeyStateAfterDialog() {
+    ImGui::GetIO().ClearInputKeys();
+}
 #include <iostream>
 #include <filesystem>
 #include <algorithm>
@@ -318,9 +328,15 @@ namespace qcview {
         // Show save dialog if no project path exists
         std::string save_path = current_project_path;
         if (save_path.empty()) {
+            if (g_nfd_dialog_open) return;
+            g_nfd_dialog_open = true;
+
             nfdu8char_t* out_path = nullptr;
             nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
             nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, "project.qcvproj");
+
+            ClearImGuiKeyStateAfterDialog();
+            g_nfd_dialog_open = false;
 
             if (result != NFD_OKAY) {
                 if (result == NFD_ERROR) {
@@ -664,6 +680,14 @@ namespace qcview {
                     metadata_obj["color_transfer"] = cached_meta->video_meta->color_transfer;
                     metadata_obj["range_type"] = cached_meta->video_meta->range_type;
 
+                    // Frame index cache (for instant seek on re-open)
+                    metadata_obj["stream_timebase_num"] = cached_meta->video_meta->stream_timebase_num;
+                    metadata_obj["stream_timebase_den"] = cached_meta->video_meta->stream_timebase_den;
+                    metadata_obj["is_intra_codec"] = cached_meta->video_meta->is_intra_codec;
+                    if (!cached_meta->video_meta->keyframe_pts.empty()) {
+                        metadata_obj["keyframe_pts"] = cached_meta->video_meta->keyframe_pts;
+                    }
+
                     item_obj["video_metadata"] = metadata_obj;
                 }
 
@@ -700,6 +724,9 @@ namespace qcview {
 
     void ProjectManager::SaveProjectAs() {
         // Always show save dialog (even if project already has a path)
+        if (g_nfd_dialog_open) return;
+        g_nfd_dialog_open = true;
+
         nfdu8char_t* out_path = nullptr;
         nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
 
@@ -711,6 +738,9 @@ namespace qcview {
         }
 
         nfdresult_t result = NFD_SaveDialogU8(&out_path, filter, 1, nullptr, default_name.c_str());
+
+        ClearImGuiKeyStateAfterDialog();
+        g_nfd_dialog_open = false;
 
         if (result != NFD_OKAY) {
             if (result == NFD_ERROR) {
@@ -767,9 +797,15 @@ namespace qcview {
         // Show open dialog if no path provided
         std::string load_path = file_path;
         if (load_path.empty()) {
+            if (g_nfd_dialog_open) return;
+            g_nfd_dialog_open = true;
+
             nfdu8char_t* out_path = nullptr;
             nfdfilteritem_t filter[1] = { { "QCView Project", "qcvproj" } };
             nfdresult_t result = NFD_OpenDialogU8(&out_path, filter, 1, nullptr);
+
+            ClearImGuiKeyStateAfterDialog();
+            g_nfd_dialog_open = false;
 
             if (result != NFD_OKAY) {
                 if (result == NFD_ERROR) {
@@ -1119,6 +1155,15 @@ namespace qcview {
                         metadata.color_primaries = meta_obj.value("color_primaries", "");
                         metadata.color_transfer = meta_obj.value("color_transfer", "");
                         metadata.range_type = meta_obj.value("range_type", "");
+
+                        // Frame index cache
+                        metadata.stream_timebase_num = meta_obj.value("stream_timebase_num", 0);
+                        metadata.stream_timebase_den = meta_obj.value("stream_timebase_den", 1);
+                        metadata.is_intra_codec = meta_obj.value("is_intra_codec", false);
+                        if (meta_obj.contains("keyframe_pts")) {
+                            metadata.keyframe_pts = meta_obj["keyframe_pts"].get<std::vector<int64_t>>();
+                        }
+
                         metadata.is_loaded = true;
 
                         // Cache in memory
@@ -1179,6 +1224,11 @@ namespace qcview {
 
             // Update project path
             current_project_path = load_path;
+
+            // Add to recent files so projects appear in File > Recent Files
+            if (recent_file_callback_) {
+                recent_file_callback_(load_path);
+            }
 
             Debug::Log("LoadProject: Project loaded successfully from " + load_path);
             Debug::Log("  - " + std::to_string(media_pool.size()) + " media items");
@@ -1639,6 +1689,7 @@ namespace qcview {
             ImGui::Spacing();
             ImGui::Text("Project Name:");
             ImGui::SetNextItemWidth(-1);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             ImGui::InputText("##ProjectNameInput", project_name, sizeof(project_name));
             ImGui::Spacing();
             ImGui::Text("Location:");
@@ -1686,6 +1737,7 @@ namespace qcview {
             ImGui::Text("Enter new name:");
             ImGui::Spacing();
             ImGui::SetNextItemWidth(-1);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             bool enter_pressed = ImGui::InputText("##RenameInput", rename_buffer, sizeof(rename_buffer), ImGuiInputTextFlags_EnterReturnsTrue);
             ImGui::Spacing();
             ImGui::Separator();
@@ -1738,6 +1790,9 @@ namespace qcview {
 
             ImGui::TextDisabled("Dual View Name:");
             ImGui::SetNextItemWidth(280 * dv_scale);
+            if (ImGui::IsWindowAppearing()) {
+                ImGui::SetKeyboardFocusHere();
+            }
             ImGui::InputText("##DualViewNameInput", new_dual_view_name_buffer, sizeof(new_dual_view_name_buffer));
 
             ImGui::Spacing();
@@ -1836,6 +1891,7 @@ namespace qcview {
 
             ImGui::TextDisabled("Playlist Name:");
             ImGui::SetNextItemWidth(-1);
+            if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             ImGui::InputText("##PlaylistName", new_playlist_name_buffer, sizeof(new_playlist_name_buffer));
 
             ImGui::Spacing();
@@ -2483,7 +2539,15 @@ namespace qcview {
             ImGui::CloseCurrentPopup();
         }
 
-        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::DUAL_VIEW && item.type != MediaType::PLAYLIST && ImGui::MenuItem("Show in Explorer")) {
+        const char* reveal_label =
+#ifdef _WIN32
+            "Show in Explorer";
+#elif defined(__APPLE__)
+            "Reveal in Finder";
+#else
+            "Show in File Browser";
+#endif
+        if (selection_count == 1 && item.type != MediaType::SEQUENCE && item.type != MediaType::DUAL_VIEW && item.type != MediaType::PLAYLIST && ImGui::MenuItem(reveal_label)) {
             ShowInExplorer(item.path);
             ImGui::CloseCurrentPopup();
         }
@@ -3297,8 +3361,20 @@ namespace qcview {
 
         Debug::Log("ShowInExplorer: Opening: " + windows_path);
         ShellExecuteW(NULL, L"open", L"explorer.exe", params.c_str(), NULL, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+        // macOS: use 'open' command; -R flag reveals (selects) the file in Finder
+        std::string target = resolved_path;
+        std::filesystem::path fs_path(resolved_path);
+        bool is_dir = std::filesystem::is_directory(fs_path);
+        std::thread([target, is_dir]() {
+            std::string cmd = is_dir
+                ? "open \"" + target + "\""
+                : "open -R \"" + target + "\"";
+            system(cmd.c_str());
+        }).detach();
+        Debug::Log("ShowInFinder: Opening: " + target);
 #else
-        // Linux: open directory (xdg-open can't select a specific file)
+        // Linux: open parent directory (xdg-open can't select a specific file)
         std::string target = resolved_path;
         std::filesystem::path fs_path(resolved_path);
         if (!std::filesystem::is_directory(fs_path)) {
@@ -3308,7 +3384,7 @@ namespace qcview {
             std::string cmd = "xdg-open \"" + target + "\"";
             system(cmd.c_str());
         }).detach();
-        Debug::Log("ShowInExplorer: Opening: " + target);
+        Debug::Log("ShowInFileBrowser: Opening: " + target);
 #endif
     }
 
@@ -3784,6 +3860,11 @@ namespace qcview {
 
         if (media_type == MediaType::IMAGE_SEQUENCE || media_type == MediaType::EXR_SEQUENCE) {
             Debug::Log("Detected as image/EXR sequence, showing frame rate dialog");
+
+            // Add to recent files before showing dialog (use the dropped file path)
+            if (recent_file_callback_) {
+                recent_file_callback_(file_path);
+            }
 
             // Show frame rate dialog for image sequences
             ShowFrameRateDialog(file_path);
@@ -5511,7 +5592,7 @@ namespace qcview {
         }
         // Buttons below the filename in the same row
         PushOutlineButtonStyle();
-        if (button_suffix != "PRM") { // Mac paths might not work with Windows Explorer
+        {
             std::string open_button = "Open##" + button_suffix;
             if (ImGui::SmallButton(open_button.c_str())) {
                 OpenFileInExplorer(project_path);

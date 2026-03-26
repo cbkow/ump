@@ -8,7 +8,9 @@ nav_order: 8
 
 QCView includes a node-based [OpenColorIO](https://opencolorio.org/) pipeline for live color management. Build transform chains visually and see results applied to the Viewer in real time.
 
-**Bundled configs:** ACES 1.3, ACES 2.0, Blender 4.5, Blender 5.0
+**Bundled configs:** ACES 2.0, Blender 5.1, ACES 1.3
+
+Blender 5.1 is the default config. Both ACES 2.0 and Blender 5.1 include **Linear sRGB EDR** and **Linear P3 EDR** display outputs for macOS Extended Dynamic Range workflows with ACES 2.0 HDR tone mapping at 500, 1000, 2000, and 4000 nit levels.
 
 ![Inspector panel for video](images/QCView_v027.webp)
 

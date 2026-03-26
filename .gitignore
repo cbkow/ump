@@ -1,6 +1,7 @@
 # Build directories
 build/
 build-linux/
+build-macos/
 out/
 
 # Packaging output
@@ -41,3 +42,8 @@ Thumbs.db
 
 # Logs and temp
 *.log
+logs.txt
+
+# Build artifacts
+*.dmg
+*.bak

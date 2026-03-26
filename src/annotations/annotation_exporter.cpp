@@ -1009,6 +1009,16 @@ void AnnotationExporter::RevealInExplorer(const std::string& path, bool is_folde
         ShellExecuteW(nullptr, L"open", L"explorer.exe", command.c_str(), nullptr, SW_SHOWNORMAL);
     }
     Debug::Log("Revealed in Explorer: " + path);
+#elif defined(__APPLE__)
+    // macOS: use 'open' command; -R reveals (selects) the file in Finder
+    std::string target = path;
+    std::thread([target, is_folder]() {
+        std::string cmd = is_folder
+            ? "open \"" + target + "\""
+            : "open -R \"" + target + "\"";
+        system(cmd.c_str());
+    }).detach();
+    Debug::Log("Revealed in Finder: " + target);
 #else
     // Linux: open parent directory (xdg-open can't select a specific file)
     std::string target = path;
@@ -1020,7 +1030,7 @@ void AnnotationExporter::RevealInExplorer(const std::string& path, bool is_folde
         std::string cmd = "xdg-open \"" + target + "\"";
         system(cmd.c_str());
     }).detach();
-    Debug::Log("Revealed in file manager: " + target);
+    Debug::Log("Revealed in file browser: " + target);
 #endif
 }
 

@@ -13,11 +13,11 @@ After installing QCView, the first setting worth configuring is the transcode ca
 ![Cache settings](images/QCView_v051.webp)
 ---
 
-## Font Settings
+## UI Scale
 
-Drag the slider to scale the UI font size. This setting persists between sessions.
+Drag the slider to scale the entire interface — fonts, panels, spacing, and icons. This setting persists between sessions.
 
-> `1.08x` is recommended for Windows systems running at 125% display scaling.
+> `1.08x` is recommended for Windows systems running at 125% display scaling. On macOS, the default `1.0x` is most likely going to be too large for a retina screen.
 
-![Font settings](images/QCView_v052.webp)
+![UI Scale settings](images/SCR-20260326-odak.png)
 

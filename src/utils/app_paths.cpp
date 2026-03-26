@@ -22,6 +22,13 @@ std::filesystem::path GetAppDataRoot() {
         } else {
             cached_path = std::filesystem::path(".") / "qcview";
         }
+#elif defined(__APPLE__)
+        const char* home = getenv("HOME");
+        if (home) {
+            cached_path = std::filesystem::path(home) / "Library" / "Application Support" / "qcview";
+        } else {
+            cached_path = std::filesystem::path(".") / "qcview";
+        }
 #else
         const char* home = getenv("HOME");
         if (home) {

@@ -3,10 +3,16 @@
 #include "app/application.h"
 #include "annotations/annotation_serializer.h"
 #include "annotations/annotation_exporter.h"
+#include "annotations/annotation_manager.h"
+#include "annotations/viewport_annotator.h"
 #include "utils/debug_utils.h"
 
 #include <glad/gl.h>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 #include <imgui.h>
 #include "../external/glfw/deps/stb_image_write.h"
 
@@ -15,6 +21,10 @@
 #include "gpu/vulkan_texture_pool.h"
 #include "annotations/vulkan_annotation_renderer.h"
 #include "color/vulkan_ocio_renderer.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "gpu/metal_device_manager.h"
+#include "gpu/metal_texture_pool.h"
+#include "annotations/metal_annotation_renderer.h"
 #endif
 
 #include <cmath>
@@ -44,7 +54,11 @@
             // Scale export dimensions to fit within window framebuffer
             // This works around OpenGL context limitations that can clip offscreen FBOs
             int fb_width, fb_height;
+#ifdef QCVIEW_USE_METAL
+            MacOS_GetFramebufferSize(&fb_width, &fb_height);
+#else
             glfwGetFramebufferSize(window, &fb_width, &fb_height);
+#endif
 
             if (export_width > fb_width || export_height > fb_height) {
                 float scale_x = static_cast<float>(fb_width) / export_width;
@@ -506,6 +520,53 @@
             pending_capture.pending = false;
             return write_ok;
         }
+#elif defined(QCVIEW_USE_METAL)
+        // Skip capture on first frame after queueing
+        if (pending_capture.just_queued) {
+            pending_capture.just_queued = false;
+            return false;
+        }
+
+        // Metal export path: delegate to CaptureScreenshotToPath which handles
+        // OCIO passthrough (copies HW-decoded private textures to SharedStorage),
+        // annotation baking, and PNG writing.
+        {
+            if (!video_player) {
+                Debug::Log("CaptureRenderedFrame (Metal): No video player");
+                pending_capture.pending = false;
+                return false;
+            }
+
+            namespace fs = std::filesystem;
+            fs::path out_path(pending_capture.output_path);
+            std::string dir = out_path.parent_path().string();
+            std::string filename = out_path.filename().string();
+
+            // Override the annotation strokes callback to return only this note's
+            // strokes — prevents live editing strokes from bleeding onto other frames.
+            auto old_callback = video_player->GetAnnotationStrokesCallbackCopy();
+            auto strokes_copy = pending_capture.strokes;
+            video_player->SetGetAnnotationStrokesCallback(
+                [strokes_copy]() -> std::vector<qcview::Annotations::ActiveStroke> {
+                    return strokes_copy;
+                });
+
+            bool write_ok = video_player->CaptureScreenshotToPath(dir, filename);
+
+            // Restore original callback
+            video_player->SetGetAnnotationStrokesCallback(old_callback);
+
+            if (write_ok) {
+                Debug::Log("CaptureRenderedFrame (Metal): Saved " + pending_capture.output_path);
+            } else {
+                Debug::Log("CaptureRenderedFrame (Metal): Failed");
+            }
+
+            pending_capture.success = write_ok;
+            pending_capture.completed = true;
+            pending_capture.pending = false;
+            return write_ok;
+        }
 #endif
 
         // Skip capture on first frame after queueing - wait for video texture to update
@@ -736,7 +797,11 @@
 
                 // Restore viewport
                 GLint viewport[4];
+#ifdef QCVIEW_USE_METAL
+                MacOS_GetFramebufferSize(&viewport[2], &viewport[3]);
+#else
                 glfwGetFramebufferSize(window, &viewport[2], &viewport[3]);
+#endif
                 glViewport(0, 0, viewport[2], viewport[3]);
             }
 
@@ -747,7 +812,11 @@
 
             // Calculate DPI scale factor (ImGui uses logical pixels, OpenGL uses physical pixels)
             int win_w, win_h;
+#ifdef QCVIEW_USE_METAL
+            MacOS_GetWindowSize(&win_w, &win_h);
+#else
             glfwGetWindowSize(window, &win_w, &win_h);
+#endif
             float scale_x = (win_w > 0) ? static_cast<float>(viewport[2]) / win_w : 1.0f;
             float scale_y = (win_h > 0) ? static_cast<float>(viewport[3]) / win_h : 1.0f;
 
@@ -853,6 +922,20 @@
         const std::vector<qcview::AnnotationNote>& notes,
         const std::string& temp_dir
     ) {
+        // If currently editing annotations, persist in-progress strokes (including
+        // any active mid-draw stroke) so the export picks up per-note data correctly
+        // instead of bleeding the live editing state onto every frame.
+        if (viewport_annotator && viewport_annotator->IsAnnotationMode()
+            && !current_editing_timecode_.empty() && annotation_manager) {
+            auto editing_strokes = current_annotation_strokes_;
+            auto* active = viewport_annotator->GetActiveStroke();
+            if (active && !active->points.empty()) {
+                editing_strokes.push_back(*active);
+            }
+            std::string json_data = qcview::Annotations::AnnotationSerializer::StrokesToJsonString(editing_strokes);
+            annotation_manager->UpdateNoteAnnotationData(current_editing_timecode_, json_data);
+        }
+
         export_state.active = true;
         export_state.format = format;
         export_state.options = options;

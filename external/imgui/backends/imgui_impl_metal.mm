@@ -92,6 +92,9 @@ static void ImGui_ImplMetal_InvalidateDeviceObjectsForPlatformWindows();
 struct ImGui_ImplMetal_Data
 {
     MetalContext*               SharedMetalContext;
+    id<MTLFunction>             CustomFragmentFunction;  // EDR fragment shader (nil = use default)
+    bool                        HDREnabled;
+    float                       EDRScale;
 
     ImGui_ImplMetal_Data()      { memset((void*)this, 0, sizeof(*this)); }
 };
@@ -228,6 +231,13 @@ static void ImGui_ImplMetal_SetupRenderState(ImDrawData* draw_data, id<MTLComman
 
     [commandEncoder setVertexBuffer:vertexBuffer.buffer offset:0 atIndex:0];
     [commandEncoder setVertexBufferOffset:vertexBufferOffset atIndex:0];
+
+    // Bind EDR scale uniform if HDR mode is active
+    if (bd->HDREnabled && bd->CustomFragmentFunction != nil)
+    {
+        float edr_scale = bd->EDRScale;
+        [commandEncoder setFragmentBytes:&edr_scale length:sizeof(float) atIndex:0];
+    }
 }
 
 // Metal Render function.
@@ -440,6 +450,68 @@ void ImGui_ImplMetal_DestroyDeviceObjects()
             ImGui_ImplMetal_DestroyTexture(tex);
 
     ImGui_ImplMetal_InvalidateDeviceObjectsForPlatformWindows();
+    [bd->SharedMetalContext.renderPipelineStateCache removeAllObjects];
+
+    // Release custom fragment function
+    bd->CustomFragmentFunction = nil;
+}
+
+void ImGui_ImplMetal_SetHDRMode(bool enabled, float edr_scale)
+{
+    ImGui_ImplMetal_Data* bd = ImGui_ImplMetal_GetBackendData();
+    IM_ASSERT(bd != nullptr && "Backend not initialized!");
+
+    bd->HDREnabled = enabled;
+    bd->EDRScale = enabled ? edr_scale : 1.0f;
+
+    if (enabled)
+    {
+        // Compile EDR fragment shader
+        NSString* edrShaderSource = @""
+        "#include <metal_stdlib>\n"
+        "using namespace metal;\n"
+        "\n"
+        "struct VertexOut {\n"
+        "    float4 position [[position]];\n"
+        "    float2 texCoords;\n"
+        "    float4 color;\n"
+        "};\n"
+        "\n"
+        "fragment half4 fragment_main_edr(VertexOut in [[stage_in]],\n"
+        "                                texture2d<half, access::sample> texture [[texture(0)]],\n"
+        "                                constant float &edr_scale [[buffer(0)]]) {\n"
+        "    constexpr sampler linearSampler(coord::normalized, min_filter::linear, mag_filter::linear, mip_filter::linear);\n"
+        "    half4 texColor = texture.sample(linearSampler, in.texCoords);\n"
+        "    half4 color = half4(in.color) * texColor;\n"
+        "    half3 srgb = color.rgb;\n"
+        "    // sRGB gamma to linear conversion\n"
+        "    half3 linear = select(srgb / 12.92h,\n"
+        "                          pow((srgb + 0.055h) / 1.055h, half3(2.4h)),\n"
+        "                          srgb >= half3(0.04045h));\n"
+        "    return half4(linear * half3(edr_scale), color.a);\n"
+        "}\n";
+
+        NSError* error = nil;
+        id<MTLLibrary> library = [bd->SharedMetalContext.device newLibraryWithSource:edrShaderSource options:nil error:&error];
+        if (library)
+        {
+            bd->CustomFragmentFunction = [library newFunctionWithName:@"fragment_main_edr"];
+            if (bd->CustomFragmentFunction == nil)
+                NSLog(@"ImGui Metal EDR: failed to find fragment_main_edr function");
+            else
+                NSLog(@"ImGui Metal EDR: shader compiled OK, function=%p, edr_scale=%.2f", bd->CustomFragmentFunction, edr_scale);
+        }
+        else
+        {
+            NSLog(@"ImGui Metal EDR: shader compilation failed: %@", error);
+        }
+    }
+    else
+    {
+        bd->CustomFragmentFunction = nil;
+    }
+
+    // Clear pipeline cache to force rebuild with new fragment function
     [bd->SharedMetalContext.renderPipelineStateCache removeAllObjects];
 }
 
@@ -766,6 +838,18 @@ static void ImGui_ImplMetal_InvalidateDeviceObjectsForPlatformWindows()
     {
         NSLog(@"Error: failed to find Metal shader functions in library: %@", error);
         return nil;
+    }
+
+    // Use custom fragment function (EDR shader) if available
+    ImGui_ImplMetal_Data* bd_for_shader = ImGui_ImplMetal_GetBackendData();
+    if (bd_for_shader != nullptr && bd_for_shader->CustomFragmentFunction != nil)
+    {
+        fragmentFunction = bd_for_shader->CustomFragmentFunction;
+        NSLog(@"ImGui Metal EDR: using custom fragment function for pipeline (format=%lu)", (unsigned long)descriptor.colorPixelFormat);
+    }
+    else
+    {
+        NSLog(@"ImGui Metal EDR: using DEFAULT fragment (bd=%p, custom=%p, hdr=%d)", bd_for_shader, bd_for_shader ? bd_for_shader->CustomFragmentFunction : nil, bd_for_shader ? bd_for_shader->HDREnabled : 0);
     }
 
     MTLVertexDescriptor* vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];

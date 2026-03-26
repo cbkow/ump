@@ -38,6 +38,24 @@ With Windows HDR mode enabled, you can present video in `Rec.2100 PQ`. To view S
 
 ---
 
+### HDR Mode (macOS — EDR)
+
+macOS uses **Extended Dynamic Range (EDR)** instead of PQ/ST.2084. EDR is a linear-light system where `1.0 = SDR white` and values above `1.0` map to brighter HDR highlights, up to the display's maximum headroom.
+
+To use EDR in QCView:
+
+1. Enable **EDR** from the HDR menu in the menu bar
+2. Select an EDR colorspace: **Linear sRGB** or **Linear Display P3** (match to your display)
+3. In the Color node editor, select a **Linear sRGB EDR** or **Linear P3 EDR** display with an ACES 2.0 HDR view (500 / 1000 / 2000 / 4000 nits)
+
+The ACES 2.0 HDR views produce tone-mapped output scaled to specific peak luminance levels. For example, the 1000 nit view outputs values up to `10.0` (1000 / 100 nit reference white). The display's EDR headroom determines how much of this range is visible.
+
+The **Standard (No Tonemap)** view passes scene-linear values through without tone mapping — useful for viewing EXR data directly on an EDR display.
+
+> **Note:** EDR requires an Apple Silicon Mac with macOS 13.0 or later. The maximum EDR headroom depends on the display hardware (typically 2x-8x for built-in MacBook displays, higher for Pro Display XDR).
+
+---
+
 ### HDR Mode (Linux)
 
 On Linux, HDR output can be toggled on and off within QCView at runtime. However, **HDR must also be enabled at the display/compositor level** — for example, in KDE Plasma's Display settings — for HDR output to reach the monitor.

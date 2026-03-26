@@ -365,6 +365,14 @@ bool VulkanVideoDecoder::OpenCodec() {
 // Shutdown
 //=============================================================================
 
+void VulkanVideoDecoder::RequestShutdown() {
+    if (decode_running_) {
+        decode_running_ = false;
+        decode_cv_.notify_all();
+        frame_ready_cv_.notify_all();
+    }
+}
+
 void VulkanVideoDecoder::Shutdown() {
     if (decode_running_) {
         decode_running_ = false;
@@ -1285,7 +1293,7 @@ uint64_t VulkanVideoDecoder::ProcessHWFrameOnGPU(AVFrame* vaapi_frame, uint64_t 
     params.height = h;
     params.bit_depth = imported.bit_depth;
     params.is_hdr = is_hdr_;
-    params.is_full_range = is_full_range_;
+    params.is_full_range = GetEffectiveFullRange();
     params.color_space = is_hdr_ ? YUVColorSpace::BT_2020 : YUVColorSpace::BT_709;
     params.plane_count = imported.num_planes;
     params.has_alpha = false;

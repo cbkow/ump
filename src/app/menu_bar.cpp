@@ -27,10 +27,19 @@
 #include "timeline/timeline_thumbnail_cache.h"
 #include <imgui.h>
 #include <chrono>
+#ifdef QCVIEW_USE_METAL
+#include "app/macos_app_delegate.h"
+#else
 #include <GLFW/glfw3.h>
+#endif
 #include <string>
 #include <algorithm>
 #include <filesystem>
+#ifdef __APPLE__
+#include "app/macos_menu_bar.h"
+#endif
+
+extern bool timeline_thumbnail_cache_clear_deferred;
 
 // Globals defined in main.cpp
 extern ImFont* font_regular;
@@ -79,7 +88,14 @@ extern bool show_notification_permanent;
             // Custom submenu background color
             ImGui::PushStyleColor(ImGuiCol_PopupBg, ImVec4(0.065f, 0.065f, 0.065f, 1.0f));
 
-            if (ImGui::BeginMenu("File")) {
+            // On macOS, File/View/Help menus are handled by the native NSMenu bar
+#ifdef __APPLE__
+            bool native_menu_active = qcview::IsNativeMenuBarActive();
+#else
+            bool native_menu_active = false;
+#endif
+
+            if (!native_menu_active && ImGui::BeginMenu("File")) {
                 ImGui::TextDisabled("Media:");
                 if (ImGui::MenuItem("Open Media...", "Ctrl+O")) {
                     OpenFileDialog();
@@ -203,13 +219,17 @@ extern bool show_notification_permanent;
 
                 ImGui::Separator();
                 if (ImGui::MenuItem("Exit", "Alt+F4")) {
+#ifdef QCVIEW_USE_METAL
+                    MacOS_SetShouldClose(true);
+#else
                     glfwSetWindowShouldClose(window, true);
+#endif
                 }
 
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("View")) {
+            if (!native_menu_active && ImGui::BeginMenu("View")) {
 
                 ImGui::TextDisabled("Layout Controls:");
                 // Layout controls
@@ -306,11 +326,6 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Annotation Toolbar", "Ctrl+6", show_annotation_toolbar)) {
                     show_annotation_toolbar = !show_annotation_toolbar;
                     if (annotation_toolbar) annotation_toolbar->SetVisible(show_annotation_toolbar);
-                }
-
-                if (ImGui::MenuItem("Sidebar", "Ctrl+7", show_sidebar_panel)) {
-                    show_sidebar_panel = !show_sidebar_panel;
-                    first_time_setup = true;  // Trigger dock rebuild
                 }
 
                 ImGui::Separator();
@@ -811,9 +826,9 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Enable Timeline Thumbnails", nullptr, cache_settings.enable_thumbnails)) {
                     cache_settings.enable_thumbnails = !cache_settings.enable_thumbnails;
                     SaveSettings();
-                    if (!cache_settings.enable_thumbnails && timeline_thumbnail_cache) {
-                        timeline_thumbnail_cache->Clear();
-                        Debug::Log("Timeline thumbnail cache cleared");
+                    if (!cache_settings.enable_thumbnails) {
+                        timeline_thumbnail_cache_clear_deferred = true;
+                        Debug::Log("Timeline thumbnail cache clear deferred");
                     }
                     Debug::Log(cache_settings.enable_thumbnails ? "Timeline thumbnails enabled" : "Timeline thumbnails disabled");
                 }
@@ -848,7 +863,7 @@ extern bool show_notification_permanent;
                     show_shortcuts_popup = true;
                 }
 
-                if (ImGui::MenuItem("Font Settings...")) {
+                if (ImGui::MenuItem("UI Scale...")) {
                     show_font_settings_window = true;
                 }
 
@@ -872,13 +887,16 @@ extern bool show_notification_permanent;
                 ImGui::EndMenu();
             }
 
-            if (ImGui::BeginMenu("Help")) {
+            if (!native_menu_active && ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.0.4");
+                ImGui::TextDisabled("About QCView v1.0.5");
 
                 if (ImGui::MenuItem("Manual")) {
 #ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://qcview.app/", NULL, NULL, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+                    // macOS: handled by native menu, but kept as fallback
+                    system("open https://qcview.app/ &");
 #else
                     system("xdg-open https://qcview.app/ &");
 #endif
@@ -887,6 +905,8 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("License")) {
 #ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/blob/main/LICENSE", NULL, NULL, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+                    system("open https://github.com/cbkow/QCView-Player/blob/main/LICENSE &");
 #else
                     system("xdg-open https://github.com/cbkow/QCView-Player/blob/main/LICENSE &");
 #endif
@@ -895,6 +915,8 @@ extern bool show_notification_permanent;
                 if (ImGui::MenuItem("Check for Updates")) {
 #ifdef _WIN32
                     ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/releases", NULL, NULL, SW_SHOWNORMAL);
+#elif defined(__APPLE__)
+                    system("open https://github.com/cbkow/QCView-Player/releases &");
 #else
                     system("xdg-open https://github.com/cbkow/QCView-Player/releases &");
 #endif
@@ -906,6 +928,90 @@ extern bool show_notification_permanent;
             ImGui::PopStyleColor(); // Pop custom submenu background
 
             // ========================================================================
+            // PANEL TOGGLE TOOLBAR (replaces sidebar docking window)
+            // Icon buttons on the menu bar row, after menus, before status indicators.
+            // ========================================================================
+            {
+                ImGui::SameLine(0, 16.0f);  // Spacing after last menu
+
+                float btn_size = ImGui::GetFrameHeight();  // Match menu bar height
+                ImVec4 active_color = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
+                ImVec4 inactive_color = ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+
+                // Fully transparent buttons — no background, no border, hover only
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.3f, 0.5f));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.4f, 0.4f, 0.4f, 0.5f));
+                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 2.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(2.0f, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+
+                ImGui::PushFont(font_icons);
+
+                // Helper: icon toggle button
+                auto ToolbarToggle = [&](const char* icon, const char* id, bool& state, const char* tooltip) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, state ? active_color : inactive_color);
+                    if (ImGui::Button(icon, ImVec2(btn_size, btn_size))) {
+                        state = !state;
+                        if (state) minimal_view_mode = false;
+                        if (&state == &show_color_panels || &state == &show_timeline_panel) {
+                            first_time_setup = true;
+                        }
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::PopFont();
+                        ImGui::SetTooltip("%s", tooltip);
+                        ImGui::PushFont(font_icons);
+                    }
+                    ImGui::PopStyleColor();  // Text
+                    ImGui::SameLine();
+                };
+
+                // Helper: icon action button
+                auto ToolbarAction = [&](const char* icon, const char* id, const char* tooltip, auto action) {
+                    ImGui::PushStyleColor(ImGuiCol_Text, active_color);
+                    if (ImGui::Button(icon, ImVec2(btn_size, btn_size))) {
+                        action();
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::PopFont();
+                        ImGui::SetTooltip("%s", tooltip);
+                        ImGui::PushFont(font_icons);
+                    }
+                    ImGui::PopStyleColor();
+                    ImGui::SameLine();
+                };
+
+                // Separator between menus and toolbar
+                // Vertical separator
+                {
+                    ImVec2 p = ImGui::GetCursorScreenPos();
+                    float h = ImGui::GetFrameHeight();
+                    ImGui::GetWindowDrawList()->AddLine(
+                        ImVec2(p.x, p.y + 2), ImVec2(p.x, p.y + h - 2),
+                        IM_COL32(80, 80, 80, 180));
+                    ImGui::Dummy(ImVec2(1, h));
+                    ImGui::SameLine(0, 6.0f);
+                }
+
+                // Panel toggles
+                ToolbarToggle(ICON_TOPIC, "##tb_project", show_project_panel,
+                    show_project_panel ? "Hide Project (Ctrl+1)" : "Show Project (Ctrl+1)");
+                ToolbarToggle(ICON_INFO, "##tb_inspector", show_inspector_panel,
+                    show_inspector_panel ? "Hide Inspector (Ctrl+2)" : "Show Inspector (Ctrl+2)");
+                ToolbarToggle(ICON_VIEW_TIMELINE, "##tb_timeline", show_timeline_panel,
+                    show_timeline_panel ? "Hide Timeline (Ctrl+3)" : "Show Timeline (Ctrl+3)");
+                ToolbarToggle(ICON_PALETTE, "##tb_color", show_color_panels,
+                    show_color_panels ? "Hide Color (Ctrl+4)" : "Show Color (Ctrl+4)");
+                ToolbarToggle(ICON_DRAW, "##tb_annotations", show_annotation_panel,
+                    show_annotation_panel ? "Hide Annotations (Ctrl+5)" : "Show Annotations (Ctrl+5)");
+
+                ImGui::PopFont();
+                ImGui::PopStyleVar(3);   // FrameBorderSize, ItemSpacing, FramePadding
+                ImGui::PopStyleColor(3); // Button, Hovered, Active
+            }
+
+            // ========================================================================
             // SHADER STATUS INDICATOR IN MENU BAR
             // ========================================================================
             bool shader_applied = video_player && video_player->HasActiveColorTransform();
@@ -914,6 +1020,9 @@ extern bool show_notification_permanent;
                 const char* shader_text = "Shader Applied";
                 shader_text_width = ImGui::CalcTextSize(shader_text).x + 20.0f; // Add spacing
             }
+
+            // Reserve space for HDR menu at far right
+            float hdr_menu_width = ImGui::CalcTextSize("HDR").x + ImGui::GetStyle().FramePadding.x * 2 + 16.0f;
 
             // ========================================================================
             // SYSTEM NOTIFICATION IN MENU BAR
@@ -936,8 +1045,8 @@ extern bool show_notification_permanent;
                     float text_width = ImGui::CalcTextSize(display_text.c_str()).x;
                     float padding = 20.0f;
 
-                    // Position on right side of menu bar, leaving room for shader text
-                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width - shader_text_width + ImGui::GetCursorPosX() - padding);
+                    // Position on right side of menu bar, leaving room for shader text + HDR menu
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width - shader_text_width - hdr_menu_width + ImGui::GetCursorPosX() - padding);
 
                     // Color based on message type
                     ImVec4 bg_color = show_notification_permanent ?
@@ -966,10 +1075,10 @@ extern bool show_notification_permanent;
                 const char* shader_text = "Shader Applied";
                 float padding = 20.0f;
 
-                // If no notification, position from right edge
+                // If no notification, position from right edge (leave room for HDR menu)
                 if (stats_bar_notification_message.empty()) {
                     float text_width = ImGui::CalcTextSize(shader_text).x;
-                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width + ImGui::GetCursorPosX() - padding);
+                    ImGui::SameLine(ImGui::GetContentRegionAvail().x - text_width - hdr_menu_width + ImGui::GetCursorPosX() - padding);
                 } else {
                     // Already positioned after notification, just add some spacing
                     ImGui::SameLine();
@@ -978,6 +1087,77 @@ extern bool show_notification_permanent;
                 ImGui::PushStyleColor(ImGuiCol_Text, GetWindowsAccentColor());
                 ImGui::Text("%s", shader_text);
                 ImGui::PopStyleColor();
+            }
+
+            // ========================================================================
+            // HDR MENU (rightmost item in menu bar)
+            // ========================================================================
+            {
+#ifdef _WIN32
+                bool hdr_active = qcview::HDROutputManager::Instance().IsHDRActive();
+                bool hdr_supported = hdr_active;
+#elif defined(QCVIEW_USE_VULKAN)
+                bool hdr_active = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRActive() : false;
+                bool hdr_supported = vulkan_swapchain_ ? vulkan_swapchain_->IsHDRSupported() : false;
+#elif defined(QCVIEW_USE_METAL)
+                bool hdr_active = metal_swapchain_ ? metal_swapchain_->IsHDRActive() : false;
+                bool hdr_supported = metal_swapchain_ ? metal_swapchain_->IsHDRSupported() : false;
+#else
+                bool hdr_active = false;
+                bool hdr_supported = false;
+#endif
+                const char* hdr_label = hdr_active ? "HDR" : "SDR";
+                float hdr_width = ImGui::CalcTextSize(hdr_label).x + ImGui::GetStyle().FramePadding.x * 2 + 8.0f;
+
+                // Position at right edge with padding
+                ImGui::SameLine(ImGui::GetContentRegionAvail().x - hdr_width + ImGui::GetCursorPosX());
+
+                ImVec4 hdr_text_color = hdr_active ? GetWindowsAccentColor() : ImVec4(0.5f, 0.5f, 0.5f, 1.0f);
+                ImGui::PushStyleColor(ImGuiCol_Text, hdr_text_color);
+
+                if (ImGui::BeginMenu(hdr_label)) {
+                    ImGui::PopStyleColor();
+
+#ifdef _WIN32
+                    ImGui::MenuItem("Windows HDR", nullptr, hdr_active);
+                    ImGui::TextDisabled("Controlled by Windows settings");
+#elif defined(QCVIEW_USE_VULKAN)
+                    if (ImGui::MenuItem(hdr_active ? "Disable HDR" : "Enable HDR", nullptr, false, hdr_supported)) {
+                        if (vulkan_swapchain_) {
+                            vulkan_swapchain_->SetHDREnabled(!hdr_active);
+                            SaveSettings();
+                        }
+                    }
+                    if (!hdr_supported) ImGui::TextDisabled("HDR not available on this display");
+#elif defined(QCVIEW_USE_METAL)
+                    if (ImGui::MenuItem(hdr_active ? "Disable EDR" : "Enable EDR", nullptr, false, hdr_supported)) {
+                        if (metal_swapchain_) {
+                            metal_swapchain_->SetHDREnabled(!hdr_active);
+                            SaveSettings();
+                        }
+                    }
+                    if (!hdr_supported) ImGui::TextDisabled("EDR not available on this display");
+
+                    if (hdr_active && metal_swapchain_) {
+                        ImGui::Separator();
+                        ImGui::TextDisabled("EDR Colorspace:");
+                        auto current_cs = metal_swapchain_->GetEDRColorspace();
+                        for (int i = 0; i < static_cast<int>(qcview::EDRColorspace::Count); i++) {
+                            auto cs = static_cast<qcview::EDRColorspace>(i);
+                            bool selected = (cs == current_cs);
+                            if (ImGui::MenuItem(qcview::EDRColorspaceName(cs), nullptr, selected)) {
+                                metal_swapchain_->SetEDRColorspace(cs);
+                                SaveSettings();
+                            }
+                        }
+                    }
+#else
+                    ImGui::TextDisabled("HDR not available on this platform");
+#endif
+                    ImGui::EndMenu();
+                } else {
+                    ImGui::PopStyleColor();
+                }
             }
 
             ImGui::EndMenuBar();

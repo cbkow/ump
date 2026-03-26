@@ -101,6 +101,11 @@ bool IsHDRDisplayActive();
 // handles sRGB→PQ on the GPU. On Windows/OpenGL this returns true.
 bool IsHDROutputActive();
 
+// Returns true if EDR is active with a linear-encoded colorspace (macOS only).
+// When true, video textures need linear→sRGB pre-encoding so the EDR shader
+// can linearize back correctly. When false (gamma EDR), no pre-encoding needed.
+bool IsEDRLinearActive();
+
 // Set/get the UI brightness level in nits (cross-platform).
 // On Windows this controls CPU-side PQ conversion target.
 // On Linux this is stored here for settings persistence; the actual
@@ -111,6 +116,11 @@ float GetHDRUIBrightness();
 #ifdef __linux__
 class VulkanHDRSwapchain;
 void SetVulkanHDRSwapchain(VulkanHDRSwapchain* swapchain);
+#endif
+
+#ifdef __APPLE__
+class MetalHDRSwapchain;
+void SetMetalHDRSwapchain(MetalHDRSwapchain* swapchain);
 #endif
 
 //=============================================================================

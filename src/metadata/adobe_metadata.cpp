@@ -114,9 +114,16 @@ std::string AdobeMetadataExtractor::GetExifToolPath() {
     Debug::Log("WARNING: ExifTool not found in expected locations");
     return "exiftool.exe";
 #else
-    // Linux: check bundled Perl exiftool in assets/exiftool/
+    // Linux/macOS: check bundled Perl exiftool in assets/exiftool/
+#ifdef __APPLE__
+    // macOS: use _NSGetExecutablePath or argv[0] — /proc/self/exe doesn't exist
+    // Fall back to PATH lookup since exiftool is commonly installed via Homebrew
+    extern std::filesystem::path g_exe_dir;
+    fs::path exe_dir = g_exe_dir;
+#else
     fs::path exe_path = fs::read_symlink("/proc/self/exe");
     fs::path exe_dir = exe_path.parent_path();
+#endif
 
     fs::path bundled_path = exe_dir / "assets" / "exiftool" / "exiftool";
     if (fs::exists(bundled_path)) {

@@ -239,6 +239,11 @@ namespace qcview {
             auto_play_request_callback = callback;
         }
 
+        // Recent file callback - adds files to the app's recent files list
+        void SetRecentFileCallback(std::function<void(const std::string&)> callback) {
+            recent_file_callback_ = callback;
+        }
+
         // Loading modal callback - shows "Loading..." overlay before blocking operations
         // Parameters: message to display, callback to execute after overlay is shown
         void SetLoadingModalCallback(std::function<void(const std::string&, std::function<void()>)> callback) {
@@ -704,6 +709,7 @@ namespace qcview {
         std::function<void()> exit_timeline_mode_callback;  // Callback to exit timeline editor mode
         std::function<void()> flush_timeline_edits_callback;  // Callback to flush current timeline edits before save
         std::function<void()> auto_play_request_callback;  // Callback to request auto-play (respects app settings)
+        std::function<void(const std::string&)> recent_file_callback_;  // Callback to add files to recent files list
         std::function<void(const std::string&, std::function<void()>)> loading_modal_callback;  // Callback to show loading modal
         std::function<void(MediaItem*)> image_sequence_timeline_callback;  // Callback to load image sequences into OTIO timeline view
         std::function<void(MediaItem*)> video_file_timeline_callback;  // Callback to load video files into OTIO timeline view

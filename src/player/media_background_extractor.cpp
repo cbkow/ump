@@ -1026,6 +1026,11 @@ bool MediaBackgroundExtractor::ConvertFrameToPixelBuffer(AVFrame* frame, std::ve
 }
 
 GLuint MediaBackgroundExtractor::CreateTextureFromPixels(const std::vector<uint8_t>& pixel_data, int width, int height) {
+#ifdef QCVIEW_USE_METAL
+    // Metal: Background extractor not yet implemented — video uses TimelineCache path
+    (void)pixel_data; (void)width; (void)height;
+    return 0;
+#endif
     // This method will be called on the main rendering thread
     GLuint texture_id = 0;
     glGenTextures(1, &texture_id);
@@ -1146,6 +1151,9 @@ void MediaBackgroundExtractor::Shutdown() {
 }
 
 void MediaBackgroundExtractor::InitializeTexturePool() {
+#ifdef QCVIEW_USE_METAL
+    return;  // Metal: not needed — video uses TimelineCache path
+#endif
     std::lock_guard<std::mutex> lock(texture_pool_mutex);
 
     Debug::Log("MediaBackgroundExtractor: Initializing texture pool with " +
@@ -1206,11 +1214,13 @@ void MediaBackgroundExtractor::DestroyTexturePool() {
     Debug::Log("MediaBackgroundExtractor: Destroying texture pool");
 
     // Delete all textures in the pool
+#if !defined(QCVIEW_USE_METAL)
     for (GLuint texture_id : texture_pool) {
         if (texture_id != 0) {
             glDeleteTextures(1, &texture_id);
         }
     }
+#endif
 
     texture_pool.clear();
     available_textures = std::queue<GLuint>(); // Clear queue
@@ -1226,7 +1236,10 @@ GLuint MediaBackgroundExtractor::AcquireTexture() {
     }
 
     // Pool exhausted - create new texture on demand
-    GLuint texture_id;
+    GLuint texture_id = 0;
+#ifdef QCVIEW_USE_METAL
+    return 0;  // Metal: not supported
+#endif
     glGenTextures(1, &texture_id);
 
     if (texture_id != 0) {
@@ -1256,7 +1269,9 @@ void MediaBackgroundExtractor::ReleaseTexture(GLuint texture_id) {
         available_textures.push(texture_id);
     } else {
         // Not from our pool - delete it
+#if !defined(QCVIEW_USE_METAL)
         glDeleteTextures(1, &texture_id);
+#endif
     }
 }
 

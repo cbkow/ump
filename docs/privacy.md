@@ -18,7 +18,13 @@ QCView does not collect analytics, telemetry, crash reports, or usage statistics
 
 ## Local Data Storage
 
-QCView stores the following data locally on your device in `%LOCALAPPDATA%\qcview\`:
+QCView stores the following data locally on your device:
+
+- **Windows:** `%LOCALAPPDATA%\qcview\`
+- **macOS:** `~/Library/Application Support/qcview/`
+- **Linux:** `~/.config/qcview/` and `~/.cache/qcview/`
+
+Data stored:
 
 - Application settings and preferences
 - Project files and timeline data

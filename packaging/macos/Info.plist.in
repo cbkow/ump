@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+    <key>CFBundleIdentifier</key>
+    <string>app.qcview.QCView</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>QCView</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
+    <key>CFBundleVersion</key>
+    <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+    <key>CFBundleIconFile</key>
+    <string>QCView.icns</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSSupportsAutomaticGraphicsSwitching</key>
+    <true/>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.video</string>
+
+    <!-- ================================================================ -->
+    <!-- Document Types                                                    -->
+    <!-- ================================================================ -->
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <!-- QCView Project (owned by this app) -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>QCView Project</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>app.qcview.qcv</string>
+                <string>app.qcview.qcvproj</string>
+            </array>
+        </dict>
+
+        <!-- Video Files (viewer — don't claim default) -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Video File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.apple.quicktime-movie</string>
+                <string>public.mpeg-4</string>
+                <string>public.avi</string>
+                <string>com.apple.m4v-video</string>
+                <string>org.webmproject.webm</string>
+                <string>org.smpte.mxf</string>
+            </array>
+            <!-- Fallback for types without system UTIs -->
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>mkv</string>
+            </array>
+        </dict>
+
+        <!-- Image Files -->
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Image File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Viewer</string>
+            <key>LSHandlerRank</key>
+            <string>Alternate</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.ilm.openexr-image</string>
+                <string>public.tiff</string>
+                <string>public.png</string>
+                <string>public.jpeg</string>
+            </array>
+        </dict>
+    </array>
+
+    <!-- ================================================================ -->
+    <!-- Custom URI Scheme (qcview:// deep links)                          -->
+    <!-- Matches Windows registry + Linux .desktop X-Scheme-Handler        -->
+    <!-- ================================================================ -->
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>QCView Project URI</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>qcview</string>
+            </array>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+        </dict>
+    </array>
+
+    <!-- ================================================================ -->
+    <!-- Exported Type Declarations (types owned by QCView)                -->
+    <!-- ================================================================ -->
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <!-- .qcv -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>app.qcview.qcv</string>
+            <key>UTTypeDescription</key>
+            <string>QCView Project</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>qcv</string>
+                </array>
+            </dict>
+        </dict>
+
+        <!-- .qcvproj -->
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>app.qcview.qcvproj</string>
+            <key>UTTypeDescription</key>
+            <string>QCView Project</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>qcvproj</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
+</dict>
+</plist>

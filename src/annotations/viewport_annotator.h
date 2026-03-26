@@ -44,7 +44,11 @@ struct ActiveStroke {
     std::vector<ImVec2> points;       // Normalized coordinates (0-1 range)
     std::vector<double> timestamps;   // Timestamp for each point (seconds since stroke start)
     ImVec4 color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // RGBA
-    float stroke_width = 2.5f;
+#ifdef __APPLE__
+    float stroke_width = 6.0f;
+#else
+    float stroke_width = 4.0f;
+#endif
     bool filled = false;
     bool is_complete = false;
     bool is_modeled = false;          // True if points are already smoothed by ink-stroke-modeler
@@ -195,7 +199,11 @@ private:
 
     // Drawing properties
     ImVec4 drawing_color_ = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // Default: Red
-    float stroke_width_ = 2.5f;
+#ifdef __APPLE__
+    float stroke_width_ = 6.0f;
+#else
+    float stroke_width_ = 4.0f;
+#endif
     bool fill_enabled_ = false;
 
     // Current stroke being drawn

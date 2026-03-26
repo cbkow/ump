@@ -11,6 +11,8 @@
 
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
+#elif defined(QCVIEW_USE_METAL)
+#include "../gpu/metal_texture_pool.h"
 #endif
 
 namespace qcview {
@@ -20,7 +22,13 @@ TimelineThumbnailCache::TimelineThumbnailCache() {
 }
 
 TimelineThumbnailCache::~TimelineThumbnailCache() {
-    Shutdown();
+    try {
+        Shutdown();
+    } catch (...) {
+        // Destructor is noexcept — any uncaught exception calls std::terminate.
+        // During global static destruction, Shutdown may throw because singletons
+        // (Debug::AsyncLogger, MetalTexturePool) are already destroyed.
+    }
 }
 
 void TimelineThumbnailCache::Initialize(double fps) {
@@ -51,7 +59,9 @@ void TimelineThumbnailCache::Initialize(double fps) {
 void TimelineThumbnailCache::Shutdown() {
     if (!initialized_) return;
 
-    Debug::Log("TimelineThumbnailCache: Shutting down...");
+    // Note: Shutdown() may be called during global static destruction (from ~unique_ptr).
+    // At that point Debug::AsyncLogger may already be destroyed, so avoid Debug::Log
+    // after setting running_=false.
 
     running_ = false;
     worker_state_ = ThumbnailWorkerState::STOPPED;
@@ -60,10 +70,16 @@ void TimelineThumbnailCache::Shutdown() {
     queue_cv_.notify_all();
     worker_cv_.notify_all();
 
-    // Join all worker threads
+    // Join or detach all worker threads. If join() throws (during static
+    // destruction workers may have already crashed), detach to prevent
+    // std::thread::~thread() from calling std::terminate on a joinable thread.
     for (auto& thread : worker_threads_) {
         if (thread.joinable()) {
-            thread.join();
+            try {
+                thread.join();
+            } catch (...) {
+                try { thread.detach(); } catch (...) {}
+            }
         }
     }
     worker_threads_.clear();
@@ -75,6 +91,11 @@ void TimelineThumbnailCache::Shutdown() {
             if (entry.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
                 qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+#elif defined(QCVIEW_USE_METAL)
+                // Guard against static destruction order: pool may already be shut down at exit
+                if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
+                    qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+                }
 #else
                 glDeleteTextures(1, &entry.texture_id);
 #endif
@@ -140,21 +161,12 @@ GLuint TimelineThumbnailCache::GetThumbnail(const std::string& source_path, int 
     {
         std::lock_guard<std::mutex> queue_lock(queue_mutex_);
 
-        // Only queue if not already in progress
-        if (in_progress_.find(key) == in_progress_.end()) {
-            // Check if already in request queue
-            bool already_queued = false;
-            for (const auto& req : request_queue_) {
-                if (req.key == key) {
-                    already_queued = true;
-                    break;
-                }
-            }
-
-            if (!already_queued) {
-                request_queue_.push_front({key, true});  // High priority at front
-                queue_cv_.notify_one();
-            }
+        // Only queue if not already in progress or queued (O(1) set lookup)
+        if (in_progress_.find(key) == in_progress_.end() &&
+            queued_keys_.find(key) == queued_keys_.end()) {
+            request_queue_.push_front({key, true});  // High priority at front
+            queued_keys_.insert(key);
+            queue_cv_.notify_one();
         }
     }
 
@@ -186,17 +198,10 @@ void TimelineThumbnailCache::PrecacheRange(const std::string& source_path, int s
     // First, queue the priority frame (current position) with high priority
     if (priority_frame >= start_frame && priority_frame <= end_frame) {
         TimelineThumbnailKey priority_key{source_path, priority_frame};
-        if (in_progress_.find(priority_key) == in_progress_.end()) {
-            bool already_queued = false;
-            for (const auto& req : request_queue_) {
-                if (req.key == priority_key) {
-                    already_queued = true;
-                    break;
-                }
-            }
-            if (!already_queued) {
-                request_queue_.push_front({priority_key, true});
-            }
+        if (in_progress_.find(priority_key) == in_progress_.end() &&
+            queued_keys_.find(priority_key) == queued_keys_.end()) {
+            request_queue_.push_front({priority_key, true});
+            queued_keys_.insert(priority_key);
         }
     }
 
@@ -212,20 +217,12 @@ void TimelineThumbnailCache::PrecacheRange(const std::string& source_path, int s
             if (cache_.find(key) != cache_.end()) continue;
         }
 
-        // Skip if already in progress or queued
+        // Skip if already in progress or queued (O(1) set lookup)
         if (in_progress_.find(key) != in_progress_.end()) continue;
+        if (queued_keys_.find(key) != queued_keys_.end()) continue;
 
-        bool already_queued = false;
-        for (const auto& req : request_queue_) {
-            if (req.key == key) {
-                already_queued = true;
-                break;
-            }
-        }
-
-        if (!already_queued) {
-            request_queue_.push_back({key, false});  // Low priority at back
-        }
+        request_queue_.push_back({key, false});  // Low priority at back
+        queued_keys_.insert(key);
     }
 
     queue_cv_.notify_one();
@@ -238,6 +235,7 @@ void TimelineThumbnailCache::PrecacheRange(const std::string& source_path, int s
 void TimelineThumbnailCache::CancelPendingRequests() {
     std::lock_guard<std::mutex> lock(queue_mutex_);
     request_queue_.clear();
+    queued_keys_.clear();
     // Note: in_progress_ items will finish but results will be discarded if clip changed
 }
 
@@ -257,8 +255,38 @@ void TimelineThumbnailCache::ProcessPendingUploads() {
 
     if (uploads.empty()) return;
 
-    for (auto& upload : uploads) {
-        GLuint texture_id = CreateGLTexture(upload.pixels);
+    // Metal/Vulkan: textures already created on worker thread — just insert into cache (no limit needed).
+    // OpenGL: limit per frame to avoid blocking the main thread with synchronous GPU texture copies.
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+    constexpr int kMaxUploadsPerFrame = 64;  // No GPU work, just cache insertions
+#else
+    constexpr int kMaxUploadsPerFrame = 3;
+#endif
+    int upload_count = 0;
+
+    while (!uploads.empty()) {
+        if (upload_count >= kMaxUploadsPerFrame) {
+            // Put remaining uploads back for next frame
+            std::lock_guard<std::mutex> lock(upload_mutex_);
+            while (!uploads.empty()) {
+                pending_uploads_.push_back(std::move(uploads.front()));
+                uploads.pop_front();
+            }
+            break;
+        }
+
+        auto& upload = uploads.front();
+
+        // Use pre-created GPU texture if available (Metal/Vulkan worker thread path)
+        GLuint texture_id = upload.gpu_texture_id;
+        int tex_width = upload.width;
+        int tex_height = upload.height;
+        if (texture_id == 0 && upload.pixels) {
+            // OpenGL fallback: create texture on main thread
+            texture_id = CreateGLTexture(upload.pixels);
+            tex_width = upload.pixels->width;
+            tex_height = upload.pixels->height;
+        }
 
         if (texture_id != 0) {
             std::lock_guard<std::mutex> lock(cache_mutex_);
@@ -271,18 +299,24 @@ void TimelineThumbnailCache::ProcessPendingUploads() {
             // Add to cache
             TimelineThumbnailEntry entry;
             entry.texture_id = texture_id;
-            entry.width = upload.pixels->width;
-            entry.height = upload.pixels->height;
+            entry.width = tex_width;
+            entry.height = tex_height;
             cache_[upload.key] = entry;
 
             // Add to LRU order
             lru_order_.push_front(upload.key);
         }
+
+        uploads.pop_front();
+        upload_count++;
     }
 }
 
 void TimelineThumbnailCache::Clear() {
     Debug::Log("TimelineThumbnailCache: Clearing cache");
+
+    // Signal workers to discard any in-flight work
+    clear_generation_.fetch_add(1, std::memory_order_release);
 
     // Set clear pending flag - prevents GetThumbnail from returning stale IDs
     // until ProcessPendingUploads is called (next frame)
@@ -292,6 +326,7 @@ void TimelineThumbnailCache::Clear() {
     {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         request_queue_.clear();
+        queued_keys_.clear();
         in_progress_.clear();
     }
 
@@ -308,6 +343,11 @@ void TimelineThumbnailCache::Clear() {
             if (entry.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
                 qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+#elif defined(QCVIEW_USE_METAL)
+                // Guard against static destruction order: pool may already be shut down at exit
+                if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
+                    qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+                }
 #else
                 glDeleteTextures(1, &entry.texture_id);
 #endif
@@ -317,17 +357,9 @@ void TimelineThumbnailCache::Clear() {
         lru_order_.clear();
     }
 
-    // Clear per-worker loaders
-    {
-        std::lock_guard<std::mutex> lock(loaders_mutex_);
-        worker_loaders_.clear();
-    }
-
-    // Clear worker task tracking
-    {
-        std::lock_guard<std::mutex> lock(worker_task_mutex_);
-        worker_current_task_.clear();
-    }
+    // NOTE: Do NOT clear worker_loaders_ here — workers may be mid-load.
+    // Loaders are only cleared in Shutdown() after threads are joined.
+    // The clear_generation_ mechanism handles discarding stale results.
 
     cache_hits_ = 0;
     cache_misses_ = 0;
@@ -384,6 +416,7 @@ void TimelineThumbnailCache::WorkerThread(int worker_id) {
             if (!request_queue_.empty()) {
                 request = request_queue_.front();
                 request_queue_.pop_front();
+                queued_keys_.erase(request.key);
                 in_progress_.insert(request.key);
                 have_request = true;
 
@@ -396,13 +429,34 @@ void TimelineThumbnailCache::WorkerThread(int worker_id) {
         }
 
         if (have_request) {
+            // Capture generation before doing work — if Clear() fires during load, discard result
+            uint64_t gen_before = clear_generation_.load(std::memory_order_acquire);
+
             // Load thumbnail pixels (uses per-worker loaders)
             auto pixels = LoadThumbnailPixels(request.key, worker_id);
 
-            if (pixels) {
-                // Queue for GPU upload
+            // Check if Clear() was called while we were loading — discard stale result
+            if (clear_generation_.load(std::memory_order_acquire) != gen_before) {
+                std::lock_guard<std::mutex> lock(queue_mutex_);
+                in_progress_.erase(request.key);
+                continue;
+            }
+
+            if (pixels && running_) {
+#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
+                // Metal/Vulkan: create GPU texture on worker thread (API is thread-safe).
+                // Main thread just inserts the texture ID into the cache (zero GPU work).
+                GLuint texture_id = CreateGLTexture(pixels);
+                if (texture_id != 0) {
+                    std::lock_guard<std::mutex> lock(upload_mutex_);
+                    pending_uploads_.push_back({request.key, nullptr, texture_id,
+                                                pixels->width, pixels->height});
+                }
+#else
+                // OpenGL: queue pixel data for main thread texture creation
                 std::lock_guard<std::mutex> lock(upload_mutex_);
                 pending_uploads_.push_back({request.key, pixels});
+#endif
             }
 
             // Remove from in-progress and clear current task
@@ -417,7 +471,7 @@ void TimelineThumbnailCache::WorkerThread(int worker_id) {
         }
     }
 
-    Debug::Log("TimelineThumbnailCache: Worker thread " + std::to_string(worker_id) + " stopped");
+    // No Debug::Log here — logger may be destroyed during global static destruction
 }
 
 bool TimelineThumbnailCache::ShouldWorkerRun(int worker_id) const {
@@ -584,6 +638,17 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
         pixels->width, pixels->height, vk_format,
         pixels->pixels.data(), pixels->pixels.size());
     return static_cast<GLuint>(pool_id);
+#elif defined(QCVIEW_USE_METAL)
+    int mtl_format = 0;
+    switch (pixels->pixel_format) {
+        case PixelFormat::RGBA8:  mtl_format = 0; break;
+        case PixelFormat::RGBA16: mtl_format = 0; break;
+        case PixelFormat::RGBA16F: mtl_format = 1; break;
+    }
+    uint64_t pool_id = qcview::MetalTexturePool::ThumbnailInstance().CreateTextureFromPixels(
+        pixels->width, pixels->height, mtl_format,
+        pixels->pixels.data(), pixels->pixels.size());
+    return static_cast<GLuint>(pool_id);
 #else
     // Save current GL state to avoid corrupting ImGui during render
     GLint previous_texture = 0;
@@ -634,6 +699,8 @@ void TimelineThumbnailCache::EvictLRU() {
         if (it->second.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
             qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
+#elif defined(QCVIEW_USE_METAL)
+            qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
 #else
             glDeleteTextures(1, &it->second.texture_id);
 #endif

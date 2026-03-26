@@ -149,7 +149,7 @@ void AnnotationToolbar::RenderDrawingProperties() {
     // Match slider styling from bottom row
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(ImGui::GetStyle().FramePadding.x, ImGui::GetStyle().FramePadding.y + 1));
     ImGui::SetWindowFontScale(0.85f);
-    if (ImGui::SliderFloat("##Width", &stroke_width_, 1.0f, 20.0f, "%.1f")) {
+    if (ImGui::SliderFloat("##Width", &stroke_width_, 1.0f, 40.0f, "%.1f")) {
         if (callbacks_.on_stroke_width_changed) {
             callbacks_.on_stroke_width_changed(stroke_width_);
         }

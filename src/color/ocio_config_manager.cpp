@@ -23,13 +23,19 @@ OCIOConfigManager::OCIOConfigManager() {
         std::cout.flush();
     }
 
-    // Load Blender config as default for Standard workflows
-    std::cout << "OCIOConfigManager: Loading default Blender config..." << std::endl;
+    // Load Blender 5.1 config as default (OCIO 2.5, ACES 2.0 HDR views, EDR displays)
+    std::cout << "OCIOConfigManager: Loading default Blender 5.1 config..." << std::endl;
     std::cout.flush();
-    if (!LoadConfiguration(OCIOConfigType::BLENDER)) {
-        std::cout << "Failed to load Blender config - check assets/OCIO/Blender/config.ocio" << std::endl;
+    if (!LoadConfiguration(OCIOConfigType::BLENDER5)) {
+        // Fallback to Blender 4.5 if 5.1 not found
+        std::cout << "Blender 5.1 not found, falling back to Blender 4.5..." << std::endl;
+        if (!LoadConfiguration(OCIOConfigType::BLENDER)) {
+            std::cout << "Failed to load Blender config" << std::endl;
+        } else {
+            std::cout << "Blender 4.5 config loaded." << std::endl;
+        }
     } else {
-        std::cout << "Blender config loaded. Standard workflows available." << std::endl;
+        std::cout << "Blender 5.1 config loaded. Standard + EDR workflows available." << std::endl;
     }
     std::cout << "=== OCIOConfigManager Constructor END ===" << std::endl;
     std::cout.flush();
@@ -40,13 +46,9 @@ void OCIOConfigManager::ScanForConfigs() {
 
     // Built-in fake sRGB config removed - now using Blender config for Standard workflows
 
-    // Add built-in ACES 2.0 config (embedded in OCIO 2.5 library)
-    available_configs.push_back({
-        "ACES 2.0",
-        "Built-in ACES 2.0 Studio Config (OCIO 2.5)",
-        "ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5",  // URI, not file path
-        OCIOConfigType::ACES_20
-    });
+    // ACES 2.0 config — loaded from file (assets/OCIO/ACES_2.0/config.ocio)
+    // to include our custom EDR display outputs for macOS.
+    // Falls back to built-in URI if file not found (see config_folders scan below).
 
     // Scan assets/OCIO/ directory for config files
     std::string assets_ocio_path = GetAssetPath("assets/OCIO");
@@ -56,12 +58,11 @@ void OCIOConfigManager::ScanForConfigs() {
 
         // Look for common config structures
         // Format: {folder_name, display_name, config_type}
-        // Note: ACES_2.0 is NOT scanned here - we use the built-in config instead
         std::vector<std::tuple<std::string, std::string, OCIOConfigType>> config_folders = {
             {"ACES_1.3", "ACES_1.3", OCIOConfigType::ACES_13},
-            // {"ACES_2.0", "ACES 2.0", OCIOConfigType::ACES_20},  // Removed - using built-in
+            {"ACES_2.0", "ACES 2.0", OCIOConfigType::ACES_20},
             {"Blender", "Blender 4.5", OCIOConfigType::BLENDER},
-            {"Blender5", "Blender 5.0", OCIOConfigType::BLENDER5}
+            {"Blender5.1", "Blender 5.1", OCIOConfigType::BLENDER5}
         };
 
         for (const auto& [folder, display_name, type] : config_folders) {
@@ -82,6 +83,21 @@ void OCIOConfigManager::ScanForConfigs() {
     }
     else {
         std::cout << "Assets/OCIO directory not found - using built-in configs only" << std::endl;
+    }
+
+    // Fallback: if ACES 2.0 wasn't found on disk, use built-in URI
+    bool has_aces20 = false;
+    for (const auto& c : available_configs) {
+        if (c.type == OCIOConfigType::ACES_20) { has_aces20 = true; break; }
+    }
+    if (!has_aces20) {
+        available_configs.push_back({
+            "ACES 2.0",
+            "Built-in ACES 2.0 Studio Config (OCIO 2.5)",
+            "ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5",
+            OCIOConfigType::ACES_20
+        });
+        std::cout << "ACES 2.0: using built-in config (no EDR displays)" << std::endl;
     }
 }
 

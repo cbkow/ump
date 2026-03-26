@@ -20,6 +20,8 @@
 namespace qcview { class WasapiAudioDevice; }
 #elif defined(__linux__)
 namespace qcview { class PipeWireAudioDevice; }
+#elif defined(__APPLE__)
+namespace qcview { class CoreAudioAudioDevice; }
 #endif
 
 namespace qcview {
@@ -265,6 +267,8 @@ private:
     std::unique_ptr<WasapiAudioDevice> device_;
 #elif defined(__linux__)
     std::unique_ptr<PipeWireAudioDevice> device_;
+#elif defined(__APPLE__)
+    std::unique_ptr<CoreAudioAudioDevice> device_;
 #endif
 
     // Clip decoders (keyed by source path)

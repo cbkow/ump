@@ -1,3 +1,6 @@
+// NanoVG requires OpenGL — disabled on Vulkan/Metal (annotation rendering uses tessellation path)
+#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
+
 #include "nanovg_context.h"
 
 // Include OpenGL headers before nanovg_gl.h
@@ -80,3 +83,27 @@ void NanoVGContext::EndFrame() {
 
 } // namespace Annotations
 } // namespace qcview
+
+#else // QCVIEW_USE_VULKAN || QCVIEW_USE_METAL
+
+// Provide stub implementations when NanoVG is not available (Vulkan/Metal backends)
+#include "nanovg_context.h"
+
+namespace qcview {
+namespace Annotations {
+
+NanoVGContext& NanoVGContext::Instance() {
+    static NanoVGContext instance;
+    return instance;
+}
+
+NanoVGContext::~NanoVGContext() {}
+bool NanoVGContext::Initialize() { return false; }
+void NanoVGContext::Shutdown() {}
+void NanoVGContext::BeginFrame(float, float, float) {}
+void NanoVGContext::EndFrame() {}
+
+} // namespace Annotations
+} // namespace qcview
+
+#endif // !QCVIEW_USE_VULKAN && !QCVIEW_USE_METAL

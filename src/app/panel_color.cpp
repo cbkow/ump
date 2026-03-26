@@ -3,6 +3,7 @@
 #include "app/application.h"
 #include "app/app_icons.h"
 #include "app/app_ui_macros.h"
+#include "app/ui_scale.h"
 #include "ui/annotation_panel.h"
 
 #include <imgui.h>
@@ -67,7 +68,7 @@ extern ImFont* font_bold;
             ImGui::PopStyleColor();
 
             // Close button on the right
-            float button_size = ImGui::GetFontSize() + 4.0f;  // Compact size
+            float button_size = ImGui::GetFontSize() + S(4.0f);  // Compact size
             ImGui::SameLine(ImGui::GetWindowWidth() - button_size - ImGui::GetStyle().WindowPadding.x);
             ImVec2 button_pos = ImGui::GetCursorScreenPos();
             bool clicked = ImGui::InvisibleButton("##CloseColor", ImVec2(button_size, button_size));
@@ -91,8 +92,8 @@ extern ImFont* font_bold;
         }
         ImGui::Separator();
 
-        static float left_panel_width = 350.0f;
-        static float right_panel_width = 400.0f;
+        static float left_panel_width = S(350.0f);
+        static float right_panel_width = S(400.0f);
 
         ImVec2 avail = ImGui::GetContentRegionAvail();
 
@@ -104,7 +105,7 @@ extern ImFont* font_bold;
         ImGui::SameLine();
 
         // Splitter between left and middle
-        ImGui::InvisibleButton("##vsplitter1", ImVec2(4.0f, -1));
+        ImGui::InvisibleButton("##vsplitter1", ImVec2(S(4.0f), -1));
         if (ImGui::IsItemHovered()) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);  // East-West resize cursor
         }
@@ -115,7 +116,7 @@ extern ImFont* font_bold;
         ImGui::SameLine();
 
         // Middle panel (node editor)
-        float middle_width = avail.x - left_panel_width - right_panel_width - 24.0f;
+        float middle_width = avail.x - left_panel_width - right_panel_width - S(24.0f);
         ImGui::BeginChild("NodeEditor", ImVec2(middle_width, 0), true);
         CreateNodeEditorContent();
         ImGui::EndChild();
@@ -123,7 +124,7 @@ extern ImFont* font_bold;
         ImGui::SameLine();
 
         // Splitter between middle and right
-        ImGui::InvisibleButton("##vsplitter2", ImVec2(4.0f, -1));
+        ImGui::InvisibleButton("##vsplitter2", ImVec2(S(4.0f), -1));
         if (ImGui::IsItemHovered()) {
             ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);  // East-West resize cursor
         }

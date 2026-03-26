@@ -269,12 +269,7 @@ void FFmpegMetadataExtractor::ExtractAudioStream(AVFormatContext* format_ctx, Vi
     // Audio properties
     metadata.audio_sample_rate = codecpar->sample_rate;
 
-    // Handle channel count (newer FFmpeg uses ch_layout)
-#if LIBAVUTIL_VERSION_MAJOR >= 58
     metadata.audio_channels = codecpar->ch_layout.nb_channels;
-#else
-    metadata.audio_channels = codecpar->channels;
-#endif
 }
 
 void FFmpegMetadataExtractor::ExtractColorProperties(const AVStream* stream, VideoMetadata& metadata) {

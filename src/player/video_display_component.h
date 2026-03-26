@@ -12,10 +12,12 @@
 #include <glad/gl.h>
 #include <imgui.h>
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -45,6 +47,10 @@ namespace qcview {
 #elif defined(__linux__)
 namespace qcview {
     class VulkanOCIORenderer;
+}
+#elif defined(__APPLE__)
+namespace qcview {
+    class MetalOCIORenderer;
 }
 #endif
 
@@ -259,6 +265,9 @@ public:
     void SetGetAnnotationStrokesCallback(GetAnnotationStrokesCallback callback) {
         get_annotation_strokes_callback_ = std::move(callback);
     }
+    GetAnnotationStrokesCallback GetAnnotationStrokesCallbackCopy() const {
+        return get_annotation_strokes_callback_;
+    }
 
     // GL/NanoVG annotation rendering callback (Windows)
     using RenderAnnotationsToFBOCallback = std::function<void(
@@ -276,6 +285,15 @@ public:
         int width, int height)>;
     void SetVulkanRenderAnnotationsToImageCallback(VulkanRenderAnnotationsToImageCallback callback) {
         vulkan_render_annotations_to_image_callback_ = std::move(callback);
+    }
+#elif defined(QCVIEW_USE_METAL)
+    // Metal annotation rendering callback (macOS)
+    // target_texture: id<MTLTexture> as void*, RGBA16Float, StorageModeShared
+    using MetalRenderAnnotationsToImageCallback = std::function<void(
+        const std::vector<qcview::Annotations::ActiveStroke>& strokes,
+        void* target_texture, int width, int height)>;
+    void SetMetalRenderAnnotationsToImageCallback(MetalRenderAnnotationsToImageCallback callback) {
+        metal_render_annotations_to_image_callback_ = std::move(callback);
     }
 #endif
 
@@ -475,6 +493,8 @@ private:
     RenderAnnotationsToFBOCallback render_annotations_to_fbo_callback_;
 #ifdef QCVIEW_USE_VULKAN
     VulkanRenderAnnotationsToImageCallback vulkan_render_annotations_to_image_callback_;
+#elif defined(QCVIEW_USE_METAL)
+    MetalRenderAnnotationsToImageCallback metal_render_annotations_to_image_callback_;
 #endif
 
     // Last rendered display area (for annotation overlay alignment)
@@ -543,6 +563,7 @@ private:
         bool valid = false;
     };
     VulkanColorTexture vulkan_color_tex_;
+    uint64_t vulkan_last_src_pool_id_ = 0;  // Track source to skip redundant OCIO dispatches
 
     // Dedicated color texture for dual view composite OCIO
     VulkanColorTexture vulkan_dual_color_tex_;
@@ -558,5 +579,23 @@ public:
 private:
     void CreateVulkanDualColorTexture(int width, int height);
     void DestroyVulkanDualColorTexture();
+#endif
+
+#ifdef QCVIEW_USE_METAL
+    //=========================================================================
+    // Metal OCIO Resources (macOS)
+    //=========================================================================
+
+    std::unique_ptr<qcview::MetalOCIORenderer> metal_ocio_renderer_;
+    uint64_t metal_color_pool_id_ = 0;
+    uint64_t metal_last_src_pool_id_ = 0;  // Track source to skip redundant OCIO dispatches
+
+    void ApplyColorPipelineMetal();
+
+public:
+    // Apply OCIO to a MetalTexturePool texture, returns new pool texture ID.
+    // Used by dual view compositor for OCIO on the composite texture.
+    uint64_t CreateColorCorrectedPoolTextureMetal(uint64_t input_pool_id, int width, int height);
+private:
 #endif
 };
