@@ -27,13 +27,15 @@ enum class ChromaSubsampling {
 };
 
 struct MetalTextureFrame {
-    void* y_texture = nullptr;     // id<MTLTexture> - luma plane
-    void* uv_texture = nullptr;    // id<MTLTexture> - chroma plane (biplanar)
+    void* y_texture = nullptr;     // id<MTLTexture> - luma plane (or interleaved AYCbCr)
+    void* uv_texture = nullptr;    // id<MTLTexture> - chroma plane (biplanar), null for interleaved
     void* pixel_buffer = nullptr;  // CVPixelBufferRef - retained, must be released
     int width = 0;
     int height = 0;
     int bit_depth = 8;
     bool is_full_range = false;
+    bool is_interleaved = false;   // true for single-plane formats (y416/y408)
+    bool has_alpha = false;        // true for 4444 / YUVA formats with alpha channel
     ChromaSubsampling subsampling = ChromaSubsampling::YUV420;
     bool valid = false;
 };

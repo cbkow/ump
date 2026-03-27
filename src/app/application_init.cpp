@@ -220,7 +220,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         {
             int wx = (has_saved_window_settings && saved_window_x >= 0) ? saved_window_x : -1;
             int wy = (has_saved_window_settings && saved_window_y >= 0) ? saved_window_y : -1;
-            if (!MacOS_CreateWindow(saved_window_width, saved_window_height, wx, wy, "QCView v1.1.1")) {
+            if (!MacOS_CreateWindow(saved_window_width, saved_window_height, wx, wy, "QCView v1.1.2")) {
                 std::cerr << "Failed to create native macOS window" << std::endl;
                 return false;
             }
@@ -265,7 +265,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
 #endif
 
         // Create window (use saved size if available)
-        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.1.1", nullptr, nullptr);
+        window = glfwCreateWindow(saved_window_width, saved_window_height, "QCView v1.1.2", nullptr, nullptr);
         if (!window) {
             std::cerr << "Failed to create GLFW window" << std::endl;
             glfwTerminate();

@@ -13,6 +13,7 @@ struct YUVParams {
     uint is_full_range;  // 0 = video range, 1 = full range
     uint is_bt2020;      // 0 = BT.709, 1 = BT.2020
     uint is_hdr;         // 0 = SDR, 1 = HDR (PQ source)
+    uint subsampling;    // 0=4:2:0, 1=4:2:2, 2=4:4:4
 };
 
 // BT.709 YCbCr to RGB matrix (from ITU-R BT.709-6)
@@ -63,6 +64,44 @@ kernel void yuv_to_rgba(
 
     rgb = clamp(rgb, 0.0, 1.0);
     out_tex.write(float4(rgb, 1.0), gid);
+}
+
+// Interleaved 4444+Alpha kernel (y416: R=A, G=Y, B=Cb, A=Cr)
+kernel void yuv_interleaved_to_rgba(
+    texture2d<float, access::read> in_tex [[texture(0)]],
+    texture2d<float, access::write> out_tex [[texture(1)]],
+    constant YUVParams& params [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= params.width || gid.y >= params.height) return;
+
+    float4 sample = in_tex.read(gid);
+    float alpha  = sample.r;
+    float y_val  = sample.g;
+    float cb_raw = sample.b;
+    float cr_raw = sample.a;
+
+    float y, cb, cr;
+    if (params.is_full_range) {
+        y  = y_val;
+        cb = cb_raw - 0.5;
+        cr = cr_raw - 0.5;
+    } else {
+        y  = (y_val  - 16.0/255.0) * (255.0/219.0);
+        cb = (cb_raw - 128.0/255.0) * (255.0/224.0);
+        cr = (cr_raw - 128.0/255.0) * (255.0/224.0);
+    }
+
+    float3 ycbcr = float3(y, cb, cr);
+    float3 rgb;
+    if (params.is_bt2020) {
+        rgb = bt2020_matrix * ycbcr;
+    } else {
+        rgb = bt709_matrix * ycbcr;
+    }
+
+    rgb = clamp(rgb, 0.0, 1.0);
+    out_tex.write(float4(rgb, alpha), gid);
 }
 
 // Passthrough shader (identity — used when no color conversion needed)

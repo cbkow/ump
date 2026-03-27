@@ -222,6 +222,82 @@ MetalTextureFrame MetalHWFrameExtractor::ExtractFromPixelBuffer(void* pixel_buff
             result.subsampling = ChromaSubsampling::YUV444;
             break;
 
+        // 4:4:4:4 interleaved with alpha (ProRes 4444)
+        // Single plane: A,Y',Cb,Cr per pixel → RGBA16Unorm (R=A, G=Y, B=Cb, A=Cr)
+        case kCVPixelFormatType_4444AYpCbCr16: {
+            result.bit_depth = 16;
+            result.is_full_range = false;
+            result.is_interleaved = true;
+            result.has_alpha = true;
+            result.subsampling = ChromaSubsampling::YUV444;
+
+            CVMetalTextureCacheRef interleaved_cache = (CVMetalTextureCacheRef)texture_cache_;
+            CVMetalTextureRef cv_texture = nullptr;
+            CVReturn ret = CVMetalTextureCacheCreateTextureFromImage(
+                kCFAllocatorDefault,
+                interleaved_cache,
+                pixel_buffer,
+                nullptr,
+                MTLPixelFormatRGBA16Unorm,
+                width,
+                height,
+                0,  // plane index (single plane)
+                &cv_texture
+            );
+
+            if (ret == kCVReturnSuccess && cv_texture) {
+                id<MTLTexture> mtl = CVMetalTextureGetTexture(cv_texture);
+                [mtl retain];
+                result.y_texture = (void*)mtl;
+                CFRelease(cv_texture);
+                result.valid = true;
+            } else {
+                Debug::Log("MetalHWFrameExtractor: Failed to create y416 texture (error " +
+                           std::to_string(ret) + ")");
+                CVPixelBufferRelease(pixel_buffer);
+                result.pixel_buffer = nullptr;
+            }
+            return result;
+        }
+
+        // 4:4:4:4 interleaved 8-bit with alpha
+        // Single plane: Cb,Y',Cr,A per pixel → RGBA8Unorm (R=Cb, G=Y, B=Cr, A=A)
+        case kCVPixelFormatType_4444YpCbCrA8: {
+            result.bit_depth = 8;
+            result.is_full_range = false;
+            result.is_interleaved = true;
+            result.has_alpha = true;
+            result.subsampling = ChromaSubsampling::YUV444;
+
+            CVMetalTextureCacheRef interleaved_cache = (CVMetalTextureCacheRef)texture_cache_;
+            CVMetalTextureRef cv_texture = nullptr;
+            CVReturn ret = CVMetalTextureCacheCreateTextureFromImage(
+                kCFAllocatorDefault,
+                interleaved_cache,
+                pixel_buffer,
+                nullptr,
+                MTLPixelFormatRGBA8Unorm,
+                width,
+                height,
+                0,
+                &cv_texture
+            );
+
+            if (ret == kCVReturnSuccess && cv_texture) {
+                id<MTLTexture> mtl = CVMetalTextureGetTexture(cv_texture);
+                [mtl retain];
+                result.y_texture = (void*)mtl;
+                CFRelease(cv_texture);
+                result.valid = true;
+            } else {
+                Debug::Log("MetalHWFrameExtractor: Failed to create v408 texture (error " +
+                           std::to_string(ret) + ")");
+                CVPixelBufferRelease(pixel_buffer);
+                result.pixel_buffer = nullptr;
+            }
+            return result;
+        }
+
         default:
             Debug::Log("MetalHWFrameExtractor: Unsupported pixel format: " +
                        std::to_string(pixel_format));

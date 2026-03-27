@@ -50,6 +50,13 @@ public:
                        bool is_bt2020, bool is_hdr,
                        int subsampling = 0);
 
+    // Render interleaved 4444+alpha texture (y416/y408) to RGBA16F (synchronous).
+    // in_texture: single RGBA texture with A,Y,Cb,Cr channels
+    void* RenderInterleavedToRGBA(void* in_texture,
+                                   int width, int height,
+                                   int bit_depth, bool is_full_range,
+                                   bool is_bt2020, bool is_hdr);
+
     // Async variant: commits compute but does NOT wait for GPU completion.
     // Output texture is immediately usable for pool registration — Metal's
     // same-queue ordering guarantees the compute finishes before any later
@@ -67,6 +74,14 @@ public:
                             void (*cleanup_fn)(void* ctx),
                             void* cleanup_ctx);
 
+    // Async interleaved 4444+alpha variant
+    void* RenderInterleavedToRGBAAsync(void* in_texture,
+                                        int width, int height,
+                                        int bit_depth, bool is_full_range,
+                                        bool is_bt2020, bool is_hdr,
+                                        void (*cleanup_fn)(void* ctx),
+                                        void* cleanup_ctx);
+
     // Wait for all in-flight async command buffers to complete.
     // Must be called before destroying the renderer or shutting down the device.
     void FlushPendingWork();
@@ -74,7 +89,8 @@ public:
 private:
     bool CreateComputePipeline();
 
-    void* compute_pipeline_ = nullptr;  // id<MTLComputePipelineState>
+    void* compute_pipeline_ = nullptr;              // id<MTLComputePipelineState> - biplanar YUV
+    void* interleaved_pipeline_ = nullptr;          // id<MTLComputePipelineState> - interleaved 4444
     bool initialized_ = false;
 
     // Async command buffer tracking — shared_ptr so completion handlers

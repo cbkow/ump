@@ -88,6 +88,47 @@ kernel void yuv_to_rgba(
 
     out_tex.write(rgba, gid);
 }
+
+// Interleaved 4444+Alpha kernel (y416: R=A, G=Y, B=Cb, A=Cr)
+kernel void yuv_interleaved_to_rgba(
+    texture2d<float, access::read> in_tex [[texture(0)]],
+    texture2d<float, access::write> out_tex [[texture(1)]],
+    constant YUVParams& params [[buffer(0)]],
+    uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= params.width || gid.y >= params.height) return;
+
+    float4 sample = in_tex.read(gid);
+    // y416 layout: A,Y,Cb,Cr → RGBA16Unorm: R=A, G=Y, B=Cb, A=Cr
+    float alpha  = sample.r;
+    float y_val  = sample.g;
+    float cb_raw = sample.b;
+    float cr_raw = sample.a;
+
+    float y, cb, cr;
+    if (params.is_full_range) {
+        y  = y_val;
+        cb = cb_raw - 0.5;
+        cr = cr_raw - 0.5;
+    } else {
+        y  = (y_val  - 16.0/255.0) * (255.0/219.0);
+        cb = (cb_raw - 128.0/255.0) * (255.0/224.0);
+        cr = (cr_raw - 128.0/255.0) * (255.0/224.0);
+    }
+
+    float r, g, b;
+    if (params.is_bt2020) {
+        r = y + 1.4746 * cr;
+        g = y - 0.16455 * cb - 0.57135 * cr;
+        b = y + 1.8814 * cb;
+    } else {
+        r = y + 1.5748 * cr;
+        g = y - 0.1873 * cb - 0.4681 * cr;
+        b = y + 1.8556 * cb;
+    }
+
+    out_tex.write(float4(clamp(r, 0.0, 1.0), clamp(g, 0.0, 1.0), clamp(b, 0.0, 1.0), alpha), gid);
+}
 )";
 
 namespace qcview {
@@ -119,6 +160,11 @@ void MetalYUVRenderer::Shutdown() {
     if (compute_pipeline_) {
         [(id)compute_pipeline_ release];
         compute_pipeline_ = nullptr;
+    }
+
+    if (interleaved_pipeline_) {
+        [(id)interleaved_pipeline_ release];
+        interleaved_pipeline_ = nullptr;
     }
 
     if (cached_output_desc_) {
@@ -175,6 +221,19 @@ bool MetalYUVRenderer::CreateComputePipeline() {
 
     // In non-ARC, newComputePipelineState returns +1 retained — just store the pointer
     compute_pipeline_ = (void*)pipeline;
+
+    // Create interleaved 4444+alpha pipeline
+    id<MTLFunction> interleavedKernel = [library newFunctionWithName:@"yuv_interleaved_to_rgba"];
+    if (interleavedKernel) {
+        id<MTLComputePipelineState> interleavedPipeline = [device newComputePipelineStateWithFunction:interleavedKernel error:&error];
+        if (interleavedPipeline) {
+            interleaved_pipeline_ = (void*)interleavedPipeline;
+        } else {
+            Debug::Log("MetalYUVRenderer: Interleaved pipeline creation failed: " +
+                       std::string([error.localizedDescription UTF8String]));
+        }
+    }
+
     return true;
 }
 
@@ -320,6 +379,135 @@ void* MetalYUVRenderer::RenderToRGBAAsync(void* y_texture, void* uv_texture,
     // NO waitUntilCompleted — decode thread continues immediately.
     // Output texture is safe for pool registration: Metal's same-queue ordering
     // guarantees the compute finishes before any later command buffer reads it.
+
+    return (void*)output;
+}
+
+void* MetalYUVRenderer::RenderInterleavedToRGBA(void* in_texture,
+                                                  int width, int height,
+                                                  int bit_depth, bool is_full_range,
+                                                  bool is_bt2020, bool is_hdr) {
+    if (!initialized_ || !in_texture || !interleaved_pipeline_) return nullptr;
+
+    auto& mgr = MetalDeviceManager::Instance();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)mgr.GetDevice();
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)mgr.GetCommandQueue();
+
+    if (width != cached_desc_width_ || height != cached_desc_height_) {
+        if (cached_output_desc_) [(id)cached_output_desc_ release];
+        MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                                                        width:width
+                                                                                       height:height
+                                                                                    mipmapped:NO];
+        desc.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
+        desc.storageMode = MTLStorageModePrivate;
+        [desc retain];
+        cached_output_desc_ = (void*)desc;
+        cached_desc_width_ = width;
+        cached_desc_height_ = height;
+    }
+
+    id<MTLTexture> output = [device newTextureWithDescriptor:(__bridge MTLTextureDescriptor*)cached_output_desc_];
+    if (!output) return nullptr;
+
+    id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+
+    id<MTLComputePipelineState> pipeline = (__bridge id<MTLComputePipelineState>)interleaved_pipeline_;
+    [encoder setComputePipelineState:pipeline];
+
+    [encoder setTexture:(__bridge id<MTLTexture>)in_texture atIndex:0];
+    [encoder setTexture:output atIndex:1];
+
+    struct {
+        uint32_t width, height, bit_depth, is_full_range, is_bt2020, is_hdr, subsampling;
+    } params = {
+        (uint32_t)width, (uint32_t)height, (uint32_t)bit_depth,
+        is_full_range ? 1u : 0u, is_bt2020 ? 1u : 0u, is_hdr ? 1u : 0u, 2u
+    };
+    [encoder setBytes:&params length:sizeof(params) atIndex:0];
+
+    MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+    MTLSize gridSize = MTLSizeMake(width, height, 1);
+    [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+
+    [encoder endEncoding];
+    [cmdBuf commit];
+    [cmdBuf waitUntilCompleted];
+
+    return (void*)output;
+}
+
+void* MetalYUVRenderer::RenderInterleavedToRGBAAsync(void* in_texture,
+                                                       int width, int height,
+                                                       int bit_depth, bool is_full_range,
+                                                       bool is_bt2020, bool is_hdr,
+                                                       void (*cleanup_fn)(void* ctx),
+                                                       void* cleanup_ctx) {
+    if (!initialized_ || !in_texture || !interleaved_pipeline_) {
+        if (cleanup_fn) cleanup_fn(cleanup_ctx);
+        return nullptr;
+    }
+
+    auto& mgr = MetalDeviceManager::Instance();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)mgr.GetDevice();
+    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)mgr.GetCommandQueue();
+
+    if (width != cached_desc_width_ || height != cached_desc_height_) {
+        if (cached_output_desc_) [(id)cached_output_desc_ release];
+        MTLTextureDescriptor* desc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                                                        width:width
+                                                                                       height:height
+                                                                                    mipmapped:NO];
+        desc.usage = MTLTextureUsageShaderWrite | MTLTextureUsageShaderRead;
+        desc.storageMode = MTLStorageModePrivate;
+        [desc retain];
+        cached_output_desc_ = (void*)desc;
+        cached_desc_width_ = width;
+        cached_desc_height_ = height;
+    }
+
+    id<MTLTexture> output = [device newTextureWithDescriptor:(__bridge MTLTextureDescriptor*)cached_output_desc_];
+    if (!output) {
+        if (cleanup_fn) cleanup_fn(cleanup_ctx);
+        return nullptr;
+    }
+
+    id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+    id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+
+    id<MTLComputePipelineState> pipeline = (__bridge id<MTLComputePipelineState>)interleaved_pipeline_;
+    [encoder setComputePipelineState:pipeline];
+
+    [encoder setTexture:(__bridge id<MTLTexture>)in_texture atIndex:0];
+    [encoder setTexture:output atIndex:1];
+
+    struct {
+        uint32_t width, height, bit_depth, is_full_range, is_bt2020, is_hdr, subsampling;
+    } params = {
+        (uint32_t)width, (uint32_t)height, (uint32_t)bit_depth,
+        is_full_range ? 1u : 0u, is_bt2020 ? 1u : 0u, is_hdr ? 1u : 0u, 2u
+    };
+    [encoder setBytes:&params length:sizeof(params) atIndex:0];
+
+    MTLSize threadGroupSize = MTLSizeMake(16, 16, 1);
+    MTLSize gridSize = MTLSizeMake(width, height, 1);
+    [encoder dispatchThreads:gridSize threadsPerThreadgroup:threadGroupSize];
+
+    [encoder endEncoding];
+
+    void (*fn)(void*) = cleanup_fn;
+    void* ctx = cleanup_ctx;
+    std::shared_ptr<std::atomic<int>> counter = in_flight_count_;
+
+    in_flight_count_->fetch_add(1, std::memory_order_relaxed);
+
+    [cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull) {
+        if (fn) fn(ctx);
+        counter->fetch_sub(1, std::memory_order_release);
+    }];
+
+    [cmdBuf commit];
 
     return (void*)output;
 }

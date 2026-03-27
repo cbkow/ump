@@ -468,6 +468,12 @@ std::shared_ptr<PixelData> ScrubDecoder::ConvertFrame(AVFrame* frame) {
             case kCVPixelFormatType_32BGRA:
                 src_fmt = AV_PIX_FMT_BGRA;
                 break;
+            case kCVPixelFormatType_4444AYpCbCr16:
+                src_fmt = AV_PIX_FMT_AYUV64LE;
+                break;
+            case kCVPixelFormatType_4444YpCbCrA8:
+                src_fmt = AV_PIX_FMT_YUV444P;  // Close enough for sws_scale fallback
+                break;
             default:
                 // Fallback: try NV12
                 src_fmt = AV_PIX_FMT_NV12;
@@ -631,12 +637,21 @@ uint64_t ScrubDecoder::DecodeFrameToPoolTexture(int target_frame, int* actual_fr
 
                         MetalTextureFrame tex_frame = hw_extractor_->ExtractFromPixelBuffer((void*)pb);
                         if (tex_frame.valid && yuv_renderer_) {
-                            void* rgba_texture = yuv_renderer_->RenderToRGBA(
-                                tex_frame.y_texture, tex_frame.uv_texture,
-                                tex_frame.width, tex_frame.height,
-                                tex_frame.bit_depth, is_full_range_,
-                                is_bt2020_, is_hdr_,
-                                static_cast<int>(tex_frame.subsampling));
+                            void* rgba_texture = nullptr;
+                            if (tex_frame.is_interleaved) {
+                                rgba_texture = yuv_renderer_->RenderInterleavedToRGBA(
+                                    tex_frame.y_texture,
+                                    tex_frame.width, tex_frame.height,
+                                    tex_frame.bit_depth, is_full_range_,
+                                    is_bt2020_, is_hdr_);
+                            } else {
+                                rgba_texture = yuv_renderer_->RenderToRGBA(
+                                    tex_frame.y_texture, tex_frame.uv_texture,
+                                    tex_frame.width, tex_frame.height,
+                                    tex_frame.bit_depth, is_full_range_,
+                                    is_bt2020_, is_hdr_,
+                                    static_cast<int>(tex_frame.subsampling));
+                            }
 
                             hw_extractor_->ReleaseFrame(tex_frame);
 
@@ -645,9 +660,6 @@ uint64_t ScrubDecoder::DecodeFrameToPoolTexture(int target_frame, int* actual_fr
                                     rgba_texture, tex_frame.width, tex_frame.height,
                                     1 /* RGBA16Float */);
 
-                                // Track for cleanup on Shutdown. Don't QueueDelete eagerly —
-                                // the pool's LRU eviction handles memory pressure, and eager
-                                // deletion can race with ImGui still referencing the texture.
                                 last_pool_texture_id_ = pool_id;
 
                                 CVPixelBufferRelease(pb);
@@ -729,12 +741,21 @@ uint64_t ScrubDecoder::GetKeyframeAsPoolTexture(int frame_number, int* actual_fr
                 CVPixelBufferRetain(pb);
                 MetalTextureFrame tex_frame = hw_extractor_->ExtractFromPixelBuffer((void*)pb);
                 if (tex_frame.valid && yuv_renderer_) {
-                    void* rgba_texture = yuv_renderer_->RenderToRGBA(
-                        tex_frame.y_texture, tex_frame.uv_texture,
-                        tex_frame.width, tex_frame.height,
-                        tex_frame.bit_depth, is_full_range_,
-                        is_bt2020_, is_hdr_,
-                        static_cast<int>(tex_frame.subsampling));
+                    void* rgba_texture = nullptr;
+                    if (tex_frame.is_interleaved) {
+                        rgba_texture = yuv_renderer_->RenderInterleavedToRGBA(
+                            tex_frame.y_texture,
+                            tex_frame.width, tex_frame.height,
+                            tex_frame.bit_depth, is_full_range_,
+                            is_bt2020_, is_hdr_);
+                    } else {
+                        rgba_texture = yuv_renderer_->RenderToRGBA(
+                            tex_frame.y_texture, tex_frame.uv_texture,
+                            tex_frame.width, tex_frame.height,
+                            tex_frame.bit_depth, is_full_range_,
+                            is_bt2020_, is_hdr_,
+                            static_cast<int>(tex_frame.subsampling));
+                    }
                     hw_extractor_->ReleaseFrame(tex_frame);
 
                     if (rgba_texture) {

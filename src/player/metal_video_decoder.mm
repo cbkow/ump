@@ -993,9 +993,43 @@ void MetalVideoDecoder::DecodeThreadFunc() {
             }
 
             if (is_intra_codec_) {
-                // Intra codecs: DON'T clear the buffer — cached frames are still valid
-                // (every frame is independently decoded). Just repoint the demuxer.
-                // This preserves recently-decoded frames for instant display during scrubbing.
+                // Intra codecs: preserve buffer when target is nearby (scrubbing),
+                // but clear it when target is far outside the buffered range (loop seek).
+                // Without clearing, NeedsMoreFrames() sees a full buffer of stale frames
+                // that are all >= target and never wakes the decode thread.
+                bool target_in_range = false;
+                {
+                    std::lock_guard<std::mutex> lock(buffer_mutex_);
+                    if (buffer_count_ > 0) {
+                        // Check if target is within or near the buffered range
+                        int buf_min = INT_MAX, buf_max = INT_MIN;
+                        for (int i = 0; i < buffer_count_; i++) {
+                            int idx = (buffer_head_ + i) % kFrameBufferSize;
+                            if (frame_buffer_[idx].valid) {
+                                buf_min = std::min(buf_min, frame_buffer_[idx].frame_number);
+                                buf_max = std::max(buf_max, frame_buffer_[idx].frame_number);
+                            }
+                        }
+                        // "Nearby" = within one buffer size of the range
+                        target_in_range = (target >= buf_min - kFrameBufferSize &&
+                                           target <= buf_max + kFrameBufferSize);
+                    }
+                }
+
+                if (!target_in_range) {
+                    // Far seek (e.g., loop from end→start): clear buffer
+                    std::lock_guard<std::mutex> lock(buffer_mutex_);
+                    for (auto& bf : frame_buffer_) {
+                        if (bf.valid) {
+                            bf.Reset();
+                        }
+                    }
+                    frame_map_.clear();
+                    buffer_head_ = 0;
+                    buffer_count_ = 0;
+                    Debug::Log("MetalVideoDecoder: Intra seek far — cleared buffer for target=" + std::to_string(target));
+                }
+
                 avcodec_flush_buffers(codec_ctx_);
                 av_seek_frame(format_ctx_, video_stream_idx_, timestamp, AVSEEK_FLAG_BACKWARD);
                 avcodec_flush_buffers(codec_ctx_);
@@ -1304,42 +1338,65 @@ void MetalVideoDecoder::AddCurrentFrameToBuffer(AVFrame* frame, int frame_num) {
         if (pb && hw_extractor_) {
             CVPixelBufferRetain(pb);
 
-            // Extract Y+UV MTLTextures from CVPixelBuffer (zero-copy via IOSurface)
+            // Extract MTLTextures from CVPixelBuffer (zero-copy via IOSurface)
             MetalTextureFrame tex_frame = hw_extractor_->ExtractFromPixelBuffer((void*)pb);
             if (tex_frame.valid) {
-                // Async cleanup: release Y+UV textures and CVPixelBuffer when GPU finishes.
-                // Captures void* (not ObjC types) to avoid block auto-retain in MRC.
-                struct HWCleanup {
-                    void* y_tex;
-                    void* uv_tex;
-                    void* pixel_buffer;  // CVPixelBufferRef
-                };
-                auto* cleanup = new HWCleanup{
-                    tex_frame.y_texture, tex_frame.uv_texture, tex_frame.pixel_buffer
-                };
-                // Disarm tex_frame so ReleaseFrame doesn't double-free
-                tex_frame.y_texture = nullptr;
-                tex_frame.uv_texture = nullptr;
-                tex_frame.pixel_buffer = nullptr;
-
                 int frame_w = tex_frame.width;
                 int frame_h = tex_frame.height;
+                void* rgba_texture = nullptr;
 
-                // YUV → RGBA16F via Metal compute shader (async — no GPU wait on decode thread)
-                void* rgba_texture = yuv_renderer_->RenderToRGBAAsync(
-                    cleanup->y_tex, cleanup->uv_tex,
-                    frame_w, frame_h,
-                    tex_frame.bit_depth, GetEffectiveFullRange(),
-                    is_bt2020_, is_hdr_,
-                    static_cast<int>(tex_frame.subsampling),
-                    [](void* ctx) {
-                        auto* c = static_cast<HWCleanup*>(ctx);
-                        [(id<MTLTexture>)c->y_tex release];
-                        [(id<MTLTexture>)c->uv_tex release];
-                        CVPixelBufferRelease((CVPixelBufferRef)c->pixel_buffer);
-                        delete c;
-                    },
-                    cleanup);
+                if (tex_frame.is_interleaved) {
+                    // Interleaved 4444+alpha path (y416/y408): single texture
+                    struct HWCleanupInterleaved {
+                        void* tex;
+                        void* pixel_buffer;
+                    };
+                    auto* cleanup = new HWCleanupInterleaved{
+                        tex_frame.y_texture, tex_frame.pixel_buffer
+                    };
+                    tex_frame.y_texture = nullptr;
+                    tex_frame.pixel_buffer = nullptr;
+
+                    rgba_texture = yuv_renderer_->RenderInterleavedToRGBAAsync(
+                        cleanup->tex, frame_w, frame_h,
+                        tex_frame.bit_depth, GetEffectiveFullRange(),
+                        is_bt2020_, is_hdr_,
+                        [](void* ctx) {
+                            auto* c = static_cast<HWCleanupInterleaved*>(ctx);
+                            [(id<MTLTexture>)c->tex release];
+                            CVPixelBufferRelease((CVPixelBufferRef)c->pixel_buffer);
+                            delete c;
+                        },
+                        cleanup);
+                } else {
+                    // Biplanar Y+UV path: two textures
+                    struct HWCleanup {
+                        void* y_tex;
+                        void* uv_tex;
+                        void* pixel_buffer;
+                    };
+                    auto* cleanup = new HWCleanup{
+                        tex_frame.y_texture, tex_frame.uv_texture, tex_frame.pixel_buffer
+                    };
+                    tex_frame.y_texture = nullptr;
+                    tex_frame.uv_texture = nullptr;
+                    tex_frame.pixel_buffer = nullptr;
+
+                    rgba_texture = yuv_renderer_->RenderToRGBAAsync(
+                        cleanup->y_tex, cleanup->uv_tex,
+                        frame_w, frame_h,
+                        tex_frame.bit_depth, GetEffectiveFullRange(),
+                        is_bt2020_, is_hdr_,
+                        static_cast<int>(tex_frame.subsampling),
+                        [](void* ctx) {
+                            auto* c = static_cast<HWCleanup*>(ctx);
+                            [(id<MTLTexture>)c->y_tex release];
+                            [(id<MTLTexture>)c->uv_tex release];
+                            CVPixelBufferRelease((CVPixelBufferRef)c->pixel_buffer);
+                            delete c;
+                        },
+                        cleanup);
+                }
 
                 // Register IMMEDIATELY — safe because Metal's same-queue ordering
                 // guarantees the compute finishes before ImGui's render pass reads it.
