@@ -8,13 +8,13 @@ nav_order: 17
 
 Unlike most media players, QCView does not tonemap media. Other players make assumptions about color space that are at least partially wrong — or at minimum, inconvenient for a professional review workflow.
 
-As a result, video output is presented in the display's working color space. In SDR mode, this is `sRGB`, so SDR video displays correctly without any adjustment. In HDR mode, the display assumes `Rec.2100 PQ`, so HDR content (such as PQ HEVC) displays correctly — but SDR content will not. In that case, you'll need to use OCIO to convert.
+As a result, video output is presented in the display's working color space. In SDR mode, this is `sRGB`, so SDR video displays correctly without any adjustment. In HDR mode, the display assumes `Rec.2100 PQ` (Windows/Linux) or `Linear sRGB/P3 EDR` (MacOS), to match OS expectations for HDR.
 
 ---
 
 ## Interface Tonemapping
 
-When HDR is active, the UI elements need to be tonemapped into the HDR color space. QCView provides an adjustable **target nits** setting to control how bright the interface appears relative to the HDR content. This lets you balance UI readability against the HDR video luminance.
+When HDR is active, the UI elements need to be tonemapped into the HDR color space. QCView provides an adjustable **target nits** setting to control how bright the interface appears relative to the HDR content. This lets you balance UI readability against the HDR luminance.
 
 ---
 
