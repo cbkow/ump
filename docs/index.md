@@ -9,7 +9,7 @@ nav_order: 1
 
 ![QCView main interface](images/QCmain.webp)
 
-**QCView** is a professional media player and reviewer for Windows, macOS, and Linux, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a professional media player and reviewer for Windows, macOS, and Linux (Debian/Wayland), built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
 
