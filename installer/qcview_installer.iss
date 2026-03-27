@@ -2,7 +2,7 @@
 ; https://jrsoftware.org/isinfo.php
 
 #define MyAppName "QCView"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "cbkow"
 #define MyAppURL "https://github.com/cbkow/ump"
 #define MyAppExeName "qcview.exe"

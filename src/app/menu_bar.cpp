@@ -354,7 +354,10 @@ extern bool show_notification_permanent;
                         custom_accent_color_index = -1;  // Clear custom color when using system
                     }
                     SaveSettings();
-                    SetupImGuiStyle();
+                    ImVec4 accent = GetWindowsAccentColor();
+                    ImGui::GetStyle().Colors[ImGuiCol_CheckMark] = accent;
+                    ImGui::GetStyle().Colors[ImGuiCol_ResizeGripActive] = accent;
+                    ImGui::GetStyle().Colors[ImGuiCol_DragDropTarget] = accent;
                     NodeEditorTheme::ApplyDarkTheme();
                 }
 
@@ -365,7 +368,10 @@ extern bool show_notification_permanent;
                         custom_accent_color_index = -2;
                         use_windows_accent_color = false;
                         SaveSettings();
-                        SetupImGuiStyle();
+                        ImVec4 accent = GetWindowsAccentColor();
+                        ImGui::GetStyle().Colors[ImGuiCol_CheckMark] = accent;
+                        ImGui::GetStyle().Colors[ImGuiCol_ResizeGripActive] = accent;
+                        ImGui::GetStyle().Colors[ImGuiCol_DragDropTarget] = accent;
                         NodeEditorTheme::ApplyDarkTheme();
                     }
                     ImGui::EndMenu();
@@ -869,6 +875,34 @@ extern bool show_notification_permanent;
                     show_font_settings_window = true;
                 }
 
+#ifdef __APPLE__
+                if (ImGui::MenuItem("Default Color", nullptr, custom_accent_color_index == -1)) {
+                    custom_accent_color_index = -1;
+                    use_windows_accent_color = false;
+                    SaveSettings();
+                    ImVec4 accent = GetWindowsAccentColor();
+                    ImGui::GetStyle().Colors[ImGuiCol_CheckMark] = accent;
+                    ImGui::GetStyle().Colors[ImGuiCol_ResizeGripActive] = accent;
+                    ImGui::GetStyle().Colors[ImGuiCol_DragDropTarget] = accent;
+                    NodeEditorTheme::ApplyDarkTheme();
+                }
+
+                if (ImGui::BeginMenu("Accent Color")) {
+                    if (ImGui::ColorPicker3("##AccentPicker", (float*)&custom_picker_color,
+                            ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview)) {
+                        custom_accent_color_index = -2;
+                        use_windows_accent_color = false;
+                        SaveSettings();
+                        ImVec4 accent = GetWindowsAccentColor();
+                        ImGui::GetStyle().Colors[ImGuiCol_CheckMark] = accent;
+                        ImGui::GetStyle().Colors[ImGuiCol_ResizeGripActive] = accent;
+                        ImGui::GetStyle().Colors[ImGuiCol_DragDropTarget] = accent;
+                        NodeEditorTheme::ApplyDarkTheme();
+                    }
+                    ImGui::EndMenu();
+                }
+#endif
+
                 // === ADVANCED SETTINGS ===
                 ImGui::Separator();
                 ImGui::TextDisabled("Advanced:");
@@ -891,7 +925,7 @@ extern bool show_notification_permanent;
 
             if (!native_menu_active && ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.1.0");
+                ImGui::TextDisabled("About QCView v1.1.1");
 
                 if (ImGui::MenuItem("Manual")) {
 #ifdef _WIN32

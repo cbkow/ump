@@ -217,8 +217,6 @@ ImU32 Application::ToImU32(const ImVec4& color) {
 void Application::SetupImGuiStyle() {
     ImGuiStyle& style = ImGui::GetStyle();
     ImVec4* colors = style.Colors;
-    style.FramePadding = ImVec2(8.0f, 8.0f);
-    style.ItemSpacing = ImVec2(8.0f, 4.0f);
 
     colors[ImGuiCol_Text] = ImVec4(0.91f, 0.91f, 0.91f, 1.0f);
     colors[ImGuiCol_TextDisabled] = ImVec4(0.41f, 0.41f, 0.41f, 1.00f);
@@ -277,6 +275,7 @@ void Application::SetupImGuiStyle() {
     colors[ImGuiCol_TableRowBgAlt] = ImVec4(1.00f, 1.00f, 1.00f, 0.06f);
 
     style.WindowPadding = ImVec2(12.00f, 12.00f);
+    style.FramePadding = ImVec2(6.00f, 6.00f);
     style.CellPadding = ImVec2(6.00f, 6.00f);
     style.ItemSpacing = ImVec2(6.00f, 6.00f);
     style.ItemInnerSpacing = ImVec2(6.00f, 6.00f);

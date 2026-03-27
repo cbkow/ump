@@ -220,7 +220,7 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         {
             int wx = (has_saved_window_settings && saved_window_x >= 0) ? saved_window_x : -1;
             int wy = (has_saved_window_settings && saved_window_y >= 0) ? saved_window_y : -1;
-            if (!MacOS_CreateWindow(saved_window_width, saved_window_height, wx, wy, "QCView v1.1.0")) {
+            if (!MacOS_CreateWindow(saved_window_width, saved_window_height, wx, wy, "QCView v1.1.1")) {
                 std::cerr << "Failed to create native macOS window" << std::endl;
                 return false;
             }
