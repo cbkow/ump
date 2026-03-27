@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 if(APPLE)
-    project(qcview VERSION 1.0.6 LANGUAGES CXX C OBJC OBJCXX)
+    project(qcview VERSION 1.0.7 LANGUAGES CXX C OBJC OBJCXX)
 else()
-    project(qcview VERSION 1.0.6 LANGUAGES CXX C)
+    project(qcview VERSION 1.0.7 LANGUAGES CXX C)
 endif()
 
 set(CMAKE_CXX_STANDARD 20)

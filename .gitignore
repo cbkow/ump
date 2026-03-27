@@ -6,6 +6,7 @@ out/
 
 # Packaging output
 sideloader/
+installer/sideload/
 installer/*.exe
 installer/msix/*.msix
 installer/msix/staging/
