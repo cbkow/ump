@@ -17,7 +17,7 @@ After installing QCView, the first setting worth configuring is the transcode ca
 
 Drag the slider to scale the entire interface — fonts, panels, spacing, and icons. This setting persists between sessions.
 
-> `1.08x` is recommended for Windows systems running at 125% display scaling. On macOS, the default `1.0x` is most likely going to be too large for a retina screen.
+> `1.20x` is recommended for Windows systems running at 125% display scaling. On macOS, the default `1.0x` is most likely going to be too large for a retina screen.
 
 ![UI Scale settings](images/SCR-20260326-odak.png)
 
