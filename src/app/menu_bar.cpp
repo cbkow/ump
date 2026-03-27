@@ -105,8 +105,10 @@ extern bool show_notification_permanent;
 
                 if (!recent_files.empty()) {
                     if (ImGui::BeginMenu("Recent Files")) {
-                        for (const auto& file : recent_files) {
-                            if (ImGui::MenuItem(GetFileName(file).c_str())) {
+                        for (int i = 0; i < (int)recent_files.size(); i++) {
+                            const auto& file = recent_files[i];
+                            std::string label = GetFileName(file) + "##recent_" + std::to_string(i);
+                            if (ImGui::MenuItem(label.c_str())) {
                                 Debug::Log("*** Loading recent file: " + file);
 
                                 // Route through project manager for proper cache eviction
@@ -889,7 +891,7 @@ extern bool show_notification_permanent;
 
             if (!native_menu_active && ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.0.7");
+                ImGui::TextDisabled("About QCView v1.1.0");
 
                 if (ImGui::MenuItem("Manual")) {
 #ifdef _WIN32
