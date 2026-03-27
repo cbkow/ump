@@ -19,5 +19,7 @@ Drag the slider to scale the entire interface — fonts, panels, spacing, and ic
 
 > `1.20x` is recommended for Windows systems running at 125% display scaling. On macOS, the default `1.0x` is most likely going to be too large for a retina screen.
 
+***QCView needs to be restarted for UI scaling changes to take effect.***
+
 ![UI Scale settings](images/SCR-20260326-odak.png)
 
