@@ -47,12 +47,6 @@ sudo dpkg -i QCView-<version>-amd64.deb
 sudo apt install -f  # install any missing dependencies
 ```
 
-### RPM (Fedora/RHEL)
-
-```bash
-sudo dnf install QCView-<version>-amd64.rpm
-```
-
 ### Uninstalling
 
 Uninstallation is handled by the package manager:
