@@ -33,7 +33,7 @@ InfoBeforeFile=..\LICENSES\THIRD_PARTY_NOTICES.txt
 
 ; Output settings
 OutputDir=.
-OutputBaseFilename=qcview-setup-{#MyAppVersion}
+OutputBaseFilename=qcview-{#MyAppVersion}-win64-setup
 Compression=lzma2/max
 SolidCompression=yes
 

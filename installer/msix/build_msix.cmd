@@ -17,16 +17,16 @@ set "ROOT=%~dp0..\..\"
 set "BUILD_DIR=%ROOT%build\Release"
 set "STAGING=%~dp0staging"
 set "MSIX_DIR=%~dp0"
-set "OUTPUT=%~dp0QCView-1.0.4.msix"
+set "OUTPUT=%~dp0QCView-1.0.6-win64.msix"
 
 :: Locate MakeAppx.exe and MakePri.exe from Windows SDK
 set "MAKEAPPX="
 set "MAKEPRI="
-for /f "delims=" %%i in ('dir /b /s "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\MakeAppx.exe" 2^>nul') do (
-    set "MAKEAPPX=%%i"
+for /f "delims=" %%i in ('where /r "C:\Program Files (x86)\Windows Kits\10\bin" MakeAppx.exe 2^>nul') do (
+    echo %%i | findstr /i "\\x64\\" >nul && set "MAKEAPPX=%%i"
 )
-for /f "delims=" %%i in ('dir /b /s "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\MakePri.exe" 2^>nul') do (
-    set "MAKEPRI=%%i"
+for /f "delims=" %%i in ('where /r "C:\Program Files (x86)\Windows Kits\10\bin" MakePri.exe 2^>nul') do (
+    echo %%i | findstr /i "\\x64\\" >nul && set "MAKEPRI=%%i"
 )
 if not defined MAKEAPPX (
     echo ERROR: MakeAppx.exe not found. Install the Windows 10 SDK.
