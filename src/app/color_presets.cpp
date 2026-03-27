@@ -543,10 +543,6 @@ static void DrawItemIcon(const char* icon) {
         if (font_regular) ImGui::PopFont();
     }
 
-    void Application::CreateBlenderPresets() {
-        // Legacy Blender 4.5 — kept as empty stub for header declaration compatibility
-    }
-
     void Application::CreateBlender5Presets() {
         if (font_regular) ImGui::PushFont(font_regular);
 
@@ -1042,7 +1038,7 @@ static void DrawItemIcon(const char* icon) {
                     target_config = OCIOConfigType::ACES_20;
                 } else if (config_str == "Blender") {
                     target_config = OCIOConfigType::BLENDER;
-                } else if (config_str == "Blender5") {
+                } else if (config_str == "Blender5" || config_str == "Blender5.1") {
                     target_config = OCIOConfigType::BLENDER5;
                 } else if (config_str == "Custom") {
                     target_config = OCIOConfigType::CUSTOM;

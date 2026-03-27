@@ -228,40 +228,47 @@ bool MetalOCIORenderer::BuildPipelineForOCIO(OCIOPipeline* pipeline) {
             Debug::Log("MetalOCIORenderer: Created 3D LUT '" + lut_info.sampler_name +
                        "' " + std::to_string(edge) + "^3");
         } else {
-            // 1D/2D LUT: stored as texture2d (height=1 for 1D)
             unsigned w = lut_info.width;
             unsigned h = std::max(lut_info.height, 1u);
+            bool is_1d = (h == 1);
 
             MTLPixelFormat format;
-            unsigned num_components;
             if (lut_info.is_red_channel) {
                 format = MTLPixelFormatR32Float;
-                num_components = 1;
             } else {
                 format = MTLPixelFormatRGBA32Float;
-                num_components = 4;  // Expand RGB → RGBA
             }
 
-            MTLTextureDescriptor* desc = [MTLTextureDescriptor
-                texture2DDescriptorWithPixelFormat:format width:w height:h mipmapped:NO];
+            MTLTextureDescriptor* desc;
+            if (is_1d) {
+                // True 1D texture — OCIO MSL expects texture1d<float>
+                desc = [MTLTextureDescriptor new];
+                desc.textureType = MTLTextureType1D;
+                desc.pixelFormat = format;
+                desc.width = w;
+                desc.height = 1;
+                desc.depth = 1;
+            } else {
+                desc = [MTLTextureDescriptor
+                    texture2DDescriptorWithPixelFormat:format width:w height:h mipmapped:NO];
+            }
             desc.storageMode = MTLStorageModeShared;
             desc.usage = MTLTextureUsageShaderRead;
 
             id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
             if (!tex) {
-                Debug::Log("MetalOCIORenderer: Failed to create 1D/2D LUT texture");
+                Debug::Log("MetalOCIORenderer: Failed to create " +
+                           std::string(is_1d ? "1D" : "2D") + " LUT texture");
                 return false;
             }
 
             if (lut_info.is_red_channel) {
-                // Red-channel: data is already R32Float
-                MTLRegion region = MTLRegionMake2D(0, 0, w, h);
+                MTLRegion region = is_1d ? MTLRegionMake1D(0, w) : MTLRegionMake2D(0, 0, w, h);
                 [tex replaceRegion:region
                        mipmapLevel:0
                          withBytes:lut_info.data.data()
                        bytesPerRow:w * sizeof(float)];
             } else {
-                // RGB → expand to RGBA
                 unsigned total_pixels = w * h;
                 std::vector<float> rgba_data(total_pixels * 4);
                 for (unsigned j = 0; j < total_pixels; ++j) {
@@ -270,7 +277,7 @@ bool MetalOCIORenderer::BuildPipelineForOCIO(OCIOPipeline* pipeline) {
                     rgba_data[j * 4 + 2] = lut_info.data[j * 3 + 2];
                     rgba_data[j * 4 + 3] = 1.0f;
                 }
-                MTLRegion region = MTLRegionMake2D(0, 0, w, h);
+                MTLRegion region = is_1d ? MTLRegionMake1D(0, w) : MTLRegionMake2D(0, 0, w, h);
                 [tex replaceRegion:region
                        mipmapLevel:0
                          withBytes:rgba_data.data()
@@ -278,8 +285,9 @@ bool MetalOCIORenderer::BuildPipelineForOCIO(OCIOPipeline* pipeline) {
             }
 
             lut_entry.texture = (__bridge_retained void*)tex;
-            Debug::Log("MetalOCIORenderer: Created 1D/2D LUT '" + lut_info.sampler_name +
-                       "' " + std::to_string(w) + "x" + std::to_string(h) +
+            Debug::Log("MetalOCIORenderer: Created " + std::string(is_1d ? "1D" : "2D") +
+                       " LUT '" + lut_info.sampler_name + "' " +
+                       std::to_string(w) + (is_1d ? "" : "x" + std::to_string(h)) +
                        " " + (lut_info.is_red_channel ? "R32F" : "RGBA32F"));
         }
 
@@ -306,6 +314,8 @@ bool MetalOCIORenderer::BuildPipelineForOCIO(OCIOPipeline* pipeline) {
         const auto& lut = info.luts[i];
         if (lut.is_3d) {
             msl << ",\n    texture3d<float> " << lut.texture_name << " [[texture(" << (i + 2) << ")]]";
+        } else if (lut.height <= 1) {
+            msl << ",\n    texture1d<float> " << lut.texture_name << " [[texture(" << (i + 2) << ")]]";
         } else {
             msl << ",\n    texture2d<float> " << lut.texture_name << " [[texture(" << (i + 2) << ")]]";
         }

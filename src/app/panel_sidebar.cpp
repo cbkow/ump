@@ -918,15 +918,6 @@ extern CacheSettings cache_settings;
                 ImGui::PopID();
             }
 
-            // Blender 4.5 Presets Section
-            if (ImGui::CollapsingHeader("Blender 4.5 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
-                ImGui::PushID("Blender45Presets##Panel");
-                ImGui::Indent(S(8.0f));
-                CreateBlenderPresets();
-                ImGui::Unindent(8.0f);
-                ImGui::PopID();
-            }
-
             // Blender 5.0 Presets Section
             if (ImGui::CollapsingHeader("Blender 5.0 Workflows##PresetPanel", ImGuiTreeNodeFlags_DefaultOpen)) {
                 ImGui::PushID("Blender50Presets##Panel");

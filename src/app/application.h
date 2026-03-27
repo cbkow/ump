@@ -488,7 +488,6 @@ private:
     void CreatePresetsTab();
     void CreateACESPresets();
     void CreateStandardPresets();
-    void CreateBlenderPresets();
     void CreateBlender5Presets();
     void CreateACES20Presets();
     std::string GetNodeTreesFolder();
