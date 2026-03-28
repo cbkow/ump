@@ -45,6 +45,9 @@ Thumbs.db
 *.log
 logs.txt
 
+# Build/signing scripts (contain signing identity references)
+scripts/
+
 # Build artifacts
 *.dmg
 *.bak
