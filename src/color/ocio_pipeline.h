@@ -162,7 +162,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Buffer> d3d_constant_buffer_;
 
     // D3D11 LUT textures
-    std::vector<Microsoft::WRL::ComPtr<ID3D11Texture1D>> d3d_lut_1d_;
+    std::vector<Microsoft::WRL::ComPtr<ID3D11Texture2D>> d3d_lut_2d_;
     std::vector<Microsoft::WRL::ComPtr<ID3D11Texture3D>> d3d_lut_3d_;
     std::vector<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> d3d_lut_srvs_;
     std::vector<Microsoft::WRL::ComPtr<ID3D11SamplerState>> d3d_lut_samplers_;

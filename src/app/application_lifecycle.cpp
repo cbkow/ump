@@ -201,17 +201,9 @@ void Application::UpdateColorPipeline() {
             case qcview::NodeType::OUTPUT_DISPLAY: {
                 auto* displayNode = dynamic_cast<qcview::OutputDisplayNode*>(node);
                 if (displayNode) {
-                    // Parse display string - it might be in format "Display - View"
-                    std::string display_str = displayNode->GetDisplay();
-                    size_t dash_pos = display_str.find(" - ");
-                    if (dash_pos != std::string::npos) {
-                        display = display_str.substr(0, dash_pos);
-                        view = display_str.substr(dash_pos + 3);
-                    }
-                    else {
-                        display = display_str;
-                        view = "sRGB";  // Default view
-                    }
+                    display = displayNode->GetDisplay();
+                    view = displayNode->GetView();
+                    if (view.empty()) view = "Standard";
                     Debug::Log("Found Output: " + display + " - " + view);
                 }
                 break;
