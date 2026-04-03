@@ -17,7 +17,7 @@ set "ROOT=%~dp0..\..\"
 set "BUILD_DIR=%ROOT%build\Release"
 set "STAGING=%~dp0staging"
 set "MSIX_DIR=%~dp0"
-set "OUTPUT=%~dp0QCView-1.1.1-win64.msix"
+set "OUTPUT=%~dp0QCView-1.1.2-win64.msix"
 
 :: Locate MakeAppx.exe and MakePri.exe from Windows SDK
 set "MAKEAPPX="
