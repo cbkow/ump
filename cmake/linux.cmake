@@ -241,10 +241,10 @@ install(DIRECTORY assets/ DESTINATION ${CMAKE_INSTALL_DATADIR}/qcview/assets)
 install(DIRECTORY shaders/ DESTINATION ${CMAKE_INSTALL_DATADIR}/qcview/shaders)
 
 # Vendored OCIO library (matches the headers we built against)
-install(FILES external/ocio/linux/lib/libOpenColorIO.so.2.5.0
+install(FILES external/ocio/linux/lib/libOpenColorIO.so.2.5.1
         DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(CODE "execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink
-    libOpenColorIO.so.2.5.0 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libOpenColorIO.so.2.5)")
+    libOpenColorIO.so.2.5.1 \$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}/libOpenColorIO.so.2.5)")
 
 # Desktop entry
 install(FILES packaging/app.qcview.QCView.desktop

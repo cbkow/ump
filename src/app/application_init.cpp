@@ -242,6 +242,9 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         }
 
 #ifdef QCVIEW_USE_VULKAN
+        // Vulkan manages its own surface — no OpenGL context
+        glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+#else
         // OpenGL context configuration
         glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
@@ -337,6 +340,14 @@ bool Application::Initialize(const std::vector<std::string>& initial_files) {
         } else {
             Debug::Log("VulkanTexturePool initialized (max " +
                        std::to_string(qcview::VulkanTexturePool::Instance().GetMaxMemory() / (1024*1024)) + " MB)");
+        }
+
+        // Initialize Vulkan thumbnail texture pool (separate pool for timeline thumbnails)
+        if (!qcview::VulkanTexturePool::ThumbnailInstance().Initialize(512ULL * 1024 * 1024)) {
+            Debug::Log("WARNING: Failed to initialize VulkanTexturePool (thumbnails)");
+        } else {
+            Debug::Log("VulkanTexturePool (thumbnails) initialized (max " +
+                       std::to_string(qcview::VulkanTexturePool::ThumbnailInstance().GetMaxMemory() / (1024*1024)) + " MB)");
         }
 
         // Initialize Vulkan annotation renderer (replaces NanoVG GL3 backend)

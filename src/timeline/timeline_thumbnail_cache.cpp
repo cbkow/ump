@@ -90,7 +90,7 @@ void TimelineThumbnailCache::Shutdown() {
         for (auto& [key, entry] : cache_) {
             if (entry.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
-                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+                qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
 #elif defined(QCVIEW_USE_METAL)
                 // Guard against static destruction order: pool may already be shut down at exit
                 if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
@@ -342,7 +342,7 @@ void TimelineThumbnailCache::Clear() {
         for (auto& [key, entry] : cache_) {
             if (entry.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
-                qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+                qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
 #elif defined(QCVIEW_USE_METAL)
                 // Guard against static destruction order: pool may already be shut down at exit
                 if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
@@ -634,7 +634,7 @@ GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>&
         case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
         case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
     }
-    uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
+    uint64_t pool_id = qcview::VulkanTexturePool::ThumbnailInstance().CreateTextureFromPixels(
         pixels->width, pixels->height, vk_format,
         pixels->pixels.data(), pixels->pixels.size());
     return static_cast<GLuint>(pool_id);
@@ -698,7 +698,7 @@ void TimelineThumbnailCache::EvictLRU() {
     if (it != cache_.end()) {
         if (it->second.texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
-            qcview::VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
+            qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
 #elif defined(QCVIEW_USE_METAL)
             qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
 #else

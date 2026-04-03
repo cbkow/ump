@@ -1082,6 +1082,9 @@ void Application::DrawFrame() {
                     }
 
                     vulkan_current_frame_++;
+
+                    qcview::VulkanTexturePool::Instance().ProcessPendingDeletions();
+                    qcview::VulkanTexturePool::ThumbnailInstance().ProcessPendingDeletions();
                 }
 
                 // Vulkan annotation rendering handled in panel_viewport.cpp

@@ -600,7 +600,8 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
                 if (files.empty()) {
                     // Just raise the window
                     if (window) {
-                        MacOS_FocusWindow();
+                        glfwShowWindow(window);
+                        glfwFocusWindow(window);
                     }
                     return;
                 }
@@ -635,7 +636,8 @@ extern std::chrono::steady_clock::time_point seek_cache_start_timer;
 
                 // Bring window to front
                 if (window) {
-                    MacOS_FocusWindow();
+                    glfwShowWindow(window);
+                    glfwFocusWindow(window);
                 }
 
                 Debug::Log("SingleInstance: Processed " + std::to_string(files.size()) + " file(s)");

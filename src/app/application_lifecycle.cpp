@@ -308,6 +308,7 @@ const std::string& Application::GetLoadingMessage() const { return loading_messa
             vulkan_annotation_renderer_->Shutdown();
             vulkan_annotation_renderer_.reset();
         }
+        qcview::VulkanTexturePool::ThumbnailInstance().Shutdown();
         qcview::VulkanTexturePool::Instance().Shutdown();
         vk_dev.Shutdown();
 #elif defined(QCVIEW_USE_METAL)

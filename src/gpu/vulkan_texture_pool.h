@@ -48,6 +48,7 @@ struct VulkanTexture {
 class VulkanTexturePool {
 public:
     static VulkanTexturePool& Instance();
+    static VulkanTexturePool& ThumbnailInstance();  // Separate pool for timeline thumbnails
 
     // Delete copy/move
     VulkanTexturePool(const VulkanTexturePool&) = delete;

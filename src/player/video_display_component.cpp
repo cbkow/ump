@@ -914,6 +914,7 @@ void VideoDisplayComponent::SetColorPipeline(std::unique_ptr<OCIOPipeline> pipel
         if (vulkan_ocio_renderer_) {
             vulkan_ocio_renderer_->InvalidateOCIOPipeline();
         }
+        vulkan_last_src_pool_id_ = 0;  // Force re-apply on current frame
 #elif defined(QCVIEW_USE_METAL)
         // Invalidate cached Metal OCIO pipeline so it rebuilds with new shader
         if (metal_ocio_renderer_) {
@@ -946,6 +947,7 @@ void VideoDisplayComponent::ClearColorPipeline() {
     if (vulkan_ocio_renderer_) {
         vulkan_ocio_renderer_->InvalidateOCIOPipeline();
     }
+    vulkan_last_src_pool_id_ = 0;  // Force re-apply on current frame
 #elif defined(QCVIEW_USE_METAL)
     // Invalidate cached Metal OCIO pipeline
     if (metal_ocio_renderer_) {

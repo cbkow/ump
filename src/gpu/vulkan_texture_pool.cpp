@@ -20,6 +20,11 @@ VulkanTexturePool& VulkanTexturePool::Instance() {
     return instance;
 }
 
+VulkanTexturePool& VulkanTexturePool::ThumbnailInstance() {
+    static VulkanTexturePool instance;
+    return instance;
+}
+
 VulkanTexturePool::VulkanTexturePool() = default;
 
 VulkanTexturePool::~VulkanTexturePool() {

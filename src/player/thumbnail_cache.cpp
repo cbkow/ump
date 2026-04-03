@@ -28,7 +28,7 @@ namespace qcview {
 ThumbnailEntry::~ThumbnailEntry() {
     if (texture_id != 0) {
 #ifdef QCVIEW_USE_VULKAN
-        VulkanTexturePool::Instance().QueueDelete(static_cast<uint64_t>(texture_id));
+        VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(texture_id));
 #elif defined(QCVIEW_USE_METAL)
         if (MetalTexturePool::ThumbnailInstance().IsInitialized()) {
             MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(texture_id));
@@ -376,7 +376,7 @@ std::unique_ptr<PendingThumbnail> ThumbnailCache::GenerateThumbnailPixels(int fr
 GLuint ThumbnailCache::CreateGLTexture(const PendingThumbnail& pending) {
 #ifdef QCVIEW_USE_VULKAN
     // Vulkan path: Create texture via VulkanTexturePool
-    auto& pool = qcview::VulkanTexturePool::Instance();
+    auto& pool = qcview::VulkanTexturePool::ThumbnailInstance();
     if (!pool.IsInitialized()) {
         generation_failures_++;
         return 0;
