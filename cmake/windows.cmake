@@ -131,9 +131,11 @@ target_link_libraries(${PROJECT_NAME}
 set(SOUNDTOUCH_DIR "${CMAKE_CURRENT_SOURCE_DIR}/external/soundtouch")
 if(EXISTS "${SOUNDTOUCH_DIR}/include/SoundTouch.h")
     target_include_directories(${PROJECT_NAME} PRIVATE ${SOUNDTOUCH_DIR}/include)
-    target_link_libraries(${PROJECT_NAME} "${SOUNDTOUCH_DIR}/lib/SoundTouch.lib")
-    target_compile_definitions(${PROJECT_NAME} PRIVATE QCVIEW_HAS_SOUNDTOUCH)
-    message(STATUS "SoundTouch: Found in external/soundtouch")
+    # SoundTouch.lib is built with /MD (dynamic release runtime).
+    # Only link in Release configs to avoid runtime library mismatch (LNK2038).
+    target_link_libraries(${PROJECT_NAME} optimized "${SOUNDTOUCH_DIR}/lib/SoundTouch.lib")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE $<$<NOT:$<CONFIG:Debug>>:QCVIEW_HAS_SOUNDTOUCH>)
+    message(STATUS "SoundTouch: Found in external/soundtouch (Release configs only)")
 else()
     message(STATUS "SoundTouch: NOT FOUND - tempo control will be disabled")
 endif()

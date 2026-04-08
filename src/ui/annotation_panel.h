@@ -176,8 +176,8 @@ private:
     GLuint LoadThumbnail(const std::string& image_path);
     void CleanupThumbnails();
 
-    // Resolve thumbnail path: prefers _annotated.png if it exists
-    std::string ResolveThumbnailPath(const AnnotationNote& note) const;
+    // Resolve thumbnail path: prefers _annotated.png if it exists (cached to avoid per-frame filesystem calls)
+    std::string ResolveThumbnailPath(const AnnotationNote& note);
 
 public:
     // Invalidate a cached thumbnail so it reloads on next frame
@@ -189,6 +189,10 @@ private:
     std::map<std::string, GLuint> thumbnail_cache_;
     // Thumbnail aspect ratio cache: image_path -> aspect_ratio (width/height)
     std::map<std::string, float> thumbnail_aspect_cache_;
+    // Resolved path cache: timecode -> resolved filesystem path (avoids per-frame exists() calls)
+    std::map<std::string, std::string> resolved_path_cache_;
+    // Track note count to detect when notes are reloaded and caches need clearing
+    size_t last_known_note_count_ = 0;
 };
 
 } // namespace qcview

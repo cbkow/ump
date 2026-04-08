@@ -380,6 +380,12 @@ void AnnotationPanel::RenderHeader() {
 void AnnotationPanel::RenderNotesList() {
     const auto& notes = annotation_manager_->GetNotes();
 
+    // Detect note list changes (load/add/delete) and clear resolved path cache
+    if (notes.size() != last_known_note_count_) {
+        resolved_path_cache_.clear();
+        last_known_note_count_ = notes.size();
+    }
+
     if (notes.empty()) {
         ImGui::TextDisabled("No annotations yet");
         ImGui::TextDisabled("Click 'Add Note' to create your first annotation");
@@ -718,6 +724,13 @@ void AnnotationPanel::RenderPreviewTab(ImVec4 accent_regular) {
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
     if (ImGui::BeginChild("PreviewScrollRegion", ImVec2(0, available_height - footer_reserve), false)) {
         const auto& notes = annotation_manager_->GetNotes();
+
+        // Detect note list changes and clear resolved path cache
+        if (notes.size() != last_known_note_count_) {
+            resolved_path_cache_.clear();
+            last_known_note_count_ = notes.size();
+        }
+
         if (notes.empty()) {
             ImGui::TextDisabled("No annotations yet");
         } else {
@@ -1142,6 +1155,7 @@ void AnnotationPanel::HandleAddNote() {
 void AnnotationPanel::HandleDeleteNote(const std::string& timecode) {
     // TODO: Add confirmation dialog
     annotation_manager_->DeleteNote(timecode);
+    resolved_path_cache_.erase(timecode);
     if (selected_timecode_ == timecode) {
         selected_timecode_.clear();
     }
@@ -1275,8 +1289,14 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     return texture_id;
 }
 
-std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) const {
+std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) {
     if (!annotation_manager_) return "";
+
+    // Check resolved path cache first — avoids filesystem calls on every frame
+    auto cache_it = resolved_path_cache_.find(note.timecode);
+    if (cache_it != resolved_path_cache_.end()) {
+        return cache_it->second;
+    }
 
     std::string images_folder = annotation_manager_->GetImagesFolder();
     std::string filename = note.image_path.substr(note.image_path.find_last_of('/') + 1);
@@ -1285,16 +1305,19 @@ std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) co
     // Prefer annotated thumbnail if it exists
     std::string annotated_path = Annotations::GetAnnotatedThumbnailPath(clean_path);
     if (std::filesystem::exists(annotated_path)) {
+        resolved_path_cache_[note.timecode] = annotated_path;
         return annotated_path;
     }
 
     // Lazy generation: if annotation_data has strokes but no annotated thumbnail yet, generate it
     if (!note.annotation_data.empty() && std::filesystem::exists(clean_path)) {
         if (Annotations::GenerateAnnotatedThumbnail(clean_path, annotated_path, note.annotation_data)) {
+            resolved_path_cache_[note.timecode] = annotated_path;
             return annotated_path;
         }
     }
 
+    resolved_path_cache_[note.timecode] = clean_path;
     return clean_path;
 }
 
@@ -1308,6 +1331,14 @@ void AnnotationPanel::InvalidateThumbnail(const std::string& image_path) {
         thumbnail_cache_.erase(it);
         thumbnail_aspect_cache_.erase(image_path);
     }
+    // Clear resolved path cache entries that point to this image
+    for (auto pit = resolved_path_cache_.begin(); pit != resolved_path_cache_.end(); ) {
+        if (pit->second == image_path) {
+            pit = resolved_path_cache_.erase(pit);
+        } else {
+            ++pit;
+        }
+    }
 }
 
 void AnnotationPanel::CleanupThumbnails() {
@@ -1318,6 +1349,7 @@ void AnnotationPanel::CleanupThumbnails() {
 #endif
     thumbnail_cache_.clear();
     thumbnail_aspect_cache_.clear();
+    resolved_path_cache_.clear();
 }
 
 } // namespace qcview
