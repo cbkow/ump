@@ -712,6 +712,13 @@ namespace qcview {
             current_project_path = save_path;
             Debug::Log("SaveProject: Project saved successfully to " + save_path);
 
+            // Add to recent files so saved projects appear in File > Recent Files —
+            // mirrors the LoadProject path. SaveProjectAs routes through SaveProject
+            // so one call site covers both.
+            if (recent_file_callback_) {
+                recent_file_callback_(save_path);
+            }
+
             // Notify listeners that project was saved (used to refresh annotation availability)
             if (project_saved_callback) {
                 project_saved_callback();

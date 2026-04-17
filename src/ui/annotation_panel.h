@@ -4,6 +4,7 @@
 #include <string>
 #include <functional>
 #include <map>
+#include <cstdint>
 #include <glad/gl.h>
 #include <imgui.h>
 
@@ -156,7 +157,12 @@ private:
     double modal_edit_timestamp_ = 0.0;
     int modal_edit_frame_ = 0;
     std::string modal_edit_text_buffer_;
-    GLuint modal_image_texture_ = 0;
+    // Platform-specific thumbnail handle stored as uintptr_t:
+    //   Metal:   retained id<MTLTexture> pointer (bypasses MetalTexturePool
+    //            so the note thumbnail is never LRU-evicted under pool pressure).
+    //   Vulkan:  pool_id for VulkanTexturePool::Instance().
+    //   OpenGL:  GL texture name.
+    uintptr_t modal_image_texture_ = 0;
     float modal_image_aspect_ = 16.0f / 9.0f;  // actual thumbnail w/h — set on open
     ImVec2 modal_image_screen_pos_ = ImVec2(0, 0);
     ImVec2 modal_image_screen_size_ = ImVec2(0, 0);
@@ -172,8 +178,8 @@ private:
     void HandleAddNote();
     void HandleDeleteNote(const std::string& timecode);
 
-    // Thumbnail loading
-    GLuint LoadThumbnail(const std::string& image_path);
+    // Thumbnail loading — returns a platform-specific handle (see modal_image_texture_).
+    uintptr_t LoadThumbnail(const std::string& image_path);
     void CleanupThumbnails();
 
     // Resolve thumbnail path: prefers _annotated.png if it exists (cached to avoid per-frame filesystem calls)
@@ -185,8 +191,8 @@ public:
 
 private:
 
-    // Thumbnail cache: image_path -> texture_id
-    std::map<std::string, GLuint> thumbnail_cache_;
+    // Thumbnail cache: image_path -> platform-specific handle (see modal_image_texture_).
+    std::map<std::string, uintptr_t> thumbnail_cache_;
     // Thumbnail aspect ratio cache: image_path -> aspect_ratio (width/height)
     std::map<std::string, float> thumbnail_aspect_cache_;
     // Resolved path cache: timecode -> resolved filesystem path (avoids per-frame exists() calls)

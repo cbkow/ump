@@ -20,6 +20,48 @@
 #include <string>
 #include <cstdlib>
 
+// Bump when a change to CreateDockingLayout/SetupDefaultLayout or panel
+// window names would make previously saved ImGui dock states invalid. Old
+// layouts are discarded on load (non-layout settings are preserved).
+static constexpr int kImGuiLayoutVersion = 1;
+
+namespace {
+// Atomic replace-or-create: write to <path>.tmp, then rename over <path>.
+// On POSIX `rename()` is atomic for same-filesystem replaces; on Windows
+// std::filesystem::rename maps to MoveFileExW with MOVEFILE_REPLACE_EXISTING
+// since VS2019. Fallback removes the destination first in case the
+// platform refuses to overwrite.
+bool AtomicWriteFile(const std::string& path, const std::string& content) {
+    const std::string tmp_path = path + ".tmp";
+    try {
+        {
+            std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+            if (!out.is_open()) return false;
+            out << content;
+            out.flush();
+            if (!out.good()) return false;
+        }
+        std::error_code ec;
+        std::filesystem::rename(tmp_path, path, ec);
+        if (ec) {
+            std::error_code rm_ec;
+            std::filesystem::remove(path, rm_ec);
+            std::filesystem::rename(tmp_path, path, ec);
+            if (ec) {
+                std::error_code cleanup_ec;
+                std::filesystem::remove(tmp_path, cleanup_ec);
+                return false;
+            }
+        }
+        return true;
+    } catch (...) {
+        std::error_code ec;
+        std::filesystem::remove(tmp_path, ec);
+        return false;
+    }
+}
+} // namespace
+
 // Globals defined in main.cpp
 extern bool use_windows_accent_color;
 extern int custom_accent_color_index;
@@ -119,24 +161,41 @@ std::string Application::GetLayoutIniPath() {
 }
 
 void Application::LoadSettings() {
-    try {
-        std::string settings_path = GetSettingsPath();
+    std::string settings_path = GetSettingsPath();
+    std::string bak_path = settings_path + ".bak";
 
-        if (!std::filesystem::exists(settings_path)) {
-            Debug::Log("No settings file found, using defaults");
+    auto try_parse = [](const std::string& path, nlohmann::json& out) -> bool {
+        if (!std::filesystem::exists(path)) return false;
+        std::ifstream file(path);
+        if (!file.is_open()) return false;
+        try {
+            out = nlohmann::json::parse(file);
+            return true;
+        } catch (const std::exception& e) {
+            Debug::Log("Settings parse failed for " + path + ": " + e.what());
+            return false;
+        }
+    };
+
+    nlohmann::json j;
+    bool loaded_from_backup = false;
+    if (!try_parse(settings_path, j)) {
+        if (try_parse(bak_path, j)) {
+            loaded_from_backup = true;
+            Debug::Log("Primary settings unreadable; recovered from backup");
+            // Restore primary so future saves have a clean base.
+            std::error_code ec;
+            std::filesystem::copy_file(bak_path, settings_path,
+                std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) Debug::Log("Failed to restore primary from backup: " + ec.message());
+        } else {
+            Debug::Log("No valid settings found, using defaults");
             first_time_setup = true; // No settings, build default layout
             return;
         }
+    }
 
-        std::ifstream file(settings_path);
-        if (!file.is_open()) {
-            Debug::Log("Failed to open settings file");
-            first_time_setup = true; // Can't open settings, build default layout
-            return;
-        }
-
-        nlohmann::json j = nlohmann::json::parse(file);
-        file.close();
+    try {
 
         // Appearance settings
         if (j.contains("appearance")) {
@@ -492,12 +551,26 @@ void Application::LoadSettings() {
             }
         }
 
-        // Store ImGui layout to load after ImGui is initialized
+        // Store ImGui layout to load after ImGui is initialized.
+        // Discard if version stamp is missing or mismatched — old layouts
+        // from a pre-version build, or from a build with different panel
+        // window names / dock structure, can leave ImGui in a broken state.
         if (j.contains("imgui_layout")) {
-            saved_imgui_layout = j["imgui_layout"].get<std::string>();
-            if (!saved_imgui_layout.empty()) {
-                first_time_setup = false; // We have a saved layout, don't rebuild
-                Debug::Log("Found saved ImGui layout (will load after ImGui init)");
+            int saved_version = j.value("imgui_layout_version", 0);
+            if (saved_version == kImGuiLayoutVersion) {
+                saved_imgui_layout = j["imgui_layout"].get<std::string>();
+                if (!saved_imgui_layout.empty()) {
+                    first_time_setup = false; // We have a saved layout, don't rebuild
+                    Debug::Log("Found saved ImGui layout (will load after ImGui init)");
+                } else {
+                    first_time_setup = true;
+                }
+            } else {
+                Debug::Log("ImGui layout version mismatch (saved=" +
+                           std::to_string(saved_version) + ", current=" +
+                           std::to_string(kImGuiLayoutVersion) +
+                           ") — using default layout");
+                first_time_setup = true;
             }
         } else {
             // No saved layout, need to build default layout
@@ -528,6 +601,16 @@ void Application::LoadSettings() {
         }
 
         Debug::Log("Loaded user settings from: " + settings_path);
+
+        // Refresh the backup to mirror the last successfully-loaded state.
+        // Skip when we just loaded from backup — the primary was already
+        // restored from it, so re-copying is redundant.
+        if (!loaded_from_backup) {
+            std::error_code ec;
+            std::filesystem::copy_file(settings_path, bak_path,
+                std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) Debug::Log("Failed to refresh settings backup: " + ec.message());
+        }
 
     } catch (const std::exception& e) {
         Debug::Log("Error loading settings: " + std::string(e.what()));
@@ -689,11 +772,14 @@ void Application::SaveSettings() {
             j["recent_files"].push_back(rf);
         }
 
-        // Save ImGui layout to memory
+        // Save ImGui layout to memory, tagged with the current layout schema
+        // version so mismatched layouts can be discarded on load (see
+        // kImGuiLayoutVersion).
         size_t ini_size = 0;
         const char* ini_data = ImGui::SaveIniSettingsToMemory(&ini_size);
         if (ini_data && ini_size > 0) {
             j["imgui_layout"] = std::string(ini_data, ini_size);
+            j["imgui_layout_version"] = kImGuiLayoutVersion;
         }
 
         // Save panel visibility states
@@ -704,14 +790,17 @@ void Application::SaveSettings() {
         j["panels"]["show_color"] = show_color_panels;
         j["panels"]["show_sidebar"] = show_sidebar_panel;
 
+        // Atomic write: serialize first, then replace the file in one step.
+        // A crash between steps leaves either the previous settings.qcv
+        // intact or, at worst, a leftover settings.qcv.tmp that we clean up
+        // on next save. The .bak from LoadSettings provides a second line
+        // of recovery if the primary ever does get corrupted.
         std::string settings_path = GetSettingsPath();
-        std::ofstream file(settings_path);
-        if (file.is_open()) {
-            file << j.dump(2);  // Pretty print with 2-space indent
-            file.close();
+        std::string payload = j.dump(2);
+        if (AtomicWriteFile(settings_path, payload)) {
             Debug::Log("Saved user settings to: " + settings_path);
         } else {
-            Debug::Log("Failed to save settings file");
+            Debug::Log("Failed to save settings file: " + settings_path);
         }
 
     } catch (const std::exception& e) {
@@ -722,13 +811,24 @@ void Application::SaveSettings() {
 void Application::DeleteAllPreferences() {
     try {
         std::string settings_path = GetSettingsPath();
+        bool deleted_any = false;
 
-        if (std::filesystem::exists(settings_path)) {
-            std::filesystem::remove(settings_path);
-            Debug::Log("Deleted settings file: " + settings_path);
+        // Wipe primary, backup, and any stale atomic-write tmp.
+        std::error_code ec;
+        for (const std::string& p : {settings_path,
+                                      settings_path + ".bak",
+                                      settings_path + ".tmp"}) {
+            if (std::filesystem::exists(p, ec)) {
+                std::filesystem::remove(p, ec);
+                if (!ec) {
+                    Debug::Log("Deleted: " + p);
+                    deleted_any = true;
+                }
+            }
+        }
+
+        if (deleted_any) {
             Debug::Log("Application will restart with default settings");
-
-            // Show a message to the user
             ImGui::OpenPopup("Preferences Deleted");
         } else {
             Debug::Log("No settings file to delete");

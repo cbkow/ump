@@ -14,18 +14,18 @@
 
 #ifdef QCVIEW_USE_VULKAN
 #include "../gpu/vulkan_texture_pool.h"
-static inline ImTextureID PoolIDToImTexture(GLuint id) {
+static inline ImTextureID ThumbHandleToImTexture(uintptr_t id) {
     if (id == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
 }
 #elif defined(QCVIEW_USE_METAL)
-#include "../gpu/metal_texture_pool.h"
-static inline ImTextureID PoolIDToImTexture(GLuint id) {
-    if (id == 0) return ImTextureID{};
-    return qcview::MetalTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(id));
+#include "annotation_thumbnail_metal.h"
+// Metal: stored handle is a retained id<MTLTexture>* — use it directly.
+static inline ImTextureID ThumbHandleToImTexture(uintptr_t id) {
+    return (ImTextureID)id;
 }
 #else
-static inline ImTextureID PoolIDToImTexture(GLuint id) {
+static inline ImTextureID ThumbHandleToImTexture(uintptr_t id) {
     return (ImTextureID)(intptr_t)id;
 }
 #endif
@@ -505,7 +505,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
     // === ROW 2: Thumbnail (left) + Text input (fills rest) ===
     {
         const float thumbnail_width = S(120.0f);
-        GLuint thumbnail_id = 0;
+        uintptr_t thumbnail_id = 0;
         float thumbnail_aspect = video_aspect_ratio_;
         std::string full_image_path;
 
@@ -522,7 +522,7 @@ void AnnotationPanel::RenderNote(AnnotationNote& note) {
         float thumbnail_height = thumbnail_width / thumbnail_aspect;
 
         if (thumbnail_id != 0) {
-            ImGui::Image(PoolIDToImTexture(thumbnail_id), ImVec2(thumbnail_width, thumbnail_height));
+            ImGui::Image(ThumbHandleToImTexture(thumbnail_id), ImVec2(thumbnail_width, thumbnail_height));
 
             if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                 selected_timecode_ = note.timecode;
@@ -795,7 +795,7 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     ImGui::PopStyleColor();
 
     // Full-width thumbnail
-    GLuint thumbnail_id = 0;
+    uintptr_t thumbnail_id = 0;
     float thumbnail_aspect = video_aspect_ratio_;
 
     {
@@ -814,7 +814,7 @@ void AnnotationPanel::RenderPreviewNote(AnnotationNote& note) {
     float thumb_h = thumb_w / thumbnail_aspect;
 
     if (thumbnail_id != 0) {
-        ImGui::Image(PoolIDToImTexture(thumbnail_id), ImVec2(thumb_w, thumb_h));
+        ImGui::Image(ThumbHandleToImTexture(thumbnail_id), ImVec2(thumb_w, thumb_h));
         if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
             if (seek_callback_) {
                 seek_callback_(note.timestamp_seconds);
@@ -1006,7 +1006,7 @@ void AnnotationPanel::RenderEditModal(ImVec4 accent_regular, ImVec4 accent_muted
 
         // === Image ===
         if (modal_image_texture_ != 0) {
-            ImGui::Image(PoolIDToImTexture(modal_image_texture_), ImVec2(img_w, img_h));
+            ImGui::Image(ThumbHandleToImTexture(modal_image_texture_), ImVec2(img_w, img_h));
         } else {
             ImGui::Dummy(ImVec2(img_w, img_h));
         }
@@ -1165,7 +1165,7 @@ void AnnotationPanel::SetSelectedNote(const std::string& timecode) {
     selected_timecode_ = timecode;
 }
 
-GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
+uintptr_t AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     // Check cache first
     auto it = thumbnail_cache_.find(image_path);
     if (it != thumbnail_cache_.end()) {
@@ -1261,16 +1261,18 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     uint64_t pool_id = qcview::VulkanTexturePool::Instance().CreateTextureFromPixels(
         width, height, VK_FORMAT_R8G8B8A8_UNORM,
         image_data.data(), image_data.size());
-    GLuint texture_id = static_cast<GLuint>(pool_id);
+    uintptr_t texture_id = static_cast<uintptr_t>(pool_id);
 #elif defined(QCVIEW_USE_METAL)
-    uint64_t pool_id = qcview::MetalTexturePool::Instance().CreateTextureFromPixels(
-        width, height, 0 /* RGBA8 */,
-        image_data.data(), image_data.size());
-    GLuint texture_id = static_cast<GLuint>(pool_id);
+    // Bypass MetalTexturePool: note thumbnails are small and must never be
+    // LRU-evicted under video/annotation frame pressure. Own the MTLTexture
+    // directly so ImTextureID stays valid for the panel's lifetime.
+    void* mtl_texture = qcview::CreateStandaloneAnnotationThumbnailMetal(
+        width, height, image_data.data());
+    uintptr_t texture_id = reinterpret_cast<uintptr_t>(mtl_texture);
 #else
-    GLuint texture_id;
-    glGenTextures(1, &texture_id);
-    glBindTexture(GL_TEXTURE_2D, texture_id);
+    GLuint gl_texture_id;
+    glGenTextures(1, &gl_texture_id);
+    glBindTexture(GL_TEXTURE_2D, gl_texture_id);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1278,6 +1280,7 @@ GLuint AnnotationPanel::LoadThumbnail(const std::string& image_path) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, image_data.data());
+    uintptr_t texture_id = static_cast<uintptr_t>(gl_texture_id);
 #endif
 
     // Cache the texture and aspect ratio
@@ -1324,10 +1327,15 @@ std::string AnnotationPanel::ResolveThumbnailPath(const AnnotationNote& note) {
 void AnnotationPanel::InvalidateThumbnail(const std::string& image_path) {
     auto it = thumbnail_cache_.find(image_path);
     if (it != thumbnail_cache_.end()) {
-#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
-        glDeleteTextures(1, &it->second);
+#if defined(QCVIEW_USE_METAL)
+        // Metal: we own the MTLTexture directly (pool is bypassed), release it now.
+        qcview::DestroyStandaloneAnnotationThumbnailMetal(reinterpret_cast<void*>(it->second));
+#elif defined(QCVIEW_USE_VULKAN)
+        // Vulkan: pool-owned, cleaned up on pool shutdown.
+#else
+        GLuint gl_id = static_cast<GLuint>(it->second);
+        glDeleteTextures(1, &gl_id);
 #endif
-        // On Vulkan/Metal, pool textures are small and cleaned up on pool shutdown
         thumbnail_cache_.erase(it);
         thumbnail_aspect_cache_.erase(image_path);
     }
@@ -1342,9 +1350,17 @@ void AnnotationPanel::InvalidateThumbnail(const std::string& image_path) {
 }
 
 void AnnotationPanel::CleanupThumbnails() {
-#if !defined(QCVIEW_USE_VULKAN) && !defined(QCVIEW_USE_METAL)
+#if defined(QCVIEW_USE_METAL)
+    // Metal: panel owns retained MTLTexture refs directly; release each.
     for (auto& pair : thumbnail_cache_) {
-        glDeleteTextures(1, &pair.second);
+        qcview::DestroyStandaloneAnnotationThumbnailMetal(reinterpret_cast<void*>(pair.second));
+    }
+#elif defined(QCVIEW_USE_VULKAN)
+    // Vulkan: pool-owned, cleaned up on pool shutdown.
+#else
+    for (auto& pair : thumbnail_cache_) {
+        GLuint gl_id = static_cast<GLuint>(pair.second);
+        glDeleteTextures(1, &gl_id);
     }
 #endif
     thumbnail_cache_.clear();
