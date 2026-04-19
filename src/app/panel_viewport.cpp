@@ -99,6 +99,7 @@ struct ViewportDualViewDropState {
 extern ImFont* font_regular;
 extern ImFont* font_bold;
 extern ImFont* font_icons;
+extern ImFont* font_mono;
 extern std::unique_ptr<qcview::TimelineView> timeline_view;
 extern std::unique_ptr<qcview::TimelinePlaybackController> scratch_timeline_controller;
 extern std::unique_ptr<qcview::TimelineThumbnailCache> timeline_thumbnail_cache;
@@ -1074,6 +1075,77 @@ extern bool g_skip_viewport_render_frame;
                             video_player->RenderSVGOverlays(draw_list, overlay_canvas_pos, overlay_canvas_size,
                                 safety_settings.opacity, overlay_color, safety_settings.line_width);
                         }
+                    }
+                }
+
+                // In/Out/Duration HUD — solo video or solo image sequence only.
+                // Hidden for multi-clip timelines (PLAYLIST) and dual-view.
+                // Shown only when at least one mark is set.
+                if (timeline_view) {
+                    qcview::TimelineSourceMode mode = timeline_view->GetSourceMode();
+                    bool is_solo = (mode == qcview::TimelineSourceMode::VIDEO_FILE ||
+                                    mode == qcview::TimelineSourceMode::IMAGE_SEQUENCE);
+                    bool is_dual = otio_dual_view_mode || timeline_view->IsDualViewMode();
+                    bool has_in  = timeline_view->HasTimelineInPoint();
+                    bool has_out = timeline_view->HasTimelineOutPoint();
+                    if (is_solo && !is_dual && (has_in || has_out)) {
+                        double fps = timeline_view->GetFrameRate();
+                        if (fps <= 0.0) fps = 24.0;
+                        int    fps_i = std::max(1, (int)std::round(fps));
+                        double total_s = timeline_view->GetDuration();
+                        double in_s   = has_in  ? timeline_view->GetTimelineInPoint()  : 0.0;
+                        double out_s  = has_out ? timeline_view->GetTimelineOutPoint() : total_s;
+                        double dur_s  = (out_s > in_s) ? (out_s - in_s) : 0.0;
+
+                        auto fmt_row = [&](const char* label, double sec, char* buf, size_t n) {
+                            int f  = (int)std::round(sec * fps);
+                            int h  = f / fps_i / 3600;
+                            int m  = (f / fps_i / 60) % 60;
+                            int s  = (f / fps_i) % 60;
+                            int ff = f % fps_i;
+                            // Fixed column widths rely on font_mono for alignment.
+                            snprintf(buf, n, "%-3s  %7d f   %8.2f s   %02d:%02d:%02d:%02d",
+                                     label, f, sec, h, m, s, ff);
+                        };
+
+                        char line_in[96], line_out[96], line_dur[96];
+                        if (has_in)  fmt_row("IN",  in_s,  line_in,  sizeof(line_in));
+                        if (has_out) fmt_row("OUT", out_s, line_out, sizeof(line_out));
+                        fmt_row("DUR", dur_s, line_dur, sizeof(line_dur));
+
+                        const char* rows[3]; int row_count = 0;
+                        if (has_in)  rows[row_count++] = line_in;
+                        if (has_out) rows[row_count++] = line_out;
+                        rows[row_count++] = line_dur;
+
+                        bool mono_pushed = (font_mono != nullptr);
+                        if (mono_pushed) ImGui::PushFont(font_mono);
+
+                        float font_size = ImGui::GetFontSize();
+                        float pad_x = S(10.0f), pad_y = S(6.0f), gap = S(2.0f);
+                        float max_w = 0.0f;
+                        for (int i = 0; i < row_count; ++i) {
+                            ImVec2 sz = ImGui::CalcTextSize(rows[i]);
+                            if (sz.x > max_w) max_w = sz.x;
+                        }
+                        float box_w = max_w + pad_x * 2.0f;
+                        float box_h = font_size * row_count + gap * (row_count - 1) + pad_y * 2.0f;
+                        ImVec2 box_pos(canvas_pos.x + S(12.0f), canvas_pos.y + S(12.0f));
+
+                        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+                        draw_list->AddRectFilled(box_pos,
+                                                 ImVec2(box_pos.x + box_w, box_pos.y + box_h),
+                                                 IM_COL32(0, 0, 0, 160),
+                                                 S(4.0f));
+                        ImU32 text_col = IM_COL32(255, 255, 255, 230);
+                        float y = box_pos.y + pad_y;
+                        for (int i = 0; i < row_count; ++i) {
+                            draw_list->AddText(ImVec2(box_pos.x + pad_x, y),
+                                               text_col, rows[i]);
+                            y += font_size + gap;
+                        }
+
+                        if (mono_pushed) ImGui::PopFont();
                     }
                 }
 

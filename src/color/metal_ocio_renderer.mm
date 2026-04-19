@@ -121,16 +121,16 @@ void MetalOCIORenderer::Shutdown() {
         linear_sampler_ = nullptr;
     }
 
-    // Release persistent output textures
-    auto& pool = MetalTexturePool::Instance();
-    if (output_pool_id_ != 0) {
-        pool.QueueDelete(output_pool_id_);
-        output_pool_id_ = 0;
+    // Release persistent output textures (MRC — project convention, see
+    // metal_texture_pool.mm DestroyTexture and annotation_thumbnail_metal.mm).
+    if (output_texture_) {
+        [(id)output_texture_ release];
+        output_texture_ = nullptr;
         output_width_ = output_height_ = 0;
     }
-    if (srgb_output_pool_id_ != 0) {
-        pool.QueueDelete(srgb_output_pool_id_);
-        srgb_output_pool_id_ = 0;
+    if (srgb_output_texture_) {
+        [(id)srgb_output_texture_ release];
+        srgb_output_texture_ = nullptr;
         srgb_output_width_ = srgb_output_height_ = 0;
     }
 
@@ -384,27 +384,65 @@ bool MetalOCIORenderer::BuildPipelineForOCIO(OCIOPipeline* pipeline) {
 }
 
 void MetalOCIORenderer::EnsureOutputTexture(int width, int height) {
-    if (output_pool_id_ != 0 && output_width_ == width && output_height_ == height)
+    if (output_texture_ && output_width_ == width && output_height_ == height)
         return;
 
-    auto& pool = MetalTexturePool::Instance();
-    if (output_pool_id_ != 0)
-        pool.QueueDelete(output_pool_id_);
+    if (output_texture_) {
+        [(id)output_texture_ release];
+        output_texture_ = nullptr;
+    }
 
-    output_pool_id_ = pool.CreateEmptyTexture(width, height, 1);  // RGBA16Float
+    auto& mgr = MetalDeviceManager::Instance();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)mgr.GetDevice();
+    if (!device) return;
+
+    MTLTextureDescriptor* desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                           width:width
+                                                          height:height
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.storageMode = MTLStorageModeShared;
+
+    id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+    if (!tex) {
+        Debug::Log("MetalOCIORenderer: EnsureOutputTexture failed "
+                   + std::to_string(width) + "x" + std::to_string(height));
+        return;
+    }
+    output_texture_ = (void*)tex;  // MRC: +1 retained from newTextureWithDescriptor
     output_width_ = width;
     output_height_ = height;
 }
 
 void MetalOCIORenderer::EnsureSRGBOutputTexture(int width, int height) {
-    if (srgb_output_pool_id_ != 0 && srgb_output_width_ == width && srgb_output_height_ == height)
+    if (srgb_output_texture_ && srgb_output_width_ == width && srgb_output_height_ == height)
         return;
 
-    auto& pool = MetalTexturePool::Instance();
-    if (srgb_output_pool_id_ != 0)
-        pool.QueueDelete(srgb_output_pool_id_);
+    if (srgb_output_texture_) {
+        [(id)srgb_output_texture_ release];
+        srgb_output_texture_ = nullptr;
+    }
 
-    srgb_output_pool_id_ = pool.CreateEmptyTexture(width, height, 1);  // RGBA16Float
+    auto& mgr = MetalDeviceManager::Instance();
+    id<MTLDevice> device = (__bridge id<MTLDevice>)mgr.GetDevice();
+    if (!device) return;
+
+    MTLTextureDescriptor* desc =
+        [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA16Float
+                                                           width:width
+                                                          height:height
+                                                       mipmapped:NO];
+    desc.usage = MTLTextureUsageShaderRead | MTLTextureUsageShaderWrite;
+    desc.storageMode = MTLStorageModeShared;
+
+    id<MTLTexture> tex = [device newTextureWithDescriptor:desc];
+    if (!tex) {
+        Debug::Log("MetalOCIORenderer: EnsureSRGBOutputTexture failed "
+                   + std::to_string(width) + "x" + std::to_string(height));
+        return;
+    }
+    srgb_output_texture_ = (void*)tex;
     srgb_output_width_ = width;
     srgb_output_height_ = height;
 }
@@ -431,11 +469,11 @@ void MetalOCIORenderer::DispatchCompute(void* pipeline_state, void* src_texture,
     [cmdBuf commit];
 }
 
-uint64_t MetalOCIORenderer::Apply(OCIOPipeline* pipeline, uint64_t source_pool_id,
-                                   int width, int height) {
-    if (!initialized_ || !pipeline) return 0;
+void* MetalOCIORenderer::Apply(OCIOPipeline* pipeline, uint64_t source_pool_id,
+                                int width, int height) {
+    if (!initialized_ || !pipeline) return nullptr;
 
-    // Passthrough: no GPU work needed, return source directly
+    // Passthrough: no GPU work needed, return source MTLTexture directly
     if (pipeline->IsPassthrough()) {
         return ApplyPassthrough(source_pool_id, width, height);
     }
@@ -450,12 +488,12 @@ uint64_t MetalOCIORenderer::Apply(OCIOPipeline* pipeline, uint64_t source_pool_i
 
     auto& pool = MetalTexturePool::Instance();
     const MetalTexture* src = pool.GetTexture(source_pool_id);
-    if (!src || !src->texture) return 0;
+    if (!src || !src->texture) return nullptr;
 
-    // Reuse persistent output texture (only reallocate on dimension change)
+    // Reuse persistent output texture (only reallocate on dimension change).
+    // Owned directly by this renderer — not in MetalTexturePool, cannot be evicted.
     EnsureOutputTexture(width, height);
-    const MetalTexture* dst = pool.GetTexture(output_pool_id_);
-    if (!dst || !dst->texture) return 0;
+    if (!output_texture_) return nullptr;
 
     // Record and submit OCIO compute pass with LUT bindings
     auto& mgr = MetalDeviceManager::Instance();
@@ -466,7 +504,7 @@ uint64_t MetalOCIORenderer::Apply(OCIOPipeline* pipeline, uint64_t source_pool_i
     id<MTLComputePipelineState> pso = (__bridge id<MTLComputePipelineState>)compute_pipeline_;
     [encoder setComputePipelineState:pso];
     [encoder setTexture:(__bridge id<MTLTexture>)src->texture atIndex:0];
-    [encoder setTexture:(__bridge id<MTLTexture>)dst->texture atIndex:1];
+    [encoder setTexture:(id)output_texture_ atIndex:1];
 
     // Bind LUT textures and samplers
     id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)linear_sampler_;
@@ -484,36 +522,32 @@ uint64_t MetalOCIORenderer::Apply(OCIOPipeline* pipeline, uint64_t source_pool_i
     // No waitUntilCompleted — GPU ordering within the queue guarantees
     // this finishes before the ImGui render pass reads the texture.
 
-    return output_pool_id_;
+    return output_texture_;
 }
 
-uint64_t MetalOCIORenderer::ApplyPassthrough(uint64_t source_pool_id, int width, int height) {
-    // No GPU work: just return the source texture directly.
-    // The source is already a valid pool texture that ImGui can sample.
-    return source_pool_id;
-}
-
-uint64_t MetalOCIORenderer::ApplyLinearToSRGB(uint64_t source_pool_id, int width, int height) {
-    if (!linear_to_srgb_pipeline_) return 0;
-
+void* MetalOCIORenderer::ApplyPassthrough(uint64_t source_pool_id, int /*width*/, int /*height*/) {
+    // No GPU work: resolve the pool id to its MTLTexture pointer. The pool
+    // retains ownership; caller must not release.
     auto& pool = MetalTexturePool::Instance();
     const MetalTexture* src = pool.GetTexture(source_pool_id);
-    if (!src || !src->texture) return 0;
+    if (!src || !src->texture) return nullptr;
+    return src->texture;
+}
 
-    // Reuse persistent sRGB output texture
+void* MetalOCIORenderer::ApplyLinearToSRGB(void* source_mtl_texture, int width, int height) {
+    if (!linear_to_srgb_pipeline_ || !source_mtl_texture) return nullptr;
+
     EnsureSRGBOutputTexture(width, height);
-    const MetalTexture* dst = pool.GetTexture(srgb_output_pool_id_);
-    if (!dst || !dst->texture) return 0;
+    if (!srgb_output_texture_) return nullptr;
 
-    DispatchCompute(linear_to_srgb_pipeline_, src->texture, dst->texture, width, height);
-    return srgb_output_pool_id_;
+    DispatchCompute(linear_to_srgb_pipeline_, source_mtl_texture, srgb_output_texture_, width, height);
+    return srgb_output_texture_;
 }
 
-uint64_t MetalOCIORenderer::CopyTextureSync(uint64_t source_pool_id, int width, int height) {
-    auto& pool = MetalTexturePool::Instance();
-    const MetalTexture* src = pool.GetTexture(source_pool_id);
-    if (!src || !src->texture) return 0;
+uint64_t MetalOCIORenderer::CopyTextureSync(void* source_mtl_texture, int width, int height) {
+    if (!source_mtl_texture) return 0;
 
+    auto& pool = MetalTexturePool::Instance();
     uint64_t out_id = pool.CreateEmptyTexture(width, height, 1);
     const MetalTexture* dst = pool.GetTexture(out_id);
     if (!dst || !dst->texture) return 0;
@@ -522,7 +556,7 @@ uint64_t MetalOCIORenderer::CopyTextureSync(uint64_t source_pool_id, int width, 
     id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)mgr.GetCommandQueue();
     id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
     id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
-    [blit copyFromTexture:(__bridge id<MTLTexture>)src->texture
+    [blit copyFromTexture:(id)source_mtl_texture
               sourceSlice:0 sourceLevel:0
              sourceOrigin:MTLOriginMake(0, 0, 0)
                sourceSize:MTLSizeMake(width, height, 1)

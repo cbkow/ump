@@ -925,7 +925,7 @@ extern bool show_notification_permanent;
 
             if (!native_menu_active && ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.1.4");
+                ImGui::TextDisabled("About QCView v1.1.5");
 
                 if (ImGui::MenuItem("Manual")) {
 #ifdef _WIN32

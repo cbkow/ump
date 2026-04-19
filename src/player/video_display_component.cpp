@@ -162,9 +162,9 @@ ImTextureID VideoDisplayComponent::GetDisplayTextureID() const {
     if (tex == 0) return ImTextureID{};
     return qcview::VulkanTexturePool::Instance().GetImTextureID(static_cast<uint64_t>(tex));
 #elif defined(QCVIEW_USE_METAL)
-    // Prefer color-processed texture if available
-    if (metal_color_pool_id_ != 0) {
-        return qcview::MetalTexturePool::Instance().GetImTextureID(metal_color_pool_id_);
+    // Prefer color-processed texture if available (non-owning MTLTexture pointer).
+    if (metal_color_mtl_texture_) {
+        return (ImTextureID)(intptr_t)metal_color_mtl_texture_;
     }
     GLuint tex = video_texture_;
     if (tex == 0) return ImTextureID{};
@@ -297,11 +297,11 @@ void VideoDisplayComponent::Cleanup() {
         pool.ProcessPendingDeletions();
     }
 #elif defined(QCVIEW_USE_METAL)
-    // Clean up Metal OCIO renderer and color textures (matches Vulkan cleanup)
-    if (metal_color_pool_id_ != 0) {
-        qcview::MetalTexturePool::Instance().QueueDelete(metal_color_pool_id_);
-        metal_color_pool_id_ = 0;
-    }
+    // Clean up Metal OCIO renderer. The color-processed texture was never
+    // pool-owned under the current design — it lives on metal_ocio_renderer_
+    // and is released by its Shutdown().
+    metal_color_mtl_texture_ = nullptr;
+    metal_last_src_pool_id_ = 0;
     if (metal_ocio_renderer_) {
         metal_ocio_renderer_->Shutdown();
         metal_ocio_renderer_.reset();
@@ -735,7 +735,7 @@ void VideoDisplayComponent::UpdateVideoTexture() {
         ApplyColorPipelineVulkan();
     }
 #elif defined(QCVIEW_USE_METAL)
-    // Apply OCIO via Metal: video_texture_ (pool ID) → metal_color_pool_id_
+    // Apply OCIO via Metal: video_texture_ (pool ID) → metal_color_mtl_texture_
     if (metal_ocio_renderer_ && video_texture_ != 0) {
         ApplyColorPipelineMetal();
     }
@@ -804,14 +804,17 @@ void VideoDisplayComponent::RenderVideoTexture() {
 
     ImGui::Image(im_tex_id, image_size);
 #elif defined(QCVIEW_USE_METAL)
-    // Metal path: prefer color-processed texture if available
+    // Metal path: prefer color-processed MTLTexture (owned by OCIO renderer or
+    // aliased into the pool), fallback to raw pool texture.
     if (display_texture == 0) return;
 
-    uint64_t display_pool_id = (metal_color_pool_id_ != 0)
-        ? metal_color_pool_id_
-        : static_cast<uint64_t>(display_texture);
-
-    ImTextureID im_tex_id = qcview::MetalTexturePool::Instance().GetImTextureID(display_pool_id);
+    ImTextureID im_tex_id = (ImTextureID)0;
+    if (metal_color_mtl_texture_) {
+        im_tex_id = (ImTextureID)(intptr_t)metal_color_mtl_texture_;
+    } else {
+        im_tex_id = qcview::MetalTexturePool::Instance().GetImTextureID(
+            static_cast<uint64_t>(display_texture));
+    }
     if (im_tex_id == (ImTextureID)0) {
         // Fallback to transition placeholder
         if (transition_placeholder_texture_ != 0) {
@@ -2343,16 +2346,25 @@ bool VideoDisplayComponent::CaptureScreenshotToPath(const std::string& directory
     uint64_t temp_pool_id = 0;  // Only set if we allocated a temp texture to delete
     if (metal_ocio_renderer_) {
         if (HasColorPipeline() && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
-            // OCIO Apply: output is persistent shared-storage texture (no allocation)
-            uint64_t ocio_id = metal_ocio_renderer_->Apply(
+            // OCIO output is a renderer-owned single-buffered MTLTexture also
+            // used by the live display. Blit to a throwaway pool texture so
+            // annotation compositing and readback don't corrupt the live view.
+            void* ocio_tex = metal_ocio_renderer_->Apply(
                 color_pipeline_.get(), src_pool_id, video_width_, video_height_);
-            if (ocio_id != 0) src_pool_id = ocio_id;
+            if (ocio_tex) {
+                temp_pool_id = metal_ocio_renderer_->CopyTextureSync(
+                    ocio_tex, video_width_, video_height_);
+                if (temp_pool_id != 0) src_pool_id = temp_pool_id;
+            }
         } else {
             // Passthrough: source may be private storage (HW decode).
             // CopyTextureSync blits to a new shared-storage texture.
-            temp_pool_id = metal_ocio_renderer_->CopyTextureSync(
-                src_pool_id, video_width_, video_height_);
-            if (temp_pool_id != 0) src_pool_id = temp_pool_id;
+            const qcview::MetalTexture* raw = pool.GetTexture(src_pool_id);
+            if (raw && raw->texture) {
+                temp_pool_id = metal_ocio_renderer_->CopyTextureSync(
+                    raw->texture, video_width_, video_height_);
+                if (temp_pool_id != 0) src_pool_id = temp_pool_id;
+            }
         }
     }
 
@@ -3069,27 +3081,27 @@ void VideoDisplayComponent::ApplyColorPipelineMetal() {
     uint64_t src_pool_id = static_cast<uint64_t>(video_texture_);
 
     // Skip if source texture hasn't changed (same frame displayed multiple times)
-    if (src_pool_id == metal_last_src_pool_id_ && metal_color_pool_id_ != 0) {
+    if (src_pool_id == metal_last_src_pool_id_ && metal_color_mtl_texture_ != nullptr) {
         return;  // Previous OCIO result is still valid
     }
     metal_last_src_pool_id_ = src_pool_id;
 
-    // Apply OCIO (uses persistent output texture, no per-frame allocation)
+    // Apply OCIO (uses persistent output texture owned by the renderer; never pool-evicted).
     if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
-        metal_color_pool_id_ = metal_ocio_renderer_->Apply(
+        metal_color_mtl_texture_ = metal_ocio_renderer_->Apply(
             color_pipeline_.get(), src_pool_id, video_width_, video_height_);
     } else {
-        metal_color_pool_id_ = metal_ocio_renderer_->ApplyPassthrough(
+        metal_color_mtl_texture_ = metal_ocio_renderer_->ApplyPassthrough(
             src_pool_id, video_width_, video_height_);
     }
 
     // When linear EDR is active, pre-encode linear → sRGB so ImGui's EDR fragment
     // shader can linearize back correctly. Not needed for gamma EDR modes.
-    if (qcview::IsEDRLinearActive() && metal_color_pool_id_ != 0) {
-        uint64_t srgb_id = metal_ocio_renderer_->ApplyLinearToSRGB(
-            metal_color_pool_id_, video_width_, video_height_);
-        if (srgb_id != 0) {
-            metal_color_pool_id_ = srgb_id;
+    if (qcview::IsEDRLinearActive() && metal_color_mtl_texture_) {
+        void* srgb_tex = metal_ocio_renderer_->ApplyLinearToSRGB(
+            metal_color_mtl_texture_, video_width_, video_height_);
+        if (srgb_tex) {
+            metal_color_mtl_texture_ = srgb_tex;
         }
     }
 }
@@ -3097,20 +3109,21 @@ void VideoDisplayComponent::ApplyColorPipelineMetal() {
 uint64_t VideoDisplayComponent::CreateColorCorrectedPoolTextureMetal(uint64_t input_pool_id, int width, int height) {
     if (!metal_ocio_renderer_ || input_pool_id == 0) return 0;
 
-    // Get the OCIO result (uses persistent texture, async commit)
-    uint64_t ocio_result;
+    // Get the OCIO result as an MTLTexture pointer (uses persistent texture, async commit)
+    void* ocio_tex = nullptr;
     if (color_pipeline_ && color_pipeline_->IsValid() && !color_pipeline_->IsPassthrough()) {
-        ocio_result = metal_ocio_renderer_->Apply(
+        ocio_tex = metal_ocio_renderer_->Apply(
             color_pipeline_.get(), input_pool_id, width, height);
     } else {
-        ocio_result = metal_ocio_renderer_->ApplyPassthrough(input_pool_id, width, height);
+        ocio_tex = metal_ocio_renderer_->ApplyPassthrough(input_pool_id, width, height);
     }
-    if (ocio_result == 0) return 0;
+    if (!ocio_tex) return 0;
 
-    // For screenshots: synchronous copy to a new shared-storage texture.
+    // Synchronous copy to a new shared-storage pool texture.
     // Needed because HW-decoded textures may use private storage, the
-    // persistent output is overwritten every frame, and the caller reads pixels.
-    return metal_ocio_renderer_->CopyTextureSync(ocio_result, width, height);
+    // persistent OCIO output is single-buffered (shared with live display),
+    // and the caller reads pixels from the returned pool id.
+    return metal_ocio_renderer_->CopyTextureSync(ocio_tex, width, height);
 }
 
 #endif // QCVIEW_USE_METAL

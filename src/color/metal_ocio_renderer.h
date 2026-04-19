@@ -29,22 +29,26 @@ public:
     void Shutdown();
     bool IsInitialized() const { return initialized_; }
 
-    // Apply OCIO color transform to a source texture (renders to persistent output)
-    // source_pool_id: pool texture ID (RGBA16F input)
-    // Returns pool texture ID of the color-corrected output (persistent, reused)
-    uint64_t Apply(OCIOPipeline* pipeline, uint64_t source_pool_id,
-                   int width, int height);
+    // Apply OCIO color transform to a source texture (renders to persistent output).
+    // source_pool_id: pool texture ID (RGBA16F input, decoded video).
+    // Returns id<MTLTexture> (as void*) of the color-corrected output, owned by
+    // this renderer. The texture is retained for the renderer's lifetime and is
+    // NOT in MetalTexturePool, so it cannot be evicted.
+    void* Apply(OCIOPipeline* pipeline, uint64_t source_pool_id,
+                int width, int height);
 
-    // Apply passthrough (no-op: returns source directly, no GPU work)
-    uint64_t ApplyPassthrough(uint64_t source_pool_id, int width, int height);
+    // Passthrough: returns the source pool texture's MTLTexture pointer directly.
+    // Pool retains ownership; caller must not release.
+    void* ApplyPassthrough(uint64_t source_pool_id, int width, int height);
 
-    // Apply linear-to-sRGB encode (for EDR: pre-encode so ImGui's EDR shader
-    // can linearize back to original values). Uses persistent output texture.
-    uint64_t ApplyLinearToSRGB(uint64_t source_pool_id, int width, int height);
+    // Linear-to-sRGB encode (EDR pre-encode). Input is an MTLTexture pointer
+    // (typically the return of Apply). Returns persistent sRGB MTLTexture owned
+    // by this renderer.
+    void* ApplyLinearToSRGB(void* source_mtl_texture, int width, int height);
 
-    // Create a synchronous copy of a pool texture (for screenshots).
-    // Allocates a new texture, copies via blit, waits for GPU completion.
-    uint64_t CopyTextureSync(uint64_t source_pool_id, int width, int height);
+    // Create a synchronous copy of an MTLTexture into a fresh pool texture
+    // (for screenshots). Caller owns the returned pool id.
+    uint64_t CopyTextureSync(void* source_mtl_texture, int width, int height);
 
     // Invalidate cached pipeline state (call when OCIO config changes)
     void InvalidateCache();
@@ -75,11 +79,13 @@ private:
     // Linear-to-sRGB pipeline (for EDR pre-encoding)
     void* linear_to_srgb_pipeline_ = nullptr;  // id<MTLComputePipelineState>
 
-    // Persistent output textures (reused across frames, reallocated on size change)
-    uint64_t output_pool_id_ = 0;
+    // Persistent output MTLTextures — retained directly (MRC), never in
+    // MetalTexturePool so they cannot be LRU-evicted. Reused across frames;
+    // reallocated on dimension change; released on Shutdown.
+    void* output_texture_ = nullptr;       // id<MTLTexture>, RGBA16Float
     int output_width_ = 0;
     int output_height_ = 0;
-    uint64_t srgb_output_pool_id_ = 0;
+    void* srgb_output_texture_ = nullptr;  // id<MTLTexture>, RGBA16Float
     int srgb_output_width_ = 0;
     int srgb_output_height_ = 0;
 

@@ -587,7 +587,12 @@ private:
     //=========================================================================
 
     std::unique_ptr<qcview::MetalOCIORenderer> metal_ocio_renderer_;
-    uint64_t metal_color_pool_id_ = 0;
+    // Non-owning pointer to the current color-processed MTLTexture. Owner is
+    // the OCIO renderer (OCIO-active and EDR branches) or the frame pool
+    // (passthrough). Reset to null by SetColorPipeline/ClearColorPipeline via
+    // metal_last_src_pool_id_ = 0 which forces ApplyColorPipelineMetal to
+    // re-dispatch and re-assign.
+    void* metal_color_mtl_texture_ = nullptr;
     uint64_t metal_last_src_pool_id_ = 0;  // Track source to skip redundant OCIO dispatches
 
     void ApplyColorPipelineMetal();
