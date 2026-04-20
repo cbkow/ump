@@ -925,7 +925,7 @@ extern bool show_notification_permanent;
 
             if (!native_menu_active && ImGui::BeginMenu("Help")) {
 
-                ImGui::TextDisabled("About QCView v1.1.5");
+                ImGui::TextDisabled("About QCView v1.1.6");
 
                 if (ImGui::MenuItem("Manual")) {
 #ifdef _WIN32
@@ -948,15 +948,15 @@ extern bool show_notification_permanent;
 #endif
                 }
 
+#ifndef _WIN32
                 if (ImGui::MenuItem("Check for Updates")) {
-#ifdef _WIN32
-                    ShellExecuteA(NULL, "open", "https://github.com/cbkow/QCView-Player/releases", NULL, NULL, SW_SHOWNORMAL);
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
                     system("open https://github.com/cbkow/QCView-Player/releases &");
 #else
                     system("xdg-open https://github.com/cbkow/QCView-Player/releases &");
 #endif
                 }
+#endif
 
                 ImGui::EndMenu();
             }
