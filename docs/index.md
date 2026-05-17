@@ -16,7 +16,7 @@ nav_order: 1
 ## Key Features
 
 ### Playback
-- Hardware-accelerated video decoding — Vulkan-video on Windows, VideoToolbox on macOS, with FFmpeg software fallback
+- Hardware-accelerated video decoding — Vulkan/D3D11-video on Windows, VideoToolbox on macOS, with FFmpeg software fallback
 - HDR10 (PQ / ST.2084) on Windows via DXGI + DirectComposition; Extended Dynamic Range (EDR) on macOS
 - Frame-accurate stepping with press-and-hold fast forward / rewind
 - Playlists with cross-clip seek, per-clip in/out trims, and hover thumbnail filmstrip
