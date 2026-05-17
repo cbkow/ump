@@ -8,7 +8,7 @@ nav_order: 2
 
 ## Windows
 
-Download QCView from the Microsoft Store for automatic updates:
+Download QCView from the [Microsoft Store](https://apps.microsoft.com/detail/9p4z15p5g805) for automatic updates:
 
 <a href="https://apps.microsoft.com/detail/9p4z15p5g805?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer">
   <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
