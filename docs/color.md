@@ -1,5 +1,5 @@
 ---
-title: color
+title: Color
 permalink: /color/
 nav_order: 8
 ---
