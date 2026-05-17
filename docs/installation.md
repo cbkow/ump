@@ -24,7 +24,7 @@ Download QCView from the Microsoft Store for automatic updates:
 
 ## macOS
 
-Download the latest release [here](https://github.com/cbkow/QCView-Player/releases/download/latest/QCView-MacOS.dmg).
+Download the [latest release here](https://github.com/cbkow/QCView-Player/releases/download/latest/QCView-MacOS.dmg).
 
 1. Open the `.dmg` file.
 2. Drag **QCView** to your **Applications** folder.
