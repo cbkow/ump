@@ -27,7 +27,7 @@ Download QCView from the Microsoft Store for automatic updates:
 Download the [latest release here](https://github.com/cbkow/QCView-Player/releases/latest/).
 
 <a href="https://github.com/cbkow/QCView-Player/releases/latest/download/QCView-MacOS.dmg" target="_blank" rel="noopener noreferrer">
-  <img src="images/download.png" width="200"/>
+  <img src="images/download.png" />
 </a>
 
 1. Open the `.dmg` file.
