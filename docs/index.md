@@ -48,7 +48,7 @@ nav_order: 1
 
 ## Documentation
 
-Use the sidebar to browse the full manual, including [installation](installation), [playback basics](app-basics), [color management](ocio-nodes), [annotations](annotations), and more.
+Use the sidebar to browse the full manual, including [installation](installation), [playback basics](app-basics), [color management](color), [annotations](annotations), and more.
 
 ---
 

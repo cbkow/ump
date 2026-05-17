@@ -1,6 +1,6 @@
 ---
-title: OCIO Color Nodes
-permalink: /ocio-nodes/
+title: color
+permalink: /color/
 nav_order: 8
 ---
 
