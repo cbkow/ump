@@ -1,230 +1,178 @@
+// AudioDecoder — Phase 5.0.a.
+//
+// FFmpeg-based audio decoder mirroring the old app's
+// src/audio/audio_decoder.cpp (564 LOC; this port is functionally
+// equivalent for the single-clip case).
+//
+// Output format is fixed: float32 stereo 48 kHz. SwrContext does the
+// resample at decode time so the output device + ring buffer never
+// see anything else. Decode thread fills the ring buffer; the audio
+// callback drains via read().
+//
+// Phase 5.0.a is the smoke-test substrate — open / start / read.
+// Phase 5.0.b adds the master-clock sync (seek-to-correct-drift)
+// loop that the old app's AudioPlayer / AudioMixer use.
+
 #pragma once
 
-#include <string>
-#include <memory>
+#include "audio_ring_buffer.h"
+#include "i_audio_source.h"
+
+#include <QObject>
+#include <QString>
+#include <QStringList>
+
+#include <array>
 #include <atomic>
 #include <chrono>
-#include <thread>
-#include <mutex>
 #include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <vector>
 
-#include "ring_buffer.h"
-
-// Forward declarations for FFmpeg types
 struct AVFormatContext;
 struct AVCodecContext;
 struct AVFrame;
 struct AVPacket;
 struct SwrContext;
 
-namespace qcview {
+namespace qcv {
 
-/**
- * Audio format info
- * Output format is always float32 stereo 48kHz for miniaudio compatibility
- */
-struct AudioFormat {
-    int sample_rate = 48000;
-    int channels = 2;
-    int bytes_per_sample = 4;  // float32
+class AudioDecoder : public QObject, public IAudioSource
+{
+    Q_OBJECT
 
-    size_t BytesPerFrame() const { return channels * bytes_per_sample; }
-
-    double BytesToSeconds(size_t bytes) const {
-        return static_cast<double>(bytes) / (sample_rate * BytesPerFrame());
-    }
-
-    size_t SecondsToBytes(double seconds) const {
-        return static_cast<size_t>(seconds * sample_rate * BytesPerFrame());
-    }
-
-    size_t SecondsToFrames(double seconds) const {
-        return static_cast<size_t>(seconds * sample_rate);
-    }
-
-    double FramesToSeconds(size_t frames) const {
-        return static_cast<double>(frames) / sample_rate;
-    }
-};
-
-/**
- * AudioDecoder configuration
- */
-struct AudioDecoderConfig {
-    double buffer_ahead_seconds = 2.0;   // How far ahead to decode
-    int output_sample_rate = 48000;      // Output sample rate
-    int output_channels = 2;             // Output channels (stereo)
-};
-
-/**
- * AudioDecoder - FFmpeg-based audio decoder
- *
- * Decodes audio from video containers in a background thread.
- * Outputs float32 stereo PCM to a ring buffer for miniaudio consumption.
- *
- * Usage:
- *   AudioDecoder decoder;
- *   decoder.Open("video.mp4");
- *   decoder.Start();
- *   decoder.Seek(10.0);  // Seek to 10 seconds
- *
- *   // In audio callback:
- *   decoder.Read(buffer, frame_count);
- */
-class AudioDecoder {
 public:
-    AudioDecoder();
-    ~AudioDecoder();
+    explicit AudioDecoder(QObject *parent = nullptr);
+    ~AudioDecoder() override;
 
-    // Prevent copying
-    AudioDecoder(const AudioDecoder&) = delete;
-    AudioDecoder& operator=(const AudioDecoder&) = delete;
+    AudioDecoder(const AudioDecoder &) = delete;
+    AudioDecoder &operator=(const AudioDecoder &) = delete;
 
-    //=========================================================================
-    // Lifecycle
-    //=========================================================================
+    // Open the file's audio stream. Returns false if no audio stream
+    // is present or any FFmpeg call fails. The video pipeline opens
+    // the same file separately; we re-open here because audio decode
+    // wants an independent AVFormatContext on a private thread.
+    bool open(const QString &path) override;
+    void close() override;
 
-    // Open audio from video file
-    // Returns true if audio stream found and initialized
-    bool Open(const std::string& file_path);
+    // Start / stop the decode thread.
+    void start() override;
+    void stop() override;
 
-    // Close and release resources
-    void Close();
+    bool hasAudio()  const override { return m_hasAudio; }
+    bool isOpen()    const override { return m_isOpen; }
+    bool isRunning() const override { return m_running.load(); }
 
-    // Start decode thread (call after Open)
-    void Start();
+    double duration() const override { return m_duration; }
 
-    // Stop decode thread
-    void Stop();
+    // Seek to a position in seconds. Lazy — actually performed by
+    // the decode thread on the next iteration.
+    void seek(double position) override;
 
-    // Check state
-    bool IsOpen() const { return is_open_; }
-    bool IsRunning() const { return running_.load(); }
-    bool HasAudio() const { return has_audio_; }
+    // Drain the ring buffer into `output` (float32 interleaved
+    // stereo). Returns frames actually delivered. Underrun pads with
+    // silence. Called from the audio device's render callback.
+    std::size_t read(float *output, std::size_t frameCount) override;
 
-    //=========================================================================
-    // Seeking and Sync
-    //=========================================================================
+    const AudioFormat &format() const override { return m_outputFormat; }
 
-    // Seek to position (seconds from source start)
-    // Clears buffer and seeks in decode thread
-    void Seek(double position);
+    // Wall-clock seconds since the last completed seek. Used by
+    // AudioPlayer's drift-correction loop as a cooldown — codec
+    // re-seeks are expensive (flush ring + flush codec state) and
+    // a too-frequent loop can thrash. Returns a large value if no
+    // seek has happened yet.
+    double secondsSinceLastSeek() const override;
 
-    // Get current decode position (seconds)
-    double GetDecodePosition() const { return decode_position_.load(); }
+    // Per-clip channel routing mode. `mode` matches the
+    // qcv::AudioRoutingMode enum in media_item.h (0 = Auto, 1 =
+    // Downmix5_1, 2 = Stereo7_8). Setter is thread-safe — it just
+    // stores the new mode + sets a dirty flag; the decode thread
+    // tears down + re-inits SwrContext between decode iterations.
+    // Mid-stream reroute is microsecond-cost; user hears at most
+    // one decode-frame's worth of stale audio (~21 ms at 48 kHz).
+    void setRoutingMode(int mode) override;
+    int  routingMode() const override { return m_routingMode.load(); }
 
-    // Get current read position (where we're consuming from)
-    double GetReadPosition() const { return read_position_.load(); }
+    // Detected source channel layout for per-channel meters + the
+    // inspector's "layout name" readout. nb=0 / empty until open().
+    int     sourceChannels()          const override { return m_sourceChannels; }
+    QString sourceChannelLayoutName() const override { return m_sourceChannelLayoutName; }
 
-    //=========================================================================
-    // PCM Data Access (called from audio callback thread)
-    //=========================================================================
+    // Per-channel peak levels of the most-recently-decoded frame,
+    // BEFORE the SwrContext fold. Range [0..1]; index i is source
+    // channel i. Indices [sourceChannels()..16) are zero. Updated
+    // by the decode thread; safe to call from any thread (atomic
+    // loads). Used by WindowManager's 30 Hz audio meter timer to
+    // drive the inspector's per-channel level bars.
+    std::array<float, 16> peakLevels() const override;
 
-    // Read PCM samples from buffer
-    // Returns number of frames actually read
-    // Fills with silence if buffer underrun
-    size_t Read(float* output, size_t frame_count);
-
-    // Get buffered audio duration (seconds)
-    double GetBufferedDuration() const;
-
-    // Check if buffer has enough data
-    bool HasData() const;
-
-    //=========================================================================
-    // Source Info
-    //=========================================================================
-
-    const AudioFormat& GetFormat() const { return output_format_; }
-    double GetDuration() const { return duration_; }
-    int GetSourceSampleRate() const { return source_sample_rate_; }
-    int GetSourceChannels() const { return source_channels_; }
-    const std::string& GetPath() const { return file_path_; }
-
-    //=========================================================================
-    // Configuration
-    //=========================================================================
-
-    void SetConfig(const AudioDecoderConfig& config) { config_ = config; }
-    const AudioDecoderConfig& GetConfig() const { return config_; }
+    // Per-source-channel name strings for the meter labels. "L",
+    // "R", "C", "LFE", "Ls", "Rs", etc. when the source has a
+    // recognized channel layout; falls back to "1", "2", ... when
+    // FFmpeg reports the layout as unspecified (just channel count,
+    // no positions).
+    QStringList sourceChannelNames() const override;
 
 private:
-    //=========================================================================
-    // Decode Thread
-    //=========================================================================
+    void decodeThreadFn();
+    bool decodeNextPacket();
+    void flushAndSeek(double position);
 
-    void DecodeThread();
-    bool DecodeNextPacket();
-    void FlushAndSeek(double position);
+    bool openAudioStream();
+    void closeAudioStream();
+    bool setupResampler();
+    void cleanupResampler();
 
-    //=========================================================================
-    // FFmpeg Setup
-    //=========================================================================
+    bool          m_isOpen   = false;
+    bool          m_hasAudio = false;
+    AudioFormat   m_outputFormat;
+    QString       m_path;
 
-    bool OpenAudioStream();
-    void CloseAudioStream();
-    bool SetupResampler();
-    void CleanupResampler();
+    int     m_sourceSampleRate = 0;
+    int     m_sourceChannels   = 0;
+    QString m_sourceChannelLayoutName;
+    double  m_duration         = 0.0;
+    int64_t m_streamStartTime  = 0;
 
-    //=========================================================================
-    // State
-    //=========================================================================
+    // Per-clip routing mode + dirty flag. Setter (GUI thread) bumps
+    // both atomically; decode thread observes m_routingDirty between
+    // iterations and rebuilds m_swrCtx if set. Default 0 = Auto.
+    std::atomic<int>  m_routingMode{0};
+    std::atomic<bool> m_routingDirty{false};
 
-    bool is_open_ = false;
-    bool has_audio_ = false;
-    AudioDecoderConfig config_;
-    AudioFormat output_format_;
-    std::string file_path_;
+    // Per-channel peak levels of the most-recent decoded frame,
+    // pre-SwrContext-fold. Decode thread writes after each successful
+    // av_frame is pulled (before the resample); GUI-thread meter
+    // poll reads via atomic loads. Capacity-16 covers Atmos-bed-style
+    // sources comfortably; broadcast deliverables top out at 16ch.
+    mutable std::array<std::atomic<float>, 16> m_peakPerChannel{};
 
-    // Source info
-    int source_sample_rate_ = 0;
-    int source_channels_ = 0;
-    double duration_ = 0.0;
-    int64_t start_time_ = 0;  // Stream start time in timebase units
+    AVFormatContext *m_formatCtx   = nullptr;
+    AVCodecContext  *m_codecCtx    = nullptr;
+    SwrContext      *m_swrCtx      = nullptr;
+    AVFrame         *m_decodeFrame = nullptr;
+    AVPacket        *m_packet      = nullptr;
+    int              m_audioStreamIdx = -1;
 
-    // FFmpeg contexts
-    AVFormatContext* format_ctx_ = nullptr;
-    AVCodecContext* codec_ctx_ = nullptr;
-    SwrContext* swr_ctx_ = nullptr;
-    AVFrame* decode_frame_ = nullptr;
-    AVPacket* packet_ = nullptr;
-    int audio_stream_idx_ = -1;
+    std::unique_ptr<AudioRingBuffer> m_ring;
 
-    // Ring buffer for PCM output
-    std::unique_ptr<AudioRingBuffer> ring_buffer_;
+    std::thread          m_decodeThread;
+    std::atomic<bool>    m_running{false};
+    std::atomic<double>  m_decodePosition{0.0};
+    std::atomic<double>  m_readPosition{0.0};
+    std::atomic<bool>    m_eofReached{false};
 
-    // Threading
-    std::thread decode_thread_;
-    std::atomic<bool> running_{false};
-    std::atomic<double> decode_position_{0.0};
-    std::atomic<double> read_position_{0.0};
+    std::mutex              m_seekMutex;
+    std::condition_variable m_seekCv;
+    std::atomic<bool>       m_seekRequested{false};
+    double                  m_seekTarget = 0.0;
+    std::atomic<double>     m_lastSeekTime{0.0};   // steady_clock seconds-since-epoch
 
-    // Seek coordination
-    std::mutex seek_mutex_;
-    std::condition_variable seek_cv_;
-    std::atomic<bool> seek_requested_{false};
-    double seek_target_ = 0.0;
-
-    // EOF tracking
-    std::atomic<bool> eof_reached_{false};
-
-    // Seek timing - tracks when last seek completed for cooldown logic
-    std::atomic<double> last_seek_time_{0.0};
-
-    // Reusable decode output buffer (avoids per-frame heap allocation)
-    std::vector<uint8_t> resample_buffer_;
-
-public:
-    // Check if decoder has reached end of file
-    bool IsEOF() const { return eof_reached_.load(); }
-
-    // Get seconds since last seek (for cooldown logic in sync correction)
-    double SecondsSinceLastSeek() const {
-        double now = std::chrono::duration<double>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        double last = last_seek_time_.load();
-        return (last > 0.0) ? (now - last) : 999.0;
-    }
+    // Reusable per-frame resample destination — avoids per-frame
+    // heap allocation in the hot path.
+    std::vector<uint8_t> m_resampleBuffer;
 };
 
-} // namespace qcview
+} // namespace qcv

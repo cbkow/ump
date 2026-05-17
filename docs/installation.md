@@ -14,54 +14,24 @@ Download QCView from the Microsoft Store for automatic updates:
   <img src="https://get.microsoft.com/images/en-us%20dark.svg" width="200"/>
 </a>
 
-Alternatively, download the unsigned `.exe` installer directly from [GitHub Releases](https://github.com/cbkow/QCView-Player/releases) if you need a specific version or prefer to install outside the Store.
+### Requirements
+
+- Windows 10 version 1809 or later (10.0.17763.0), x64.
+- Vulkan-capable GPU with up-to-date drivers (FFmpeg software fallback when unavailable).
+- HDR-capable display + Windows HDR mode enabled for HDR10 output.
 
 ---
 
 ## macOS
 
-Download the signed and notarized `.dmg` from [GitHub Releases](https://github.com/cbkow/QCView-Player/releases).
+Download the latest release [here](https://github.com/cbkow/QCView-Player/releases/latest/QCView-MacOS.dmg).
 
-1. Open the `.dmg` file
-2. Drag **QCView** to your **Applications** folder
-3. Launch from Applications or Spotlight
-
-### Requirements
-
-- macOS 13.0 (Ventura) or later
-- Apple Silicon (arm64) — native Metal rendering, no Rosetta
-- EDR-capable display recommended for HDR workflows
-
----
-
-## Linux (Experimental)
-
-The Linux build uses **Vulkan** for rendering and is currently experimental. It has been tested on **Kubuntu with KDE Plasma 6** running **Wayland**.
-
-Download `.deb` or `.rpm` packages from [GitHub Releases](https://github.com/cbkow/QCView-Player/releases).
-
-### DEB (Debian/Ubuntu)
-
-```bash
-sudo dpkg -i QCView-<version>-amd64.deb
-sudo apt install -f  # install any missing dependencies
-```
-
-### Uninstalling
-
-Uninstallation is handled by the package manager:
-
-```bash
-# DEB
-sudo apt remove qcview
-
-# RPM
-sudo dnf remove qcview
-```
+1. Open the `.dmg` file.
+2. Drag **QCView** to your **Applications** folder.
+3. Launch from Applications or Spotlight.
 
 ### Requirements
 
-- Vulkan-capable GPU with up-to-date drivers
-- VA-API for hardware-accelerated video decoding (optional, falls back to FFmpeg software decode)
-- PipeWire for audio playback
-- Wayland session recommended
+- macOS 13.0 (Ventura) or later.
+- Apple Silicon (arm64) — native Metal rendering, no Rosetta.
+- EDR-capable display recommended for HDR workflows.

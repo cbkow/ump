@@ -4,95 +4,48 @@ permalink: /ocio-nodes/
 nav_order: 8
 ---
 
-# OCIO Color Nodes
+# OCIO Color
 
-QCView includes a node-based [OpenColorIO](https://opencolorio.org/) pipeline for live color management. Build transform chains visually and see results applied to the Viewer in real time.
+QCView includes a live [OpenColorIO](https://opencolorio.org/) pipeline. Build transform chains in the **Color** panel (`Ctrl + 3`) and see results applied to the viewport in real time.
 
-**Bundled configs:** ACES 2.0, Blender 5.1, ACES 1.3
+**Bundled configs:** ACES 2.0, ACES 1.3, Blender 5.1
 
-Blender 5.1 is the default config. Both ACES 2.0 and Blender 5.1 include **Linear sRGB EDR** and **Linear P3 EDR** display outputs for macOS Extended Dynamic Range workflows with ACES 2.0 HDR tone mapping at 500, 1000, 2000, and 4000 nit levels.
+Both ACES 2.0 and Blender 5.1 are appended with **Linear sRGB EDR** and **Linear P3 EDR** display outputs for macOS Extended Dynamic Range workflows.
 
-![Inspector panel for video](images/QCView_v027.webp)
-
----
-
-## Building a Node Tree
-
-A color transform requires at minimum an **Input** node and an **Output** node. Follow these steps:
-
-### 1. Select a Config
-
-Choose a config that matches your color pipeline.
-
-![Config selection](images/QCView_v028.webp)
-
-### 2. Add an Input Node
-
-Drag an **Input** node into the Node Graph panel.
-
-![Input node](images/QCView_v029.webp)
-
-### 3. Add an Output Node
-
-Drag an **Output** node into the graph.
-
-![Output node](images/QCView_v030.webp)
-
-### 4. Connect and Apply
-
-Connect the nodes, then click the Output node to open its settings. Select a **View** if required, then click **Apply** to see the transform in the Viewer. Click **Remove** to clear it.
-
-![Applied color transform](images/QCView_v031.webp)
+![Color panel reel grid for OCIO chain steps](images/qcv025.jpg)
 
 ---
 
-## Node Management
+## Layout
 
-Select any node or connection and press `X` or `Delete` to remove it.
+The Color panel is a **reel grid** — each step in the OCIO chain is a horizontal reel you scroll through to pick the value.
 
-![Deleting a node](images/QCView_v032.webp)
+Left side (input build-up):
 
----
+- **Preset** — recall a saved chain
+- **Config** — pick an OCIO config (ACES 2.0 / ACES 1.3 / Blender 5.1)
+- **Input** — source colorspace
+- **Look** — optional creative look (Blender's AgX, Contrast, Punchy, etc.)
+- **Scene LUT** — optional `.cube` LUT applied in the scene-linear stage
 
-## LUTs
+Then the chain flows to the right side (output):
 
-Add custom LUT files (.cube) to the transform chain:
+- **Output** — display colorspace
+- **View** — display view (e.g. an HDR view for an EDR output)
+- **Display LUT** — optional `.cube` LUT applied at the display stage
 
-| LUT Type | Position in Chain |
-|---|---|
-| Scene LUT | Before the Output node |
-| Display LUT | After the Output node |
 
-Click **Select LUT File** on the node to assign a .cube file.
+### Save your own
 
-![LUT node](images/QCView_v033.webp)
+Configure a chain you like, then click **Save as…** to capture it as a named preset.
 
----
 
-## Looks
+### Export LUT
 
-**Look** nodes go between Input and Output. All Blender looks are supported — Contrast, AgX, Greyscale, Punchy, and more.
+The **Export LUT** action serializes the current chain to a `.cube` file for use in other software.
 
-![Look node](images/QCView_v035.webp)
+### Brightness
 
----
 
-## Presets
+If a render needs a lift for review, a brightness slider is provided at the bottom of the panel. The reset button will restore the baseline without exposure adjustments.
 
-Each bundled config includes ready-made presets. Click a preset to apply it instantly.
-
-![Built-in presets](images/QCView_v036.webp)
-
-### Custom Presets
-
-Save your own node tree configurations as presets for quick recall.
-
-![Saving a custom preset](images/QCView_v038.webp)
-
----
-
-## Exporting LUTS
-
-Click here to export a Cube LUT for other software/pipelines.
-
-![Saving a custom preset](images/QCView_v039.webp)

@@ -1,126 +1,82 @@
+// InkStrokeModelerWrapper — direct lift from old QCView's
+// src/annotations/ink_stroke_modeler_wrapper.{h,cpp} per Guide 19 §2.3.
+//
+// Wraps Google's ink::stroke_model::StrokeModeler (real-time stroke
+// smoothing). The modeler combines:
+//   - Wobble smoother (low-pass on slow input)
+//   - Spring-mass position model (drag toward raw input)
+//   - Resampler (consistent output rate independent of input cadence)
+// See https://github.com/google/ink-stroke-modeler.
+//
+// Coordinates are scaled into 0..kModelScale (1000.0) before feeding the
+// modeler — its internal constants assume "screen-ish" units, not
+// normalized 0..1, so 0..1 inputs lose precision. Output is scaled back.
+//
+// Adaptation notes vs old app:
+//   - Namespace qcview::Annotations → qcv
+//   - ImVec2 → QPointF
+//   - Same Config defaults as old app (tuned for annotation accuracy,
+//     not low-latency stylus prediction; prediction off by default)
+
 #pragma once
 
-#include <vector>
+#include <QPointF>
+
 #include <memory>
-#include <chrono>
-#include <imgui.h>
+#include <vector>
 
-// Forward declarations to minimize header includes
-namespace ink {
-namespace stroke_model {
-class StrokeModeler;
-}
-}
+namespace ink::stroke_model { class StrokeModeler; }
 
-namespace qcview {
-namespace Annotations {
+namespace qcv {
 
-/**
- * Wrapper around Google's ink-stroke-modeler for real-time stroke smoothing.
- *
- * This class handles:
- * - Coordinate transformation between normalized (0-1) and modeler space
- * - Configuration of wobble smoothing and spring-mass parameters
- * - Real-time input processing with timestamp-based smoothing
- *
- * Usage:
- *   InkStrokeModelerWrapper modeler;
- *   modeler.BeginStroke();
- *
- *   // On mouse down:
- *   auto points = modeler.AddPoint(normalized_pos, timestamp, true);
- *
- *   // On mouse move:
- *   auto points = modeler.AddPoint(normalized_pos, timestamp, false);
- *
- *   // On mouse up:
- *   auto final_points = modeler.EndStroke(normalized_pos, timestamp);
- */
 class InkStrokeModelerWrapper {
 public:
+    struct Config {
+        // Wobble smoother — low-pass at slow speeds. Defaults are the
+        // library's recommended starting point for finger / mouse input.
+        float wobble_timeout_seconds = 0.04f;
+        float wobble_speed_floor     = 31.0f;
+        float wobble_speed_ceiling   = 620.0f;
+
+        // Position modeler (spring-mass simulation).
+        float spring_mass_constant = 11.0f / 32400.0f;
+        float drag_constant        = 72.0f;
+
+        // Predictor (off by default — annotation accuracy > input lag).
+        bool  enable_prediction = false;
+    };
+
     InkStrokeModelerWrapper();
     ~InkStrokeModelerWrapper();
 
-    // Non-copyable, movable
-    InkStrokeModelerWrapper(const InkStrokeModelerWrapper&) = delete;
+    InkStrokeModelerWrapper(const InkStrokeModelerWrapper&)            = delete;
     InkStrokeModelerWrapper& operator=(const InkStrokeModelerWrapper&) = delete;
     InkStrokeModelerWrapper(InkStrokeModelerWrapper&&) noexcept;
     InkStrokeModelerWrapper& operator=(InkStrokeModelerWrapper&&) noexcept;
 
-    /**
-     * Configuration for the stroke modeler.
-     * Tuned for video annotation use case.
-     */
-    struct Config {
-        // Wobble smoothing parameters
-        float wobble_timeout_seconds = 0.04f;     // ~40ms window for wobble smoothing
-        float wobble_speed_floor = 31.0f;         // Speed below which max smoothing is applied
-        float wobble_speed_ceiling = 620.0f;      // Speed above which no smoothing is applied
-
-        // Spring-mass simulation parameters
-        float spring_mass_constant = 11.0f / 32400.0f;  // Default from ink-stroke-modeler
-        float drag_constant = 72.0f;                     // Default drag
-
-        // Prediction (disabled by default for annotation accuracy)
-        bool enable_prediction = false;
-
-        Config() = default;
-    };
-
-    /**
-     * Initialize/reset the modeler for a new stroke.
-     * Must be called before AddPoint.
-     */
     void BeginStroke(const Config& config);
-    inline void BeginStroke();
 
-    /**
-     * Process a new input point. Returns modeled points generated so far.
-     *
-     * @param normalized_pos Position in normalized coordinates (0-1 range)
-     * @param timestamp Timestamp in seconds (relative to stroke start)
-     * @param is_down True for first point (pen down), false for subsequent move events
-     * @return Newly generated modeled points in normalized coordinates (may be empty initially)
-     */
-    std::vector<ImVec2> AddPoint(const ImVec2& normalized_pos, double timestamp, bool is_down);
+    // Inputs are in normalized 0..1 viewport coordinates. Outputs are
+    // resampled, smoothed points (zero or more per call).
+    std::vector<QPointF> AddPoint(const QPointF& normalized_pos,
+                                  double timestamp,
+                                  bool is_down);
 
-    /**
-     * Finalize the stroke (pen up). Returns any remaining modeled points.
-     *
-     * @param final_pos Final pen position in normalized coordinates
-     * @param timestamp Final timestamp in seconds
-     * @return Remaining modeled points to complete the stroke
-     */
-    std::vector<ImVec2> EndStroke(const ImVec2& final_pos, double timestamp);
+    std::vector<QPointF> EndStroke(const QPointF& final_pos,
+                                   double timestamp);
 
-    /**
-     * Get predicted points for live preview (optional, for lower latency feedback).
-     * Only valid when enable_prediction is true in Config.
-     *
-     * @return Predicted points extending beyond current modeled position
-     */
-    std::vector<ImVec2> GetPrediction() const;
+    std::vector<QPointF> GetPrediction() const;
 
-    /**
-     * Check if modeler is currently processing a stroke.
-     */
     bool IsActive() const { return is_active_; }
 
 private:
-    std::unique_ptr<ink::stroke_model::StrokeModeler> modeler_;
-    bool is_active_ = false;
+    QPointF ToModelSpace(const QPointF& normalized) const;
+    QPointF FromModelSpace(float x, float y) const;
 
-    // Coordinate scaling: normalized (0-1) to modeler space
-    // We scale up for better numerical precision in the physics simulation
     static constexpr float kModelScale = 1000.0f;
 
-    // Convert between coordinate systems
-    ImVec2 ToModelSpace(const ImVec2& normalized) const;
-    ImVec2 FromModelSpace(float x, float y) const;
+    std::unique_ptr<ink::stroke_model::StrokeModeler> modeler_;
+    bool is_active_ = false;
 };
 
-// Defined after class is complete to satisfy GCC C++20 aggregate rules
-inline void InkStrokeModelerWrapper::BeginStroke() { BeginStroke(Config{}); }
-
-} // namespace Annotations
-} // namespace qcview
+} // namespace qcv

@@ -1,53 +1,86 @@
-# Build directories
+# Build artifacts
 build/
-build-linux/
-build-macos/
+build-*/
 out/
+cmake-build-*/
 
-# Packaging output
-sideloader/
-installer/sideload/
-installer/*.exe
-installer/msix/*.msix
-installer/msix/staging/
-*.deb
-*.rpm
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+CTestTestfile.cmake
+cmake_install.cmake
+install_manifest.txt
+# Per-machine preset overrides — committed CMakePresets.json holds the
+# project-level presets; CMakeUserPresets.json layers in each developer's
+# local Qt / vcpkg / FFmpeg paths.
+CMakeUserPresets.json
 
-# IDE files
-.vs/
+# Qt-specific
+*.qmake.stash
+*.qmake.cache
+.qmlls.ini
+.qmlls.build.ini
+
+# IDE
 .vscode/
-*.vcxproj.user
-*.suo
-*.user
 .idea/
+*.user
+*.user.*
+.qtcreator/
+compile_commands.json
 
-# Compiled binaries
-*.exe
-*.dll
-*.lib
-*.pdb
-*.obj
-
-# Allow third-party prebuilt libraries in external/
-!external/**/*.lib
-
-# Visual Studio resource cache
-*.aps
-
-# OS files
+# macOS
 .DS_Store
-Thumbs.db
+*.app/
 
-# Claude Code
+# Editor backups
+*~
+*.swp
+*.bak
+
+# Environment / local config
+.env
+.env.local
+
+# Test outputs / scratch
+/tmp/
+/scratch/
+*.log
+# Runtime artifacts that escape to repo root if the app is launched
+# from here (qcview-stdout.log + qcview-stderr.log + the internal
+# qcview-log.txt tee). Already covered by *.log but listed explicitly
+# so it's obvious why they're ignored.
+qcview-stderr.log
+qcview-stdout.log
+qcview-log.txt
+qcview-log.prev.txt
+# Generic scratch dir for one-off captures during debugging.
+TEMP/
+
+# Per-machine build / signing scripts. They reference local dev-cert
+# subjects, Homebrew paths, vendored-deps layouts, etc. — not useful
+# to share via git, and the signing ones contain the developer identity
+# string (CN / Team ID) baked into the codesign default. Each build
+# machine keeps its own copies in scripts/ locally.
+scripts/*.sh
+
+# Vendored deps tree produced by scripts/build_macos_deps.sh —
+# 70+ MB of FFmpeg / OCIO / OpenEXR / etc. built for deployment
+# target. Source not in tree; the script rebuilds it on demand.
+external/install/
+external/source/
+external/build/
+
+# Local Claude Code / agent config
 .claude/
 
-# Logs and temp
-*.log
-logs.txt
+# MSIX packaging — staged inputs and packed outputs
+installer/msix/staging/
+installer/msix/dist/
 
-# Build/signing scripts (contain signing identity references)
-scripts/
-
-# Build artifacts
-*.dmg
-*.bak
+# Sideload signing assets — private dev cert (.pfx) and its public .cer.
+# Kept locally; never committed. Each developer / build machine copies
+# these in from secure storage. The build script reads QCV_SIGNING_PFX
+# pointing at this directory.
+installer/sideload/

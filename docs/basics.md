@@ -12,23 +12,25 @@ nav_order: 4
 
 Use the **File** menu to load media into QCView:
 
-![QCView main interface](images/QCView_v004.webp)
+![File menu](images/qcv002.jpg)
 
 | Action | Shortcut |
 |---|---|
 | Open Media | `Ctrl + O` |
 | Open Project | `Ctrl + Shift + O` |
+| Save Project | `Ctrl + S` |
+| Save Project As | `Ctrl + Shift + S` |
 | New Project | Clears the current project |
-| New Playlist | Creates an empty playlist |
-| New Dual View | Opens side-by-side comparison |
+
+Recent media and recent projects are also reachable from the **Open Recent** submenus.
 
 ### Drag and Drop
 
-You can also drag files directly into the app. The Viewer border highlights when a drop target is detected.
+You can drag files directly into the app. The viewport border highlights when a drop target is detected. Drag one or more files to the viewport to load immediately or the media panel to add to a collection.
 
-To load files already in your project, double-click them in the Project Manager or drag them into the Viewer.
+![Viewport drop-target highlight](images/qcv003.jpg)
 
-![QCView main interface](images/QCView_v002.webp)
+To load files already in your project, double-click them in the media panel or drag them into the viewport.
 
 ---
 
@@ -40,69 +42,52 @@ Toggle panels from the **View** menu or with keyboard shortcuts:
 
 | Panel | Shortcut |
 |---|---|
-| Project | `Ctrl + 1` |
-| Inspector | `Ctrl + 2` |
-| Timeline | `Ctrl + 3` |
-| Color | `Ctrl + 4` |
-| Annotations | `Ctrl + 5` |
+| Left Rail (Project, Settings, Background, Safety) | `Ctrl + 1` |
+| Right Rail (Inspector, Shortcuts) | `Ctrl + 2` |
+| Color Panel | `Ctrl + 3` |
+| Notes | `Ctrl + 4` |
+
+![Left Rail panels](images/qcv004.jpg)
+
+![Right Rail and bottom panels](images/qcv005.jpg)
+
+You can also use the mouse to toggle panels. Rails can be opened and closed by clicking the caret buttons in their headers. The color and notes panels can be opened via buttons on the transport row.
+
+![Rail carets and transport panel toggles](images/qcv006.jpg)
 
 ### Layout Presets
 
 | Preset | Shortcut | Description |
 |---|---|---|
-| Default View | `Ctrl + 0` | Standard layout with key panels |
-| Show All Panels | `Ctrl + 9` | Opens every panel |
-| Minimal View | `Ctrl + -` | Viewport and timeline only (toggle) |
-| Full Screen | `F` | Viewer only, no UI. Press `F` or `Esc` to exit |
+| Minimal Mode | `Ctrl + -` | Viewport + transport only |
+| Fullscreen | `F` | Viewport only, no UI. Press `F` or `Esc` to exit |
 
-![QCView main interface](images/QCView_v005.webp)
-
-### Panel Shortcuts
-
-Right-clicking the **Show All Panels** button also reveals panel toggles.
-
-![QCView main interface](images/QCView_v003.webp)
-
-
-### Resizing and Closing Panels
-
-Drag the dividers between panels to resize them. Click the **X** in a panel's top-right corner to close it.
-
-![QCView main interface](images/QCView_v006.webp)
-
-Use `Ctrl + R` or **View > Reset Layout** to restore default proportions.
-
----
 
 ## Backgrounds and Overlays
 
 ### Backgrounds
 
-QCView provides four background options for reviewing alpha-channel media: grey (default), black, dark checkerboard, and light checkerboard. Alpha channels in any media pass through to the selected background.
+QCView provides background options for reviewing alpha-channel media: grey (default), black, checkerboard. Alpha channels in any media pass through to the selected background. Open the Background section from the Left Rail (Tools menu → Background, or `Ctrl + 1` then expand).
 
-| Action | Shortcut |
-|---|---|
-| Open background panel | `Ctrl + Shift + B` |
-| Cycle backgrounds | `B` |
-
-![QCView main interface](images/QCView_v007.webp)
+![Background section in the Left Rail](images/qcv007.jpg)
 
 ### Title Safety Guides
 
-Open the **Title Safety** panel with `Ctrl + /` to overlay broadcast and social-media safety guides on the Viewer. Choose a guide color with the color picker — your selection is saved in settings. Toggle the button again to remove the overlay.
+Open the **Safety Guides** section in the Left Rail (Tools menu → Safety Guides) to overlay broadcast and social-media safety guides on the viewport.
 
-![QCView main interface](images/QCView_v008.webp)
+![Safety Guides section in the Left Rail](images/qcv008.jpg)
 
-### OCIO Presets
-
-Open the **OCIO Color Preset** panel with `Ctrl + C` to apply a color correction preset to the Viewer. Presets use OCIO node trees — see the [Color](color) page for details.
-
-![QCView main interface](images/QCView_v009.webp)
 
 ---
 
-## Themes
+## Keyboard Shortcuts
 
-QCView can use your **Windows Accent Color** for UI highlights, or you can choose from several built-in color themes.
+The full keyboard shortcut reference lives in the Inspector under **Shortcuts** (`Ctrl + /`).
 
-![QCView main interface](images/QCView_v010.webp)
+![Keyboard Shortcuts reference in the Right Rail](images/qcv009.jpg)
+
+## Settings
+
+The Settings panel opens in the Left Rail (`Ctrl + ,` or Tools menu → Settings…).
+
+![Settings section in the Left Rail](images/qcv010.jpg)

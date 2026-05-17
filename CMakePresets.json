@@ -1,0 +1,77 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "_base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+
+    {
+      "name": "windows-release",
+      "displayName": "Windows / Release (Qt + vcpkg + BtbN FFmpeg)",
+      "description": "MSVC x64 release build against Qt 6.11+ (open source) and vcpkg-installed system dependencies. Set Qt6_DIR / VCPKG_ROOT / BTBN_FFMPEG_DIR environment variables, or override in CMakeUserPresets.json.",
+      "inherits": "_base",
+      "binaryDir": "${sourceDir}/build-release",
+      "condition": {
+        "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR};$env{VCPKG_ROOT}/installed/x64-windows",
+        "PKG_CONFIG_EXECUTABLE": "$env{VCPKG_ROOT}/installed/x64-windows/tools/pkgconf/pkgconf.exe",
+        "QCV_BTBN_FFMPEG_DIR": "$env{BTBN_FFMPEG_DIR}"
+      },
+      "environment": {
+        "PKG_CONFIG_PATH": "$env{VCPKG_ROOT}/installed/x64-windows/lib/pkgconfig;$env{BTBN_FFMPEG_DIR}/lib/pkgconfig"
+      }
+    },
+
+    {
+      "name": "windows-debug",
+      "displayName": "Windows / Debug",
+      "inherits": "windows-release",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "macos-release",
+      "displayName": "macOS / Release (Qt + Homebrew)",
+      "description": "Apple Silicon release build against Qt 6.11+ and Homebrew dependencies. Set Qt6_DIR (e.g. ~/Qt/6.11.1/macos or /opt/homebrew/opt/qt).",
+      "inherits": "_base",
+      "binaryDir": "${sourceDir}/build-release",
+      "condition": {
+        "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_PREFIX_PATH": "$env{Qt6_DIR};/opt/homebrew",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0"
+      }
+    },
+
+    {
+      "name": "macos-debug",
+      "displayName": "macOS / Debug",
+      "inherits": "macos-release",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "windows-release", "configurePreset": "windows-release", "targets": ["qcview"] },
+    { "name": "windows-debug",   "configurePreset": "windows-debug",   "targets": ["qcview"] },
+    { "name": "macos-release",   "configurePreset": "macos-release",   "targets": ["qcview"] },
+    { "name": "macos-debug",     "configurePreset": "macos-debug",     "targets": ["qcview"] }
+  ]
+}

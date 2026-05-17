@@ -1,267 +1,254 @@
+// TimelineThumbnailCache — port of old QCView's
+// timeline_thumbnail_cache.{h,cpp}.
+//
+// Independent LRU thumbnail cache for timeline hover-preview. Unlike
+// the main ImageSequenceCache (window-based eviction around the
+// playhead), this cache holds frames from arbitrary positions in
+// arbitrary source files — exactly what hover-anywhere preview
+// needs.
+//
+// Architecture (preserved verbatim from old app, the threading and
+// I/O posture is finely tuned and worth keeping):
+//   - 3 worker threads when scrubbing/idle, 1 worker (worker 0) when
+//     playing — bounds I/O contention against the playback decoder.
+//   - Per-worker, per-source loaders: each worker owns its own
+//     VideoImageLoader / EXRImageLoader / etc. for each source path
+//     it's seen. No shared FFmpeg mutex.
+//   - Dedup via queued_keys_ (set lookup before push to deque).
+//   - `clear_generation_` increments on Clear() — workers in flight
+//     drop their result rather than overwriting a fresh state.
+//   - LRU bytes-budgeted eviction (default 100 entries × 320×180
+//     RGBA8 ≈ 23 MB).
+//   - GPU upload via MetalTexturePool::thumbnailInstance() (separate
+//     pool from the main playback path so thumbnails can't evict
+//     full-resolution main frames).
+//
+// Adaptations vs old app:
+//   - namespace qcview → qcv
+//   - GLuint texture handles → MetalTexturePool::Handle (uint64_t)
+//   - Vulkan/OpenGL paths gated on QCV_NATIVE_PLAYER (Metal-only on
+//     this branch, Vulkan when Phase C ships)
+//   - Debug::Log → qInfo / qDebug
+//   - SharedMemoryPool dependency dropped; PixelData carries its own
+//     vector<uint8_t> in the new app
+//   - Method names match the new app's IImageLoader vtable
+//     (loadFrame / loadThumbnail / getDimensions / loaderName)
+
 #pragma once
 
-#include <memory>
-#include <string>
-#include <vector>
-#include <map>
-#include <set>
-#include <list>
-#include <mutex>
-#include <thread>
-#include <condition_variable>
+#include "decode/image_loader.h"
+
 #include <atomic>
+#include <condition_variable>
+#include <cstdint>
 #include <deque>
-#include <glad/gl.h>
-#include "../player/image_loader_interface.h"
-#include "../player/shared_memory_pool.h"
+#include <list>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <set>
+#include <string>
+#include <thread>
+#include <vector>
 
-namespace qcview {
+namespace qcv {
 
-// Forward declarations
-class StreamingVideoDecoder;
+class VideoImageLoader;
 
-//=============================================================================
-// Worker State - Controls how many worker threads are active
-//=============================================================================
-
+// Worker pool state. Single source of truth for "should this worker
+// be running right now" — checked in WorkerThread's CV-wait
+// predicate.
 enum class ThumbnailWorkerState {
-    STOPPED,           // Not running
-    ACTIVE,            // All workers active (idle/scrubbing)
-    PAUSED_PLAYBACK    // Only worker 0 active (during playback)
+    STOPPED,           // pool not running
+    ACTIVE,            // all kMaxWorkerThreads workers active
+    PAUSED_PLAYBACK    // only worker 0 active; others CV-paused
 };
 
-//=============================================================================
-// Timeline Thumbnail Key - Identifies a frame from a source clip
-//=============================================================================
-
+// (source path, source frame). For image-seq sources, the path is
+// the actual per-frame file (with `?layer=` suffix for EXR) and the
+// frame is 0 — same convention as old app's ruler-hover code so the
+// cache key stays unique without sequence pattern parsing.
 struct TimelineThumbnailKey {
-    std::string source_path;    // Source media file path
-    int source_frame;           // Frame number within the source
+    std::string source_path;
+    int         source_frame = 0;
 
-    bool operator<(const TimelineThumbnailKey& other) const {
-        if (source_path != other.source_path) return source_path < other.source_path;
-        return source_frame < other.source_frame;
+    bool operator<(const TimelineThumbnailKey &o) const {
+        if (source_path != o.source_path)
+            return source_path < o.source_path;
+        return source_frame < o.source_frame;
     }
-
-    bool operator==(const TimelineThumbnailKey& other) const {
-        return source_path == other.source_path && source_frame == other.source_frame;
+    bool operator==(const TimelineThumbnailKey &o) const {
+        return source_path == o.source_path
+            && source_frame == o.source_frame;
     }
 };
-
-//=============================================================================
-// Configuration
-//=============================================================================
 
 struct TimelineThumbnailConfig {
-    int width = 320;               // Thumbnail width in pixels
-    int height = 180;              // Thumbnail height in pixels
-    int cache_size = 100;          // Maximum number of thumbnails to cache
-    bool enabled = true;           // Enable/disable thumbnail generation
+    int  width      = 320;
+    int  height     = 180;
+    int  cache_size = 100;
+    bool enabled    = true;
 };
-
-//=============================================================================
-// Cached Thumbnail Entry
-//=============================================================================
 
 struct TimelineThumbnailEntry {
-    GLuint texture_id = 0;
-    int width = 0;
-    int height = 0;
+    std::uint64_t texture_id = 0;   // MetalTexturePool handle
+    int           width      = 0;
+    int           height     = 0;
 };
 
-//=============================================================================
-// TimelineThumbnailCache - Independent LRU cache for trim/slip preview
-//=============================================================================
-
-/**
- * TimelineThumbnailCache - Separate thumbnail cache for timeline editing previews
- *
- * Unlike the main TimelineCache which uses window-based eviction around the playhead,
- * this cache uses simple LRU eviction and can hold thumbnails for ANY frame from
- * ANY source file, regardless of playhead position.
- *
- * This enables trim/slip preview to show frames from anywhere in the source clip,
- * not just within the playback cache window.
- *
- * Memory footprint:
- * - 320x180 RGBA8 = ~230 KB per thumbnail
- * - 100 thumbnails = ~23 MB
- */
 class TimelineThumbnailCache {
 public:
     TimelineThumbnailCache();
     ~TimelineThumbnailCache();
 
-    // Initialize the cache
-    void Initialize(double fps);
+    void initialize(double fps);
+    void shutdown();
 
-    // Shutdown and cleanup
-    void Shutdown();
+    // Non-blocking. Returns the texture handle (or 0 if not yet
+    // ready). On miss, queues async generation and — if
+    // allow_fallback — returns the nearest cached frame for the
+    // same source path so the UI has something to show during the
+    // request.
+    std::uint64_t getThumbnail(const std::string &source_path,
+                                int source_frame,
+                                int &width, int &height,
+                                bool allow_fallback = true);
 
-    /**
-     * Get thumbnail for a specific source file + frame (non-blocking)
-     * @param source_path - Path to the source media file
-     * @param source_frame - Frame number within the source
-     * @param width - Output: thumbnail width (0 if not cached)
-     * @param height - Output: thumbnail height (0 if not cached)
-     * @param allow_fallback - If true, return nearest cached frame as preview
-     * @return OpenGL texture ID, or 0 if not yet available
-     *
-     * Note: Returns 0 immediately if not cached (and no fallback), queues async generation
-     */
-    GLuint GetThumbnail(const std::string& source_path, int source_frame,
-                        int& width, int& height, bool allow_fallback = true);
-
-    /**
-     * Start precaching thumbnails for a clip range (call when user clicks on clip)
-     * @param source_path - Path to the source media file
-     * @param start_frame - First frame to precache
-     * @param end_frame - Last frame to precache
-     * @param priority_frame - Frame to load first (current position)
-     * @param step - Step size for precaching (e.g., every 6 frames)
-     */
-    void PrecacheRange(const std::string& source_path, int start_frame, int end_frame,
+    // Bulk pre-fetch a clip range. step controls the stride
+    // (default 6 = every 6th frame, decent for trim scrub).
+    // priority_frame loads first if non-negative.
+    void precacheRange(const std::string &source_path,
+                       int start_frame, int end_frame,
                        int priority_frame = -1, int step = 6);
 
-    /**
-     * Process pending thumbnails (MUST be called from main/GL thread)
-     * Uploads generated pixel data to GL textures
-     */
-    void ProcessPendingUploads();
+    // Main / GPU thread only. Drains pending uploads from worker
+    // threads into the texture pool. Call once per frame before the
+    // renderer reads thumbnail textures.
+    void processPendingUploads();
 
-    /**
-     * Clear all cached thumbnails and delete GL textures
-     * Call this when mouse is released after trim/drag
-     */
-    void Clear();
+    // Drop all cached textures. Workers in flight discard their
+    // result via the clear_generation_ check (no race with the
+    // calling thread).
+    void clear();
 
-    /**
-     * Cancel all pending requests (useful when switching clips)
-     */
-    void CancelPendingRequests();
+    void cancelPendingRequests();
 
-    /**
-     * Check if thumbnail cache is enabled
-     */
-    bool IsEnabled() const { return config_.enabled; }
+    bool isEnabled() const { return m_config.enabled; }
 
-    /**
-     * Notify cache of playback state changes
-     * When playing: reduces to 1 worker thread to avoid competing for I/O resources
-     * When paused: resumes all 3 worker threads for faster thumbnail generation
-     */
-    void NotifyPlaybackState(bool is_playing);
+    // Toggle: when playing → 1 worker; when paused → 3 workers.
+    void notifyPlaybackState(bool isPlaying);
 
-    /**
-     * Get cache statistics
-     */
     struct Stats {
-        int total_cached = 0;
-        int cache_hits = 0;
-        int cache_misses = 0;
+        int total_cached     = 0;
+        int cache_hits       = 0;
+        int cache_misses     = 0;
         int pending_requests = 0;
     };
-    Stats GetStats() const;
+    Stats stats() const;
 
 private:
-    // Multi-worker configuration
-    static constexpr int kMaxWorkerThreads = 3;       // Workers during idle/scrubbing
-    static constexpr int kPlaybackWorkerThreads = 1;  // Workers during playback
+    static constexpr int kMaxWorkerThreads      = 3;
+    static constexpr int kPlaybackWorkerThreads = 1;
 
-    // Loader info for a source path (defined first so ThumbnailWorkerContext can use it)
+    // Per-source loader info. is_video selects whether we drive
+    // image_loader with a frame-number string (video) or a file path
+    // (image-seq).
     struct LoaderInfo {
         std::unique_ptr<IImageLoader> image_loader;
-        std::unique_ptr<StreamingVideoDecoder> video_decoder;
-        bool is_video = false;
-        int frame_count = 0;
-        double fps = 24.0;
+        bool   is_video    = false;
+        int    frame_count = 0;
+        double fps         = 24.0;
     };
 
-    // Background worker thread (with worker_id for multi-worker support)
-    void WorkerThread(int worker_id);
+    void workerThread(int worker_id);
+    bool shouldWorkerRun(int worker_id) const;
+    void requeueCurrentTask(int worker_id);
 
-    // Check if a worker should run (worker 0 always runs; others pause during playback)
-    bool ShouldWorkerRun(int worker_id) const;
+    std::shared_ptr<PixelData> loadThumbnailPixels(
+        const TimelineThumbnailKey &key, int worker_id);
 
-    // Re-queue current task when worker pauses (push to front for priority)
-    void RequeueCurrentTask(int worker_id);
+    std::uint64_t createGpuTexture(
+        const std::shared_ptr<PixelData> &pixels);
 
-    // Generate thumbnail pixels (runs on background thread, uses per-worker loaders)
-    std::shared_ptr<PixelData> LoadThumbnailPixels(const TimelineThumbnailKey& key, int worker_id);
+    void evictLru();
+    int  findNearestCachedFrame(const std::string &path,
+                                 int target_frame) const;
+    // Image-seq fallback. Parses `targetPath` as a sequence file
+    // (`<prefix><digits><suffix>` with optional `?layer=`), then
+    // searches the cache for the entry whose number is closest to
+    // the target's. Used when the requested frame's exact path
+    // isn't cached yet — keeps the corner overlay populated with a
+    // neighbor frame from the same sequence instead of going blank.
+    // Returns the matching key, or std::nullopt if no sibling
+    // matched. Caller must hold m_cacheMutex.
+    bool findNearestSequenceSibling(
+        const std::string &targetPath,
+        TimelineThumbnailKey &outKey) const;
 
-    // Create GL texture from pixels (runs on main thread only)
-    GLuint CreateGLTexture(const std::shared_ptr<PixelData>& pixels);
+    std::shared_ptr<LoaderInfo> getOrCreateLoader(
+        const std::string &source_path, int worker_id);
 
-    // Evict least-recently-used thumbnail if cache is full
-    void EvictLRU();
+    TimelineThumbnailConfig m_config;
+    double                  m_fps         = 24.0;
+    bool                    m_initialized = false;
 
-    // Find nearest cached frame for fallback preview (same source path)
-    int FindNearestCachedFrame(const std::string& source_path, int target_frame) const;
+    // ---- Cache + LRU
+    std::map<TimelineThumbnailKey, TimelineThumbnailEntry> m_cache;
+    std::list<TimelineThumbnailKey>                        m_lruOrder;
+    mutable std::mutex                                     m_cacheMutex;
 
-    // Get or create loader for a source path (per-worker to avoid contention)
-    std::shared_ptr<LoaderInfo> GetOrCreateLoader(const std::string& source_path, int worker_id);
+    // ---- Per-worker loaders
+    // worker_id → { source_path → LoaderInfo }
+    std::map<int, std::map<std::string,
+                            std::shared_ptr<LoaderInfo>>>  m_workerLoaders;
+    mutable std::mutex                                     m_loadersMutex;
 
-    // Configuration
-    TimelineThumbnailConfig config_;
-    double fps_ = 24.0;
-    bool initialized_ = false;
-
-    // LRU Cache: key -> thumbnail entry
-    std::map<TimelineThumbnailKey, TimelineThumbnailEntry> cache_;
-    std::list<TimelineThumbnailKey> lru_order_;  // Front = most recently used
-    mutable std::mutex cache_mutex_;
-
-    // Per-worker loaders (each worker has its own to avoid FFmpeg mutex contention)
-    // Key is worker_id, value is map of source_path -> LoaderInfo
-    std::map<int, std::map<std::string, std::shared_ptr<LoaderInfo>>> worker_loaders_;
-    mutable std::mutex loaders_mutex_;
-
-    // Request queue
-    struct ThumbnailRequest {
+    // ---- Request queue
+    struct Request {
         TimelineThumbnailKey key;
-        bool high_priority = true;  // User requests are always high priority
+        bool high_priority = true;
     };
-    std::deque<ThumbnailRequest> request_queue_;
-    std::set<TimelineThumbnailKey> in_progress_;
-    std::set<TimelineThumbnailKey> queued_keys_;   // O(1) dedup for request queue
-    mutable std::mutex queue_mutex_;
-    std::condition_variable queue_cv_;
+    std::deque<Request>                m_requestQueue;
+    std::set<TimelineThumbnailKey>     m_inProgress;
+    std::set<TimelineThumbnailKey>     m_queuedKeys;
+    mutable std::mutex                 m_queueMutex;
+    std::condition_variable            m_queueCv;
 
-    // Pending uploads (pixel data ready for GL texture creation, or pre-created GPU texture)
+    // ---- Pending uploads (worker → main)
     struct PendingUpload {
-        TimelineThumbnailKey key;
-        std::shared_ptr<PixelData> pixels;     // Pixel data for OpenGL path
-        GLuint gpu_texture_id = 0;             // Pre-created texture (Metal/Vulkan worker thread)
-        int width = 0;                          // Texture dimensions (when gpu_texture_id set)
-        int height = 0;
+        TimelineThumbnailKey       key;
+        std::shared_ptr<PixelData> pixels;
+        std::uint64_t              gpu_texture_id = 0;
+        int                        width  = 0;
+        int                        height = 0;
     };
-    std::deque<PendingUpload> pending_uploads_;
-    mutable std::mutex upload_mutex_;
+    std::deque<PendingUpload> m_pendingUploads;
+    mutable std::mutex        m_uploadMutex;
 
-    // Worker threads (multiple for parallelism)
-    std::vector<std::thread> worker_threads_;
-    std::atomic<bool> running_{false};
-    std::atomic<uint64_t> clear_generation_{0};  // Incremented on Clear() — workers discard stale work
+    // ---- Workers
+    std::vector<std::thread>            m_workers;
+    std::atomic<bool>                   m_running{false};
+    std::atomic<std::uint64_t>          m_clearGeneration{0};
 
-    // Worker state management
-    std::atomic<ThumbnailWorkerState> worker_state_{ThumbnailWorkerState::STOPPED};
-    std::atomic<int> active_thread_count_{kMaxWorkerThreads};
-    std::condition_variable worker_cv_;  // For pausing/resuming workers
+    std::atomic<ThumbnailWorkerState>   m_workerState{
+        ThumbnailWorkerState::STOPPED};
+    std::atomic<int>                    m_activeThreadCount{
+        kMaxWorkerThreads};
+    std::condition_variable             m_workerCv;
 
-    // Per-worker task tracking (for re-queuing when paused)
-    std::map<int, TimelineThumbnailKey> worker_current_task_;
-    std::mutex worker_task_mutex_;
+    std::map<int, TimelineThumbnailKey> m_workerCurrentTask;
+    std::mutex                          m_workerTaskMutex;
 
-    // Playback state
-    std::atomic<bool> is_playing_{false};
+    std::atomic<bool>                   m_isPlaying{false};
 
-    // Statistics
-    std::atomic<int> cache_hits_{0};
-    std::atomic<int> cache_misses_{0};
+    std::atomic<int>                    m_cacheHits{0};
+    std::atomic<int>                    m_cacheMisses{0};
 
-    // Clear protection: prevents returning stale texture IDs for one frame after Clear()
-    // This avoids the issue where deleted texture IDs get reassigned to ImGui font atlas
-    std::atomic<bool> clear_pending_{false};
+    // Set on clear(); next processPendingUploads() flushes pending
+    // and clears the flag. Prevents getThumbnail() from briefly
+    // returning a stale texture handle after clear() but before the
+    // main thread has run the upload-drain.
+    std::atomic<bool>                   m_clearPending{false};
 };
 
-} // namespace qcview
+} // namespace qcv

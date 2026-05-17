@@ -1,212 +1,166 @@
+// AudioPlayer — Phase 5.0.a, single-clip audio playback.
+//
+// Owns one AudioDecoder + one platform audio device. The render
+// callback drains the decoder's ring buffer into the device output
+// buffer. Phase 5.0.a is the simplest path — no master-clock sync,
+// no gap detection, no volume soft-limit. The decode thread runs
+// free; the device runs free; the audio plays at its own rate as
+// fast as the codec produces it.
+//
+// Phase 5.0.b adds the master-clock sync: the video clock owns
+// time, AudioPlayer::update() polls drift and seeks the decoder
+// when drift > threshold. Volume + mute land there too.
+
 #pragma once
 
-#include <string>
-#include <memory>
+#include "i_audio_source.h"
+
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QVariantList>
+
 #include <atomic>
-#include <functional>
+#include <memory>
 
-#include "audio_decoder.h"
+namespace qcv {
 
-// Forward declare audio device
-#ifdef _WIN32
-namespace qcview { class WasapiAudioDevice; }
-#elif defined(__linux__)
-namespace qcview { class PipeWireAudioDevice; }
-#elif defined(__APPLE__)
-namespace qcview { class CoreAudioAudioDevice; }
+#if defined(Q_OS_MACOS) || defined(__APPLE__)
+class CoreAudioDevice;
+#elif defined(Q_OS_WIN)
+class WasapiAudioDevice;
 #endif
 
-namespace qcview {
+class AudioPlayer : public QObject
+{
+    Q_OBJECT
+    Q_PROPERTY(bool hasAudio READ hasAudio NOTIFY hasAudioChanged)
+    Q_PROPERTY(bool isPlaying READ isPlaying NOTIFY isPlayingChanged)
+    // Linear gain in [0,1]. Soft-limited in the render callback so
+    // a sum of multi-track sources (Phase 5.x) doesn't clip.
+    Q_PROPERTY(float volume READ volume WRITE setVolume NOTIFY volumeChanged)
+    Q_PROPERTY(bool  muted  READ muted  WRITE setMuted  NOTIFY mutedChanged)
 
-// Forward declarations
-class PlaybackTimer;
-
-/**
- * Clip trim/offset configuration for audio sync
- */
-struct AudioClipConfig {
-    double source_in = 0.0;       // Trim in point (source media time)
-    double source_out = -1.0;     // Trim out point (-1 = end of file)
-    double position_offset = 0.0; // Timeline offset (when clip starts on timeline)
-    double source_duration = 0.0; // Full source duration
-
-    // Get effective duration after trim
-    double GetEffectiveDuration() const {
-        if (source_out > source_in) {
-            return source_out - source_in;
-        }
-        return source_duration - source_in;
-    }
-
-    // Check if timeline position is within clip range
-    bool IsInRange(double timeline_pos) const {
-        double start = position_offset;
-        double end = position_offset + GetEffectiveDuration();
-        return timeline_pos >= start && timeline_pos < end;
-    }
-
-    // Convert timeline position to source position
-    // Returns -1 if position is outside clip range (gap)
-    double TimelineToSource(double timeline_pos) const {
-        if (!IsInRange(timeline_pos)) {
-            return -1.0;  // In a gap
-        }
-        return source_in + (timeline_pos - position_offset);
-    }
-};
-
-/**
- * AudioPlayer - WASAPI-based audio output
- *
- * Plays audio from AudioDecoder, synced to external timeline (PlaybackTimer).
- * Handles trim points, position offsets, and gaps with silence.
- *
- * Usage:
- *   AudioPlayer player;
- *   player.Initialize();
- *   player.LoadClip("video.mp4", clip_config);
- *   player.SetTimer(playback_timer);
- *   player.Play();
- *
- *   // Each frame:
- *   player.Update();  // Check sync, correct drift
- */
-class AudioPlayer {
 public:
-    AudioPlayer();
-    ~AudioPlayer();
+    explicit AudioPlayer(QObject *parent = nullptr);
+    ~AudioPlayer() override;
 
-    // Prevent copying
-    AudioPlayer(const AudioPlayer&) = delete;
-    AudioPlayer& operator=(const AudioPlayer&) = delete;
+    AudioPlayer(const AudioPlayer &) = delete;
+    AudioPlayer &operator=(const AudioPlayer &) = delete;
 
-    //=========================================================================
-    // Lifecycle
-    //=========================================================================
+    bool initialize();
+    void shutdown();
 
-    // Initialize WASAPI audio engine
-    bool Initialize();
+    // Opens the file's audio. `audioStreamCountHint`, when >= 0,
+    // skips the dispatch probe (avformat_open_input +
+    // find_stream_info just to count streams) and uses the supplied
+    // value to pick AudioDecoder (≤1) vs MultiStreamAudioDecoder
+    // (≥2). WindowManager passes the cached
+    // MediaItem.video.audioStreamCount once metadata has loaded;
+    // -1 falls back to the in-process probe (cold-load case).
+    bool open(const QString &path, int audioStreamCountHint = -1);
+    void close();
 
-    // Shutdown and release resources
-    void Shutdown();
+    void play();
+    void pause();
+    void stop();
 
-    // Load audio clip with trim configuration
-    bool LoadClip(const std::string& file_path, const AudioClipConfig& config = {});
+    // Seek the audio decoder to `seconds`. Phase 5.0.a wires this
+    // to VideoDecoder so scrub + play-after-scrub align audio with
+    // video. Master-clock drift correction (continuous re-seek
+    // during playback) is Phase 5.0.b.
+    void seek(double seconds);
 
-    // Unload current clip
-    void UnloadClip();
+    bool   hasAudio()  const;
+    bool   isPlaying() const { return m_isPlaying.load(); }
+    float  volume()    const { return m_volume.load(); }
+    bool   muted()     const { return m_muted.load(); }
+    // Audio file duration in seconds. 0.0 when no file is open. Read
+    // from AudioDecoder, which pulls from the FFmpeg container's
+    // duration field at open() time. Authoritative for audio-only
+    // files where VideoDecoder reports 0 (no video stream → no
+    // fps × frameCount duration).
+    double duration() const;
 
-    // Check state
-    bool IsInitialized() const { return initialized_; }
-    bool HasClip() const;
-    bool HasAudio() const;
+    void setVolume(float v);
+    void setMuted(bool m);
 
-    //=========================================================================
-    // Playback Control
-    //=========================================================================
+    // A/V sync compensation. Positive offset DELAYS audio relative
+    // to video (read sample for time T-offset when video is at T) —
+    // the right direction to compensate for video pipeline + display
+    // lag, which is why audio normally sounds "ahead" of the visible
+    // image. Negative offset advances audio (uncommon — use case is
+    // an audio-side delay we want to compensate for). WindowManager
+    // owns the user-facing slider + per-OS default + QSettings
+    // persistence; this is just the live knob. Re-anchors on the
+    // next seek; call seek(currentVideoPos) yourself if you want
+    // immediate effect.
+    void setSyncOffsetMs(int ms);
+    int  syncOffsetMs() const { return m_syncOffsetMs.load(); }
 
-    void Play();
-    void Pause();
-    void Stop();
-    bool IsPlaying() const { return is_playing_.load(); }
+    // Per-clip channel routing. Pass-through to the decoder; safe to
+    // call mid-playback (decoder does the SwrContext rebuild on its
+    // own thread). `mode` matches qcv::AudioRoutingMode (0 = Auto,
+    // 1 = Downmix5_1, 2 = Stereo7_8). WindowManager calls this both
+    // on initial open (with the MediaItem's stored mode) and when
+    // the inspector pill emits audioRoutingModeChanged.
+    void setRoutingMode(int mode);
 
-    //=========================================================================
-    // Timeline Sync
-    //=========================================================================
+    // Per-source-channel peak levels of the most-recently-decoded
+    // frame, pre-fold. Empty when no audio is open. Driven by the
+    // 30 Hz audio meter pump in WindowManager.
+    QVariantList audioChannelPeaks() const;
+    QStringList  audioChannelNames() const;
 
-    // Set external timer for position sync
-    // When set, audio position is driven by timer
-    void SetTimer(PlaybackTimer* timer);
+    // Drift-correction tick. Caller passes the master clock's
+    // current position in seconds (the wall-clock-driven video
+    // clock). If audio's playout position diverges by more than
+    // the drift threshold AND a seek-cooldown has elapsed,
+    // re-seeks the audio decoder to videoPos. No-op otherwise so
+    // the codec stays pristine between corrections.
+    void update(double videoPositionSeconds);
 
-    // Called every frame to check sync and correct drift
-    void Update();
-
-    // Manual seek (when no timer is set)
-    void Seek(double position);
-
-    // Get current playback position (timeline time)
-    double GetPosition() const;
-
-    //=========================================================================
-    // Volume Control
-    //=========================================================================
-
-    void SetVolume(float volume);  // 0.0 to 1.0
-    float GetVolume() const { return volume_.load(); }
-
-    void SetMuted(bool muted);
-    bool IsMuted() const { return muted_.load(); }
-
-    //=========================================================================
-    // Clip Configuration
-    //=========================================================================
-
-    void SetClipConfig(const AudioClipConfig& config);
-    const AudioClipConfig& GetClipConfig() const { return clip_config_; }
-
-    //=========================================================================
-    // Sync Configuration
-    //=========================================================================
-
-    void SetSyncCheckInterval(double interval_ms) { sync_check_interval_ms_ = interval_ms; }
-    void SetSyncThreshold(double threshold_ms) { sync_threshold_ms_ = threshold_ms; }
+signals:
+    void hasAudioChanged();
+    void isPlayingChanged();
+    void volumeChanged();
+    void mutedChanged();
 
 private:
-    //=========================================================================
-    // WASAPI Callbacks
-    //=========================================================================
+    static void dataCallback(void *device, float *output,
+                             uint32_t frameCount, void *userData);
+    void processAudio(float *output, uint32_t frameCount);
 
-    static void DataCallback(void* device, float* output,
-                            uint32_t frame_count, void* userData);
-
-    void ProcessAudio(float* output, unsigned int frame_count);
-
-    //=========================================================================
-    // Sync Logic
-    //=========================================================================
-
-    void CheckAndCorrectSync();
-    bool IsInGap(double timeline_pos) const;
-
-    //=========================================================================
-    // State
-    //=========================================================================
-
-    bool initialized_ = false;
-    AudioClipConfig clip_config_;
-
-    // Audio output device
-#ifdef _WIN32
-    std::unique_ptr<WasapiAudioDevice> device_;
-#elif defined(__linux__)
-    std::unique_ptr<PipeWireAudioDevice> device_;
-#elif defined(__APPLE__)
-    std::unique_ptr<CoreAudioAudioDevice> device_;
+    bool                              m_initialized = false;
+    // IAudioSource so the same player drives single-stream
+    // (AudioDecoder) and multi-stream (MultiStreamAudioDecoder)
+    // sources interchangeably. Concrete instance picked at open()
+    // time based on the file's audio-stream count.
+    std::unique_ptr<IAudioSource>     m_decoder;
+#if defined(Q_OS_MACOS) || defined(__APPLE__)
+    std::unique_ptr<CoreAudioDevice>  m_device;
+#elif defined(Q_OS_WIN)
+    std::unique_ptr<WasapiAudioDevice> m_device;
 #endif
+    std::atomic<bool>                 m_isPlaying{false};
+    std::atomic<float>                m_volume{1.0f};
+    std::atomic<bool>                 m_muted{false};
 
-    // Audio decoder
-    std::unique_ptr<AudioDecoder> decoder_;
+    // Audio's playout position is reconstructed from
+    //   playStartPos + (samplesAtPlayStart → samplesNow) / sampleRate
+    // playStartPos snapshots the seek target at the moment play()
+    // started, so the math survives subsequent seeks (each seek
+    // resets both anchors).
+    std::atomic<double>               m_playStartPos{0.0};
+    std::atomic<uint64_t>             m_playStartSamples{0};
 
-    // Playback state
-    std::atomic<bool> is_playing_{false};
-    std::atomic<float> volume_{1.0f};
-    std::atomic<bool> muted_{false};
-
-    // Timeline sync
-    PlaybackTimer* timer_ = nullptr;
-    std::atomic<double> current_position_{0.0};
-    double last_sync_check_time_ = 0.0;
-
-    // Sync configuration
-    double sync_check_interval_ms_ = 200.0;  // Check every 200ms
-    double sync_threshold_ms_ = 50.0;        // Correct if drift > 50ms
-
-public:
-    // Diagnostic counters (for troubleshooting)
-    std::atomic<uint64_t> diag_callback_count_{0};
-    std::atomic<uint64_t> diag_frames_output_{0};
-    std::atomic<uint64_t> diag_silence_frames_{0};
-    std::atomic<uint64_t> diag_frames_read_{0};
+    // A/V sync offset in milliseconds. Applied at seek() — the
+    // decoder is told to fetch samples for `videoTime - offsetMs/1000`
+    // while m_playStartPos stays anchored at videoTime so the drift
+    // loop in update() compares against the user-visible video clock
+    // unmodified. End result: audio plays `offsetMs` later than video
+    // (positive offset = compensates for video display + pipeline lag).
+    std::atomic<int>                  m_syncOffsetMs{0};
 };
 
-} // namespace qcview
+} // namespace qcv

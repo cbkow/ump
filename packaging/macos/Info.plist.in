@@ -6,8 +6,12 @@
     <string>en</string>
     <key>CFBundleExecutable</key>
     <string>${MACOSX_BUNDLE_EXECUTABLE_NAME}</string>
+    <!-- Bundle identifier intentionally distinct from the old app
+         (app.qcview.QCView) so the two installs coexist on the same
+         machine. The old /Applications/qcview.app stays the
+         production reference; this port runs alongside. -->
     <key>CFBundleIdentifier</key>
-    <string>app.qcview.QCView</string>
+    <string>app.qcview.player</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
@@ -19,7 +23,7 @@
     <key>CFBundleVersion</key>
     <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
     <key>CFBundleIconFile</key>
-    <string>QCView.icns</string>
+    <string>qcview.icns</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>
@@ -73,7 +77,9 @@
             </array>
         </dict>
 
-        <!-- Image Files -->
+        <!-- Image Files. public.jpeg covers .jpg + .jpeg;
+             public.tiff covers .tif + .tiff. DPX has no standard
+             system UTI so it falls into CFBundleTypeExtensions. -->
         <dict>
             <key>CFBundleTypeName</key>
             <string>Image File</string>
@@ -87,13 +93,27 @@
                 <string>public.tiff</string>
                 <string>public.png</string>
                 <string>public.jpeg</string>
+                <string>com.compuserve.gif</string>
+                <string>com.microsoft.bmp</string>
+            </array>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>dpx</string>
             </array>
         </dict>
+
+        <!-- Audio File doc type intentionally left out for v2.0.
+             The decode + load path lumps audio into VideoDecoder
+             and likely fails on pure-audio files (no video stream
+             → open returns false → AudioPlayer chain never primes).
+             Re-add once we have an audio-only load + render path,
+             plus waveform / inspector treatment. -->
     </array>
 
     <!-- ================================================================ -->
     <!-- Custom URI Scheme (qcview:// deep links)                          -->
     <!-- Matches Windows registry + Linux .desktop X-Scheme-Handler        -->
+    <!-- Inbound handling: WindowManager::openProjectLink                  -->
     <!-- ================================================================ -->
     <key>CFBundleURLTypes</key>
     <array>

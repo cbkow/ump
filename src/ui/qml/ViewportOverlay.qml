@@ -1,0 +1,497 @@
+// ViewportOverlay — Phase 2.4. The "source bar."
+//
+// Always-visible thin strip at the top of the center stage, above the
+// player child window. Hosts ONLY single/dual view controls per
+// Guide 16's design refinement: Source A indicator, Source B
+// indicator, compositor mode toggles (Single / SBS / Split-Wipe),
+// and the split-position slider.
+//
+// Source A is the current videoDecoder (Phase 1.8.x). Source B is
+// presently the static test pattern; the chip says "(test pattern)"
+// until the dual-source phase lands a second VideoDecoder + load-
+// into-B path. Compositor mode toggles work today against the static
+// Source B — useful for verifying the rendering path.
+
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import Qcv
+import Qcv.Render
+
+Pane {
+    id: root
+    padding: 0
+
+    background: Rectangle {
+        color: Theme.toolbar
+        Rectangle {
+            anchors.left:   parent.left
+            anchors.right:  parent.right
+            anchors.bottom: parent.bottom
+            height: Theme.dividerWidth
+            color:  Theme.divider
+        }
+    }
+
+    // Phase 7.8 Stage F — inline "Save Dual View" mode. When true, the
+    // mode-toggle buttons + split slider hide and a name field + Save /
+    // Cancel buttons take their slot. Avoids a popup entirely (popups
+    // anchored to this overlay would extend into the native player
+    // QWindow region and get occluded).
+    property bool saveMode: false
+
+    // Phase 3.H.4 — playlist mode hides everything except the A chip.
+    // Side-by-side / Split-Wipe / Save Dual View / B-source aren't
+    // meaningful for a sequential playlist.
+    readonly property bool playlistActive:
+        WindowManager.timeline
+        && WindowManager.timeline.sourceMode === 1
+
+    function autoSaveName() {
+        const proj = WindowManager.project;
+        if (!proj) return qsTr("Untitled Dual View");
+        const aName = proj.activeItem
+                      ? (proj.activeItem.name || qsTr("(none)"))
+                      : qsTr("(none)");
+        const bName = proj.bSourceName || qsTr("(none)");
+        return aName + " vs " + bName;
+    }
+
+    function enterSaveMode() {
+        saveNameField.text = autoSaveName();
+        root.saveMode = true;
+        saveNameField.selectAll();
+        saveNameField.forceActiveFocus();
+    }
+
+    function commitSave() {
+        const name = saveNameField.text.trim();
+        if (name.length === 0) return;
+        const id = WindowManager.saveCurrentDualView(name);
+        if (id && id.length > 0) {
+            console.log("DualView saved:", id);
+            root.saveMode = false;
+        } else {
+            console.warn("DualView save failed");
+        }
+    }
+
+    // A/B side-marker color — matches Track A / B accentBorder
+    // colors in TimelinePanel so the chip identifier reads as the
+    // same source-color across the inspector, the dual-view bar,
+    // and the timeline track.
+    readonly property color sideAColor: "#446a90"
+    readonly property color sideBColor: "#a0664a"
+
+    RowLayout {
+        anchors.fill: parent
+        anchors.leftMargin:  Theme.gutterWidth
+        anchors.rightMargin: Theme.padding
+        // Toolstrip flow — chips and buttons butt up. Tiny gap so
+        // filled buttons (danger / primary save form) don't visually
+        // merge with their neighbors.
+        spacing: Theme.spacingTight
+
+        // ---- Source slot indicators
+        Rectangle {
+            id: aChip
+            Layout.preferredWidth: 240
+            Layout.preferredHeight: 24
+            readonly property bool aLoaded:
+                (WindowManager.project
+                 && WindowManager.project.activeItemId
+                 && WindowManager.project.activeItemId.length > 0)
+                || (WindowManager.videoDecoder
+                    && WindowManager.videoDecoder.sourcePath
+                    && WindowManager.videoDecoder.sourcePath.length > 0)
+                || WindowManager.imageSeqActive
+            // Flat chip — drop border, lean on the colored "A"
+            // letter inside as the source-marker. Drag-target
+            // tint = side color at low alpha; hover lifts to
+            // surfaceHover.
+            color: aDrop.containsDrag
+                   ? Qt.darker(root.sideAColor, 4.0)
+                   : (aChipMa.containsMouse
+                        ? Theme.surfaceHover : "transparent")
+            radius: 0
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacing
+                anchors.rightMargin: Theme.spacing
+                spacing: Theme.spacing
+
+                Text {
+                    text: qsTr("A")
+                    color: root.sideAColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: {
+                        if (WindowManager.project
+                            && WindowManager.project.activeItem
+                            && WindowManager.project.activeItem.name) {
+                            return WindowManager.project.activeItem.name;
+                        }
+                        if (WindowManager.videoDecoder
+                            && WindowManager.videoDecoder.sourcePath) {
+                            return sourceFilenameOf(
+                                WindowManager.videoDecoder.sourcePath);
+                        }
+                        return qsTr("(drop a file…)");
+                    }
+                    color: aChip.aLoaded ? Theme.textPrimary : Theme.textMuted
+                    font.italic: !aChip.aLoaded
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                    elide: Text.ElideMiddle
+                }
+
+                // Per-side mute (A). Phosphor speaker icon.
+                Item {
+                    visible: WindowManager.compositorMode !== 0
+                             && WindowManager.dualController
+                             && WindowManager.dualController.audio
+                             && WindowManager.dualController.audio.hasAudioA
+                    Layout.preferredWidth: 18
+                    Layout.preferredHeight: 18
+                    Icon {
+                        anchors.centerIn: parent
+                        name: (WindowManager.dualController
+                               && WindowManager.dualController.audio
+                               && WindowManager.dualController.audio.mutedA)
+                              ? "speaker-x" : "speaker-high"
+                        size: Theme.iconSizeSmall
+                        color: aMuteMa.containsMouse
+                               ? Theme.textBright : Theme.textPrimary
+                    }
+                    MouseArea {
+                        id: aMuteMa
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            const a = WindowManager.dualController
+                                      && WindowManager.dualController.audio;
+                            if (a) a.mutedA = !a.mutedA;
+                        }
+                        FlatToolTip {
+                            visible: aMuteMa.containsMouse
+                            text: qsTr("Mute / unmute A audio")
+                        }
+                    }
+                }
+            }
+
+            // Drop zone — accepts any media type ProjectManager
+            // recognizes (video, image, image sequence).
+            DropArea {
+                id: aDrop
+                anchors.fill: parent
+                onEntered: (drag) => {
+                    console.log("aDrop: entered, hasUrls=", drag.hasUrls);
+                }
+                onDropped: (drop) => {
+                    console.log("aDrop: dropped, hasUrls=", drop.hasUrls,
+                                "project=", !!WindowManager.project);
+                    if (!drop.hasUrls || !WindowManager.project) return;
+                    const u = WindowManager.urlToOsPath(drop.urls[0]);
+                    if (!u) return;
+                    console.log("aDrop: addMediaFile(", u, ")");
+                    const id = WindowManager.project.addMediaFile(u);
+                    console.log("aDrop: -> id=", id);
+                    if (id) WindowManager.project.setActiveItem(id);
+                    drop.accept();
+                }
+            }
+            // Hover-only — drag is the supported load path. The
+            // bin/Open-Video menu still works when the user wants
+            // a file dialog.
+            MouseArea {
+                id: aChipMa
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.NoButton
+            }
+        }
+
+        // Small gap between the A and B chips so they read as
+        // distinct slots rather than a single continuous bar.
+        Item { width: Theme.spacingLoose }
+
+        Rectangle {
+            id: bChip
+            visible: !root.playlistActive
+            Layout.preferredWidth: visible ? 240 : 0
+            Layout.preferredHeight: 24
+            readonly property bool bLoaded:
+                (WindowManager.project
+                 && WindowManager.project.bSourcePath
+                 && WindowManager.project.bSourcePath.length > 0)
+                || (WindowManager.videoDecoderB
+                    && WindowManager.videoDecoderB.sourcePath
+                    && WindowManager.videoDecoderB.sourcePath.length > 0)
+            readonly property string bDisplayPath:
+                (WindowManager.project && WindowManager.project.bSourcePath)
+                ? WindowManager.project.bSourcePath
+                : (WindowManager.videoDecoderB
+                   ? WindowManager.videoDecoderB.sourcePath
+                   : "")
+            // Flat chip — drop border, lean on the colored "B"
+            // letter inside as the source-marker.
+            color: bDrop.containsDrag
+                   ? Qt.darker(root.sideBColor, 4.0)
+                   : (bChipMa.containsMouse
+                        ? Theme.surfaceHover : "transparent")
+            radius: 0
+
+            // Drop zone — currently video-only. Source B
+            // image-sequence support is a separate piece of work
+            // (its own cache, pacing, playhead). Filter by ext so
+            // EXR/PNG/etc. don't get fed into VideoDecoder where
+            // ffmpeg's image decoders crash on multi-layer files.
+            // The renderer's hybrid mode works the other way:
+            // image-seq on A + video on B is fine.
+            // Phase 7.7 Stage 5 — B drop accepts the same content
+            // types as A (video + image sequences). Routes through
+            // WindowManager.setBSource which adds to the project pool
+            // (dedupe-by-path) and updates Project::bSource.
+            DropArea {
+                id: bDrop
+                anchors.fill: parent
+                onDropped: (drop) => {
+                    if (!drop.hasUrls) return;
+                    const u = WindowManager.urlToOsPath(drop.urls[0]);
+                    if (!u) return;
+                    if (!WindowManager.setBSource(u)) {
+                        console.warn("ViewportOverlay: setBSource failed:", u);
+                    }
+                    drop.accept();
+                }
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacing
+                anchors.rightMargin: Theme.spacing
+                spacing: Theme.spacing
+
+                Text {
+                    text: qsTr("B")
+                    color: root.sideBColor
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.bold: true
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: bChip.bLoaded
+                          ? sourceFilenameOf(bChip.bDisplayPath)
+                          : qsTr("(drop a video or sequence…)")
+                    color: bChip.bLoaded ? Theme.textPrimary : Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.italic: !bChip.bLoaded
+                    elide: Text.ElideMiddle
+                }
+
+                // Per-side mute (B).
+                Item {
+                    visible: WindowManager.compositorMode !== 0
+                             && WindowManager.dualController
+                             && WindowManager.dualController.audio
+                             && WindowManager.dualController.audio.hasAudioB
+                    Layout.preferredWidth: 18
+                    Layout.preferredHeight: 18
+                    Icon {
+                        anchors.centerIn: parent
+                        name: (WindowManager.dualController
+                               && WindowManager.dualController.audio
+                               && WindowManager.dualController.audio.mutedB)
+                              ? "speaker-x" : "speaker-high"
+                        size: Theme.iconSizeSmall
+                        color: bMuteMa.containsMouse
+                               ? Theme.textBright : Theme.textPrimary
+                    }
+                    MouseArea {
+                        id: bMuteMa
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            const a = WindowManager.dualController
+                                      && WindowManager.dualController.audio;
+                            if (a) a.mutedB = !a.mutedB;
+                        }
+                        FlatToolTip {
+                            visible: bMuteMa.containsMouse
+                            text: qsTr("Mute / unmute B audio")
+                        }
+                    }
+                }
+
+                // Close — visible only when B is loaded. Phosphor x.
+                Item {
+                    visible: bChip.bLoaded
+                    Layout.preferredWidth: 16
+                    Layout.preferredHeight: 16
+                    Icon {
+                        anchors.centerIn: parent
+                        name: "x"
+                        size: Theme.iconSizeSmall
+                        color: bCloseMa.containsMouse
+                               ? Theme.error : Theme.textMuted
+                    }
+                    MouseArea {
+                        id: bCloseMa
+                        anchors.fill: parent
+                        anchors.margins: -2
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            WindowManager.clearBSource();
+                            WindowManager.closeSourceB();
+                        }
+                        FlatToolTip {
+                            visible: bCloseMa.containsMouse
+                            text: qsTr("Close source B")
+                        }
+                    }
+                }
+            }
+            MouseArea {
+                id: bChipMa
+                anchors.fill: parent
+                hoverEnabled: true
+                acceptedButtons: Qt.NoButton
+            }
+        }
+
+        Item { Layout.fillWidth: true }
+
+        // ---- Compositor mode toggles — icon-only, checkable.
+        FlatButton {
+            visible: !root.saveMode && !root.playlistActive
+            iconName: "square"
+            checkable: true
+            checked: WindowManager.compositorMode === 0
+            tooltipText: qsTr("Single")
+            onClicked: WindowManager.compositorMode = 0
+        }
+        FlatButton {
+            visible: !root.saveMode && !root.playlistActive
+            iconName: "square-split-horizontal"
+            checkable: true
+            checked: WindowManager.compositorMode === 1
+            tooltipText: qsTr("Side-by-Side")
+            onClicked: WindowManager.compositorMode = 1
+        }
+        FlatButton {
+            visible: !root.saveMode && !root.playlistActive
+            iconName: "split-horizontal"
+            checkable: true
+            checked: WindowManager.compositorMode === 2
+            tooltipText: qsTr("Split-Wipe")
+            onClicked: WindowManager.compositorMode = 2
+        }
+
+        // "Save as Dual View" — visible only when dual mode is
+        // active AND we're not already in saveMode. Click swaps
+        // the bar contents to the inline name-field + Save /
+        // Cancel form below.
+        FlatButton {
+            id: saveDualBtn
+            visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode !== 0
+                     && WindowManager.dualController
+            iconName: "floppy-disk"
+            tooltipText: qsTr("Save the current A/B + edits as a "
+                              + "reusable item in the Dual Views bin")
+            onClicked: root.enterSaveMode()
+        }
+
+        // Phase 7.5 B.6.6: annotation + safety controls moved to the
+        // right rail (RightRail.qml). The native QWindow player sits
+        // above the UI's centerStage in z-order, so any popup
+        // (ComboBox, etc.) on this overlay would be occluded by the
+        // player surface.
+
+        // ---- Split slider (active only in Split-Wipe).
+        FlatSlider {
+            visible: !root.saveMode && !root.playlistActive
+            Layout.preferredWidth: 160
+            Layout.preferredHeight: 26
+            from: 0
+            to: 1
+            value: WindowManager.splitPos
+            enabled: WindowManager.compositorMode === 2
+            onValueChanged: WindowManager.splitPos = value
+        }
+        Text {
+            visible: !root.saveMode && !root.playlistActive
+            text: WindowManager.splitPos.toFixed(2)
+            color: Theme.textSecondary
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.fontSizeTiny
+            opacity: WindowManager.compositorMode === 2 ? 1.0 : 0.4
+            Layout.preferredWidth: 36
+        }
+
+        // ---- Inline Save Dual View form (visible only in saveMode)
+        Text {
+            visible: root.saveMode
+            text: qsTr("Name:")
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+        }
+        FlatTextField {
+            id: saveNameField
+            visible: root.saveMode
+            Layout.fillWidth: true
+            // Match the dual-view bar's 26-px button height —
+            // FlatTextField's default implicitHeight is 22.
+            Layout.preferredHeight: 26
+            placeholderText: qsTr("e.g. ‘US30 v001 vs v002’")
+            onAccepted: root.commitSave()
+            Keys.onEscapePressed: root.saveMode = false
+        }
+        FlatButton {
+            visible: root.saveMode
+            iconName: "check"
+            variant: "primary"
+            enabled: saveNameField.text.trim().length > 0
+            tooltipText: qsTr("Save")
+            onClicked: root.commitSave()
+        }
+        FlatButton {
+            visible: root.saveMode
+            iconName: "x"
+            variant: "danger"
+            tooltipText: qsTr("Cancel")
+            onClicked: root.saveMode = false
+        }
+    }
+
+    function sourceFilenameOf(path) {
+        const idx = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+        return idx >= 0 ? path.substring(idx + 1) : path;
+    }
+
+    // If the user leaves dual mode while in saveMode, snap back to
+    // the normal toggle bar so they don't end up with an inline form
+    // that has no dual session to save.
+    Connections {
+        target: WindowManager
+        function onCompositorModeChanged() {
+            if (WindowManager.compositorMode === 0 && root.saveMode) {
+                root.saveMode = false;
+            }
+        }
+    }
+}

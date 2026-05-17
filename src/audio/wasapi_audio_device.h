@@ -1,202 +1,94 @@
+// WasapiAudioDevice — Phase F.2.10, Windows audio output.
+//
+// Drop-in parallel to CoreAudioDevice. Same public surface, same
+// callback contract (`AudioDataCallback` = void(*)(void *device,
+// float *output, uint32_t frameCount, void *userData)). AudioPlayer
+// uses CoreAudioDevice on macOS and WasapiAudioDevice on Windows
+// behind the same wiring.
+//
+// Backend: WASAPI shared-mode renderer (so other apps can play
+// audio alongside). Event-driven — the OS signals our handle when
+// it wants more samples; a dedicated render thread waits on the
+// event and pumps the user callback into the IAudioRenderClient
+// buffer. MMCSS "Pro Audio" priority on the render thread for
+// low-latency scheduling.
+//
+// Format: requests 48 kHz float32 stereo and uses
+// AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM so WASAPI auto-converts
+// between our format and the system mixer's mix format. No manual
+// resampling needed in the device — the audio decoder still runs
+// SwrContext to deliver float32 stereo at this rate; the mixer
+// handles the system-side rate match.
+
 #pragma once
 
+#include <QtGlobal>
+
+#if defined(Q_OS_WIN)
+
 #include <atomic>
-#include <thread>
 #include <cstdint>
-#include <functional>
+#include <thread>
 
-// Forward declare COM types to avoid including Windows headers in the header
-struct IAudioClient3;
-struct IAudioRenderClient;
-struct IMMDevice;
-struct IMMDeviceEnumerator;
+namespace qcv {
 
-namespace qcview {
+// Same signature as CoreAudioDataCallback so AudioPlayer's static
+// dataCallback bridges to both backends without #ifdef in the
+// callback body.
+using WasapiDataCallback = void(*)(void *device, float *output,
+                                    uint32_t frameCount, void *userData);
 
-/**
- * Callback signature for audio data requests.
- * Matches the pattern used by ProcessAudio in AudioPlayer/AudioMixer.
- *
- * @param device Pointer to the WasapiAudioDevice (for context)
- * @param output Buffer to fill with float32 stereo interleaved samples
- * @param frameCount Number of frames to generate (frame = 2 samples for stereo)
- * @param userData User-provided context pointer
- */
-using WasapiDataCallback = void(*)(void* device, float* output,
-                                   uint32_t frameCount, void* userData);
-
-/**
- * Configuration for WasapiAudioDevice initialization.
- */
-struct WasapiDeviceConfig {
-    WasapiDataCallback dataCallback = nullptr;  // Called when audio data is needed
-    void* userData = nullptr;                    // Passed to dataCallback
-    int sampleRate = 48000;                      // Sample rate in Hz
-    int channels = 2;                            // Number of channels (stereo)
-    int bufferSizeMs = 10;                       // Desired buffer size in milliseconds
+struct WasapiAudioDeviceConfig {
+    WasapiDataCallback dataCallback = nullptr;
+    void              *userData     = nullptr;
+    int                sampleRate   = 48000;
+    int                channels     = 2;
+    int                bufferSizeMs = 10;
 };
 
-/**
- * WasapiAudioDevice - Direct WASAPI audio output for Windows
- *
- * Provides low-latency audio output using Windows Audio Session API (WASAPI).
- * Uses event-driven rendering with MMCSS thread priority for glitch-free playback.
- *
- * Key features:
- * - Event-driven rendering (no polling)
- * - MMCSS "Pro Audio" thread priority
- * - Automatic device loss recovery
- * - Float32 stereo output @ 48kHz
- *
- * Usage:
- *   WasapiAudioDevice device;
- *   WasapiDeviceConfig config;
- *   config.dataCallback = MyCallback;
- *   config.userData = this;
- *   device.Initialize(config);
- *   device.Start();
- *   // ... playback ...
- *   device.Stop();
- *   device.Shutdown();
- */
-class WasapiAudioDevice {
+class WasapiAudioDevice
+{
 public:
     WasapiAudioDevice();
     ~WasapiAudioDevice();
 
-    // Prevent copying
-    WasapiAudioDevice(const WasapiAudioDevice&) = delete;
-    WasapiAudioDevice& operator=(const WasapiAudioDevice&) = delete;
+    WasapiAudioDevice(const WasapiAudioDevice &)            = delete;
+    WasapiAudioDevice &operator=(const WasapiAudioDevice &) = delete;
 
-    /**
-     * Initialize the WASAPI audio device.
-     * Creates audio client, configures format, and prepares for playback.
-     *
-     * @param config Device configuration including callback and format settings
-     * @return true if initialization succeeded, false on error
-     */
-    bool Initialize(const WasapiDeviceConfig& config);
+    bool initialize(const WasapiAudioDeviceConfig &config);
+    void shutdown();
 
-    /**
-     * Shutdown the device and release all resources.
-     * Safe to call multiple times or if not initialized.
-     */
-    void Shutdown();
+    void start();
+    void stop();
 
-    /**
-     * Start audio playback.
-     * Launches the render thread and begins calling the data callback.
-     */
-    void Start();
+    bool isInitialized() const { return m_initialized; }
+    bool isRunning()     const { return m_running.load(); }
 
-    /**
-     * Stop audio playback.
-     * Stops the render thread but keeps the device initialized.
-     */
-    void Stop();
+    uint32_t bufferFrameCount() const { return m_bufferFrameCount; }
+    int      sampleRate()       const { return m_config.sampleRate; }
 
-    /**
-     * Check if audio is currently playing.
-     * @return true if Start() was called and playback is active
-     */
-    bool IsRunning() const { return running_.load(); }
+    // Buffer + device latency in seconds.
+    double   bufferLatencySeconds() const;
 
-    /**
-     * Check if device is initialized.
-     * @return true if Initialize() succeeded
-     */
-    bool IsInitialized() const { return initialized_; }
-
-    /**
-     * Get the actual buffer size being used (in frames).
-     * May differ from requested size based on device capabilities.
-     */
-    uint32_t GetBufferFrameCount() const { return bufferFrameCount_; }
-
-    /**
-     * Get the sample rate in Hz.
-     */
-    int GetSampleRate() const { return config_.sampleRate; }
-
-    /**
-     * Get current buffer latency in seconds.
-     * Returns the time delay between when audio is written and when it plays.
-     * Uses IAudioClock for accurate measurement, falls back to estimate.
-     */
-    double GetBufferLatencySeconds() const;
-
-    /**
-     * Get total samples written to WASAPI since start.
-     * Used for position tracking.
-     */
-    uint64_t GetSamplesWritten() const { return samples_written_.load(); }
+    // Total frames handed to the OS since start. Used by AudioPlayer
+    // for drift-correction sync against the video clock.
+    uint64_t samplesWritten() const { return m_samplesWritten.load(); }
 
 private:
-    /**
-     * Render thread function - runs the event-driven audio loop.
-     * Waits for buffer events and calls RenderAudioBuffer() to fill data.
-     */
-    void RenderThread();
+    void renderThreadProc();
 
-    /**
-     * Fill the audio buffer by calling the user callback.
-     * Called by RenderThread() when the device needs more data.
-     */
-    void RenderAudioBuffer();
+    struct Impl;
+    Impl                 *m_impl = nullptr;   // hides COM types from header
 
-    /**
-     * Handle device loss (e.g., headphones unplugged).
-     * Attempts to reinitialize with the new default device.
-     *
-     * @return true if recovery succeeded, false if playback should stop
-     */
-    bool HandleDeviceLoss();
-
-    /**
-     * Release all COM resources.
-     * Called by Shutdown() and during device loss recovery.
-     */
-    void ReleaseResources();
-
-    /**
-     * Initialize COM interfaces for the default audio device.
-     * @return true if successful
-     */
-    bool InitializeDevice();
-
-    // Configuration
-    WasapiDeviceConfig config_;
-    bool initialized_ = false;
-
-    // COM interfaces (stored as void* to avoid Windows headers in this header)
-    // Cast to actual types in the .cpp file
-    void* enumerator_ = nullptr;      // IMMDeviceEnumerator*
-    void* device_ = nullptr;          // IMMDevice*
-    void* audioClient_ = nullptr;     // IAudioClient3*
-    void* renderClient_ = nullptr;    // IAudioRenderClient*
-
-    // Event handles
-    void* bufferEvent_ = nullptr;     // HANDLE - signaled when buffer needs data
-    void* stopEvent_ = nullptr;       // HANDLE - signaled to stop render thread
-
-    // Buffer info
-    uint32_t bufferFrameCount_ = 0;   // Total buffer size in frames
-    uint32_t frameSize_ = 0;          // Bytes per frame (channels * sizeof(float))
-
-    // Render thread
-    std::thread renderThread_;
-    std::atomic<bool> running_{false};
-    std::atomic<bool> threadStarted_{false};
-
-    // Device recovery
-    std::atomic<bool> deviceLost_{false};
-    int recoveryAttempts_ = 0;
-    static constexpr int MaxRecoveryAttempts = 5;
-
-    // IAudioClock for latency measurement (Phase 0: Audio Sync)
-    void* audioClock_ = nullptr;          // IAudioClock*
-    uint64_t clock_frequency_ = 0;        // IAudioClock frequency
-    std::atomic<uint64_t> samples_written_{0};  // Total samples written to WASAPI
+    WasapiAudioDeviceConfig m_config;
+    bool                    m_initialized      = false;
+    uint32_t                m_bufferFrameCount = 0;
+    std::atomic<bool>       m_running{false};
+    std::atomic<bool>       m_stopRequested{false};
+    std::atomic<uint64_t>   m_samplesWritten{0};
+    std::thread             m_renderThread;
 };
 
-} // namespace qcview
+} // namespace qcv
+
+#endif // Q_OS_WIN

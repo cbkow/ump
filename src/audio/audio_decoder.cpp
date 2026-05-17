@@ -1,5 +1,11 @@
 #include "audio_decoder.h"
-#include "../utils/debug_utils.h"
+
+#include "project/media_item.h"   // AudioRoutingMode enum (values
+                                   // mirrored by the int API on this
+                                   // class; static_assert below catches
+                                   // accidental drift).
+
+#include <QtLogging>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -9,556 +15,668 @@ extern "C" {
 #include <libavutil/channel_layout.h>
 }
 
-#include <cstring>
 #include <algorithm>
-#include <filesystem>
-
-namespace fs = std::filesystem;
-
-namespace qcview {
-
-// Helper to detect image sequences (which have no audio)
-static bool IsImageSequencePath(const std::string& path) {
-    // Check for printf-style format specifier (e.g., %04d)
-    if (path.find('%') != std::string::npos) {
-        return true;
-    }
-
-    // Check file extension
-    std::string ext = fs::path(path).extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-    return (ext == ".exr" || ext == ".tiff" || ext == ".tif" ||
-            ext == ".png" || ext == ".jpg" || ext == ".jpeg" ||
-            ext == ".dpx" || ext == ".cin");
-}
-
-//=============================================================================
-// Constructor / Destructor
-//=============================================================================
-
-AudioDecoder::AudioDecoder() {
-    // Set default output format
-    output_format_.sample_rate = 48000;
-    output_format_.channels = 2;
-    output_format_.bytes_per_sample = 4;  // float32
-}
-
-AudioDecoder::~AudioDecoder() {
-    Close();
-}
-
-//=============================================================================
-// Lifecycle
-//=============================================================================
-
-bool AudioDecoder::Open(const std::string& file_path) {
-    if (is_open_) {
-        Close();
-    }
-
-    // Skip image sequences - they never have audio
-    if (IsImageSequencePath(file_path)) {
-        has_audio_ = false;
-        return false;
-    }
-
-    file_path_ = file_path;
-    Debug::Log("AudioDecoder: Opening " + file_path);
-
-    if (!OpenAudioStream()) {
-        Debug::Log("AudioDecoder: No audio stream found in " + file_path);
-        has_audio_ = false;
-        return false;
-    }
-
-    has_audio_ = true;
-
-    // Create ring buffer (~11 seconds at 48kHz stereo float32)
-    ring_buffer_ = std::make_unique<AudioRingBuffer>(2 * 1024 * 1024);
-
-    is_open_ = true;
-    Debug::Log("AudioDecoder: Opened successfully - " +
-               std::to_string(source_sample_rate_) + " Hz, " +
-               std::to_string(source_channels_) + " ch, " +
-               std::to_string(duration_) + "s duration");
-
-    return true;
-}
-
-void AudioDecoder::Close() {
-    if (!is_open_) return;
-
-    Debug::Log("AudioDecoder: Closing...");
-
-    Stop();
-    CloseAudioStream();
-
-    ring_buffer_.reset();
-
-    is_open_ = false;
-    has_audio_ = false;
-    file_path_.clear();
-    duration_ = 0.0;
-    source_sample_rate_ = 0;
-    source_channels_ = 0;
-
-    Debug::Log("AudioDecoder: Closed");
-}
-
-void AudioDecoder::Start() {
-    if (!is_open_ || running_) return;
-
-    Debug::Log("AudioDecoder: Starting decode thread");
-
-    eof_reached_ = false;
-    running_ = true;
-    decode_thread_ = std::thread(&AudioDecoder::DecodeThread, this);
-}
-
-void AudioDecoder::Stop() {
-    if (!running_) return;
-
-    Debug::Log("AudioDecoder: Stopping decode thread");
-
-    running_ = false;
-    seek_cv_.notify_all();
-
-    if (decode_thread_.joinable()) {
-        decode_thread_.join();
-    }
-
-    Debug::Log("AudioDecoder: Decode thread stopped");
-}
-
-//=============================================================================
-// FFmpeg Initialization
-//=============================================================================
-
-bool AudioDecoder::OpenAudioStream() {
-    // Open input file
-    format_ctx_ = avformat_alloc_context();
-    if (avformat_open_input(&format_ctx_, file_path_.c_str(), nullptr, nullptr) < 0) {
-        Debug::Log("AudioDecoder: Failed to open input file");
-        return false;
-    }
-
-    // Find stream info
-    if (avformat_find_stream_info(format_ctx_, nullptr) < 0) {
-        Debug::Log("AudioDecoder: Failed to find stream info");
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Find audio stream
-    audio_stream_idx_ = av_find_best_stream(format_ctx_, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
-    if (audio_stream_idx_ < 0) {
-        Debug::Log("AudioDecoder: No audio stream found");
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    AVStream* audio_stream = format_ctx_->streams[audio_stream_idx_];
-
-    // Get source audio info
-    source_channels_ = audio_stream->codecpar->ch_layout.nb_channels;
-    source_sample_rate_ = audio_stream->codecpar->sample_rate;
-
-    // Get duration
-    if (format_ctx_->duration > 0) {
-        duration_ = static_cast<double>(format_ctx_->duration) / AV_TIME_BASE;
-    } else if (audio_stream->duration > 0) {
-        duration_ = static_cast<double>(audio_stream->duration) * av_q2d(audio_stream->time_base);
-    }
-
-    // Get start time
-    if (audio_stream->start_time != AV_NOPTS_VALUE) {
-        start_time_ = audio_stream->start_time;
-    }
-
-    // Find decoder
-    const AVCodec* codec = avcodec_find_decoder(audio_stream->codecpar->codec_id);
-    if (!codec) {
-        Debug::Log("AudioDecoder: No decoder found for audio codec");
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Allocate codec context
-    codec_ctx_ = avcodec_alloc_context3(codec);
-    if (!codec_ctx_) {
-        Debug::Log("AudioDecoder: Failed to allocate codec context");
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Copy codec parameters
-    if (avcodec_parameters_to_context(codec_ctx_, audio_stream->codecpar) < 0) {
-        Debug::Log("AudioDecoder: Failed to copy codec parameters");
-        avcodec_free_context(&codec_ctx_);
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Open codec
-    if (avcodec_open2(codec_ctx_, codec, nullptr) < 0) {
-        Debug::Log("AudioDecoder: Failed to open codec");
-        avcodec_free_context(&codec_ctx_);
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Setup resampler
-    if (!SetupResampler()) {
-        Debug::Log("AudioDecoder: Failed to setup resampler");
-        avcodec_free_context(&codec_ctx_);
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-        return false;
-    }
-
-    // Allocate frame and packet
-    decode_frame_ = av_frame_alloc();
-    packet_ = av_packet_alloc();
-
-    if (!decode_frame_ || !packet_) {
-        Debug::Log("AudioDecoder: Failed to allocate frame/packet");
-        CloseAudioStream();
-        return false;
-    }
-
-    return true;
-}
-
-bool AudioDecoder::SetupResampler() {
-    // Setup SwrContext to convert to float32 stereo 48kHz
-#if LIBSWRESAMPLE_VERSION_INT >= AV_VERSION_INT(4, 5, 100)
-    // FFmpeg 5.1+ with channel layout API
-    AVChannelLayout out_ch_layout = AV_CHANNEL_LAYOUT_STEREO;
-    AVChannelLayout in_ch_layout;
-
-#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(59, 37, 100)
-    in_ch_layout = codec_ctx_->ch_layout;
-#else
-    av_channel_layout_default(&in_ch_layout, codec_ctx_->channels);
-#endif
-
-    int ret = swr_alloc_set_opts2(&swr_ctx_,
-                                   &out_ch_layout,
-                                   AV_SAMPLE_FMT_FLT,
-                                   output_format_.sample_rate,
-                                   &in_ch_layout,
-                                   codec_ctx_->sample_fmt,
-                                   codec_ctx_->sample_rate,
-                                   0, nullptr);
-    if (ret < 0) {
-        Debug::Log("AudioDecoder: Failed to allocate resampler");
-        return false;
-    }
-#else
-    // Older FFmpeg
-    int64_t out_ch_layout = AV_CH_LAYOUT_STEREO;
-    int64_t in_ch_layout = codec_ctx_->channel_layout;
-    if (in_ch_layout == 0) {
-        in_ch_layout = av_get_default_channel_layout(codec_ctx_->channels);
-    }
-
-    swr_ctx_ = swr_alloc_set_opts(nullptr,
-                                   out_ch_layout,
-                                   AV_SAMPLE_FMT_FLT,
-                                   output_format_.sample_rate,
-                                   in_ch_layout,
-                                   codec_ctx_->sample_fmt,
-                                   codec_ctx_->sample_rate,
-                                   0, nullptr);
-    if (!swr_ctx_) {
-        Debug::Log("AudioDecoder: Failed to allocate resampler");
-        return false;
-    }
-#endif
-
-    // Apply slight headroom to prevent clipping when mixing multiple tracks
-    // 0.9 = ~-1dB (was 0.5 = -6dB which was too aggressive)
-    av_opt_set_double(swr_ctx_, "rematrix_volume", 0.9, 0);
-
-    if (swr_init(swr_ctx_) < 0) {
-        Debug::Log("AudioDecoder: Failed to initialize resampler");
-        swr_free(&swr_ctx_);
-        swr_ctx_ = nullptr;
-        return false;
-    }
-
-    return true;
-}
-
-void AudioDecoder::CleanupResampler() {
-    if (swr_ctx_) {
-        swr_free(&swr_ctx_);
-        swr_ctx_ = nullptr;
-    }
-}
-
-void AudioDecoder::CloseAudioStream() {
-    if (decode_frame_) {
-        av_frame_free(&decode_frame_);
-        decode_frame_ = nullptr;
-    }
-
-    if (packet_) {
-        av_packet_free(&packet_);
-        packet_ = nullptr;
-    }
-
-    CleanupResampler();
-
-    if (codec_ctx_) {
-        avcodec_free_context(&codec_ctx_);
-        codec_ctx_ = nullptr;
-    }
-
-    if (format_ctx_) {
-        avformat_close_input(&format_ctx_);
-        format_ctx_ = nullptr;
-    }
-
-    audio_stream_idx_ = -1;
-}
-
-//=============================================================================
-// Seeking
-//=============================================================================
-
-void AudioDecoder::Seek(double position) {
-    if (!is_open_) return;
-
-    Debug::Log("AudioDecoder: Seek requested to " + std::to_string(position) + "s");
-
+#include <array>
+#include <cstring>
+#include <optional>
+#include <vector>
+
+namespace qcv {
+
+// Compile-time check that AudioDecoder's int routing API stays
+// aligned with the canonical AudioRoutingMode enum on MediaItem. If
+// someone reorders the enum, the resampler matrices below silently
+// produce the wrong routing without this guard.
+static_assert(static_cast<int>(AudioRoutingMode::Auto)       == 0,
+              "AudioRoutingMode::Auto must be 0 — see audio_decoder.cpp");
+static_assert(static_cast<int>(AudioRoutingMode::Downmix5_1) == 1,
+              "AudioRoutingMode::Downmix5_1 must be 1");
+static_assert(static_cast<int>(AudioRoutingMode::Stereo7_8)  == 2,
+              "AudioRoutingMode::Stereo7_8 must be 2");
+
+namespace {
+
+// Build a 2×N output-from-input downmix matrix per routing mode +
+// source channel count. Returns nullopt when no custom matrix is
+// needed (FFmpeg's default swr behavior is correct: mono→stereo,
+// stereo passthrough, 6ch 5.1→stereo BS.775 fold). When set, the
+// matrix is row-major: [L_out_row..., R_out_row...].
+std::optional<std::vector<double>>
+computeRoutingMatrix(int mode, int srcChannels)
+{
+    if (srcChannels <= 0) return std::nullopt;
+
+    auto pluck = [srcChannels](int leftCh, int rightCh)
+        -> std::optional<std::vector<double>>
     {
-        std::lock_guard<std::mutex> lock(seek_mutex_);
-        seek_target_ = position;
-        seek_requested_ = true;
+        if (leftCh  >= srcChannels) leftCh  = std::min(0, srcChannels - 1);
+        if (rightCh >= srcChannels) rightCh = std::min(1, srcChannels - 1);
+        std::vector<double> m(2 * srcChannels, 0.0);
+        m[leftCh]                  = 1.0;   // L_out = ch[leftCh]
+        m[srcChannels + rightCh]   = 1.0;   // R_out = ch[rightCh]
+        return m;
+    };
+
+    // ITU-R BS.775 5.1→stereo coefficients, applied to the first
+    // 6 source channels (assumes broadcast layout: L R C LFE Ls Rs).
+    // LFE deliberately dropped (not contributing to either output);
+    // adding -10 dB LFE is a follow-up if reviewers ask.
+    auto downmix5_1 = [srcChannels]()
+        -> std::optional<std::vector<double>>
+    {
+        if (srcChannels < 6) return std::nullopt;
+        std::vector<double> m(2 * srcChannels, 0.0);
+        // L_out = L + 0.707·C + 0.707·Ls
+        m[0]                = 1.0;     // L
+        m[2]                = 0.707;   // C
+        m[4]                = 0.707;   // Ls
+        // R_out = R + 0.707·C + 0.707·Rs
+        m[srcChannels + 1]  = 1.0;     // R
+        m[srcChannels + 2]  = 0.707;   // C
+        m[srcChannels + 5]  = 0.707;   // Rs
+        return m;
+    };
+
+    const auto routing = static_cast<AudioRoutingMode>(mode);
+    switch (routing) {
+    case AudioRoutingMode::Downmix5_1:
+        return downmix5_1();   // nullopt if source has <6 channels →
+                                // falls through to default behavior.
+    case AudioRoutingMode::Stereo7_8:
+        if (srcChannels >= 8) return pluck(6, 7);
+        return std::nullopt;   // UI gates this; defensive fallback.
+    case AudioRoutingMode::Auto:
+    default:
+        // Auto: defer to FFmpeg's defaults for 1/2/6 ch (mono→stereo,
+        // direct, BS.775 downmix). For 8ch, default to the broadcast
+        // stereo bounce on channels 7-8. For other counts (3,4,5,7,
+        // 9+), pluck the first two channels — safest fallback.
+        if (srcChannels == 1 || srcChannels == 2 || srcChannels == 6) {
+            return std::nullopt;
+        }
+        if (srcChannels >= 8) return pluck(6, 7);
+        return pluck(0, 1);
     }
-    seek_cv_.notify_one();
 }
 
-void AudioDecoder::FlushAndSeek(double position) {
-    if (!format_ctx_ || audio_stream_idx_ < 0) return;
+// Compute per-channel peak (|max sample|, normalized to [0..1])
+// from a decoded AVFrame. Dispatches on the four sample formats
+// commonly seen in broadcast deliverables (planar + interleaved
+// float and int16); other formats leave peaks at their previous
+// value — meter shows stale but audio still plays. Updates only
+// indices [0..nb) where nb = min(srcChannels, 16).
+template <typename SampleT>
+inline float peakStrided(const SampleT *base, int stride, int n,
+                          float invFullScale)
+{
+    SampleT peak = SampleT(0);
+    for (int i = 0; i < n; ++i) {
+        const SampleT s = base[i * stride];
+        const SampleT a = s < SampleT(0) ? -s : s;
+        if (a > peak) peak = a;
+    }
+    return static_cast<float>(peak) * invFullScale;
+}
 
-    AVStream* audio_stream = format_ctx_->streams[audio_stream_idx_];
+void computeFramePeaks(const AVFrame *frame,
+                        int srcChannels,
+                        std::array<std::atomic<float>, 16> &peaks)
+{
+    if (!frame || frame->nb_samples <= 0 || srcChannels <= 0) return;
+    const int nbCh = std::min(srcChannels, 16);
+    const int n    = frame->nb_samples;
+    const auto fmt = static_cast<AVSampleFormat>(frame->format);
 
-    // Clear the ring buffer
-    ring_buffer_->Clear();
+    auto store = [&](int ch, float v) {
+        peaks[ch].store(v, std::memory_order_relaxed);
+    };
 
-    // Flush codec
-    avcodec_flush_buffers(codec_ctx_);
+    switch (fmt) {
+    case AV_SAMPLE_FMT_FLT: {
+        const float *base = reinterpret_cast<const float *>(frame->data[0]);
+        for (int ch = 0; ch < nbCh; ++ch)
+            store(ch, peakStrided<float>(base + ch, srcChannels, n, 1.0f));
+        break;
+    }
+    case AV_SAMPLE_FMT_FLTP: {
+        for (int ch = 0; ch < nbCh; ++ch) {
+            const float *base = reinterpret_cast<const float *>(frame->data[ch]);
+            store(ch, peakStrided<float>(base, 1, n, 1.0f));
+        }
+        break;
+    }
+    case AV_SAMPLE_FMT_S16: {
+        const int16_t *base = reinterpret_cast<const int16_t *>(frame->data[0]);
+        constexpr float kInv = 1.0f / 32768.0f;
+        for (int ch = 0; ch < nbCh; ++ch)
+            store(ch, peakStrided<int16_t>(base + ch, srcChannels, n, kInv));
+        break;
+    }
+    case AV_SAMPLE_FMT_S16P: {
+        constexpr float kInv = 1.0f / 32768.0f;
+        for (int ch = 0; ch < nbCh; ++ch) {
+            const int16_t *base = reinterpret_cast<const int16_t *>(frame->data[ch]);
+            store(ch, peakStrided<int16_t>(base, 1, n, kInv));
+        }
+        break;
+    }
+    // FFmpeg unpacks pcm_s24le to S32 (24-bit value left-shifted into
+    // the upper 24 bits of an int32). INT32_MAX as the divisor
+    // normalizes both true 32-bit PCM and shifted 24-bit PCM to [0..1].
+    // Broadcast deliverables almost universally hit this branch.
+    case AV_SAMPLE_FMT_S32: {
+        const int32_t *base = reinterpret_cast<const int32_t *>(frame->data[0]);
+        constexpr float kInv = 1.0f / 2147483647.0f;
+        for (int ch = 0; ch < nbCh; ++ch)
+            store(ch, peakStrided<int32_t>(base + ch, srcChannels, n, kInv));
+        break;
+    }
+    case AV_SAMPLE_FMT_S32P: {
+        constexpr float kInv = 1.0f / 2147483647.0f;
+        for (int ch = 0; ch < nbCh; ++ch) {
+            const int32_t *base = reinterpret_cast<const int32_t *>(frame->data[ch]);
+            store(ch, peakStrided<int32_t>(base, 1, n, kInv));
+        }
+        break;
+    }
+    default:
+        // DBL / S64 / unknown — rare. Add cases here if a real source
+        // turns up using them.
+        break;
+    }
+}
 
-    // Convert position to stream timestamp
-    int64_t target_ts = static_cast<int64_t>(position / av_q2d(audio_stream->time_base));
+} // namespace
 
-    // Add start time offset if present
-    if (start_time_ != AV_NOPTS_VALUE && start_time_ > 0) {
-        target_ts += start_time_;
+AudioDecoder::AudioDecoder(QObject *parent)
+    : QObject(parent)
+{
+    m_outputFormat.sampleRate     = 48000;
+    m_outputFormat.channels       = 2;
+    m_outputFormat.bytesPerSample = 4;
+}
+
+AudioDecoder::~AudioDecoder()
+{
+    close();
+}
+
+bool AudioDecoder::open(const QString &path)
+{
+    if (m_isOpen) close();
+    m_path = path;
+    if (!openAudioStream()) {
+        qInfo("AudioDecoder: no audio stream in %s", qPrintable(path));
+        m_hasAudio = false;
+        return false;
+    }
+    m_hasAudio = true;
+    m_ring = std::make_unique<AudioRingBuffer>();
+    m_isOpen = true;
+    qInfo("AudioDecoder: opened %s — %d Hz, %d ch, %.2fs",
+          qPrintable(path), m_sourceSampleRate, m_sourceChannels, m_duration);
+    return true;
+}
+
+void AudioDecoder::close()
+{
+    if (!m_isOpen) return;
+    stop();
+    closeAudioStream();
+    m_ring.reset();
+    m_isOpen = false;
+    m_hasAudio = false;
+    m_path.clear();
+    m_duration = 0.0;
+    m_sourceSampleRate = 0;
+    m_sourceChannels = 0;
+}
+
+void AudioDecoder::start()
+{
+    if (!m_isOpen || m_running.load()) return;
+    m_eofReached = false;
+    m_running = true;
+    m_decodeThread = std::thread(&AudioDecoder::decodeThreadFn, this);
+}
+
+void AudioDecoder::stop()
+{
+    if (!m_running.load()) return;
+    m_running = false;
+    m_seekCv.notify_all();
+    if (m_decodeThread.joinable()) m_decodeThread.join();
+}
+
+void AudioDecoder::seek(double position)
+{
+    if (!m_isOpen) return;
+    {
+        std::lock_guard<std::mutex> lock(m_seekMutex);
+        m_seekTarget = position;
+        m_seekRequested = true;
+    }
+    m_seekCv.notify_one();
+}
+
+size_t AudioDecoder::read(float *output, size_t frameCount)
+{
+    if (!m_ring || !output) return 0;
+
+    const size_t bytesRequested = frameCount * m_outputFormat.bytesPerFrame();
+    const size_t bytesRead = m_ring->read(output, bytesRequested);
+    const size_t framesRead = bytesRead / m_outputFormat.bytesPerFrame();
+
+    // Pad underrun with silence so the audio device doesn't
+    // produce noise in the unfilled tail.
+    if (framesRead < frameCount) {
+        const size_t silenceStart = framesRead * m_outputFormat.channels;
+        const size_t silenceCount = (frameCount - framesRead)
+                                    * m_outputFormat.channels;
+        std::memset(output + silenceStart, 0, silenceCount * sizeof(float));
     }
 
-    // Seek backward to ensure we don't miss any data
-    int ret = av_seek_frame(format_ctx_, audio_stream_idx_, target_ts, AVSEEK_FLAG_BACKWARD);
-    if (ret < 0) {
-        Debug::Log("AudioDecoder: Seek failed, trying alternative method");
-        // Try seeking from start
-        ret = av_seek_frame(format_ctx_, audio_stream_idx_, 0, AVSEEK_FLAG_BACKWARD);
+    m_readPosition.store(
+        m_readPosition.load()
+        + static_cast<double>(framesRead) / m_outputFormat.sampleRate,
+        std::memory_order_relaxed);
+
+    return framesRead;
+}
+
+// ---- FFmpeg setup ----------------------------------------------------------
+
+bool AudioDecoder::openAudioStream()
+{
+    m_formatCtx = avformat_alloc_context();
+    if (avformat_open_input(&m_formatCtx, m_path.toUtf8().constData(),
+                            nullptr, nullptr) < 0) {
+        qWarning("AudioDecoder: avformat_open_input failed for %s",
+                 qPrintable(m_path));
+        return false;
+    }
+    if (avformat_find_stream_info(m_formatCtx, nullptr) < 0) {
+        qWarning("AudioDecoder: avformat_find_stream_info failed");
+        avformat_close_input(&m_formatCtx);
+        return false;
     }
 
-    // Reset EOF flag
-    eof_reached_ = false;
+    m_audioStreamIdx = av_find_best_stream(
+        m_formatCtx, AVMEDIA_TYPE_AUDIO, -1, -1, nullptr, 0);
+    if (m_audioStreamIdx < 0) {
+        avformat_close_input(&m_formatCtx);
+        return false;
+    }
 
-    // Update positions
-    decode_position_ = position;
-    read_position_ = position;
+    AVStream *stream = m_formatCtx->streams[m_audioStreamIdx];
+    m_sourceChannels   = stream->codecpar->ch_layout.nb_channels;
+    m_sourceSampleRate = stream->codecpar->sample_rate;
+    // Cache the layout name (e.g. "5.1(side)", "stereo", "7.1") for
+    // the inspector + per-channel meter labels. computeRoutingMatrix
+    // doesn't need this — it only keys off channel count + the user's
+    // mode — but the UI needs it to label the meter bars correctly.
+    {
+        char buf[64] = {0};
+        if (av_channel_layout_describe(&stream->codecpar->ch_layout,
+                                         buf, sizeof(buf)) > 0) {
+            m_sourceChannelLayoutName = QString::fromUtf8(buf);
+        }
+    }
 
-    // Stamp seek time for cooldown logic
-    last_seek_time_ = std::chrono::duration<double>(
+    if (m_formatCtx->duration > 0) {
+        m_duration = static_cast<double>(m_formatCtx->duration) / AV_TIME_BASE;
+    } else if (stream->duration > 0) {
+        m_duration = static_cast<double>(stream->duration)
+                   * av_q2d(stream->time_base);
+    }
+    if (stream->start_time != AV_NOPTS_VALUE) {
+        m_streamStartTime = stream->start_time;
+    }
+
+    const AVCodec *codec = avcodec_find_decoder(stream->codecpar->codec_id);
+    if (!codec) {
+        qWarning("AudioDecoder: no decoder for codec %d", stream->codecpar->codec_id);
+        avformat_close_input(&m_formatCtx);
+        return false;
+    }
+
+    m_codecCtx = avcodec_alloc_context3(codec);
+    if (!m_codecCtx
+        || avcodec_parameters_to_context(m_codecCtx, stream->codecpar) < 0
+        || avcodec_open2(m_codecCtx, codec, nullptr) < 0) {
+        qWarning("AudioDecoder: codec context setup failed");
+        if (m_codecCtx) avcodec_free_context(&m_codecCtx);
+        avformat_close_input(&m_formatCtx);
+        return false;
+    }
+
+    if (!setupResampler()) {
+        qWarning("AudioDecoder: resampler setup failed");
+        avcodec_free_context(&m_codecCtx);
+        avformat_close_input(&m_formatCtx);
+        return false;
+    }
+
+    m_decodeFrame = av_frame_alloc();
+    m_packet      = av_packet_alloc();
+    if (!m_decodeFrame || !m_packet) {
+        closeAudioStream();
+        return false;
+    }
+    return true;
+}
+
+bool AudioDecoder::setupResampler()
+{
+    AVChannelLayout outLayout = AV_CHANNEL_LAYOUT_STEREO;
+    // Deep copy the codec context's input layout rather than struct-
+    // aliasing it. AVChannelLayout carries a u.map pointer for
+    // AV_CHANNEL_ORDER_CUSTOM / AMBISONIC layouts; shallow copy
+    // aliases that pointer, which is undefined if anything later
+    // uninits one of the copies. swr_alloc_set_opts2 happens to deep-
+    // copy internally so this was safe-by-accident, but the explicit
+    // copy + uninit is what the FFmpeg API contract requires.
+    AVChannelLayout inLayout{};
+    if (av_channel_layout_copy(&inLayout, &m_codecCtx->ch_layout) < 0) {
+        return false;
+    }
+    const int srcChannels = inLayout.nb_channels;
+
+    if (swr_alloc_set_opts2(&m_swrCtx,
+                            &outLayout, AV_SAMPLE_FMT_FLT,
+                            m_outputFormat.sampleRate,
+                            &inLayout, m_codecCtx->sample_fmt,
+                            m_codecCtx->sample_rate,
+                            0, nullptr) < 0) {
+        av_channel_layout_uninit(&inLayout);
+        return false;
+    }
+
+    // Per-routing-mode downmix matrix. nullopt means FFmpeg's default
+    // behavior is correct (mono→stereo, stereo passthrough, BS.775
+    // for 5.1 native source). When set, swr_set_matrix overrides the
+    // implicit matrix; row-major 2 (output) × srcChannels (input).
+    const int routingMode = m_routingMode.load();
+    if (auto mtx = computeRoutingMatrix(routingMode, srcChannels)) {
+        if (swr_set_matrix(m_swrCtx, mtx->data(), srcChannels) < 0) {
+            qWarning("AudioDecoder: swr_set_matrix failed (mode=%d, ch=%d)",
+                     routingMode, srcChannels);
+            // Continue — falling back to default downmix is better than
+            // refusing to play audio.
+        }
+    }
+
+    // Modest headroom (~ -1 dB) so multi-track sums (Phase 5.x) and
+    // soft-limiting later don't visibly clip on hot peaks. Same
+    // value the old app used.
+    av_opt_set_double(m_swrCtx, "rematrix_volume", 0.9, 0);
+
+    if (swr_init(m_swrCtx) < 0) {
+        swr_free(&m_swrCtx);
+        m_swrCtx = nullptr;
+        av_channel_layout_uninit(&inLayout);
+        return false;
+    }
+    av_channel_layout_uninit(&inLayout);
+    return true;
+}
+
+void AudioDecoder::setRoutingMode(int mode)
+{
+    if (mode < 0 || mode > 2) mode = 0;
+    if (m_routingMode.exchange(mode) == mode) return;
+    // Flag for the decode thread to teardown + re-init swr at its
+    // next iteration boundary. No mutex needed — the swr handle is
+    // touched only on the decode thread; we just flip a flag.
+    m_routingDirty.store(true);
+}
+
+std::array<float, 16> AudioDecoder::peakLevels() const
+{
+    std::array<float, 16> out{};
+    for (int i = 0; i < 16; ++i) {
+        out[i] = m_peakPerChannel[i].load(std::memory_order_relaxed);
+    }
+    return out;
+}
+
+QStringList AudioDecoder::sourceChannelNames() const
+{
+    QStringList names;
+    if (m_sourceChannels <= 0) return names;
+    names.reserve(m_sourceChannels);
+    // Use FFmpeg's per-channel naming when the source has a real
+    // layout (returns "FL", "FR", "FC", "LFE", "BL", "BR", "SL", "SR"
+    // etc.). Fall back to numeric "1", "2", ... otherwise. Re-derive
+    // from the codec ctx because m_codecCtx is alive for the
+    // lifetime of an open decoder.
+    //
+    // Two fallback paths matter:
+    //   1. ch_layout.order == AV_CHANNEL_ORDER_UNSPEC — the source
+    //      knows channel COUNT but not channel identity. Common for
+    //      bare pcm_s16le in MOV containers without a channel-layout
+    //      atom. av_channel_layout_channel_from_index returns
+    //      AV_CHAN_NONE; av_channel_name then writes the literal
+    //      string "NONE" (rc > 0, buf[0] != 0). We have to check
+    //      for AV_CHAN_NONE explicitly to avoid putting "NONE" labels
+    //      under every meter bar.
+    //   2. m_codecCtx not yet built — pre-open polling. Pure numeric.
+    char buf[16] = {0};
+    if (m_codecCtx) {
+        for (int i = 0; i < m_sourceChannels; ++i) {
+            const enum AVChannel ch = av_channel_layout_channel_from_index(
+                &m_codecCtx->ch_layout, i);
+            if (ch != AV_CHAN_NONE) {
+                buf[0] = 0;
+                const int rc = av_channel_name(buf, sizeof(buf), ch);
+                if (rc > 0 && buf[0] != 0) {
+                    names << QString::fromUtf8(buf);
+                    continue;
+                }
+            }
+            names << QString::number(i + 1);
+        }
+    } else {
+        for (int i = 0; i < m_sourceChannels; ++i) {
+            names << QString::number(i + 1);
+        }
+    }
+    return names;
+}
+
+void AudioDecoder::cleanupResampler()
+{
+    if (m_swrCtx) {
+        swr_free(&m_swrCtx);
+        m_swrCtx = nullptr;
+    }
+}
+
+void AudioDecoder::closeAudioStream()
+{
+    if (m_decodeFrame) av_frame_free(&m_decodeFrame);
+    if (m_packet)      av_packet_free(&m_packet);
+    cleanupResampler();
+    if (m_codecCtx)    avcodec_free_context(&m_codecCtx);
+    if (m_formatCtx)   avformat_close_input(&m_formatCtx);
+    m_audioStreamIdx = -1;
+}
+
+// ---- Decode thread ---------------------------------------------------------
+
+double AudioDecoder::secondsSinceLastSeek() const
+{
+    const double last = m_lastSeekTime.load();
+    if (last <= 0.0) return 1e9;   // no seek yet — effectively "long ago"
+    const double now = std::chrono::duration<double>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
-
-    Debug::Log("AudioDecoder: Seeked to " + std::to_string(position) + "s");
+    return now - last;
 }
 
-//=============================================================================
-// Decode Thread
-//=============================================================================
+void AudioDecoder::flushAndSeek(double position)
+{
+    if (!m_formatCtx || m_audioStreamIdx < 0) return;
+    AVStream *stream = m_formatCtx->streams[m_audioStreamIdx];
 
-void AudioDecoder::DecodeThread() {
-    Debug::Log("AudioDecoder: Decode thread started");
+    m_ring->clear();
+    avcodec_flush_buffers(m_codecCtx);
 
-    while (running_) {
-        // Check for seek request
-        {
-            std::unique_lock<std::mutex> lock(seek_mutex_);
-            if (seek_requested_) {
-                FlushAndSeek(seek_target_);
-                seek_requested_ = false;
+    int64_t targetTs = static_cast<int64_t>(position / av_q2d(stream->time_base));
+    if (m_streamStartTime != AV_NOPTS_VALUE && m_streamStartTime > 0) {
+        targetTs += m_streamStartTime;
+    }
+    int rc = av_seek_frame(m_formatCtx, m_audioStreamIdx, targetTs,
+                           AVSEEK_FLAG_BACKWARD);
+    if (rc < 0) {
+        // Fallback: seek from start. Rare on broken indexes.
+        av_seek_frame(m_formatCtx, m_audioStreamIdx, 0, AVSEEK_FLAG_BACKWARD);
+    }
+    m_eofReached = false;
+    m_decodePosition = position;
+    m_readPosition   = position;
+    m_lastSeekTime.store(std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count(),
+        std::memory_order_relaxed);
+}
+
+void AudioDecoder::decodeThreadFn()
+{
+    while (m_running.load()) {
+        // Pending routing-mode change. Cheap atomic check; rebuild
+        // m_swrCtx only when the user actually clicked a different
+        // pill. Done at the top of the iteration so the new matrix
+        // is in place for whatever decodeNextPacket pulls next.
+        // Audible artifact at most one decoded-frame's worth of
+        // stale routing (~21 ms at 48 kHz / typical aac frame size).
+        if (m_routingDirty.exchange(false)) {
+            cleanupResampler();
+            if (!setupResampler()) {
+                qWarning("AudioDecoder: resampler re-init failed after "
+                         "routing change; audio output will be silent until "
+                         "the next file open");
             }
         }
-
-        // If buffer is nearly full, wait
-        if (ring_buffer_->AvailableWrite() < 8192) {
+        // Service pending seek.
+        {
+            std::unique_lock<std::mutex> lock(m_seekMutex);
+            if (m_seekRequested.load()) {
+                flushAndSeek(m_seekTarget);
+                m_seekRequested = false;
+            }
+        }
+        // Back-pressure: ring near-full.
+        if (m_ring->availableWrite() < 8192) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
-
-        // If EOF reached, wait for seek
-        if (eof_reached_) {
-            std::unique_lock<std::mutex> lock(seek_mutex_);
-            seek_cv_.wait_for(lock, std::chrono::milliseconds(50), [this] {
-                return !running_ || seek_requested_;
-            });
+        // EOF: idle until a seek wakes us up.
+        if (m_eofReached.load()) {
+            std::unique_lock<std::mutex> lock(m_seekMutex);
+            m_seekCv.wait_for(lock, std::chrono::milliseconds(50),
+                              [this] { return !m_running.load()
+                                            || m_seekRequested.load(); });
             continue;
         }
-
-        // Decode next packet
-        if (!DecodeNextPacket()) {
-            // EOF or error
+        if (!decodeNextPacket()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-
-    Debug::Log("AudioDecoder: Decode thread exiting");
 }
 
-bool AudioDecoder::DecodeNextPacket() {
-    if (!format_ctx_ || !codec_ctx_) return false;
+bool AudioDecoder::decodeNextPacket()
+{
+    if (!m_formatCtx || !m_codecCtx) return false;
+    // TRACE_AUDIO_DECODE_FIRST — first packet decoded on the audio
+    // decode thread. Brackets the swr+computeFramePeaks first run
+    // so we can correlate against the playback-decoder timing for
+    // the corruption window investigation.
+    static thread_local bool s_loggedFirst = false;
+    if (!s_loggedFirst) {
+        qInfo("AudioDecoder: decodeThread first iteration");
+        s_loggedFirst = true;
+    }
+    // A failed setupResampler() on a routing-mode change leaves
+    // m_swrCtx null; swr_get_delay / swr_convert below do not
+    // null-check the handle and would segfault on the decode thread.
+    // Bail out of the iteration; the decoder stays silent until the
+    // user picks another routing mode (the next setRoutingMode flips
+    // m_routingDirty, decodeThreadFn retries setupResampler) or the
+    // file is reopened.
+    if (!m_swrCtx) return false;
 
-    // Read packet
-    int ret = av_read_frame(format_ctx_, packet_);
-    if (ret < 0) {
-        if (ret == AVERROR_EOF) {
-            eof_reached_ = true;
-            Debug::Log("AudioDecoder: Reached end of file");
-        }
+    int rc = av_read_frame(m_formatCtx, m_packet);
+    if (rc < 0) {
+        if (rc == AVERROR_EOF) m_eofReached = true;
         return false;
     }
-
-    // Check if this packet is from our audio stream
-    if (packet_->stream_index != audio_stream_idx_) {
-        av_packet_unref(packet_);
-        return true;  // Not an error, just not our stream
+    if (m_packet->stream_index != m_audioStreamIdx) {
+        av_packet_unref(m_packet);
+        return true;
     }
 
-    // Send packet to decoder
-    ret = avcodec_send_packet(codec_ctx_, packet_);
-    av_packet_unref(packet_);
+    rc = avcodec_send_packet(m_codecCtx, m_packet);
+    av_packet_unref(m_packet);
+    if (rc < 0) return false;
 
-    if (ret < 0) {
-        return false;
-    }
+    while (rc >= 0) {
+        rc = avcodec_receive_frame(m_codecCtx, m_decodeFrame);
+        if (rc == AVERROR(EAGAIN) || rc == AVERROR_EOF) break;
+        if (rc < 0) return false;
 
-    // Receive decoded frames
-    while (ret >= 0) {
-        ret = avcodec_receive_frame(codec_ctx_, decode_frame_);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            break;
-        }
-        if (ret < 0) {
-            return false;
-        }
+        const int64_t delay = swr_get_delay(m_swrCtx, m_codecCtx->sample_rate);
+        const int dstNbSamples = static_cast<int>(av_rescale_rnd(
+            delay + m_decodeFrame->nb_samples,
+            m_outputFormat.sampleRate, m_codecCtx->sample_rate, AV_ROUND_UP));
 
-        // Calculate output sample count after resampling
-        int64_t delay = swr_get_delay(swr_ctx_, codec_ctx_->sample_rate);
-        int dst_nb_samples = static_cast<int>(av_rescale_rnd(
-            delay + decode_frame_->nb_samples,
-            output_format_.sample_rate,
-            codec_ctx_->sample_rate,
-            AV_ROUND_UP));
+        const size_t outSize = dstNbSamples
+                             * m_outputFormat.channels * sizeof(float);
+        if (m_resampleBuffer.size() < outSize) m_resampleBuffer.resize(outSize);
+        uint8_t *dst = m_resampleBuffer.data();
 
-        // Reuse member buffer (avoids per-frame heap allocation)
-        size_t output_size = dst_nb_samples * output_format_.channels * sizeof(float);
-        if (resample_buffer_.size() < output_size) {
-            resample_buffer_.resize(output_size);
-        }
-        uint8_t* output_ptr = resample_buffer_.data();
+        // Per-channel peak tap for the inspector level meters.
+        // Done BEFORE the SwrContext fold so we capture the real
+        // source-channel signal (a 5.1 master's center channel,
+        // an 8-ch deliverable's stereo bounce, etc.) — what gets
+        // routed to L/R for playback is downstream of the user's
+        // mode pick. Cheap (one max-abs sweep per ~21ms frame).
+        computeFramePeaks(m_decodeFrame, m_sourceChannels,
+                            m_peakPerChannel);
 
-        // Resample
-        int samples_converted = swr_convert(swr_ctx_,
-                                            &output_ptr, dst_nb_samples,
-                                            (const uint8_t**)decode_frame_->data,
-                                            decode_frame_->nb_samples);
+        const int converted = swr_convert(
+            m_swrCtx, &dst, dstNbSamples,
+            const_cast<const uint8_t **>(m_decodeFrame->data),
+            m_decodeFrame->nb_samples);
 
-        if (samples_converted > 0) {
-            size_t bytes_to_write = samples_converted * output_format_.channels * sizeof(float);
-
-            // Write to ring buffer - wait if buffer is full to avoid dropping samples
-            // This is critical for WAV files which decode very fast
-            size_t total_written = 0;
-            const uint8_t* write_ptr = resample_buffer_.data();
-
-            while (total_written < bytes_to_write && running_ && !seek_requested_) {
-                size_t remaining = bytes_to_write - total_written;
-                size_t written = ring_buffer_->Write(write_ptr + total_written, remaining);
-                total_written += written;
-
-                if (total_written < bytes_to_write) {
-                    // Buffer full - wait a bit for consumer to drain some
+        if (converted > 0) {
+            const size_t bytesToWrite = static_cast<size_t>(converted)
+                                      * m_outputFormat.channels * sizeof(float);
+            // Block until the ring has space — codecs that decode
+            // faster than realtime (e.g. raw WAV) overrun otherwise.
+            size_t total = 0;
+            const uint8_t *p = m_resampleBuffer.data();
+            while (total < bytesToWrite
+                   && m_running.load() && !m_seekRequested.load()) {
+                const size_t n = m_ring->write(p + total, bytesToWrite - total);
+                total += n;
+                if (total < bytesToWrite) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(2));
                 }
             }
 
-            // Update decode position
-            if (decode_frame_->pts != AV_NOPTS_VALUE) {
-                AVStream* stream = format_ctx_->streams[audio_stream_idx_];
-                double pts = static_cast<double>(decode_frame_->pts - start_time_) * av_q2d(stream->time_base);
-                decode_position_ = pts;
+            if (m_decodeFrame->pts != AV_NOPTS_VALUE) {
+                AVStream *stream = m_formatCtx->streams[m_audioStreamIdx];
+                const double pts = static_cast<double>(
+                    m_decodeFrame->pts - m_streamStartTime)
+                    * av_q2d(stream->time_base);
+                m_decodePosition = pts;
             } else {
-                // Estimate based on samples decoded
-                decode_position_ = decode_position_.load() +
-                    static_cast<double>(samples_converted) / output_format_.sample_rate;
+                m_decodePosition = m_decodePosition.load()
+                    + static_cast<double>(converted) / m_outputFormat.sampleRate;
             }
         }
-
-        av_frame_unref(decode_frame_);
+        av_frame_unref(m_decodeFrame);
     }
-
     return true;
 }
 
-//=============================================================================
-// PCM Data Access
-//=============================================================================
-
-size_t AudioDecoder::Read(float* output, size_t frame_count) {
-    if (!ring_buffer_ || !output) return 0;
-
-    size_t bytes_requested = frame_count * output_format_.BytesPerFrame();
-    size_t bytes_read = ring_buffer_->Read(output, bytes_requested);
-    size_t frames_read = bytes_read / output_format_.BytesPerFrame();
-
-    // Fill remainder with silence if buffer underrun
-    if (frames_read < frame_count) {
-        size_t silence_start = frames_read * output_format_.channels;
-        size_t silence_count = (frame_count - frames_read) * output_format_.channels;
-        std::memset(output + silence_start, 0, silence_count * sizeof(float));
-    }
-
-    // Update read position
-    read_position_ = read_position_.load() +
-        static_cast<double>(frames_read) / output_format_.sample_rate;
-
-    return frames_read;
-}
-
-double AudioDecoder::GetBufferedDuration() const {
-    if (!ring_buffer_) return 0.0;
-    return output_format_.BytesToSeconds(ring_buffer_->AvailableRead());
-}
-
-bool AudioDecoder::HasData() const {
-    if (!ring_buffer_) return false;
-    // Consider "has data" if we have at least 10ms worth
-    return ring_buffer_->AvailableRead() >= output_format_.SecondsToBytes(0.01);
-}
-
-} // namespace qcview
+} // namespace qcv

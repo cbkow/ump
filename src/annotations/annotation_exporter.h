@@ -1,124 +1,94 @@
+// AnnotationExporter — Phase 3.H.6 Stage D.
+//
+// Format-agnostic walker that turns the in-memory note list into
+// a Markdown folder, a self-contained HTML file, or a PDF. DOCX
+// joins the family in a follow-up via QXmlStreamWriter + miniz.
+//
+// Usage:
+//   AnnotationExporter exp;
+//   exp.setManager(manager);
+//   exp.setMediaName("CAN_LL15_v001");
+//   exp.setMediaPath("/.../CAN_LL15_v001.mov");
+//   exp.exportPdf("/Users/.../notes.pdf");
+//
+// The exporter doesn't capture screenshots — it relies on the
+// already-on-disk note thumbnails (note_<TC>.png + the optional
+// _annotated.png sibling) that AnnotationManager + WindowManager
+// produce on note creation / stroke release. Annotated thumbs are
+// preferred when present so exported review docs match what the
+// user saw at QC time.
+
 #pragma once
 
-#include "annotation_note.h"
-#include <string>
+#include <QObject>
+#include <QString>
+
 #include <vector>
-#include <functional>
 
-#ifdef _WIN32
-#include <Windows.h>
-#include <shellapi.h>
-#endif
+namespace qcv {
 
-namespace qcview {
-namespace Annotations {
+class AnnotationManager;
 
-/**
- * AnnotationExporter - Exports annotation notes to various formats
- *
- * Supports exporting to:
- * - Markdown (folder with .md file and images/)
- * - HTML (standalone file with base64-embedded images)
- * - PDF (using libharu with embedded images)
- */
-class AnnotationExporter {
+class AnnotationExporter : public QObject {
+    Q_OBJECT
+
 public:
-    enum class ExportFormat {
-        MARKDOWN,
-        HTML,
-        PDF
-    };
+    explicit AnnotationExporter(QObject *parent = nullptr);
 
-    struct ExportOptions {
-        std::string media_name;           // Name of the media file
-        std::string media_path;           // Full path to media file
-        std::string output_directory;     // Where to save exported file(s)
-        ExportFormat format;              // Export format
-        double frame_rate = 24.0;         // For metadata
-        double duration = 0.0;            // For metadata
-        int width = 1920;                 // Video width for metadata
-        int height = 1080;                // Video height for metadata
-    };
+    void setManager(AnnotationManager *m)         { m_manager   = m; }
+    void setMediaName(const QString &n)           { m_mediaName = n; }
+    void setMediaPath(const QString &p)           { m_mediaPath = p; }
 
-    struct ExportProgress {
-        int total_notes = 0;
-        int current_note = 0;
-        std::string current_operation;
-        bool is_complete = false;
-        bool has_error = false;
-        std::string error_message;
-    };
+    // Each returns true on success. Markdown produces a folder
+    // (outputDir/{mediaName}-YYYYMMDD-HHMMSS/) with notes.md +
+    // images/. HTML and PDF write a single self-contained file.
+    // outputBaseName overrides the auto-derived "{mediaName}-{stamp}"
+    // for the markdown folder + .md filename. When empty, the
+    // exporter falls back to the media-name + timestamp pattern.
+    bool exportMarkdown(const QString &outputDir,
+                        const QString &outputBaseName = QString());
+    bool exportHtml(const QString &outputFile);
+    bool exportPdf(const QString &outputFile);
+    // Office Open XML (.docx). Hand-rolled OOXML zip via QZipWriter;
+    // each note is a Heading2 paragraph + image + body text. Opens
+    // cleanly in Microsoft Word, Pages, and Google Docs.
+    bool exportDocx(const QString &outputFile);
 
-    AnnotationExporter();
-    ~AnnotationExporter();
-
-    /**
-     * Callback for capturing a screenshot with annotation overlay
-     * Parameters: timestamp, annotation_data, output_path
-     * Returns: true if capture succeeded
-     */
-    using CaptureCallback = std::function<bool(
-        double timestamp,
-        const std::string& annotation_data,
-        const std::string& output_path
-    )>;
-    void SetCaptureCallback(CaptureCallback callback);
-
-    /**
-     * Callback for progress updates during export
-     */
-    using ProgressCallback = std::function<void(const ExportProgress& progress)>;
-    void SetProgressCallback(ProgressCallback callback);
-
-    /**
-     * Export notes to specified format
-     * Returns: path to exported file/folder on success, empty string on failure
-     */
-    std::string ExportNotes(
-        const std::vector<AnnotationNote>& notes,
-        const ExportOptions& options
-    );
-
-    /**
-     * Cancel ongoing export operation
-     */
-    void CancelExport();
-
-    /**
-     * Reveal a file or folder in the platform file manager
-     * @param path Path to file or folder
-     * @param is_folder True if path is a folder, false if it's a file
-     */
-    static void RevealInExplorer(const std::string& path, bool is_folder = false);
-
-    /**
-     * Helper functions (public for state machine usage)
-     */
-    std::string GenerateTimestamp() const;
-    std::string SanitizeFilename(const std::string& filename) const;
-    static std::string FormatTimecode(double timestamp_seconds, double frame_rate);
-    std::string FormatTimecode(const std::string& timecode) const;  // Keep for backward compatibility
+    // Resolves the bundled branding icon used at the top of every
+    // export doc. macOS app bundle → out-of-tree build → in-tree
+    // src/assets — same fallback chain as the safety SVG resolver.
+    static QString brandIconPath();
 
 private:
-    // Format-specific export implementations
-    std::string ExportMarkdown(const std::vector<AnnotationNote>& notes, const ExportOptions& options);
-    std::string ExportHTML(const std::vector<AnnotationNote>& notes, const ExportOptions& options);
-    std::string ExportPDF(const std::vector<AnnotationNote>& notes, const ExportOptions& options);
-    std::string EncodeImageToBase64(const std::string& image_path) const;
-    std::string GetGitHubMarkdownCSS() const;
+    // One row per note, materialized once and reused by every
+    // writer so the on-disk read happens exactly once.
+    struct ExportNote {
+        QString timecode;
+        int     frame             = 0;
+        double  timestampSeconds  = 0;
+        QString text;
+        bool    addressed         = false;
+        // absolute path on disk; preferred image is the annotated
+        // sibling when present, falling back to the clean PNG.
+        QString imagePath;
+        int     imageWidth        = 0;
+        int     imageHeight       = 0;
+    };
+    std::vector<ExportNote> collectNotes() const;
 
-    // Capture merged screenshot for a note
-    bool CaptureNoteImage(const AnnotationNote& note, const std::string& output_path);
+    // Common HTML body building block — used by both the HTML
+    // and PDF paths (QTextDocument's print path takes HTML).
+    // imageEmbedMode:
+    //   "base64" — inline data URIs (HTML standalone path)
+    //   "file"   — file:// URLs (PDF path; QTextDocument loads
+    //              the PNG via QImage and bakes it into the
+    //              page itself)
+    QString buildHtmlBody(const std::vector<ExportNote> &notes,
+                          const QString &imageEmbedMode) const;
 
-    // Progress tracking
-    void UpdateProgress(int current, int total, const std::string& operation);
-    void SetError(const std::string& error_message);
-
-    CaptureCallback capture_callback_;
-    ProgressCallback progress_callback_;
-    ExportProgress current_progress_;
-    bool cancel_requested_ = false;
+    AnnotationManager *m_manager = nullptr;
+    QString m_mediaName;
+    QString m_mediaPath;
 };
 
-} // namespace Annotations
-} // namespace qcview
+} // namespace qcv

@@ -1,88 +1,66 @@
+// AnnotationNote — direct lift from old QCView's
+// src/annotations/annotation_note.h per Guide 19 §2.4.
+//
+// Per-note metadata. One AnnotationNote per timecode in a piece of
+// media. Notes are always kept sorted by timecode (string compare).
+//
+// JSON schema preserved exactly from old app — same field names, same
+// types, same on-disk layout. Only the serde mechanism changed
+// (nlohmann::json → QJsonDocument) to match the rest of the port (see
+// PresetManager, etc.).
+//
+// Adaptation notes vs old app:
+//   - std::string → QString throughout
+//   - nlohmann::json to_json/from_json ADL pair → free functions
+//     noteToJson() / noteFromJson()
+//   - Schema unchanged: timecode, timestamp_seconds, frame, image,
+//     annotation_data (nested object on disk, JSON string in memory),
+//     text, addressed
+//
+// `annotation_data` is the schema's quirk: in memory it's a JSON
+// string (the stroke list), on disk it's parsed into a nested object
+// so the file is hand-readable. Round-trip preserves textual
+// equivalence; whitespace differences are not significant.
+
 #pragma once
 
-#include <string>
-#include <nlohmann/json.hpp>
+#include <QString>
 
-namespace qcview {
+#include <utility>
 
-/**
- * AnnotationNote - Single annotation/note data structure
- *
- * Designed for easy JSON export to Markdown/HTML/PDF via Pandoc
- * Notes are always sorted by timecode, not creation order
- */
+class QJsonObject;
+
+namespace qcv {
+
 struct AnnotationNote {
-    std::string timecode;           // HH:MM:SS:FF format (primary sort key)
-    double timestamp_seconds;       // Precise position in seconds for seeking
-    int frame;                      // Frame number at time of capture
-    std::string image_path;         // Relative path: "images/note_HH_MM_SS_FF.png"
-    std::string annotation_data;    // Future: JSON string for drawing/visual annotations (null for now)
-    std::string text;               // User's note content (supports multiline)
-    bool addressed;                 // Whether note has been addressed/resolved
+    QString timecode;          // HH:MM:SS:FF — primary sort key
+    double  timestamp_seconds = 0.0;
+    int     frame             = 0;
+    QString image_path;        // "images/note_HH_MM_SS_FF.png" (relative)
+    QString annotation_data;   // JSON string (stroke list); empty if none
+    QString text;              // user note (multi-line OK)
+    bool    addressed         = false;
 
-    // Default constructor
-    AnnotationNote()
-        : timestamp_seconds(0.0)
-        , frame(0)
-        , addressed(false)
-    {}
-
-    // Constructor with parameters
-    AnnotationNote(const std::string& tc, double ts, int f, const std::string& img, const std::string& txt)
-        : timecode(tc)
+    AnnotationNote() = default;
+    AnnotationNote(QString tc, double ts, int f, QString img, QString txt)
+        : timecode(std::move(tc))
         , timestamp_seconds(ts)
         , frame(f)
-        , image_path(img)
-        , annotation_data("")
-        , text(txt)
-        , addressed(false)
+        , image_path(std::move(img))
+        , text(std::move(txt))
     {}
 
-    // Comparison operator for sorting by timecode
-    bool operator<(const AnnotationNote& other) const {
-        return timecode < other.timecode;
-    }
-
-    // Equality operator
-    bool operator==(const AnnotationNote& other) const {
-        return timecode == other.timecode;
-    }
+    bool operator<(const AnnotationNote &o) const  { return timecode < o.timecode; }
+    bool operator==(const AnnotationNote &o) const { return timecode == o.timecode; }
 };
 
-// JSON serialization functions
-inline void to_json(nlohmann::json& j, const AnnotationNote& note) {
-    j = nlohmann::json{
-        {"timecode", note.timecode},
-        {"timestamp_seconds", note.timestamp_seconds},
-        {"frame", note.frame},
-        {"image", note.image_path},
-        {"annotation_data", note.annotation_data.empty() ? nullptr : nlohmann::json::parse(note.annotation_data)},
-        {"text", note.text},
-        {"addressed", note.addressed}
-    };
-}
+// Serialize a single note. The annotation_data field is parsed back to
+// a JSON object before embedding (preserves the on-disk shape: nested
+// object, not stringified).
+QJsonObject noteToJson(const AnnotationNote &note);
 
-inline void from_json(const nlohmann::json& j, AnnotationNote& note) {
-    j.at("timecode").get_to(note.timecode);
-    j.at("timestamp_seconds").get_to(note.timestamp_seconds);
-    j.at("frame").get_to(note.frame);
-    j.at("image").get_to(note.image_path);
+// Deserialize a single note from a JSON object. Returns false if
+// required fields are missing.
+bool noteFromJson(const QJsonObject &obj, AnnotationNote &out);
 
-    // annotation_data is optional and might be null
-    if (j.contains("annotation_data") && !j["annotation_data"].is_null()) {
-        note.annotation_data = j["annotation_data"].dump();
-    } else {
-        note.annotation_data = "";
-    }
-
-    j.at("text").get_to(note.text);
-
-    // addressed is optional for backward compatibility
-    if (j.contains("addressed")) {
-        j.at("addressed").get_to(note.addressed);
-    } else {
-        note.addressed = false;
-    }
-}
-
-} // namespace qcview
+} // namespace qcv

@@ -1,271 +1,251 @@
 #include "annotation_manager.h"
+
 #include "annotation_io.h"
-#include "../utils/debug_utils.h"
+
+#include <QDir>
+#include <QFileInfo>
+#include <QMutexLocker>
+
 #include <algorithm>
-#include <filesystem>
 
-namespace qcview {
+namespace qcv {
 
-AnnotationManager::AnnotationManager() {
+AnnotationManager::AnnotationManager(QObject *parent)
+    : QObject(parent)
+{
 }
 
-AnnotationManager::~AnnotationManager() {
+AnnotationManager::~AnnotationManager() = default;
+
+void AnnotationManager::setMediaPath(const QString &mediaPath)
+{
+    QMutexLocker lk(&notes_mutex_);
+    current_media_path_ = mediaPath;
 }
 
-void AnnotationManager::SetMediaPath(const std::string& media_path) {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-    current_media_path_ = media_path;
-}
+void AnnotationManager::loadNotesForMedia(const QString &mediaPath)
+{
+    is_loading_.store(true);
+    Q_EMIT loadingChanged(true);
 
-void AnnotationManager::LoadNotesForMedia(const std::string& media_path) {
-    is_loading_ = true;
+    setMediaPath(mediaPath);
 
-    // Set current media path
-    SetMediaPath(media_path);
+    std::vector<AnnotationNote> loaded;
+    const bool ok = annotation_io::loadNotes(loaded, mediaPath);
 
-    // Load notes from disk
-    std::vector<AnnotationNote> loaded_notes;
-    bool success = AnnotationIO::LoadNotes(loaded_notes, media_path);
-
-    if (success) {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-        notes_ = std::move(loaded_notes);
-        SortNotesByTimecode();
-        Debug::Log("Loaded " + std::to_string(notes_.size()) + " annotations for: " + media_path);
-    } else {
-        Debug::Log("Failed to load annotations for: " + media_path);
+    if (ok) {
+        QMutexLocker lk(&notes_mutex_);
+        notes_ = std::move(loaded);
+        sortNotesByTimecode();
     }
 
-    is_loading_ = false;
-    NotifyNotesChanged();
+    is_loading_.store(false);
+    Q_EMIT loadingChanged(false);
+    notifyNotesChanged();
 }
 
-void AnnotationManager::UnloadNotes() {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-    notes_.clear();
-    current_media_path_.clear();
-    NotifyNotesChanged();
-}
-
-void AnnotationManager::ClearNotes() {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-    notes_.clear();
-    current_media_path_.clear();
-    if (notes_changed_callback_) {
-        notes_changed_callback_();
-    }
-}
-
-void AnnotationManager::AddNote(double timestamp_seconds, const std::string& timecode, int frame, const std::string& text) {
+void AnnotationManager::unloadNotes()
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-
-        // Generate image filename
-        std::string image_filename = AnnotationIO::GenerateImageFilename(timecode);
-        std::string image_path = "images/" + image_filename;
-
-        // Create note
-        AnnotationNote note(timecode, timestamp_seconds, frame, image_path, text);
-        notes_.push_back(note);
-
-        // Keep sorted by timecode
-        SortNotesByTimecode();
-
-        Debug::Log("Added annotation at timecode: " + timecode);
+        QMutexLocker lk(&notes_mutex_);
+        notes_.clear();
+        current_media_path_.clear();
     }
-
-    // Save to disk
-    SaveNotesAsync();
-    NotifyNotesChanged();
+    notifyNotesChanged();
 }
 
-void AnnotationManager::UpdateNoteText(const std::string& timecode, const std::string& text) {
+void AnnotationManager::clearNotes()
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
+        QMutexLocker lk(&notes_mutex_);
+        notes_.clear();
+        current_media_path_.clear();
+    }
+    notifyNotesChanged();
+}
 
+void AnnotationManager::addNote(double timestampSeconds,
+                                const QString &timecode,
+                                int frame,
+                                const QString &text)
+{
+    {
+        QMutexLocker lk(&notes_mutex_);
+        const QString filename = annotation_io::generateImageFilename(timecode);
+        const QString imagePath = QStringLiteral("images/") + filename;
+        notes_.emplace_back(timecode, timestampSeconds, frame, imagePath, text);
+        sortNotesByTimecode();
+    }
+    saveNotesAsyncLocked();
+    notifyNotesChanged();
+}
+
+void AnnotationManager::updateNoteText(const QString &timecode,
+                                       const QString &text)
+{
+    {
+        QMutexLocker lk(&notes_mutex_);
         auto it = std::find_if(notes_.begin(), notes_.end(),
-            [&timecode](const AnnotationNote& note) {
-                return note.timecode == timecode;
-            });
-
-        if (it != notes_.end()) {
-            it->text = text;
-            Debug::Log("Updated annotation text at timecode: " + timecode);
-        }
+            [&](const AnnotationNote &n) { return n.timecode == timecode; });
+        if (it != notes_.end()) it->text = text;
     }
-
-    // Save to disk (unless in batch mode)
-    if (!batch_mode_) {
-        SaveNotesAsync();
-        NotifyNotesChanged();
+    if (!batch_mode_.load()) {
+        saveNotesAsyncLocked();
+        notifyNotesChanged();
     }
 }
 
-void AnnotationManager::UpdateNoteAnnotationData(const std::string& timecode, const std::string& annotation_data) {
+void AnnotationManager::updateNoteAnnotationData(const QString &timecode,
+                                                 const QString &annotationData)
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-
+        QMutexLocker lk(&notes_mutex_);
         auto it = std::find_if(notes_.begin(), notes_.end(),
-            [&timecode](const AnnotationNote& note) {
-                return note.timecode == timecode;
-            });
-
-        if (it != notes_.end()) {
-            it->annotation_data = annotation_data;
-            Debug::Log("Updated annotation data at timecode: " + timecode + " (" + std::to_string(annotation_data.length()) + " bytes)");
-        }
+            [&](const AnnotationNote &n) { return n.timecode == timecode; });
+        if (it != notes_.end()) it->annotation_data = annotationData;
     }
-
-    // Save to disk (unless in batch mode)
-    if (!batch_mode_) {
-        SaveNotesAsync();
-        NotifyNotesChanged();
+    if (!batch_mode_.load()) {
+        saveNotesAsyncLocked();
+        notifyNotesChanged();
     }
 }
 
-void AnnotationManager::UpdateNoteImagePath(const std::string& timecode, const std::string& image_path) {
+void AnnotationManager::updateNoteImagePath(const QString &timecode,
+                                            const QString &imagePath)
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-
+        QMutexLocker lk(&notes_mutex_);
         auto it = std::find_if(notes_.begin(), notes_.end(),
-            [&timecode](const AnnotationNote& note) {
-                return note.timecode == timecode;
-            });
-
-        if (it != notes_.end()) {
-            it->image_path = image_path;
-            Debug::Log("Updated image path at timecode: " + timecode + " -> " + image_path);
-        }
+            [&](const AnnotationNote &n) { return n.timecode == timecode; });
+        if (it != notes_.end()) it->image_path = imagePath;
     }
-
-    // Save to disk (unless in batch mode)
-    if (!batch_mode_) {
-        SaveNotesAsync();
-        NotifyNotesChanged();
+    if (!batch_mode_.load()) {
+        saveNotesAsyncLocked();
+        notifyNotesChanged();
     }
 }
 
-void AnnotationManager::UpdateNoteAddressed(const std::string& timecode, bool addressed) {
+void AnnotationManager::updateNoteAddressed(const QString &timecode, bool addressed)
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-
+        QMutexLocker lk(&notes_mutex_);
         auto it = std::find_if(notes_.begin(), notes_.end(),
-            [&timecode](const AnnotationNote& note) {
-                return note.timecode == timecode;
-            });
-
-        if (it != notes_.end()) {
-            it->addressed = addressed;
-            Debug::Log("Updated addressed status at timecode: " + timecode + " -> " + (addressed ? "true" : "false"));
-        }
+            [&](const AnnotationNote &n) { return n.timecode == timecode; });
+        if (it != notes_.end()) it->addressed = addressed;
     }
-
-    // Save to disk (unless in batch mode)
-    if (!batch_mode_) {
-        SaveNotesAsync();
-        NotifyNotesChanged();
+    if (!batch_mode_.load()) {
+        saveNotesAsyncLocked();
+        notifyNotesChanged();
     }
 }
 
-void AnnotationManager::DeleteNote(const std::string& timecode) {
+void AnnotationManager::deleteNote(const QString &timecode)
+{
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-
+        QMutexLocker lk(&notes_mutex_);
         auto it = std::find_if(notes_.begin(), notes_.end(),
-            [&timecode](const AnnotationNote& note) {
-                return note.timecode == timecode;
-            });
-
-        if (it != notes_.end()) {
-            // TODO: Delete screenshot file
-            notes_.erase(it);
-            Debug::Log("Deleted annotation at timecode: " + timecode);
-        }
+            [&](const AnnotationNote &n) { return n.timecode == timecode; });
+        // We deliberately do NOT delete the on-disk thumbnails
+        // (note_<TC>.png + _annotated.png) here. This method is
+        // called from BOTH the user-click delete path AND the
+        // annotation-undo path (when undoing the stroke that
+        // created a fresh note). The undo case must preserve the
+        // images so a subsequent redo can restore them.
+        //
+        // PNG file deletion is intentionally tied to an explicit
+        // user click only — handled in
+        // WindowManager::deleteAnnotationNote, which fires this
+        // method after wiping the files.
+        if (it != notes_.end()) notes_.erase(it);
     }
-
-    // Save to disk
-    SaveNotesAsync();
-    NotifyNotesChanged();
+    saveNotesAsyncLocked();
+    notifyNotesChanged();
 }
 
-AnnotationNote* AnnotationManager::GetNoteAtTimecode(const std::string& timecode) {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
+std::vector<AnnotationNote> AnnotationManager::notes() const
+{
+    QMutexLocker lk(&notes_mutex_);
+    return notes_;   // copy
+}
 
+AnnotationNote *AnnotationManager::noteAtTimecode(const QString &tc)
+{
+    QMutexLocker lk(&notes_mutex_);
     auto it = std::find_if(notes_.begin(), notes_.end(),
-        [&timecode](const AnnotationNote& note) {
-            return note.timecode == timecode;
-        });
-
-    if (it != notes_.end()) {
-        return &(*it);
-    }
-
-    return nullptr;
+        [&](const AnnotationNote &n) { return n.timecode == tc; });
+    return it == notes_.end() ? nullptr : &(*it);
 }
 
-const AnnotationNote* AnnotationManager::GetNoteAtTimecode(const std::string& timecode) const {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-
-    auto it = std::find_if(notes_.begin(), notes_.end(),
-        [&timecode](const AnnotationNote& note) {
-            return note.timecode == timecode;
-        });
-
-    if (it != notes_.end()) {
-        return &(*it);
-    }
-
-    return nullptr;
+const AnnotationNote *AnnotationManager::noteAtTimecode(const QString &tc) const
+{
+    QMutexLocker lk(&notes_mutex_);
+    auto it = std::find_if(notes_.cbegin(), notes_.cend(),
+        [&](const AnnotationNote &n) { return n.timecode == tc; });
+    return it == notes_.cend() ? nullptr : &(*it);
 }
 
-std::string AnnotationManager::GetImagesFolder() const {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-    return AnnotationIO::GetImagesFolder(current_media_path_);
+bool AnnotationManager::hasNotes() const
+{
+    QMutexLocker lk(&notes_mutex_);
+    return !notes_.empty();
 }
 
-std::string AnnotationManager::GetAnnotationsDirectory() const {
-    std::lock_guard<std::mutex> lock(notes_mutex_);
-    // Get the annotations folder path (parent of images folder)
-    std::string images_folder = AnnotationIO::GetImagesFolder(current_media_path_);
-    if (!images_folder.empty()) {
-        std::filesystem::path images_path(images_folder);
-        return images_path.parent_path().string();
-    }
-    return "";
+qsizetype AnnotationManager::noteCount() const
+{
+    QMutexLocker lk(&notes_mutex_);
+    return static_cast<qsizetype>(notes_.size());
 }
 
-void AnnotationManager::SortNotesByTimecode() {
-    // Notes are already sorted by timecode via operator<
+QString AnnotationManager::imagesFolder() const
+{
+    QMutexLocker lk(&notes_mutex_);
+    return annotation_io::getImagesFolder(current_media_path_);
+}
+
+QString AnnotationManager::annotationsDirectory() const
+{
+    QMutexLocker lk(&notes_mutex_);
+    const QString images = annotation_io::getImagesFolder(current_media_path_);
+    if (images.isEmpty()) return {};
+    return QFileInfo(images).absolutePath();
+}
+
+void AnnotationManager::forceSave()
+{
+    saveNotesAsyncLocked();
+    notifyNotesChanged();
+}
+
+void AnnotationManager::sortNotesByTimecode()
+{
+    // Caller holds notes_mutex_.
     std::sort(notes_.begin(), notes_.end());
 }
 
-void AnnotationManager::SaveNotesAsync() {
-    is_saving_ = true;
+void AnnotationManager::saveNotesAsyncLocked()
+{
+    is_saving_.store(true);
+    Q_EMIT savingChanged(true);
 
-    std::string media_path;
-    std::vector<AnnotationNote> notes_copy;
-
+    QString mediaPath;
+    std::vector<AnnotationNote> copy;
     {
-        std::lock_guard<std::mutex> lock(notes_mutex_);
-        media_path = current_media_path_;
-        notes_copy = notes_;
+        QMutexLocker lk(&notes_mutex_);
+        mediaPath = current_media_path_;
+        copy      = notes_;
     }
 
-    // Save (sync for now, will be async later)
-    AnnotationIO::SaveNotes(notes_copy, media_path);
+    // annotation_io::saveNotesAsync already runs off-thread via
+    // QtConcurrent. Fire-and-forget — we don't observe completion.
+    annotation_io::saveNotesAsync(copy, mediaPath);
 
-    is_saving_ = false;
+    is_saving_.store(false);
+    Q_EMIT savingChanged(false);
 }
 
-void AnnotationManager::NotifyNotesChanged() {
-    if (notes_changed_callback_) {
-        notes_changed_callback_();
-    }
+void AnnotationManager::notifyNotesChanged()
+{
+    Q_EMIT notesChanged();
 }
 
-void AnnotationManager::ForceSave() {
-    SaveNotesAsync();
-    NotifyNotesChanged();
-}
-
-} // namespace qcview
+} // namespace qcv

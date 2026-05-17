@@ -6,16 +6,14 @@ nav_order: 14
 
 # Thumbnails
 
-## Thumbnail window
+## Hover thumbnails
 
-Both videos and image sequences will generate thumbnails in the background on a low-priority thread. Thumbnails will populate the clip as markers. They will also be available, with more precision, when hovering over the timeline.
+Hover the timeline to preview the frame in the corner of the viewport. Hover thumbs render through the same OCIO pipeline as the main viewport — what you see on hover matches what you'll see when you seek. These thumbnails generate faster than full frames, so they are helpful with large media or media with codecs that don't scrub well.
 
-![Window](images/QCView_v062.webp)
+![Timeline hover thumbnail preview](images/qcv031.jpg)
 
 ---
 
-## Disabling Thumbnails
+## Disabling thumbnails
 
-You can disable thumbnail generation in the Settings menu, or by using the `Thumbnails` toggle button.
-
-![Window](images/QCView_v061.webp)
+Turn hover thumbnails off in Settings, or by clicking the toggle on the transport button row, if you prefer (focus mode, low-RAM systems). The clip filmstrip stays.

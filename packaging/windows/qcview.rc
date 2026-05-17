@@ -1,0 +1,10 @@
+// Windows resource script — embeds the multi-resolution app icon
+// (assets/icons/qcview.ico) into qcview.exe. Explorer + the taskbar
+// + the Alt+Tab switcher all read the first ICON entry in the .exe's
+// resource section. The .ico bundles 16/24/32/48/64/96/128/256 PNG-
+// compressed entries so high-DPI surfaces stay crisp.
+//
+// Path is relative to this .rc file's directory (rc.exe's default
+// resolve order). qcview.ico is generated from qcview.png via
+// `magick qcview.png -define icon:auto-resize=256,128,96,64,48,32,24,16 qcview.ico`.
+IDI_ICON1 ICON "..\\..\\assets\\icons\\qcview.ico"

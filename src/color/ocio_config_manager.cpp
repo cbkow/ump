@@ -1,465 +1,609 @@
 #include "ocio_config_manager.h"
-#include "../utils/asset_path.h"
-#include <iostream>
-#include <filesystem>
 
-OCIOConfigManager::OCIOConfigManager() {
-    std::cout << "=== OCIOConfigManager Constructor START ===" << std::endl;
-    std::cout.flush();
+#include "ocio_chain_builder.h"
+#include "ocio_lut_baker.h"
 
-    ScanForConfigs();
+#include <QCoreApplication>
+#include <QDir>
+#include <QFileInfo>
+#include <QHash>
+#include <QtLogging>
 
-    // TEMP: Test loading built-in ACES 2.0 config directly
-    std::cout << "TESTING: Attempting to load built-in ACES 2.0 config..." << std::endl;
-    std::cout.flush();
-    try {
-        auto test_config = OCIO::Config::CreateFromFile("ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5");
-        std::cout << "SUCCESS: Built-in ACES 2.0 config loaded!" << std::endl;
-        std::cout << "  Config name: " << test_config->getName() << std::endl;
-        std::cout << "  Num displays: " << test_config->getNumDisplays() << std::endl;
-        std::cout.flush();
-    } catch (const OCIO::Exception& e) {
-        std::cout << "FAILED: Could not load built-in config: " << e.what() << std::endl;
-        std::cout.flush();
+#include <cstdlib>
+
+#include <OpenColorIO/OpenColorIO.h>
+
+namespace OCIO = OCIO_NAMESPACE;
+
+namespace qcv {
+
+namespace {
+
+// Phase 2.5c: friendly names for shipped config directories.
+// Anything not in the table falls back to the dir name as-is.
+QString friendlyNameForDir(const QString &dirName)
+{
+    static const QHash<QString, QString> table{
+        { QStringLiteral("Blender5.1"), QStringLiteral("Blender 5.1") },
+        { QStringLiteral("Blender"),    QStringLiteral("Blender (legacy)") },
+        { QStringLiteral("ACES_2.0"),   QStringLiteral("ACES 2.0") },
+        { QStringLiteral("ACES_1.3"),   QStringLiteral("ACES 1.3") },
+    };
+    return table.value(dirName, dirName);
+}
+
+// Version gate per Guide 05 D10. A config that declares a higher
+// OCIO profile than the linked library can't be safely loaded —
+// reject before we let OCIO throw mid-build.
+bool isVersionAcceptable(const OCIO::ConstConfigRcPtr &cfg, QString *outReason)
+{
+    if (!cfg) {
+        if (outReason) *outReason = QStringLiteral("null config");
+        return false;
+    }
+    const int cfgMajor = cfg->getMajorVersion();
+    const int cfgMinor = cfg->getMinorVersion();
+    const int libMajor = OCIO::GetVersionHex() >> 24;
+    const int libMinor = (OCIO::GetVersionHex() >> 16) & 0xFF;
+    if (cfgMajor > libMajor
+        || (cfgMajor == libMajor && cfgMinor > libMinor)) {
+        if (outReason) {
+            *outReason = QStringLiteral(
+                "config declares OCIO %1.%2; linked library supports up to %3.%4")
+                .arg(cfgMajor).arg(cfgMinor).arg(libMajor).arg(libMinor);
+        }
+        return false;
+    }
+    return true;
+}
+
+// Phase 2.5: LUT slot extensions OCIO's FileTransform can load.
+// .cube is by far the most common interchange format; .3dl is older
+// (Discreet) but still used by some grading workflows; .csp is OCIO's
+// shaper-paired format.
+bool isSupportedLutExtension(const QString &path)
+{
+    const QString suffix = QFileInfo(path).suffix().toLower();
+    return suffix == QStringLiteral("cube")
+        || suffix == QStringLiteral("3dl")
+        || suffix == QStringLiteral("csp");
+}
+
+// Resolve the bundled OCIO assets directory.
+//
+// macOS .app bundle:  applicationDirPath() = qcview.app/Contents/MacOS
+//                     assets at:            qcview.app/Contents/Resources/assets/OCIO
+//                     → ../Resources/assets/OCIO
+//
+// Dev build (cmake)    is the same — `target_sources` with
+//                      MACOSX_PACKAGE_LOCATION puts the assets in the
+//                      built .app's Contents/Resources, so the same
+//                      relative-path resolution works whether the
+//                      .app is run from the build directory or from
+//                      a deployed bundle.
+//
+// Returns an empty QString if the directory doesn't exist (caller
+// falls back to ocio://default with a warning).
+QString resolveOcioAssetsDir()
+{
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QStringList candidates = {
+        appDir + QStringLiteral("/../Resources/assets/OCIO"),    // macOS bundle
+        appDir + QStringLiteral("/assets/OCIO"),                  // future Linux/Win
+        appDir + QStringLiteral("/../../assets/OCIO"),            // out-of-tree build
+    };
+    for (const QString &path : candidates) {
+        const QString canonical = QDir(path).canonicalPath();
+        if (!canonical.isEmpty() && QFileInfo(canonical).isDir()) {
+            return canonical;
+        }
+    }
+    return {};
+}
+
+} // namespace
+
+struct OCIOConfigManager::Impl {
+    OCIO::ConstConfigRcPtr config;
+};
+
+OCIOConfigManager::OCIOConfigManager(QObject *parent)
+    : QObject(parent), m_impl(std::make_unique<Impl>())
+{
+    // Phase 2.5c: build the enumerated config slot list once at
+    // startup ($OCIO env + scan of bundled assets/OCIO/), then load
+    // the highest-priority entry per Guide 05 §3:
+    //   1. Explicit user choice in Settings  (not yet — Phase 7+)
+    //   2. $OCIO env var (if set + valid + passes version gate)
+    //   3. Shipped default (Blender 5.1)
+    //   4. OCIO library built-in (last-resort)
+    enumerateConfigs();
+
+    bool loaded = false;
+    for (const ConfigSlot &slot : m_configSlots) {
+        qInfo("OCIOConfigManager: loading '%s' from %s",
+              qPrintable(slot.displayName), qPrintable(slot.path));
+        if (loadConfigFile(slot.path)) {
+            m_activeConfigName = slot.displayName;
+            loaded = true;
+            break;
+        }
+    }
+    if (!loaded) {
+        qWarning("OCIOConfigManager: no enumerated config loaded; "
+                 "falling back to ocio://default");
+        if (loadBuiltInDefault()) {
+            m_activeConfigName = QStringLiteral("OCIO built-in default");
+            // Add the built-in to the list so the UI has something
+            // to display in the Config reel.
+            m_configSlots.prepend({ m_activeConfigName,
+                                    QStringLiteral("ocio://default") });
+            emit availableConfigsChanged();
+        }
+    }
+}
+
+void OCIOConfigManager::enumerateConfigs()
+{
+    m_configSlots.clear();
+
+    // $OCIO env var — highest priority of the auto-discovered slots.
+    if (const char *envOcio = std::getenv("OCIO"); envOcio && *envOcio) {
+        const QString envPath = QString::fromUtf8(envOcio);
+        if (QFileInfo::exists(envPath)) {
+            // Version gate the env config before listing it. If it's
+            // out-of-version we still list it, but loadConfigFile
+            // will reject it on attempt — and the next slot wins.
+            m_configSlots.append({ QStringLiteral("$OCIO"), envPath });
+            qInfo("OCIOConfigManager: $OCIO points to %s", qPrintable(envPath));
+        } else {
+            qWarning("OCIOConfigManager: $OCIO=%s — file does not exist; ignored",
+                     envOcio);
+        }
     }
 
-    // Load Blender 5.1 config as default (OCIO 2.5, ACES 2.0 HDR views, EDR displays)
-    std::cout << "OCIOConfigManager: Loading default Blender 5.1 config..." << std::endl;
-    std::cout.flush();
-    if (!LoadConfiguration(OCIOConfigType::BLENDER5)) {
-        // Fallback to Blender 4.5 if 5.1 not found
-        std::cout << "Blender 5.1 not found, falling back to Blender 4.5..." << std::endl;
-        if (!LoadConfiguration(OCIOConfigType::BLENDER)) {
-            std::cout << "Failed to load Blender config" << std::endl;
+    // Bundled configs — scan assets/OCIO/* for any subdir containing
+    // a config.ocio. Order is alphabetical by friendly name except
+    // Blender 5.1 is always first (matches old app default).
+    const QString assetsDir = resolveOcioAssetsDir();
+    if (!assetsDir.isEmpty()) {
+        QDir d(assetsDir);
+        const QFileInfoList subdirs =
+            d.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Name);
+        QList<ConfigSlot> bundled;
+        for (const QFileInfo &sub : subdirs) {
+            const QString cfg = sub.absoluteFilePath()
+                                + QStringLiteral("/config.ocio");
+            if (QFileInfo::exists(cfg)) {
+                bundled.append({ friendlyNameForDir(sub.fileName()), cfg });
+            }
+        }
+        // Promote Blender 5.1 to the front of the bundled list.
+        for (int i = 0; i < bundled.size(); ++i) {
+            if (bundled[i].displayName == QStringLiteral("Blender 5.1")) {
+                bundled.move(i, 0);
+                break;
+            }
+        }
+        m_configSlots.append(bundled);
+    }
+
+    emit availableConfigsChanged();
+}
+
+OCIOConfigManager::~OCIOConfigManager() = default;
+
+bool OCIOConfigManager::loadBuiltInDefault()
+{
+    try {
+        m_impl->config = OCIO::Config::CreateFromFile("ocio://default");
+        m_configIdentifier = QStringLiteral("ocio://default");
+    } catch (const OCIO::Exception &e) {
+        qWarning("OCIOConfigManager: built-in default load failed: %s", e.what());
+        return false;
+    }
+    resetActiveDefaults();
+    emit configChanged();
+    return true;
+}
+
+bool OCIOConfigManager::loadConfigFile(const QString &path)
+{
+    OCIO::ConstConfigRcPtr candidate;
+    try {
+        candidate = OCIO::Config::CreateFromFile(path.toUtf8().constData());
+    } catch (const OCIO::Exception &e) {
+        qWarning("OCIOConfigManager: load %s failed: %s",
+                 qPrintable(path), e.what());
+        return false;
+    }
+    QString reason;
+    if (!isVersionAcceptable(candidate, &reason)) {
+        qWarning("OCIOConfigManager: rejected %s — %s",
+                 qPrintable(path), qPrintable(reason));
+        return false;
+    }
+    m_impl->config = candidate;
+    m_configIdentifier = path;
+    resetActiveDefaults();
+    emit configChanged();
+    return true;
+}
+
+bool OCIOConfigManager::setActiveConfig(const QString &name)
+{
+    if (name == m_activeConfigName) return true;
+    for (const ConfigSlot &slot : m_configSlots) {
+        if (slot.displayName == name) {
+            // For the built-in URI entry, route through the URI loader.
+            const bool ok = (slot.path == QStringLiteral("ocio://default"))
+                ? loadBuiltInDefault()
+                : loadConfigFile(slot.path);
+            if (ok) {
+                m_activeConfigName = name;
+                emit configChanged();   // configIdentifier + activeConfigName
+            }
+            return ok;
+        }
+    }
+    qWarning("OCIOConfigManager: unknown config '%s'", qPrintable(name));
+    return false;
+}
+
+QStringList OCIOConfigManager::availableConfigs() const
+{
+    QStringList out;
+    out.reserve(m_configSlots.size());
+    for (const ConfigSlot &slot : m_configSlots) {
+        out << slot.displayName;
+    }
+    return out;
+}
+
+QString OCIOConfigManager::configDescription() const
+{
+    if (!m_impl->config) return {};
+    const char *desc = m_impl->config->getDescription();
+    if (!desc) return {};
+    const QString full = QString::fromUtf8(desc).trimmed();
+    if (full.isEmpty()) return full;
+
+    // The ACES configs ship with multi-line descriptions plus an
+    // ASCII rule and trailing version-bracket tags, e.g.
+    //   "Academy Color Encoding System - Studio Config (All Views)
+    //    [COLORSPACES v4.0.0] [ACES v2.0] [OCIO v2.5]
+    //    ----------------------------------------..."
+    // The panel header is single-line, so collapse to the first
+    // non-rule content line and strip the trailing "[...] [...]"
+    // version tags.
+    QString line;
+    for (const QString &raw : full.split(QChar('\n'))) {
+        const QString t = raw.trimmed();
+        if (t.isEmpty()) continue;
+        bool allDash = (t.size() >= 4);
+        for (QChar c : t) {
+            if (c != QLatin1Char('-')) { allDash = false; break; }
+        }
+        if (allDash) continue;
+        line = t;
+        break;
+    }
+    if (line.isEmpty()) return full;
+
+    // Strip trailing "  [foo]  [bar]  ..." groups.
+    while (line.endsWith(QLatin1Char(']'))) {
+        const int open = line.lastIndexOf(QLatin1Char('['));
+        if (open <= 0) break;
+        line.truncate(open);
+        line = line.trimmed();
+    }
+    return line;
+}
+
+QString OCIOConfigManager::configIdentifier() const
+{
+    return m_configIdentifier;
+}
+
+QStringList OCIOConfigManager::colorspaces() const
+{
+    QStringList out;
+    if (!m_impl->config) return out;
+    for (int i = 0; i < m_impl->config->getNumColorSpaces(); ++i) {
+        out << QString::fromUtf8(m_impl->config->getColorSpaceNameByIndex(i));
+    }
+    return out;
+}
+
+QStringList OCIOConfigManager::displays() const
+{
+    QStringList out;
+    if (!m_impl->config) return out;
+    for (int i = 0; i < m_impl->config->getNumDisplays(); ++i) {
+        out << QString::fromUtf8(m_impl->config->getDisplay(i));
+    }
+    return out;
+}
+
+QStringList OCIOConfigManager::looks() const
+{
+    QStringList out;
+    if (!m_impl->config) return out;
+    for (int i = 0; i < m_impl->config->getNumLooks(); ++i) {
+        out << QString::fromUtf8(m_impl->config->getLookNameByIndex(i));
+    }
+    return out;
+}
+
+QStringList OCIOConfigManager::viewsForDisplay(const QString &display) const
+{
+    QStringList out;
+    if (!m_impl->config || display.isEmpty()) return out;
+    const QByteArray d = display.toUtf8();
+    const int n = m_impl->config->getNumViews(d.constData());
+    for (int i = 0; i < n; ++i) {
+        out << QString::fromUtf8(m_impl->config->getView(d.constData(), i));
+    }
+    return out;
+}
+
+QString OCIOConfigManager::exportLut(const QString &outPath, int cubeSize)
+{
+    if (!m_impl->config) {
+        return QStringLiteral("No OCIO config loaded");
+    }
+    if (outPath.isEmpty()) {
+        return QStringLiteral("Output path is empty");
+    }
+    if (cubeSize < 2) {
+        return QStringLiteral("Cube size must be ≥ 2 (got %1)").arg(cubeSize);
+    }
+
+    QString err;
+    OCIO::GroupTransformRcPtr group =
+        OcioChainBuilder::buildGroupTransform(this, m_impl->config, &err);
+    if (!group) {
+        return err.isEmpty() ? QStringLiteral("Chain build failed") : err;
+    }
+
+    try {
+        OCIO::ConstProcessorRcPtr proc = m_impl->config->getProcessor(group);
+        // OPTIMIZATION_DEFAULT enables OCIO's standard fast path
+        // (LUT prebake / pixel-format short-circuit). Sub-100 ms at
+        // 65³ on M-series silicon.
+        OCIO::ConstCPUProcessorRcPtr cpuProc =
+            proc->getOptimizedCPUProcessor(OCIO::OPTIMIZATION_DEFAULT);
+        return OcioLutBaker::writeCube(cpuProc, outPath, cubeSize);
+    } catch (const OCIO::Exception &e) {
+        return QStringLiteral("OCIO error: %1").arg(e.what());
+    }
+}
+
+void OCIOConfigManager::setActiveInput(const QString &name)
+{
+    if (m_activeInput == name) return;
+    // Empty = clear (slot becomes passthrough — Guide 05 D6).
+    if (!name.isEmpty() && !isValidColorSpace(name)) {
+        qWarning("OCIOConfigManager: rejected unknown Input colorspace '%s'",
+                 qPrintable(name));
+        return;
+    }
+    m_activeInput = name;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setActiveDisplay(const QString &name)
+{
+    if (m_activeDisplay == name) return;
+    if (!name.isEmpty() && !isValidDisplay(name)) {
+        qWarning("OCIOConfigManager: rejected unknown Display '%s'",
+                 qPrintable(name));
+        return;
+    }
+    m_activeDisplay = name;
+    // If current View is no longer valid for the new Display, snap
+    // to the first available view (or clear if there are none — e.g.
+    // when Display itself was just cleared).
+    if (!m_activeDisplay.isEmpty()
+        && !isValidViewForDisplay(m_activeDisplay, m_activeView)) {
+        const QStringList views = viewsForDisplay(m_activeDisplay);
+        m_activeView = views.isEmpty() ? QString() : views.first();
+    } else if (m_activeDisplay.isEmpty()) {
+        m_activeView.clear();
+    }
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setActiveView(const QString &name)
+{
+    if (m_activeView == name) return;
+    if (!name.isEmpty()
+        && !isValidViewForDisplay(m_activeDisplay, name)) {
+        qWarning("OCIOConfigManager: rejected View '%s' for Display '%s'",
+                 qPrintable(name), qPrintable(m_activeDisplay));
+        return;
+    }
+    m_activeView = name;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setActiveLook(const QString &name)
+{
+    if (m_activeLook == name) return;
+    if (!name.isEmpty() && !isValidLook(name)) {
+        qWarning("OCIOConfigManager: rejected unknown Look '%s'",
+                 qPrintable(name));
+        return;
+    }
+    m_activeLook = name;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setActiveSceneLutPath(const QString &path)
+{
+    if (m_activeSceneLutPath == path) return;
+    if (!path.isEmpty()) {
+        if (!QFileInfo::exists(path)) {
+            qWarning("OCIOConfigManager: Scene LUT file not found: %s",
+                     qPrintable(path));
+            return;
+        }
+        if (!isSupportedLutExtension(path)) {
+            qWarning("OCIOConfigManager: unsupported Scene LUT extension '%s' "
+                     "(expected .cube / .3dl / .csp)",
+                     qPrintable(QFileInfo(path).suffix()));
+            return;
+        }
+    }
+    m_activeSceneLutPath = path;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setActiveDisplayLutPath(const QString &path)
+{
+    if (m_activeDisplayLutPath == path) return;
+    if (!path.isEmpty()) {
+        if (!QFileInfo::exists(path)) {
+            qWarning("OCIOConfigManager: Display LUT file not found: %s",
+                     qPrintable(path));
+            return;
+        }
+        if (!isSupportedLutExtension(path)) {
+            qWarning("OCIOConfigManager: unsupported Display LUT extension '%s' "
+                     "(expected .cube / .3dl / .csp)",
+                     qPrintable(QFileInfo(path).suffix()));
+            return;
+        }
+    }
+    m_activeDisplayLutPath = path;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+void OCIOConfigManager::setEngaged(bool b)
+{
+    if (m_engaged == b) return;
+    m_engaged = b;
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
+}
+
+// -------- private --------
+
+void OCIOConfigManager::resetActiveDefaults()
+{
+    // Engagement is the user's persistent intent ("I want OCIO
+    // active") and is orthogonal to which config / chain is loaded.
+    // We don't touch m_engaged here so config switches preserve the
+    // user's engage state — they pick a new config and the new
+    // chain's defaults render live without having to re-flip the
+    // toggle. The two exceptions are (a) the no-config branch below,
+    // where there's no chain to engage with, and (b) the constructor's
+    // default initializer in the header (engaged = false on launch).
+    if (!m_impl->config) {
+        m_activeInput.clear();
+        m_activeDisplay.clear();
+        m_activeView.clear();
+        m_activeLook.clear();
+        m_activeSceneLutPath.clear();
+        m_activeDisplayLutPath.clear();
+        m_engaged = false;
+        emit activeChainChanged();
+        return;
+    }
+
+    // Default Input — try 'color_picking' role (sRGB-equivalent in
+    // most configs); fall back to 'scene_linear'; then to the first
+    // colorspace.
+    if (const char *cs = m_impl->config->getRoleColorSpace("color_picking"); cs && *cs) {
+        m_activeInput = QString::fromUtf8(cs);
+    } else if (const char *cs = m_impl->config->getRoleColorSpace("scene_linear"); cs && *cs) {
+        m_activeInput = QString::fromUtf8(cs);
+    } else if (m_impl->config->getNumColorSpaces() > 0) {
+        m_activeInput = QString::fromUtf8(
+            m_impl->config->getColorSpaceNameByIndex(0));
+    } else {
+        m_activeInput.clear();
+    }
+
+    // Default Display — config's default display.
+    if (const char *d = m_impl->config->getDefaultDisplay(); d && *d) {
+        m_activeDisplay = QString::fromUtf8(d);
+    } else if (m_impl->config->getNumDisplays() > 0) {
+        m_activeDisplay = QString::fromUtf8(m_impl->config->getDisplay(0));
+    } else {
+        m_activeDisplay.clear();
+    }
+
+    // Default View — prefer "Un-tone-mapped" when available (the
+    // OCIO 2.5 default config's identity-ish view for SDR content),
+    // else the config's getDefaultView() (often an ACES tone-mapped
+    // SDR view, which dims in-range content noticeably). Phase 2.4
+    // lets users pick anything else from the slot-machine UI.
+    if (!m_activeDisplay.isEmpty()) {
+        const QStringList views = viewsForDisplay(m_activeDisplay);
+        const QString preferUntonemapped = QStringLiteral("Un-tone-mapped");
+        if (views.contains(preferUntonemapped)) {
+            m_activeView = preferUntonemapped;
         } else {
-            std::cout << "Blender 4.5 config loaded." << std::endl;
+            const QByteArray d = m_activeDisplay.toUtf8();
+            if (const char *v = m_impl->config->getDefaultView(d.constData());
+                v && *v) {
+                m_activeView = QString::fromUtf8(v);
+            } else {
+                m_activeView = views.isEmpty() ? QString() : views.first();
+            }
         }
     } else {
-        std::cout << "Blender 5.1 config loaded. Standard + EDR workflows available." << std::endl;
+        m_activeView.clear();
     }
-    std::cout << "=== OCIOConfigManager Constructor END ===" << std::endl;
-    std::cout.flush();
+
+    m_activeLook.clear();
+    m_activeSceneLutPath.clear();
+    m_activeDisplayLutPath.clear();
+    // m_engaged intentionally preserved — see comment at top of fn.
+    m_activeChainGeneration.fetch_add(1, std::memory_order_acq_rel);
+    emit activeChainChanged();
 }
 
-void OCIOConfigManager::ScanForConfigs() {
-    available_configs.clear();
-
-    // Built-in fake sRGB config removed - now using Blender config for Standard workflows
-
-    // ACES 2.0 config — loaded from file (assets/OCIO/ACES_2.0/config.ocio)
-    // to include our custom EDR display outputs for macOS.
-    // Falls back to built-in URI if file not found (see config_folders scan below).
-
-    // Scan assets/OCIO/ directory for config files
-    std::string assets_ocio_path = GetAssetPath("assets/OCIO");
-
-    if (std::filesystem::exists(assets_ocio_path)) {
-        std::cout << "Scanning for OCIO configs in: " << assets_ocio_path << std::endl;
-
-        // Look for common config structures
-        // Format: {folder_name, display_name, config_type}
-        std::vector<std::tuple<std::string, std::string, OCIOConfigType>> config_folders = {
-            {"ACES_1.3", "ACES_1.3", OCIOConfigType::ACES_13},
-            {"ACES_2.0", "ACES 2.0", OCIOConfigType::ACES_20},
-            {"Blender", "Blender 4.5", OCIOConfigType::BLENDER},
-            {"Blender5.1", "Blender 5.1", OCIOConfigType::BLENDER5}
-        };
-
-        for (const auto& [folder, display_name, type] : config_folders) {
-            std::string config_path = assets_ocio_path + "/" + folder + "/config.ocio";
-            std::cout << "Checking for config: " << config_path << std::endl;
-            if (std::filesystem::exists(config_path)) {
-                available_configs.push_back({
-                    display_name,
-                    "Custom OCIO configuration",
-                    config_path,
-                    type
-                    });
-                std::cout << "Found config: " << config_path << std::endl;
-            } else {
-                std::cout << "Config not found: " << config_path << std::endl;
-            }
-        }
-    }
-    else {
-        std::cout << "Assets/OCIO directory not found - using built-in configs only" << std::endl;
-    }
-
-    // Fallback: if ACES 2.0 wasn't found on disk, use built-in URI
-    bool has_aces20 = false;
-    for (const auto& c : available_configs) {
-        if (c.type == OCIOConfigType::ACES_20) { has_aces20 = true; break; }
-    }
-    if (!has_aces20) {
-        available_configs.push_back({
-            "ACES 2.0",
-            "Built-in ACES 2.0 Studio Config (OCIO 2.5)",
-            "ocio://studio-config-v4.0.0_aces-v2.0_ocio-v2.5",
-            OCIOConfigType::ACES_20
-        });
-        std::cout << "ACES 2.0: using built-in config (no EDR displays)" << std::endl;
-    }
+bool OCIOConfigManager::isValidColorSpace(const QString &name) const
+{
+    if (!m_impl->config || name.isEmpty()) return false;
+    OCIO::ConstColorSpaceRcPtr cs = m_impl->config->getColorSpace(name.toUtf8().constData());
+    return cs != nullptr;
 }
 
-std::string OCIOConfigManager::GetConfigPath(OCIOConfigType type) const {
-    for (const auto& config_info : available_configs) {
-        if (config_info.type == type) {
-            return config_info.path;
-        }
+bool OCIOConfigManager::isValidDisplay(const QString &name) const
+{
+    if (!m_impl->config || name.isEmpty()) return false;
+    for (int i = 0; i < m_impl->config->getNumDisplays(); ++i) {
+        if (name == QString::fromUtf8(m_impl->config->getDisplay(i))) return true;
     }
-    return "";
-}
-
-bool OCIOConfigManager::LoadConfiguration(OCIOConfigType type) {
-    try {
-        std::string config_path = GetConfigPath(type);
-        std::cout << "Trying to load config type " << static_cast<int>(type) << " from path: " << config_path << std::endl;
-
-        if (config_path.empty()) {
-            std::cout << "Config path empty" << std::endl;
-            return false;
-        }
-
-        // Check if this is a URI (starts with "ocio://")
-        if (config_path.substr(0, 7) == "ocio://") {
-            std::cout << "Loading built-in config via URI: " << config_path << std::endl;
-            config = OCIO::Config::CreateFromFile(config_path.c_str());
-            active_config_type = type;
-            BuildAliasMappings();
-            std::cout << "Loaded built-in config successfully" << std::endl;
-            return true;
-        }
-
-        // Otherwise, load from file system
-        if (std::filesystem::exists(config_path)) {
-            std::cout << "Config file exists, loading..." << std::endl;
-            config = OCIO::Config::CreateFromFile(config_path.c_str());
-            active_config_type = type;
-            BuildAliasMappings();  // Build alias mappings after loading
-            std::cout << "Loaded OCIO config: " << config_path << std::endl;
-            return true;
-        } else {
-            std::cout << "Config path empty or file doesn't exist: " << config_path << std::endl;
-        }
-
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Failed to load OCIO config: " << e.what() << std::endl;
-    }
-
     return false;
 }
 
-bool OCIOConfigManager::SwitchToConfig(OCIOConfigType type) {
-    std::cout << "SwitchToConfig called: requested type=" << static_cast<int>(type)
-              << ", current type=" << static_cast<int>(active_config_type)
-              << ", config=" << (config ? "loaded" : "null") << std::endl;
-
-    // Check if we're already using this config
-    if (active_config_type == type && config != nullptr) {
-        std::cout << "Already using config type " << static_cast<int>(type) << std::endl;
-        return true;
-    }
-
-    std::cout << "Switching to config type " << static_cast<int>(type) << std::endl;
-    return LoadConfiguration(type);
-}
-
-bool OCIOConfigManager::LoadCustomConfiguration(const std::string& path) {
-    try {
-        if (std::filesystem::exists(path)) {
-            config = OCIO::Config::CreateFromFile(path.c_str());
-            active_config_type = OCIOConfigType::CUSTOM;
-            BuildAliasMappings();  // Build alias mappings after loading
-            std::cout << "Loaded custom OCIO config: " << path << std::endl;
+bool OCIOConfigManager::isValidViewForDisplay(const QString &display,
+                                              const QString &view) const
+{
+    if (!m_impl->config || display.isEmpty() || view.isEmpty()) return false;
+    const QByteArray d = display.toUtf8();
+    for (int i = 0; i < m_impl->config->getNumViews(d.constData()); ++i) {
+        if (view == QString::fromUtf8(m_impl->config->getView(d.constData(), i))) {
             return true;
         }
     }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Failed to load custom OCIO config: " << e.what() << std::endl;
-    }
-
     return false;
 }
 
-std::string OCIOConfigManager::GetActiveConfigName() const {
-    for (const auto& config_info : available_configs) {
-        if (config_info.type == active_config_type) {
-            return config_info.name;
-        }
-    }
-    return "Unknown Config";
+bool OCIOConfigManager::isValidLook(const QString &name) const
+{
+    if (!m_impl->config || name.isEmpty()) return false;
+    return m_impl->config->getLook(name.toUtf8().constData()) != nullptr;
 }
 
-std::vector<std::string> OCIOConfigManager::GetInputColorSpaces() const {
-    // Default behavior: include all colorspaces
-    return GetInputColorSpaces(false);
-}
-
-std::vector<std::string> OCIOConfigManager::GetInputColorSpaces(bool exclude_display_colorspaces) const {
-    std::vector<std::string> colorspaces;
-
-    if (!config) {
-        std::cerr << "No OCIO config loaded" << std::endl;
-        return colorspaces;
-    }
-
-    try {
-        for (int i = 0; i < config->getNumColorSpaces(); ++i) {
-            const char* name = config->getColorSpaceNameByIndex(i);
-            if (!name) continue;
-
-            // If filtering is enabled (for ACES 2.0), check encoding
-            if (exclude_display_colorspaces) {
-                auto cs = config->getColorSpace(name);
-                if (cs) {
-                    const char* encoding = cs->getEncoding();
-                    if (encoding) {
-                        std::string enc(encoding);
-                        // Skip display-referred encodings
-                        if (enc == "sdr-video" || enc == "hdr-video" ||
-                            enc == "edr-video" || enc == "display-linear") {
-                            continue;  // Skip this colorspace
-                        }
-                    }
-                }
-            }
-
-            colorspaces.push_back(name);
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error getting colorspaces: " << e.what() << std::endl;
-    }
-
-    return colorspaces;
-}
-
-std::vector<std::string> OCIOConfigManager::GetLooks() const {
-    if (!config) {
-        return {};
-    }
-
-    std::vector<std::string> looks;
-    try {
-        for (int i = 0; i < config->getNumLooks(); ++i) {
-            const char* name = config->getLookNameByIndex(i);
-            if (name) looks.push_back(name);
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error getting looks: " << e.what() << std::endl;
-    }
-
-    return looks;
-}
-
-std::vector<std::string> OCIOConfigManager::GetDisplays() const {
-    if (!config) {
-        return {};
-    }
-
-    std::vector<std::string> displays;
-    try {
-        for (int i = 0; i < config->getNumDisplays(); ++i) {
-            const char* name = config->getDisplay(i);
-            if (name) displays.push_back(name);
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error getting displays: " << e.what() << std::endl;
-    }
-
-    return displays;
-}
-
-std::vector<std::string> OCIOConfigManager::GetViews(const std::string& display) const {
-    if (!config) {
-        return {};
-    }
-
-    std::vector<std::string> views;
-    try {
-        int num_views = config->getNumViews(display.c_str());
-        for (int i = 0; i < num_views; ++i) {
-            const char* view_name = config->getView(display.c_str(), i);
-            if (view_name) {
-                views.push_back(view_name);
-            }
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error getting views for display '" << display << "': " << e.what() << std::endl;
-    }
-
-    return views;
-}
-
-void OCIOConfigManager::BuildAliasMappings() {
-    // Clear existing mappings
-    alias_to_full.clear();
-    full_to_alias.clear();
-    ui_to_full.clear();
-    full_to_ui.clear();
-
-    if (!config) return;
-
-    try {
-        // Build mappings for colorspaces
-        for (int i = 0; i < config->getNumColorSpaces(); ++i) {
-            const char* cs_name = config->getColorSpaceNameByIndex(i);
-            if (!cs_name) continue;
-
-            std::string full_name(cs_name);
-            std::string ui_name = ApplyUITruncation(full_name);
-
-            // Store UI mapping
-            ui_to_full[ui_name] = full_name;
-            full_to_ui[full_name] = ui_name;
-
-            // Get colorspace to check for aliases
-            auto cs = config->getColorSpace(cs_name);
-            int num_aliases = cs->getNumAliases();
-
-            if (num_aliases > 0) {
-                // Use first alias as the "best" alias
-                const char* best_alias = cs->getAlias(0);
-                if (best_alias) {
-                    std::string alias(best_alias);
-                    full_to_alias[full_name] = alias;
-                    alias_to_full[alias] = full_name;
-
-                    // Map all aliases to full name
-                    for (int j = 0; j < num_aliases; ++j) {
-                        const char* alias_name = cs->getAlias(j);
-                        if (alias_name) {
-                            alias_to_full[std::string(alias_name)] = full_name;
-                        }
-                    }
-                }
-            } else {
-                // No aliases, use full name as alias
-                full_to_alias[full_name] = full_name;
-                alias_to_full[full_name] = full_name;
-            }
-        }
-
-        // Build mappings for display colorspaces
-        for (int i = 0; i < config->getNumDisplays(); ++i) {
-            const char* display_name = config->getDisplay(i);
-            if (!display_name) continue;
-
-            std::string full_name(display_name);
-            std::string ui_name = ApplyUITruncation(full_name);
-
-            // Store UI mapping
-            ui_to_full[ui_name] = full_name;
-            full_to_ui[full_name] = ui_name;
-
-            // For displays, check if there's a corresponding display colorspace with aliases
-            try {
-                auto display_cs = config->getColorSpace(display_name);
-                if (display_cs) {
-                    int num_aliases = display_cs->getNumAliases();
-                    if (num_aliases > 0) {
-                        const char* best_alias = display_cs->getAlias(0);
-                        if (best_alias) {
-                            std::string alias(best_alias);
-                            full_to_alias[full_name] = alias;
-                            alias_to_full[alias] = full_name;
-
-                            // Map all aliases
-                            for (int j = 0; j < num_aliases; ++j) {
-                                const char* alias_name = display_cs->getAlias(j);
-                                if (alias_name) {
-                                    alias_to_full[std::string(alias_name)] = full_name;
-                                }
-                            }
-                        }
-                    } else {
-                        full_to_alias[full_name] = full_name;
-                        alias_to_full[full_name] = full_name;
-                    }
-                }
-            } catch (OCIO::Exception&) {
-                // Display might not have a colorspace, use name as alias
-                full_to_alias[full_name] = full_name;
-                alias_to_full[full_name] = full_name;
-            }
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error building alias mappings: " << e.what() << std::endl;
-    }
-}
-
-std::string OCIOConfigManager::ApplyUITruncation(const std::string& full_name) const {
-    // Apply the same truncation logic that the UI uses
-    size_t dash_pos = full_name.find(" - ");
-    if (dash_pos != std::string::npos) {
-        return full_name.substr(0, dash_pos);
-    }
-    return full_name;
-}
-
-std::string OCIOConfigManager::GetBestAlias(const std::string& full_name) const {
-    auto it = full_to_alias.find(full_name);
-    return (it != full_to_alias.end()) ? it->second : full_name;
-}
-
-std::string OCIOConfigManager::ResolveAlias(const std::string& alias) const {
-    auto it = alias_to_full.find(alias);
-    return (it != alias_to_full.end()) ? it->second : alias;
-}
-
-std::string OCIOConfigManager::GetUIName(const std::string& full_name) const {
-    auto it = full_to_ui.find(full_name);
-    return (it != full_to_ui.end()) ? it->second : ApplyUITruncation(full_name);
-}
-
-std::string OCIOConfigManager::GetFullName(const std::string& ui_name) const {
-    auto it = ui_to_full.find(ui_name);
-    return (it != ui_to_full.end()) ? it->second : ui_name;
-}
-
-std::vector<std::string> OCIOConfigManager::GetViewsForSource(
-    const std::string& display,
-    const std::string& src_colorspace) const {
-
-    std::vector<std::string> compatible_views;
-    if (!config) return compatible_views;
-
-    try {
-        // Get all views for this display
-        int num_views = config->getNumViews(display.c_str());
-
-        for (int i = 0; i < num_views; ++i) {
-            const char* view_name = config->getView(display.c_str(), i);
-            if (!view_name) continue;
-
-            // Test if this view is compatible with the source colorspace
-            // by attempting to create a DisplayViewTransform
-            try {
-                OCIO::DisplayViewTransformRcPtr test_transform = OCIO::DisplayViewTransform::Create();
-                test_transform->setSrc(src_colorspace.c_str());
-                test_transform->setDisplay(display.c_str());
-                test_transform->setView(view_name);
-
-                // Try to get a processor - if this fails, the view is incompatible
-                auto test_processor = config->getProcessor(test_transform);
-
-                // If we got here, the view is compatible
-                compatible_views.push_back(view_name);
-            }
-            catch (const OCIO::Exception&) {
-                // View not compatible with this source encoding - skip it
-            }
-        }
-    }
-    catch (const OCIO::Exception& e) {
-        std::cerr << "Error getting views for source '" << src_colorspace
-                  << "': " << e.what() << std::endl;
-    }
-
-    return compatible_views;
-}
+} // namespace qcv

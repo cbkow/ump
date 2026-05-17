@@ -1,382 +1,306 @@
 #include "annotation_io.h"
-#include "../utils/debug_utils.h"
-#include <nlohmann/json.hpp>
-#include <filesystem>
-#include <fstream>
-#include <sstream>
-#include <algorithm>
-#include <chrono>
-#include <future>
 
-#ifdef _WIN32
-#include <windows.h>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSaveFile>
+#include <QSet>
+#include <QThreadPool>
+#include <QtLogging>
+
+#include <algorithm>
+
+#ifdef Q_OS_WIN
+#  include <windows.h>
 #endif
 
-#include "../../external/glfw/deps/stb_image_write.h"
+namespace qcv::annotation_io {
 
-namespace fs = std::filesystem;
-using json = nlohmann::json;
+namespace {
 
-namespace qcview {
-namespace AnnotationIO {
+// Map a media-file extension to the canonical media_type label
+// embedded in notes.json. The field is metadata only — currently
+// no consumer reads it — but accurate values let external tools
+// (Frame.io export, future migration scripts) trust the kind.
+//
+// Extensions come from the same lists used in the LeftRail's
+// Add Media file dialog. Default falls back to "video" so we
+// match the old app's hardcoded behavior on anything we don't
+// recognize.
+QString kindForExtension(const QString &mediaPath)
+{
+    const QString ext = QFileInfo(mediaPath).suffix().toLower();
+    if (ext.isEmpty()) return QStringLiteral("video");
 
-std::string SanitizeMediaName(const std::string& filename) {
-    std::string sanitized = filename;
+    static const QSet<QString> videoExts = {
+        QStringLiteral("mov"), QStringLiteral("mp4"),
+        QStringLiteral("m4v"), QStringLiteral("mxf"),
+        QStringLiteral("mkv"), QStringLiteral("avi"),
+        QStringLiteral("webm")
+    };
+    static const QSet<QString> audioExts = {
+        QStringLiteral("wav"), QStringLiteral("aif"),
+        QStringLiteral("aiff"), QStringLiteral("mp3"),
+        QStringLiteral("flac"), QStringLiteral("m4a")
+    };
+    static const QSet<QString> imageExts = {
+        QStringLiteral("png"), QStringLiteral("jpg"),
+        QStringLiteral("jpeg"), QStringLiteral("tif"),
+        QStringLiteral("tiff"), QStringLiteral("exr"),
+        QStringLiteral("dpx"), QStringLiteral("bmp"),
+        QStringLiteral("gif")
+    };
 
-    // Replace invalid characters with underscore
-    const std::string invalid_chars = "<>:\"/\\|?*";
-    for (char& c : sanitized) {
-        if (invalid_chars.find(c) != std::string::npos) {
-            c = '_';
-        }
-    }
-
-    return sanitized;
+    if (videoExts.contains(ext)) return QStringLiteral("video");
+    if (audioExts.contains(ext)) return QStringLiteral("audio");
+    if (imageExts.contains(ext)) return QStringLiteral("image");
+    return QStringLiteral("video");
 }
 
-std::string GetQCViewPath(const std::string& media_path) {
-    fs::path path(media_path);
-    fs::path parent = path.parent_path();
+// Read-side: prefer .qcview, fall back to legacy .ump for back-compat.
+QString sidecarPathWithFallback(const QString &mediaPath)
+{
+    const QFileInfo info(mediaPath);
+    const QDir parent = info.absoluteDir();
 
-    // Create .qcview folder in the same directory as the media file
-    fs::path qcview_folder = parent / ".qcview";
+    const QString qcview = parent.filePath(QStringLiteral(".qcview"));
+    if (QFileInfo::exists(qcview)) return qcview;
 
-    return qcview_folder.string();
+    const QString ump = parent.filePath(QStringLiteral(".ump"));
+    if (QFileInfo::exists(ump)) return ump;
+
+    // Neither exists yet — return .qcview (will be created on save).
+    return qcview;
 }
 
-// Returns the sidecar folder, preferring .qcview but falling back to .ump for reading
-static std::string GetSidecarPathWithFallback(const std::string& media_path) {
-    fs::path path(media_path);
-    fs::path parent = path.parent_path();
+QDir projectSidecarWithFallback(const QDir &projectDir)
+{
+    const QString qcview = projectDir.filePath(QStringLiteral(".qcview"));
+    if (QFileInfo::exists(qcview)) return QDir(qcview);
 
-    fs::path qcview_folder = parent / ".qcview";
-    if (fs::exists(qcview_folder)) {
-        return qcview_folder.string();
-    }
+    const QString ump = projectDir.filePath(QStringLiteral(".ump"));
+    if (QFileInfo::exists(ump)) return QDir(ump);
 
-    // Fallback: check for legacy .ump folder
-    fs::path ump_folder = parent / ".ump";
-    if (fs::exists(ump_folder)) {
-        return ump_folder.string();
-    }
-
-    // Neither exists yet - return .qcview (will be created on save)
-    return qcview_folder.string();
+    return QDir(qcview);
 }
 
-std::string GetNotesJSONPath(const std::string& media_path) {
-    fs::path path(media_path);
-    std::string media_name = SanitizeMediaName(path.filename().string());
-
-    fs::path sidecar_path(GetSidecarPathWithFallback(media_path));
-    fs::path media_folder = sidecar_path / media_name;
-    fs::path json_path = media_folder / "notes.json";
-
-    return json_path.string();
+void setHiddenAttrIfWindows(const QString &path)
+{
+#ifdef Q_OS_WIN
+    SetFileAttributesW(reinterpret_cast<const wchar_t *>(path.utf16()),
+                       FILE_ATTRIBUTE_HIDDEN);
+#else
+    Q_UNUSED(path);
+#endif
 }
 
-std::string GetImagesFolder(const std::string& media_path) {
-    if (media_path.empty()) {
-        return "";
+} // namespace
+
+QString sanitizeMediaName(const QString &filename)
+{
+    QString out = filename;
+    static const QString invalid = QStringLiteral("<>:\"/\\|?*");
+    for (QChar &c : out) {
+        if (invalid.contains(c)) c = QLatin1Char('_');
     }
-
-    fs::path path(media_path);
-    std::string media_name = SanitizeMediaName(path.filename().string());
-
-    fs::path sidecar_path(GetSidecarPathWithFallback(media_path));
-    fs::path media_folder = sidecar_path / media_name;
-    fs::path images_folder = media_folder / "images";
-
-    return images_folder.string();
+    return out;
 }
 
-std::string GenerateImageFilename(const std::string& timecode) {
-    // Convert HH:MM:SS:FF to note_HH_MM_SS_FF.png
-    std::string filename = "note_";
-    for (char c : timecode) {
-        if (c == ':') {
-            filename += '_';
-        } else {
-            filename += c;
-        }
-    }
-    filename += ".png";
-    return filename;
+QString getQcViewPath(const QString &mediaPath)
+{
+    const QFileInfo info(mediaPath);
+    return info.absoluteDir().filePath(QStringLiteral(".qcview"));
 }
 
-// Returns project sidecar folder, preferring .qcview but falling back to .ump
-static fs::path GetProjectSidecarWithFallback(const fs::path& project_dir) {
-    fs::path qcview_folder = project_dir / ".qcview";
-    if (fs::exists(qcview_folder)) {
-        return qcview_folder;
-    }
-
-    fs::path ump_folder = project_dir / ".ump";
-    if (fs::exists(ump_folder)) {
-        return ump_folder;
-    }
-
-    return qcview_folder;
+QString getNotesJsonPath(const QString &mediaPath)
+{
+    const QFileInfo info(mediaPath);
+    const QString mediaName = sanitizeMediaName(info.fileName());
+    const QDir sidecar(sidecarPathWithFallback(mediaPath));
+    return sidecar.filePath(mediaName + QStringLiteral("/notes.json"));
 }
 
-std::string GetProjectAnnotationPath(const std::string& project_path, const std::string& timeline_name) {
-    if (project_path.empty() || timeline_name.empty()) {
-        return "";
-    }
-
-    fs::path proj_path(project_path);
-    fs::path project_dir = proj_path.parent_path();
-
-    // Sanitize timeline name for use as folder name
-    std::string sanitized_name = SanitizeMediaName(timeline_name);
-
-    // Build path: {project_dir}/.qcview/{timeline_name}/notes.json
-    fs::path sidecar_folder = GetProjectSidecarWithFallback(project_dir);
-    fs::path timeline_folder = sidecar_folder / sanitized_name;
-    fs::path json_path = timeline_folder / "notes.json";
-
-    return json_path.string();
+QString getImagesFolder(const QString &mediaPath)
+{
+    if (mediaPath.isEmpty()) return {};
+    const QFileInfo info(mediaPath);
+    const QString mediaName = sanitizeMediaName(info.fileName());
+    const QDir sidecar(sidecarPathWithFallback(mediaPath));
+    return sidecar.filePath(mediaName + QStringLiteral("/images"));
 }
 
-std::string GetProjectImagesFolder(const std::string& project_path, const std::string& timeline_name) {
-    if (project_path.empty() || timeline_name.empty()) {
-        return "";
-    }
-
-    fs::path proj_path(project_path);
-    fs::path project_dir = proj_path.parent_path();
-
-    // Sanitize timeline name for use as folder name
-    std::string sanitized_name = SanitizeMediaName(timeline_name);
-
-    // Build path: {project_dir}/.qcview/{timeline_name}/images/
-    fs::path sidecar_folder = GetProjectSidecarWithFallback(project_dir);
-    fs::path timeline_folder = sidecar_folder / sanitized_name;
-    fs::path images_folder = timeline_folder / "images";
-
-    return images_folder.string();
+QString generateImageFilename(const QString &timecode)
+{
+    QString tc = timecode;
+    tc.replace(QLatin1Char(':'), QLatin1Char('_'));
+    return QStringLiteral("note_") + tc + QStringLiteral(".png");
 }
 
-bool CreateProjectQCViewFolder(const std::string& project_path, const std::string& timeline_name) {
-    try {
-        if (project_path.empty() || timeline_name.empty()) {
-            Debug::Log("ERROR: Cannot create project QCView folder - empty project path or timeline name");
-            return false;
-        }
-
-        fs::path proj_path(project_path);
-        fs::path project_dir = proj_path.parent_path();
-
-        // Sanitize timeline name for use as folder name
-        std::string sanitized_name = SanitizeMediaName(timeline_name);
-
-        // Build path: {project_dir}/.qcview/{timeline_name}/
-        fs::path qcview_folder = project_dir / ".qcview";
-        fs::path timeline_folder = qcview_folder / sanitized_name;
-
-        // Create .qcview folder
-        if (!fs::exists(qcview_folder)) {
-            fs::create_directory(qcview_folder);
-
-            // On Windows, set hidden attribute
-            #ifdef _WIN32
-            SetFileAttributesA(qcview_folder.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
-            #endif
-
-            Debug::Log("Created project .qcview folder: " + qcview_folder.string());
-        }
-
-        // Create timeline-specific folder
-        if (!fs::exists(timeline_folder)) {
-            fs::create_directories(timeline_folder);
-            Debug::Log("Created timeline annotation folder: " + timeline_folder.string());
-        }
-
-        return true;
-    }
-    catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to create project QCView folder: " + std::string(e.what()));
-        return false;
-    }
+QString getProjectAnnotationPath(const QString &projectPath,
+                                 const QString &timelineName)
+{
+    if (projectPath.isEmpty() || timelineName.isEmpty()) return {};
+    const QFileInfo info(projectPath);
+    const QDir projectDir = info.absoluteDir();
+    const QString name = sanitizeMediaName(timelineName);
+    const QDir sidecar = projectSidecarWithFallback(projectDir);
+    return sidecar.filePath(name + QStringLiteral("/notes.json"));
 }
 
-bool CreateQCViewFolder(const std::string& media_path) {
-    try {
-        fs::path path(media_path);
-        std::string media_name = SanitizeMediaName(path.filename().string());
-
-        fs::path qcview_path(GetQCViewPath(media_path));
-        fs::path media_folder = qcview_path / media_name;
-
-        // Create .qcview folder
-        if (!fs::exists(qcview_path)) {
-            fs::create_directory(qcview_path);
-
-            // On Windows, set hidden attribute
-            #ifdef _WIN32
-            SetFileAttributesA(qcview_path.string().c_str(), FILE_ATTRIBUTE_HIDDEN);
-            #endif
-
-            Debug::Log("Created .qcview folder: " + qcview_path.string());
-        }
-
-        // Create media-specific folder
-        if (!fs::exists(media_folder)) {
-            fs::create_directories(media_folder);
-            Debug::Log("Created media folder: " + media_folder.string());
-        }
-
-        return true;
-    }
-    catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to create QCView folder: " + std::string(e.what()));
-        return false;
-    }
+QString getProjectImagesFolder(const QString &projectPath,
+                               const QString &timelineName)
+{
+    if (projectPath.isEmpty() || timelineName.isEmpty()) return {};
+    const QFileInfo info(projectPath);
+    const QDir projectDir = info.absoluteDir();
+    const QString name = sanitizeMediaName(timelineName);
+    const QDir sidecar = projectSidecarWithFallback(projectDir);
+    return sidecar.filePath(name + QStringLiteral("/images"));
 }
 
-bool EnsureImagesFolderExists(const std::string& media_path) {
-    try {
-        fs::path images_folder(GetImagesFolder(media_path));
-
-        if (!fs::exists(images_folder)) {
-            fs::create_directories(images_folder);
-            Debug::Log("Created images folder: " + images_folder.string());
-        }
-
-        return true;
-    }
-    catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to create images folder: " + std::string(e.what()));
-        return false;
-    }
-}
-
-bool SaveNotes(const std::vector<AnnotationNote>& notes, const std::string& media_path) {
-    try {
-        // Ensure folder structure exists
-        if (!CreateQCViewFolder(media_path)) {
-            return false;
-        }
-
-        // Build JSON object
-        json j;
-        fs::path path(media_path);
-        j["media_file"] = path.filename().string();
-        j["media_type"] = "video"; // TODO: Detect type from extension
-
-        // Current timestamp
-        auto now = std::chrono::system_clock::now();
-        auto time_t = std::chrono::system_clock::to_time_t(now);
-        std::ostringstream oss;
-        oss << std::put_time(std::gmtime(&time_t), "%Y-%m-%dT%H:%M:%SZ");
-        j["created"] = oss.str();
-
-        // Add notes array
-        j["notes"] = json::array();
-        for (const auto& note : notes) {
-            j["notes"].push_back(note);
-        }
-
-        // Write to file
-        std::string json_path = GetNotesJSONPath(media_path);
-        std::ofstream file(json_path);
-        if (!file.is_open()) {
-            Debug::Log("ERROR: Failed to open file for writing: " + json_path);
-            return false;
-        }
-
-        file << j.dump(2); // Pretty print with 2-space indent
-        file.close();
-
-        Debug::Log("Saved " + std::to_string(notes.size()) + " notes to: " + json_path);
-        return true;
-    }
-    catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to save notes: " + std::string(e.what()));
-        return false;
-    }
-}
-
-bool LoadNotes(std::vector<AnnotationNote>& notes, const std::string& media_path) {
-    try {
-        std::string json_path = GetNotesJSONPath(media_path);
-
-        // Check if file exists
-        if (!fs::exists(json_path)) {
-            Debug::Log("No annotations found for media: " + media_path);
-            notes.clear();
-            return true; // Not an error, just no notes
-        }
-
-        // Read file
-        std::ifstream file(json_path);
-        if (!file.is_open()) {
-            Debug::Log("ERROR: Failed to open annotations file: " + json_path);
-            return false;
-        }
-
-        // Parse JSON
-        json j;
-        file >> j;
-        file.close();
-
-        // Extract notes array
-        notes.clear();
-        if (j.contains("notes") && j["notes"].is_array()) {
-            for (const auto& note_json : j["notes"]) {
-                AnnotationNote note = note_json.get<AnnotationNote>();
-                notes.push_back(note);
-            }
-        }
-
-        // Sort by timecode
-        std::sort(notes.begin(), notes.end());
-
-        Debug::Log("Loaded " + std::to_string(notes.size()) + " notes from: " + json_path);
-        return true;
-    }
-    catch (const std::exception& e) {
-        Debug::Log("ERROR: Failed to load notes: " + std::string(e.what()));
-        notes.clear();
-        return false;
-    }
-}
-
-void LoadNotesAsync(const std::string& media_path, LoadCallback callback) {
-    std::thread([media_path, callback]() {
-        std::vector<AnnotationNote> notes;
-        bool success = LoadNotes(notes, media_path);
-        callback(success, notes);
-    }).detach();
-}
-
-void SaveNotesAsync(const std::vector<AnnotationNote>& notes, const std::string& media_path) {
-    std::thread([notes, media_path]() {
-        SaveNotes(notes, media_path);
-    }).detach();
-}
-
-bool SaveScreenshot(const std::string& image_path, const unsigned char* data, int width, int height) {
-    if (!data || width <= 0 || height <= 0) {
-        Debug::Log("SaveScreenshot: Invalid parameters");
+bool createProjectQcViewFolder(const QString &projectPath,
+                               const QString &timelineName)
+{
+    if (projectPath.isEmpty() || timelineName.isEmpty()) {
+        qWarning("annotation_io: cannot create project sidecar — empty path or timeline");
         return false;
     }
 
-    // Ensure parent directory exists
-    std::filesystem::path path(image_path);
-    if (path.has_parent_path()) {
-        std::filesystem::create_directories(path.parent_path());
-    }
+    const QFileInfo info(projectPath);
+    const QDir projectDir = info.absoluteDir();
+    const QString name = sanitizeMediaName(timelineName);
 
-    int result = stbi_write_png(image_path.c_str(), width, height, 4, data, width * 4);
-    if (result) {
-        Debug::Log("SaveScreenshot: Saved " + std::to_string(width) + "x" +
-                   std::to_string(height) + " to " + image_path);
-    } else {
-        Debug::Log("SaveScreenshot: Failed to write " + image_path);
+    const QString sidecarPath = projectDir.filePath(QStringLiteral(".qcview"));
+    const QDir sidecar(sidecarPath);
+    const bool sidecarExisted = sidecar.exists();
+
+    if (!QDir().mkpath(sidecar.filePath(name))) {
+        qWarning("annotation_io: failed to create %s",
+                 qPrintable(sidecar.filePath(name)));
+        return false;
     }
-    return result != 0;
+    if (!sidecarExisted) setHiddenAttrIfWindows(sidecarPath);
+    return true;
 }
 
-} // namespace AnnotationIO
-} // namespace qcview
+bool createQcViewFolder(const QString &mediaPath)
+{
+    const QFileInfo info(mediaPath);
+    const QString mediaName = sanitizeMediaName(info.fileName());
+
+    const QString sidecarPath = getQcViewPath(mediaPath);
+    const QDir sidecar(sidecarPath);
+    const bool sidecarExisted = sidecar.exists();
+
+    if (!QDir().mkpath(sidecar.filePath(mediaName))) {
+        qWarning("annotation_io: failed to create %s",
+                 qPrintable(sidecar.filePath(mediaName)));
+        return false;
+    }
+    if (!sidecarExisted) setHiddenAttrIfWindows(sidecarPath);
+    return true;
+}
+
+bool ensureImagesFolderExists(const QString &mediaPath)
+{
+    const QString folder = getImagesFolder(mediaPath);
+    if (folder.isEmpty()) return false;
+    if (!QDir().mkpath(folder)) {
+        qWarning("annotation_io: failed to create %s", qPrintable(folder));
+        return false;
+    }
+    return true;
+}
+
+bool saveNotes(const std::vector<AnnotationNote> &notes,
+               const QString &mediaPath)
+{
+    if (!createQcViewFolder(mediaPath)) return false;
+
+    QJsonObject root;
+    const QFileInfo info(mediaPath);
+    root.insert(QStringLiteral("media_file"), info.fileName());
+    root.insert(QStringLiteral("media_type"), kindForExtension(mediaPath));
+    root.insert(QStringLiteral("created"),
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+
+    QJsonArray notesArr;
+    for (const AnnotationNote &n : notes) {
+        notesArr.append(noteToJson(n));
+    }
+    root.insert(QStringLiteral("notes"), notesArr);
+
+    const QString path = getNotesJsonPath(mediaPath);
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly)) {
+        qWarning("annotation_io: cannot open %s for write: %s",
+                 qPrintable(path), qPrintable(f.errorString()));
+        return false;
+    }
+    f.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!f.commit()) {
+        qWarning("annotation_io: commit failed for %s", qPrintable(path));
+        return false;
+    }
+    return true;
+}
+
+bool loadNotes(std::vector<AnnotationNote> &notes, const QString &mediaPath)
+{
+    notes.clear();
+    const QString path = getNotesJsonPath(mediaPath);
+    if (!QFileInfo::exists(path)) {
+        return true;  // No notes yet — not an error.
+    }
+
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) {
+        qWarning("annotation_io: cannot open %s: %s",
+                 qPrintable(path), qPrintable(f.errorString()));
+        return false;
+    }
+
+    QJsonParseError err{};
+    const QJsonDocument doc = QJsonDocument::fromJson(f.readAll(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        qWarning("annotation_io: %s parse error: %s",
+                 qPrintable(path), qPrintable(err.errorString()));
+        return false;
+    }
+
+    const QJsonArray arr =
+        doc.object().value(QStringLiteral("notes")).toArray();
+    notes.reserve(static_cast<std::size_t>(arr.size()));
+    for (const QJsonValue &v : arr) {
+        if (!v.isObject()) continue;
+        AnnotationNote n;
+        if (noteFromJson(v.toObject(), n)) notes.push_back(std::move(n));
+    }
+    std::sort(notes.begin(), notes.end());
+    return true;
+}
+
+void loadNotesAsync(const QString &mediaPath, LoadCallback callback)
+{
+    // Fire-and-forget on the global pool; we don't observe completion.
+    QThreadPool::globalInstance()->start(
+        [mediaPath, cb = std::move(callback)]() {
+            std::vector<AnnotationNote> notes;
+            const bool ok = loadNotes(notes, mediaPath);
+            cb(ok, notes);
+        });
+}
+
+void saveNotesAsync(const std::vector<AnnotationNote> &notes,
+                    const QString &mediaPath)
+{
+    QThreadPool::globalInstance()->start([notes, mediaPath]() {
+        saveNotes(notes, mediaPath);
+    });
+}
+
+} // namespace qcv::annotation_io

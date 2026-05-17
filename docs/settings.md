@@ -6,20 +6,19 @@ nav_order: 11
 
 # Settings
 
-## Image Sequence Cache
+Open Settings with `Ctrl + ,` (or **Tools → Settings…**). The panel reveals in the Left Rail under the **Settings** section.
 
-After installing QCView, the first setting worth configuring is the transcode cache location. Under the **Image Sequence** tab, point the cache folder to a fast NVMe drive with plenty of free space — this is where transcoded sequences will be stored. The eviction settings in the same panel control how aggressively old transcodes are cleaned up.
+![Settings section in the Left Rail](images/qcv010.jpg)
 
-![Cache settings](images/QCView_v051.webp)
----
+## Image Sequence Settings
 
-## UI Scale
+Image sequence threading and cache window sizes are already set fairly aggressively by default. Consider making them smaller on a computer with fewer threads or less RAM; increasing these is unlikely to be beneficial.
 
-Drag the slider to scale the entire interface — fonts, panels, spacing, and icons. This setting persists between sessions.
 
-> `1.20x` is recommended for Windows systems running at 125% display scaling. On macOS, the default `1.0x` is most likely going to be too large for a retina screen.
+## A/V Sync Offset
 
-***QCView needs to be restarted for UI scaling changes to take effect.***
+A default A/V sync offset trim is applied at session start. Here you can customize them to your system. The single-source flow and dual-view flow store separate offsets — your sync trim for compositing two sources doesn't get applied to single-source playback and vice versa.
 
-![UI Scale settings](images/SCR-20260326-odak.png)
+## Hover Thumbnails
 
+Toggle the timeline hover thumbnail preview on or off (low-RAM systems or focus-mode users may prefer it off).

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Application manifest for qcview.exe.
+
+  longPathAware = true opts the process out of the legacy Win32
+  MAX_PATH (260) limit for file APIs. Required so .qcvproj save/load,
+  media open, and image-sequence directory traversal don't fail when
+  paths exceed 260 chars (deeply-nested EXR sequences hit this fast).
+
+  Note: this manifest opt-in is necessary but not sufficient — the
+  user (or admin) also needs LongPathsEnabled = 1 in
+  HKLM\SYSTEM\CurrentControlSet\Control\FileSystem (or via Group
+  Policy "Enable Win32 long paths"). Without that, Win32 APIs still
+  cap at 260 even for long-path-aware processes. Qt 6 on Windows
+  routes through the long-path-capable APIs when the manifest is set.
+-->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <longPathAware xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">true</longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

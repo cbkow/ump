@@ -7,44 +7,41 @@ nav_order: 1
 # QCView
 ---
 
-![QCView main interface](images/QCmain.webp)
+![QCView player window](images/qcv001.jpg)
 
-**QCView** is a professional media player and reviewer for Windows, macOS, and Linux (Debian/Wayland), built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a professional media player and reviewer for Windows and macOS, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
 
 ## Key Features
 
 ### Playback
-- Hardware-accelerated video decoding — D3D11VA on Windows, VideoToolbox on macOS, VA-API on Linux
-- HDR output: HDR10 (PQ/ST.2084) on Windows/Linux, Extended Dynamic Range (EDR) on macOS
-- Frame-accurate stepping with press-and-hold fast forward/rewind
-- Playlists and hover thumbnails with filmstrip view
-- Embedded timecode support
-- Audio playback with tempo-preserving time stretch
+- Hardware-accelerated video decoding — Vulkan-video on Windows, VideoToolbox on macOS, with FFmpeg software fallback
+- HDR10 (PQ / ST.2084) on Windows via DXGI + DirectComposition; Extended Dynamic Range (EDR) on macOS
+- Frame-accurate stepping with press-and-hold fast forward / rewind
+- Playlists with cross-clip seek, per-clip in/out trims, and hover thumbnail filmstrip
+- Embedded timecode (DV / TimeCode / MXF) with selectable origin
+- Audio playback (WASAPI / CoreAudio) with per-channel routing for multi-stream broadcast deliveries
+- A/V sync offset trim, separate dual-view value
 
 ### Image Sequences
-- [OpenEXR](https://openexr.com/en/latest/) with multichannel and multipart support
-- TIFF, PNG, and JPEG sequence playback
-- Automatic pipeline mode selection based on bit depth
+- [OpenEXR](https://openexr.com/) with multichannel and multipart support
+- TIFF, PNG, JPEG sequence playback
 
 ### Color
 - Live [OCIO](https://opencolorio.org/) color correction with a node-based interface
-- Bundled OCIO configs: ACES 2.0, Blender 5.1, ACES 1.3
-- Linear EDR display outputs for macOS HDR workflows
-- Multiple pipeline modes: 8-bit, 12-bit, 16-bit float
-- Screenshots with OCIO transforms applied
+- Bundled OCIO configs: ACES 2.0, ACES 1.3, Blender 5.1
+- Screenshots and notes exports apply the OCIO transform
 
 ### Review Tools
-- Annotation and notes system with drawing, line smoothing, and screenshot illustrations
-- Dual-view comparison mode
+- Annotations + notes with brush, line smoothing, screenshot illustrations, and Markdown / HTML / PDF / DOCX export
+- Dual-view comparison: side-by-side, split-wipe with mouse-drag seam, independent A / B controls
 - Title-safety guides for broadcast and social-media deliverables
 - Live background switching for alpha-channel review
-- [Frame.io](https://frame.io) comment integration
 
 ### Project Support
-- Adobe project metadata import
-- Custom project files (.qcv, .qcvproj, .qcvexr)
+- Adobe project metadata import (Premiere / After Effects timecode + project links via ExifTool)
+- Custom project files (`.qcvproj`)
 - `qcview://` URI scheme for sharing file paths
 
 ---
@@ -62,4 +59,4 @@ Use the sidebar to browse the full manual, including [installation](installation
 - [Third-Party Notices](https://github.com/cbkow/QCView-Player/blob/main/LICENSES/THIRD_PARTY_NOTICES.txt)
 - [Privacy Policy](privacy)
 
-QCView is open source under the GPL v3 license.
+QCView is free software released under the GNU General Public License version 3.

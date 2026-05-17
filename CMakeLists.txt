@@ -1,132 +1,153 @@
-cmake_minimum_required(VERSION 3.20)
-if(APPLE)
-    project(qcview VERSION 1.1.6 LANGUAGES CXX C OBJC OBJCXX)
-else()
-    project(qcview VERSION 1.1.6 LANGUAGES CXX C)
+cmake_minimum_required(VERSION 3.24)   # GLOBAL keyword on find_package (Phase F)
+
+# ---------------------------------------------------------------------
+# macOS deployment target — must be set BEFORE project() so the
+# compiler picks it up via -mmacosx-version-min. LSMinimumSystemVersion
+# in packaging/macos/Info.plist.in is hardcoded to the same 13.0; if
+# you bump one, bump the other.
+# ---------------------------------------------------------------------
+if(APPLE AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0"
+        CACHE STRING "Minimum macOS version" FORCE)
 endif()
 
+# ---------------------------------------------------------------------
+# Project
+# ---------------------------------------------------------------------
+project(qcview
+    VERSION 2.0.1
+    LANGUAGES CXX
+    DESCRIPTION "QCView Player — HDR-capable review tool (Qt Quick + QRhi rebuild)"
+)
+
+# Apple platforms also need Objective-C++ for native interop (CAMetalLayer etc.)
+if(APPLE)
+    enable_language(OBJC OBJCXX)
+endif()
+
+# ---------------------------------------------------------------------
+# Standards & global compile options
+# ---------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Set default build type if not specified
-if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
-# ==========================================================================
+# Lock against pre-Qt-6.11 deprecations (per dependencies.md §1)
+add_compile_definitions(QT_NO_DEPRECATED_BEFORE=0x060B00)
+
+# ---------------------------------------------------------------------
 # Platform detection
-# ==========================================================================
-if(UNIX AND NOT APPLE)
-    set(QCVIEW_LINUX TRUE)
+# ---------------------------------------------------------------------
+if(APPLE)
+    set(QCVIEW_PLATFORM "macos")
+elseif(WIN32)
+    set(QCVIEW_PLATFORM "windows")
+elseif(UNIX)
+    set(QCVIEW_PLATFORM "linux")
 else()
-    set(QCVIEW_LINUX FALSE)
+    message(FATAL_ERROR "Unsupported platform")
 endif()
 
-find_package(Threads REQUIRED)
+message(STATUS "QCView platform: ${QCVIEW_PLATFORM}")
 
-# ==========================================================================
-# External dependencies (GLFW, ImGui, ImPlot, NanoVG, OTIO, etc.)
-# ==========================================================================
+# ---------------------------------------------------------------------
+# Vendored deps prefix — when scripts/build_macos_deps.sh has been
+# run, external/install/ contains FFmpeg / OCIO / OpenEXR / etc. all
+# built for our deployment target. Prepend to CMAKE_PREFIX_PATH and
+# PKG_CONFIG_PATH so find_package + pkg_check_modules pick them up
+# BEFORE Homebrew. Falls through to Homebrew when the prefix doesn't
+# exist (dev iteration without rebuilding deps).
+# ---------------------------------------------------------------------
+set(QCV_VENDOR_PREFIX "${CMAKE_SOURCE_DIR}/external/install")
+if(APPLE AND EXISTS "${QCV_VENDOR_PREFIX}/lib")
+    list(PREPEND CMAKE_PREFIX_PATH "${QCV_VENDOR_PREFIX}")
+    if(DEFINED ENV{PKG_CONFIG_PATH})
+        set(ENV{PKG_CONFIG_PATH}
+            "${QCV_VENDOR_PREFIX}/lib/pkgconfig:$ENV{PKG_CONFIG_PATH}")
+    else()
+        set(ENV{PKG_CONFIG_PATH} "${QCV_VENDOR_PREFIX}/lib/pkgconfig")
+    endif()
+    message(STATUS "Using vendored deps from ${QCV_VENDOR_PREFIX}")
+endif()
+
+# ---------------------------------------------------------------------
+# Build options
+# ---------------------------------------------------------------------
+option(QCVIEW_USE_SYSTEM_FFMPEG  "Use system FFmpeg instead of FetchContent" ON)
+option(QCVIEW_USE_SYSTEM_OCIO    "Use system OCIO instead of FetchContent"   ON)
+option(QCVIEW_USE_SYSTEM_OPENEXR "Use system OpenEXR instead of FetchContent" ON)
+option(QCVIEW_BUILD_TESTS        "Build test harnesses" OFF)
+
+# Phase 7.5 — native QWindow + Metal/Vulkan player surface, instead
+# of the QQuickRhiItem-backed QML PlayerWindow.
+#
+# Phase B.8 (macOS cutover, 2026-04-27): default ON for macOS.
+# 4K EXR freeze fix landed at B.6.2; video / OCIO / annotations /
+# safety guides / drag-drop all wired through Phase B.6.x and B.7.
+#
+# Phase F.2.0 (2026-05-11): default ON for Windows too — the D3D11
+# native renderer lands in F.2.1 alongside this flip. macOS keeps
+# Metal; Windows uses D3D11 + DComp child-HWND (NOT Vulkan render).
+if(APPLE OR WIN32)
+    option(QCV_NATIVE_PLAYER "Use native QWindow + platform renderer (Metal/D3D11)" ON)
+else()
+    option(QCV_NATIVE_PLAYER "Use native QWindow + platform renderer (Metal/D3D11)" OFF)
+endif()
+
+# ---------------------------------------------------------------------
+# Qt 6.11 (per dependencies.md §1)
+# ---------------------------------------------------------------------
+find_package(Qt6 6.11 REQUIRED COMPONENTS
+    Core
+    Gui
+    GuiPrivate              # rhi/qrhi.h, rhi/qshader.h — renderer + Phase 2 shader baking
+    Quick
+    QuickControls2
+    ShaderTools
+    ShaderToolsPrivate      # rhi/qshaderbaker.h — Phase 2 OCIO → QShader pipeline
+    Network
+    Concurrent
+    Multimedia
+)
+
+qt_standard_project_setup(REQUIRES 6.11)
+
+# ---------------------------------------------------------------------
+# CMake helper modules
+# ---------------------------------------------------------------------
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
+# ---------------------------------------------------------------------
+# External dependencies (FetchContent + system finds)
+# ---------------------------------------------------------------------
 add_subdirectory(external)
 
-get_property(all_targets DIRECTORY external PROPERTY BUILDSYSTEM_TARGETS)
-message(STATUS "Available targets from external: ${all_targets}")
+# ---------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------
+add_subdirectory(src)
 
-# ==========================================================================
-# Collect all source files, then let platform cmake filter them
-# ==========================================================================
-file(GLOB_RECURSE SOURCES
-    "src/*.cpp"
-    "src/*.h"
-)
+# ---------------------------------------------------------------------
+# Tools — small CLI utilities used during development (probe-video,
+# eventually transcode CLI, etc.). Always built; cheap.
+# ---------------------------------------------------------------------
+add_subdirectory(tools)
 
-# ==========================================================================
-# Platform-specific configuration
-# Each platform cmake file handles: compiler flags, packages, source
-# filtering, executable creation, includes, link libraries, and packaging.
-# ==========================================================================
-if(QCVIEW_LINUX)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/linux.cmake)
-elseif(WIN32)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows.cmake)
-elseif(APPLE)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos.cmake)
-endif()
-
-# ==========================================================================
-# Common include directories (cross-platform)
-# ==========================================================================
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/imnodes
-    ${CMAKE_CURRENT_SOURCE_DIR}/src/ui
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/glad/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui/backends
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/implot
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/glm
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/nlohmann
-    ${CMAKE_BINARY_DIR}/_deps/libharu-src/include
-    ${CMAKE_BINARY_DIR}/_deps/libharu-build/include
-    # OpenTimelineIO headers
-    ${CMAKE_BINARY_DIR}/_deps/opentimelineio-src/src
-    # ink-stroke-modeler headers
-    ${CMAKE_BINARY_DIR}/_deps/ink_stroke_modeler-src
-    # imgui_markdown (single-header Markdown rendering for ImGui)
-    ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui_markdown
-)
-
-# ==========================================================================
-# Common link libraries (cross-platform)
-# ==========================================================================
-if(NOT APPLE)
-    target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/external/glfw/include
-    )
-endif()
-
-target_link_libraries(${PROJECT_NAME}
-    glad
-    imgui
-    implot
-    nanovg                                                              # NanoVG vector graphics
-    nfd
-    opentimelineio                                                      # OpenTimelineIO
-    InkStrokeModeler::stroke_modeler                                    # Google's stroke smoothing library
-    hpdf                                                                # libharu for PDF export
-    Threads::Threads
-)
-if(NOT APPLE)
-    target_link_libraries(${PROJECT_NAME} glfw)
-endif()
-
-# Enable OpenTimelineIO support
-target_compile_definitions(${PROJECT_NAME} PRIVATE USE_OPENTIMELINEIO)
-
-# ==========================================================================
-# Set target properties
-# ==========================================================================
-set_property(TARGET ${PROJECT_NAME} PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-
-# ==========================================================================
-# Copy assets (cross-platform)
-# ==========================================================================
-# On macOS, assets go to Contents/Resources/ (handled in cmake/macos.cmake).
-# The cross-platform copy to the executable dir is only needed on Windows/Linux.
-if(NOT APPLE)
-    message(STATUS "Setting up asset copying for all build configurations")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:${PROJECT_NAME}>/assets"
-        COMMENT "Copying assets to output directory"
-    )
-endif()
-
-# Copy shaders (only if directory has files)
-if(SHADER_FILES)
-    message(STATUS "Will copy shaders: ${SHADER_FILES}")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
-    )
-endif()
+# ---------------------------------------------------------------------
+# Packaging (Windows MSIX)
+#
+# Adds a qcview_msix target that packages the staged build-release/ into
+# installer/msix/dist/QCView-${PROJECT_VERSION}-win64.msix. Runs only on
+# Windows; the subdir's CMakeLists early-returns elsewhere. Both Store
+# submission (unsigned MSIX) and signed-sideload flows are driven by the
+# same target — see installer/README.md for the env-var-based signing
+# switch.
+# ---------------------------------------------------------------------
+add_subdirectory(installer)

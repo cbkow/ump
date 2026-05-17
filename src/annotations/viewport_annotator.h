@@ -1,247 +1,196 @@
+// ViewportAnnotator — adapted from old QCView's
+// src/annotations/viewport_annotator.{h,cpp} per Guide 19 §2.5.
+//
+// Manages annotation drawing state for one viewport. The old app
+// polled ImGui::GetIO() for mouse state inside ProcessInput(); this
+// port flips that to a push-based API: the caller (PlayerWindow's
+// mousePress/Move/Release event handlers) calls onPointerEvent() and
+// the annotator drives its stroke state machine off those events.
+//
+// Adaptation notes vs old app:
+//   - ViewportMode::PLAYBACK / ANNOTATION → ::Playback / Annotation
+//   - DrawingTool / ActiveStroke already in active_stroke.h (A.2.2)
+//   - ImVec2 → QPointF, ImVec4 → QColor (both already adapted)
+//   - ImGui::GetIO() polling → onPointerEvent(Phase, pos, t) push API
+//   - chrono::steady_clock for stroke-relative timestamps → caller
+//     supplies qint64 ms timestamp (QInputEvent::timestamp())
+//   - allow_input_in_popup_ + IsPopupOpen suppression dropped: Qt
+//     popups consume events natively before they reach this class
+//   - Per-platform default stroke width preserved (#ifdef Q_OS_MACOS)
+
 #pragma once
 
-#include <imgui.h>
-#include <vector>
+#include "active_stroke.h"
+
+#include <QColor>
+#include <QPointF>
+#include <QSizeF>
+
+#include <functional>
 #include <memory>
-#include <chrono>
-#include "annotation_note.h"
+#include <mutex>
+#include <vector>
 
-// Forward declaration
-namespace qcview {
-namespace Annotations {
+namespace qcv {
+
 class InkStrokeModelerWrapper;
-}
-}
 
-namespace qcview {
-namespace Annotations {
-
-/**
- * Viewport mode determines how the video viewport handles user input.
- */
 enum class ViewportMode {
-    PLAYBACK,    // Normal video playback/scrubbing - default mode
-    ANNOTATION   // Drawing mode - playback disabled, annotation tools active
+    Playback,    // Default: events pass through to playback / scrub.
+    Annotation,  // Drawing tools active; events become stroke input.
 };
 
-/**
- * Drawing tool types available in annotation mode.
- */
-enum class DrawingTool {
-    NONE,
-    FREEHAND,
-    RECTANGLE,
-    OVAL,
-    ARROW,
-    LINE
+enum class PointerPhase {
+    Press,
+    Move,
+    Release,
 };
 
-/**
- * Represents a single drawing stroke or shape being created.
- */
-struct ActiveStroke {
-    DrawingTool tool = DrawingTool::NONE;
-    std::vector<ImVec2> points;       // Normalized coordinates (0-1 range)
-    std::vector<double> timestamps;   // Timestamp for each point (seconds since stroke start)
-    ImVec4 color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // RGBA
-#ifdef __APPLE__
-    float stroke_width = 6.0f;
-#else
-    float stroke_width = 4.0f;
-#endif
-    bool filled = false;
-    bool is_complete = false;
-    bool is_modeled = false;          // True if points are already smoothed by ink-stroke-modeler
-
-    void Clear() {
-        tool = DrawingTool::NONE;
-        points.clear();
-        timestamps.clear();
-        is_complete = false;
-        is_modeled = false;
-    }
-};
-
-/**
- * Manages viewport annotation mode, drawing interactions, and coordinate conversions.
- * Handles the transition between playback and annotation modes.
- */
 class ViewportAnnotator {
 public:
     ViewportAnnotator();
-    ~ViewportAnnotator();  // Defined in .cpp where InkStrokeModelerWrapper is complete
+    ~ViewportAnnotator();   // out-of-line: InkStrokeModelerWrapper is incomplete here
 
-    /**
-     * Get current viewport mode.
-     */
-    ViewportMode GetMode() const { return mode_; }
+    ViewportAnnotator(const ViewportAnnotator&)            = delete;
+    ViewportAnnotator& operator=(const ViewportAnnotator&) = delete;
 
-    /**
-     * Set viewport mode.
-     */
-    void SetMode(ViewportMode new_mode);
+    // ---- Mode ----
+    ViewportMode mode() const                  { return mode_; }
+    void         setMode(ViewportMode m);
+    ViewportMode toggleMode();
+    bool         isAnnotationMode() const      { return mode_ == ViewportMode::Annotation; }
 
-    /**
-     * Toggle between PLAYBACK and ANNOTATION modes.
-     * Returns the new mode.
-     */
-    ViewportMode ToggleMode();
+    // ---- Tool / style ----
+    DrawingTool activeTool() const             { return active_tool_; }
+    void        setActiveTool(DrawingTool t)   { active_tool_ = t; }
 
-    /**
-     * Check if currently in annotation mode.
-     */
-    bool IsAnnotationMode() const { return mode_ == ViewportMode::ANNOTATION; }
+    QColor drawingColor() const                { return drawing_color_; }
+    void   setDrawingColor(const QColor &c)    { drawing_color_ = c; }
 
-    /**
-     * Allow drawing input even when a popup is open (for modal editing).
-     */
-    void SetAllowInputInPopup(bool allow) { allow_input_in_popup_ = allow; }
+    float strokeWidth() const                  { return stroke_width_; }
+    void  setStrokeWidth(float w)              { stroke_width_ = w; }
 
-    /**
-     * Get current active drawing tool.
-     */
-    DrawingTool GetActiveTool() const { return active_tool_; }
+    bool fillEnabled() const                   { return fill_enabled_; }
+    void setFillEnabled(bool e)                { fill_enabled_ = e; }
 
-    /**
-     * Set active drawing tool.
-     */
-    void SetActiveTool(DrawingTool tool) { active_tool_ = tool; }
+    // ---- Viewport rect (display area in screen coordinates) ----
+    // Update on every viewport resize / aspect-fit recompute.
+    void setViewportRect(QPointF displayPos, QSizeF displaySize);
 
-    /**
-     * Get current drawing color.
-     */
-    ImVec4 GetDrawingColor() const { return drawing_color_; }
+    // ---- Input ----
+    // Returns true if the event was consumed by the annotation system.
+    // `screenPos` is in viewport-window pixels (same coord system as
+    // the display rect). `timestampMs` should monotonically increase;
+    // QInputEvent::timestamp() satisfies that.
+    bool onPointerEvent(PointerPhase phase, QPointF screenPos, qint64 timestampMs);
 
-    /**
-     * Set drawing color (RGBA).
-     */
-    void SetDrawingColor(const ImVec4& color) { drawing_color_ = color; }
+    // ---- Active stroke ----
+    const ActiveStroke *activeStroke() const {
+        return active_stroke_.tool != DrawingTool::None ? &active_stroke_ : nullptr;
+    }
+    void clearActiveStroke();
 
-    /**
-     * Get current stroke width.
-     */
-    float GetStrokeWidth() const { return stroke_width_; }
+    // Thread-safe copy of the active stroke under active_stroke_mutex_.
+    // Returns false if no stroke. Use this from the render thread —
+    // dereferencing activeStroke() while the GUI thread mutates points
+    // via onPointerEvent() trips Debug CRT's iterator-validity check.
+    // Metal renderer can stay on the raw-pointer path (libc++'s
+    // iterator debug is more permissive on macOS); D3D11 must
+    // snapshot under lock.
+    bool snapshotActiveStroke(ActiveStroke &out) const;
 
-    /**
-     * Set stroke width (pixels).
-     */
-    void SetStrokeWidth(float width) { stroke_width_ = width; }
+    // Pop the in-progress stroke off; caller takes ownership.
+    // Returns nullptr if no stroke or stroke has no points.
+    std::unique_ptr<ActiveStroke> finalizeStroke();
 
-    /**
-     * Get fill enabled state for shapes.
-     */
-    bool IsFillEnabled() const { return fill_enabled_; }
-
-    /**
-     * Set fill enabled for shapes.
-     */
-    void SetFillEnabled(bool enabled) { fill_enabled_ = enabled; }
-
-    /**
-     * Process mouse input for drawing in the viewport.
-     * Call this from the viewport window's input handling.
-     *
-     * @param display_pos Top-left corner of video display area (screen coords)
-     * @param display_size Size of video display area (screen coords)
-     * @return true if input was consumed by annotation system
-     */
-    bool ProcessInput(const ImVec2& display_pos, const ImVec2& display_size);
-
-    /**
-     * Get the current active stroke being drawn (if any).
-     */
-    const ActiveStroke* GetActiveStroke() const {
-        return active_stroke_.tool != DrawingTool::NONE ? &active_stroke_ : nullptr;
+    // Set a callback fired right after a stroke completes (mouse
+    // release with at least one point). The annotator hands the
+    // finalized ActiveStroke to the callback; callee owns it. Pass
+    // nullptr to detach. Used by WindowManager to bridge the
+    // finished stroke into AnnotationManager (frame + JSON
+    // serialization + sidecar save).
+    using StrokeFinalizedCb =
+        std::function<void(std::unique_ptr<ActiveStroke>)>;
+    void setStrokeFinalizedCallback(StrokeFinalizedCb cb) {
+        stroke_finalized_cb_ = std::move(cb);
     }
 
-    /**
-     * Clear the current active stroke.
-     */
-    void ClearActiveStroke() { active_stroke_.Clear(); }
+    // Fired on the Press of any drawing tool (Freehand, Rectangle,
+    // Oval, Arrow, Line). NOT fired for Eraser. WindowManager uses
+    // it to cancel the debounced annotated-thumbnail save so a
+    // pending capture can't fire mid-stroke and stall the GUI
+    // thread when stroke B starts right after stroke A.
+    using StrokeStartedCb = std::function<void()>;
+    void setStrokeStartedCallback(StrokeStartedCb cb) {
+        stroke_started_cb_ = std::move(cb);
+    }
 
-    /**
-     * Finalize the current stroke and return it for storage.
-     * Returns nullptr if no active stroke or stroke is invalid.
-     */
-    std::unique_ptr<ActiveStroke> FinalizeStroke();
+    // Phase 3.H.6 Stage E — fired on Press / Move events while
+    // the active tool is Eraser. The callback receives a normalized
+    // (0..1) point in the viewport's coordinate space; WindowManager
+    // hit-tests against stored strokes at the current frame and
+    // removes the first match.
+    using EraseAtCb = std::function<void(QPointF normalizedPos)>;
+    void setEraseAtCallback(EraseAtCb cb) {
+        erase_at_cb_ = std::move(cb);
+    }
 
-    /**
-     * Convert screen coordinates to normalized coordinates (0-1 range).
-     */
-    static ImVec2 ScreenToNormalized(
-        const ImVec2& screen_pos,
-        const ImVec2& display_pos,
-        const ImVec2& display_size
-    );
+    // Cancel the in-flight stroke (Esc during a drag). Drops
+    // active_stroke_ + clears is_drawing_; the finalize callback
+    // is NOT fired.
+    void cancelActiveStroke();
 
-    /**
-     * Convert normalized coordinates (0-1 range) to screen coordinates.
-     */
-    static ImVec2 NormalizedToScreen(
-        const ImVec2& normalized_pos,
-        const ImVec2& display_pos,
-        const ImVec2& display_size
-    );
-
-    /**
-     * Check if a screen position is within the display area.
-     */
-    static bool IsInsideDisplayArea(
-        const ImVec2& screen_pos,
-        const ImVec2& display_pos,
-        const ImVec2& display_size
-    );
+    // ---- Coord helpers (static, useful elsewhere) ----
+    static QPointF screenToNormalized(QPointF screenPos,
+                                      QPointF displayPos,
+                                      QSizeF displaySize);
+    static QPointF normalizedToScreen(QPointF normalizedPos,
+                                      QPointF displayPos,
+                                      QSizeF displaySize);
+    static bool    isInsideDisplayArea(QPointF screenPos,
+                                       QPointF displayPos,
+                                       QSizeF displaySize);
 
 private:
-    ViewportMode mode_ = ViewportMode::PLAYBACK;
-    DrawingTool active_tool_ = DrawingTool::NONE;
-    bool allow_input_in_popup_ = false;
+    void processFreehand (PointerPhase phase, QPointF screenPos, qint64 timestampMs);
+    void processRectangle(PointerPhase phase, QPointF screenPos, qint64 timestampMs);
+    void processOval     (PointerPhase phase, QPointF screenPos, qint64 timestampMs);
+    void processArrow    (PointerPhase phase, QPointF screenPos, qint64 timestampMs);
+    void processLine     (PointerPhase phase, QPointF screenPos, qint64 timestampMs);
 
-    // Drawing properties
-    ImVec4 drawing_color_ = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);  // Default: Red
-#ifdef __APPLE__
-    float stroke_width_ = 6.0f;
+    ViewportMode mode_         = ViewportMode::Playback;
+    DrawingTool  active_tool_  = DrawingTool::None;
+    QColor       drawing_color_ = QColor(255, 0, 0, 255);
+#ifdef Q_OS_MACOS
+    float        stroke_width_ = 6.0f;
 #else
-    float stroke_width_ = 4.0f;
+    float        stroke_width_ = 4.0f;
 #endif
-    bool fill_enabled_ = false;
+    bool         fill_enabled_ = false;
 
-    // Current stroke being drawn
+    QPointF display_pos_;
+    QSizeF  display_size_;
+
     ActiveStroke active_stroke_;
-    bool is_drawing_ = false;
+    // Protects active_stroke_'s vectors from concurrent reads on the
+    // render thread while onPointerEvent() (GUI thread) mutates them.
+    // Locking is fine-grained: pointer event path takes it for the
+    // duration of one event, snapshotActiveStroke() takes it for one
+    // copy. No call into Qt or modeler is made while held.
+    mutable std::mutex active_stroke_mutex_;
+    bool         is_drawing_ = false;
 
-    // Mouse state tracking
-    ImVec2 drag_start_pos_;  // Normalized coordinates
+    QPointF drag_start_norm_;       // normalized 0..1 anchor for shape tools
 
-    // Ink stroke modeler for real-time smoothing (freehand tool)
+    // Stroke-relative time base (so the modeler sees t=0 at first
+    // point regardless of QInputEvent::timestamp() epoch).
+    qint64 stroke_t0_ms_ = 0;
+
     std::unique_ptr<InkStrokeModelerWrapper> stroke_modeler_;
-    std::chrono::steady_clock::time_point stroke_start_time_;
 
-    /**
-     * Handle freehand tool input.
-     */
-    void ProcessFreehandInput(const ImVec2& display_pos, const ImVec2& display_size);
-
-    /**
-     * Handle rectangle tool input.
-     */
-    void ProcessRectangleInput(const ImVec2& display_pos, const ImVec2& display_size);
-
-    /**
-     * Handle oval tool input.
-     */
-    void ProcessOvalInput(const ImVec2& display_pos, const ImVec2& display_size);
-
-    /**
-     * Handle arrow tool input.
-     */
-    void ProcessArrowInput(const ImVec2& display_pos, const ImVec2& display_size);
-
-    /**
-     * Handle line tool input.
-     */
-    void ProcessLineInput(const ImVec2& display_pos, const ImVec2& display_size);
+    StrokeFinalizedCb stroke_finalized_cb_;
+    StrokeStartedCb   stroke_started_cb_;
+    EraseAtCb         erase_at_cb_;
 };
 
-} // namespace Annotations
-} // namespace qcview
+} // namespace qcv

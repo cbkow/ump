@@ -1,250 +1,200 @@
 #include "annotation_serializer.h"
-#include "stroke_smoother.h"
-#include <sstream>
-#include <iomanip>
-#include <random>
-#include <chrono>
 
-namespace qcview {
-namespace Annotations {
+#include <QColor>
+#include <QDateTime>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QPointF>
+#include <QRandomGenerator>
 
-nlohmann::json AnnotationSerializer::StrokeToJson(const ActiveStroke& stroke) {
-    nlohmann::json shape;
+namespace qcv {
 
-    // Generate unique ID
-    shape["id"] = GenerateStrokeId();
+QJsonObject AnnotationSerializer::strokeToJson(const ActiveStroke &stroke)
+{
+    QJsonObject obj;
+    obj.insert(QStringLiteral("id"),   generateStrokeId());
+    obj.insert(QStringLiteral("type"), toolToString(stroke.tool));
 
-    // Tool type
-    shape["type"] = ToolToString(stroke.tool);
+    QJsonArray colorArr;
+    colorArr.append(stroke.color.redF());
+    colorArr.append(stroke.color.greenF());
+    colorArr.append(stroke.color.blueF());
+    colorArr.append(stroke.color.alphaF());
+    obj.insert(QStringLiteral("color"), colorArr);
 
-    // Color (RGBA)
-    shape["color"] = {
-        stroke.color.x,
-        stroke.color.y,
-        stroke.color.z,
-        stroke.color.w
-    };
+    obj.insert(QStringLiteral("stroke_width"), stroke.strokeWidth);
+    obj.insert(QStringLiteral("filled"),       stroke.filled);
+    obj.insert(QStringLiteral("is_modeled"),   stroke.isModeled);
 
-    // Stroke properties
-    shape["stroke_width"] = stroke.stroke_width;
-    shape["filled"] = stroke.filled;
-
-    // NEW: Mark whether points are pre-modeled (smoothed at input time by ink-stroke-modeler)
-    // v2.0 strokes with is_modeled=true don't need render-time smoothing
-    shape["is_modeled"] = stroke.is_modeled;
-
-    // Points (normalized coordinates)
-    // If is_modeled=true: points are already smoothed by ink-stroke-modeler
-    // If is_modeled=false: points are raw and need smoothing at render time
-    nlohmann::json points_array = nlohmann::json::array();
-    for (const auto& point : stroke.points) {
-        points_array.push_back({point.x, point.y});
+    QJsonArray pointsArr;
+    for (const QPointF &p : stroke.points) {
+        QJsonArray pt;
+        pt.append(p.x());
+        pt.append(p.y());
+        pointsArr.append(pt);
     }
-    shape["points"] = points_array;
+    obj.insert(QStringLiteral("points"), pointsArr);
 
-    return shape;
+    return obj;
 }
 
-std::string AnnotationSerializer::StrokesToJsonString(const std::vector<ActiveStroke>& strokes) {
-    nlohmann::json root;
+QString AnnotationSerializer::strokesToJsonString(
+    const std::vector<ActiveStroke> &strokes)
+{
+    QJsonObject root;
+    root.insert(QStringLiteral("version"),           QStringLiteral("2.0"));
+    root.insert(QStringLiteral("coordinate_system"), QStringLiteral("normalized"));
 
-    // Version 2.0: supports is_modeled flag for ink-stroke-modeler smoothed strokes
-    root["version"] = "2.0";
-    root["coordinate_system"] = "normalized";
-
-    nlohmann::json shapes_array = nlohmann::json::array();
-    for (const auto& stroke : strokes) {
-        shapes_array.push_back(StrokeToJson(stroke));
+    QJsonArray shapes;
+    for (const ActiveStroke &s : strokes) {
+        shapes.append(strokeToJson(s));
     }
-    root["shapes"] = shapes_array;
+    root.insert(QStringLiteral("shapes"), shapes);
 
-    // Pretty print with 2-space indent
-    return root.dump(2);
+    return QString::fromUtf8(
+        QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 
-std::vector<ActiveStroke> AnnotationSerializer::JsonStringToStrokes(const std::string& json_string) {
-    std::vector<ActiveStroke> strokes;
+std::vector<ActiveStroke> AnnotationSerializer::jsonStringToStrokes(
+    const QString &jsonString)
+{
+    std::vector<ActiveStroke> result;
+    if (jsonString.isEmpty()) return result;
 
-    if (json_string.empty()) {
-        return strokes;
+    QJsonParseError err{};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(jsonString.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+        return result;
     }
 
-    try {
-        nlohmann::json root = nlohmann::json::parse(json_string);
+    const QJsonObject root = doc.object();
 
-        // Check version - support both 1.0 and 2.0
-        std::string version = "1.0";
-        if (root.contains("version")) {
-            version = root["version"].get<std::string>();
-            // Support versions 1.0 and 2.0
-            if (version != "1.0" && version != "2.0") {
-                return strokes; // Unknown version
-            }
-        }
-
-        bool is_v2 = (version == "2.0");
-
-        // Check coordinate system
-        if (root.contains("coordinate_system")) {
-            std::string coord_system = root["coordinate_system"].get<std::string>();
-            if (coord_system != "normalized") {
-                return strokes; // Unsupported coordinate system
-            }
-        }
-
-        // Parse shapes array
-        if (root.contains("shapes") && root["shapes"].is_array()) {
-            for (const auto& shape_json : root["shapes"]) {
-                ActiveStroke stroke;
-                if (JsonToStroke(shape_json, stroke)) {
-                    // V1.0 strokes are raw points (need smoothing at render time)
-                    // V2.0 strokes may have is_modeled flag set
-                    if (!is_v2) {
-                        stroke.is_modeled = false;  // Legacy: always needs render-time smoothing
-                    }
-                    strokes.push_back(stroke);
-                }
-            }
+    // Versions 1.0 + 2.0 supported. Unknown version → empty.
+    QString version = QStringLiteral("1.0");
+    if (root.contains(QStringLiteral("version"))) {
+        version = root.value(QStringLiteral("version")).toString();
+        if (version != QStringLiteral("1.0") && version != QStringLiteral("2.0")) {
+            return result;
         }
     }
-    catch (const nlohmann::json::exception& e) {
-        // JSON parsing error - return empty vector
-        return std::vector<ActiveStroke>();
+    const bool isV2 = (version == QStringLiteral("2.0"));
+
+    if (root.contains(QStringLiteral("coordinate_system"))) {
+        const QString cs = root.value(QStringLiteral("coordinate_system")).toString();
+        if (cs != QStringLiteral("normalized")) return result;
     }
 
-    return strokes;
+    if (!root.contains(QStringLiteral("shapes"))) return result;
+    const QJsonValue shapesV = root.value(QStringLiteral("shapes"));
+    if (!shapesV.isArray()) return result;
+
+    const QJsonArray shapes = shapesV.toArray();
+    for (const QJsonValue &v : shapes) {
+        if (!v.isObject()) continue;
+        ActiveStroke stroke;
+        if (jsonToStroke(v.toObject(), stroke)) {
+            // v1.0: always raw points (need render-time smoothing).
+            if (!isV2) stroke.isModeled = false;
+            result.push_back(std::move(stroke));
+        }
+    }
+    return result;
 }
 
-bool AnnotationSerializer::JsonToStroke(const nlohmann::json& json_obj, ActiveStroke& out_stroke) {
-    try {
-        // Tool type (required)
-        if (!json_obj.contains("type")) {
-            return false;
-        }
-        std::string type_str = json_obj["type"].get<std::string>();
-        out_stroke.tool = StringToTool(type_str);
+bool AnnotationSerializer::jsonToStroke(const QJsonObject &obj,
+                                        ActiveStroke &out)
+{
+    if (!obj.contains(QStringLiteral("type"))) return false;
 
-        if (out_stroke.tool == DrawingTool::NONE) {
-            return false; // Unknown tool type
-        }
+    out.tool = stringToTool(obj.value(QStringLiteral("type")).toString());
+    if (out.tool == DrawingTool::None) return false;
 
-        // Color (required)
-        if (json_obj.contains("color") && json_obj["color"].is_array() && json_obj["color"].size() >= 4) {
-            out_stroke.color.x = json_obj["color"][0].get<float>();
-            out_stroke.color.y = json_obj["color"][1].get<float>();
-            out_stroke.color.z = json_obj["color"][2].get<float>();
-            out_stroke.color.w = json_obj["color"][3].get<float>();
+    if (obj.contains(QStringLiteral("color"))) {
+        const QJsonArray c = obj.value(QStringLiteral("color")).toArray();
+        if (c.size() >= 4) {
+            out.color = QColor::fromRgbF(
+                static_cast<float>(c.at(0).toDouble()),
+                static_cast<float>(c.at(1).toDouble()),
+                static_cast<float>(c.at(2).toDouble()),
+                static_cast<float>(c.at(3).toDouble()));
         } else {
-            // Default color if missing
-            out_stroke.color = ImVec4(1.0f, 0.0f, 0.0f, 1.0f);
+            out.color = QColor(255, 0, 0, 255);
         }
-
-        // Stroke width
-        if (json_obj.contains("stroke_width")) {
-            out_stroke.stroke_width = json_obj["stroke_width"].get<float>();
-        } else {
-            out_stroke.stroke_width = 2.5f; // Default
-        }
-
-        // Fill flag
-        if (json_obj.contains("filled")) {
-            out_stroke.filled = json_obj["filled"].get<bool>();
-        } else {
-            out_stroke.filled = false; // Default
-        }
-
-        // Is modeled flag (v2.0) - indicates if points are already smoothed
-        if (json_obj.contains("is_modeled")) {
-            out_stroke.is_modeled = json_obj["is_modeled"].get<bool>();
-        } else {
-            out_stroke.is_modeled = false; // Default: legacy unmodeled (needs render-time smoothing)
-        }
-
-        // Points (required)
-        if (json_obj.contains("points") && json_obj["points"].is_array()) {
-            for (const auto& point_array : json_obj["points"]) {
-                if (point_array.is_array() && point_array.size() >= 2) {
-                    ImVec2 point;
-                    point.x = point_array[0].get<float>();
-                    point.y = point_array[1].get<float>();
-                    out_stroke.points.push_back(point);
-                }
-            }
-        }
-
-        if (out_stroke.points.empty()) {
-            return false; // No valid points
-        }
-
-        // Mark as complete
-        out_stroke.is_complete = true;
-
-        return true;
+    } else {
+        out.color = QColor(255, 0, 0, 255);
     }
-    catch (const nlohmann::json::exception& e) {
-        return false;
+
+    out.strokeWidth = obj.contains(QStringLiteral("stroke_width"))
+        ? static_cast<float>(obj.value(QStringLiteral("stroke_width")).toDouble())
+        : 2.5f;
+
+    out.filled    = obj.value(QStringLiteral("filled")).toBool(false);
+    out.isModeled = obj.value(QStringLiteral("is_modeled")).toBool(false);
+
+    if (!obj.contains(QStringLiteral("points"))) return false;
+    const QJsonArray pts = obj.value(QStringLiteral("points")).toArray();
+    out.points.clear();
+    for (const QJsonValue &v : pts) {
+        if (!v.isArray()) continue;
+        const QJsonArray pa = v.toArray();
+        if (pa.size() < 2) continue;
+        out.points.emplace_back(pa.at(0).toDouble(), pa.at(1).toDouble());
     }
+    if (out.points.empty()) return false;
+
+    out.isComplete = true;
+    return true;
 }
 
-std::string AnnotationSerializer::CreateEmptyAnnotationData() {
-    nlohmann::json root;
-    root["version"] = "2.0";
-    root["coordinate_system"] = "normalized";
-    root["shapes"] = nlohmann::json::array();
-    return root.dump(2);
+QString AnnotationSerializer::createEmptyAnnotationData()
+{
+    QJsonObject root;
+    root.insert(QStringLiteral("version"),           QStringLiteral("2.0"));
+    root.insert(QStringLiteral("coordinate_system"), QStringLiteral("normalized"));
+    root.insert(QStringLiteral("shapes"),            QJsonArray{});
+    return QString::fromUtf8(QJsonDocument(root).toJson(QJsonDocument::Indented));
 }
 
-bool AnnotationSerializer::HasStrokes(const std::string& json_string) {
-    if (json_string.empty()) {
-        return false;
-    }
-
-    try {
-        nlohmann::json root = nlohmann::json::parse(json_string);
-        if (root.contains("shapes") && root["shapes"].is_array()) {
-            return !root["shapes"].empty();
-        }
-    }
-    catch (const nlohmann::json::exception& e) {
-        return false;
-    }
-
-    return false;
+bool AnnotationSerializer::hasStrokes(const QString &jsonString)
+{
+    if (jsonString.isEmpty()) return false;
+    QJsonParseError err{};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(jsonString.toUtf8(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject()) return false;
+    const QJsonValue v = doc.object().value(QStringLiteral("shapes"));
+    return v.isArray() && !v.toArray().isEmpty();
 }
 
-std::string AnnotationSerializer::ToolToString(DrawingTool tool) {
+QString AnnotationSerializer::toolToString(DrawingTool tool)
+{
     switch (tool) {
-        case DrawingTool::FREEHAND:  return "freehand";
-        case DrawingTool::RECTANGLE: return "rect";
-        case DrawingTool::OVAL:      return "oval";
-        case DrawingTool::ARROW:     return "arrow";
-        case DrawingTool::LINE:      return "line";
-        default:                     return "unknown";
+        case DrawingTool::Freehand:  return QStringLiteral("freehand");
+        case DrawingTool::Rectangle: return QStringLiteral("rect");
+        case DrawingTool::Oval:      return QStringLiteral("oval");
+        case DrawingTool::Arrow:     return QStringLiteral("arrow");
+        case DrawingTool::Line:      return QStringLiteral("line");
+        case DrawingTool::None:
+        default:                     return QStringLiteral("unknown");
     }
 }
 
-DrawingTool AnnotationSerializer::StringToTool(const std::string& tool_str) {
-    if (tool_str == "freehand") return DrawingTool::FREEHAND;
-    if (tool_str == "rect")     return DrawingTool::RECTANGLE;
-    if (tool_str == "oval")     return DrawingTool::OVAL;
-    if (tool_str == "arrow")    return DrawingTool::ARROW;
-    if (tool_str == "line")     return DrawingTool::LINE;
-    return DrawingTool::NONE;
+DrawingTool AnnotationSerializer::stringToTool(const QString &str)
+{
+    if (str == QLatin1String("freehand")) return DrawingTool::Freehand;
+    if (str == QLatin1String("rect"))     return DrawingTool::Rectangle;
+    if (str == QLatin1String("oval"))     return DrawingTool::Oval;
+    if (str == QLatin1String("arrow"))    return DrawingTool::Arrow;
+    if (str == QLatin1String("line"))     return DrawingTool::Line;
+    return DrawingTool::None;
 }
 
-std::string AnnotationSerializer::GenerateStrokeId() {
-    // Simple UUID-like ID using timestamp + random number
-    auto now = std::chrono::system_clock::now();
-    auto timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
-
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(1000, 9999);
-
-    std::ostringstream oss;
-    oss << "stroke-" << timestamp << "-" << dis(gen);
-    return oss.str();
+QString AnnotationSerializer::generateStrokeId()
+{
+    const qint64 ms = QDateTime::currentMSecsSinceEpoch();
+    const quint32 r = QRandomGenerator::global()->bounded(1000u, 10000u);
+    return QStringLiteral("stroke-%1-%2").arg(ms).arg(r);
 }
 
-} // namespace Annotations
-} // namespace qcview
+} // namespace qcv

@@ -1,169 +1,185 @@
+// StrokeTessellator — direct lift from old QCView's
+// src/annotations/stroke_tessellator.cpp per Guide 19 §2.3.
+
 #include "stroke_tessellator.h"
-#include "stroke_smoother.h"
+
 #include <cmath>
 
-namespace qcview {
-namespace Annotations {
+namespace qcv {
 
-static constexpr int kMinCircleSegments = 16;  // Minimum circle segments
-static constexpr int kOvalSegments = 64;        // Segments for oval approximation
-static constexpr float kPi = 3.14159265358979323846f;
+namespace {
 
-// Adaptive segment count for full circle: ~1.5px arc length per segment
-static int CircleSegments(float radius) {
+constexpr int   kMinCircleSegments = 16;   // Minimum stamps per cap
+constexpr int   kOvalSegments      = 64;   // Segments for oval approximation
+constexpr float kPi                = 3.14159265358979323846f;
+
+// Adaptive segment count for full circle: ~1.5 px arc length per segment.
+int circleSegments(float radius)
+{
     int segs = static_cast<int>(std::ceil(2.0f * kPi * radius / 1.5f));
     return std::max(segs, kMinCircleSegments);
 }
 
-void StrokeTessellator::NormalizedToScreen(
+} // namespace
+
+void StrokeTessellator::normalizedToScreen(
     float nx, float ny,
     float dpx, float dpy, float dw, float dh,
-    float& ox, float& oy
-) {
+    float &ox, float &oy)
+{
     ox = dpx + (nx * dw);
     oy = dpy + (ny * dh);
 }
 
-TessellatedMesh StrokeTessellator::Tessellate(
-    const ActiveStroke& stroke,
-    float display_pos_x, float display_pos_y,
-    float display_width, float display_height,
-    float line_width_scale,
-    bool apply_smoothing
-) {
+TessellatedMesh StrokeTessellator::tessellate(
+    const ActiveStroke &stroke,
+    float displayPosX, float displayPosY,
+    float displayWidth, float displayHeight,
+    float lineWidthScale)
+{
     TessellatedMesh mesh;
 
     if (stroke.points.empty()) return mesh;
 
-    float r = stroke.color.x;
-    float g = stroke.color.y;
-    float b = stroke.color.z;
-    float a = stroke.color.w;
-    float scaled_width = stroke.stroke_width * line_width_scale;
-    float half_width = scaled_width * 0.5f;
+    const float r = static_cast<float>(stroke.color.redF());
+    const float g = static_cast<float>(stroke.color.greenF());
+    const float b = static_cast<float>(stroke.color.blueF());
+    const float a = static_cast<float>(stroke.color.alphaF());
+    const float scaledWidth = stroke.strokeWidth * lineWidthScale;
+    const float halfWidth   = scaledWidth * 0.5f;
+
+    auto toScreen = [&](const QPointF &p, float &ox, float &oy) {
+        normalizedToScreen(static_cast<float>(p.x()),
+                           static_cast<float>(p.y()),
+                           displayPosX, displayPosY,
+                           displayWidth, displayHeight,
+                           ox, oy);
+    };
 
     switch (stroke.tool) {
-        case DrawingTool::FREEHAND: {
-            std::vector<ImVec2> points_to_render = stroke.points;
+        case DrawingTool::Freehand: {
+            // v2.0 modeled strokes are already smoothed; v1.0 legacy
+            // strokes render as raw (the deprecated StrokeSmoother
+            // Catmull-Rom path is intentionally not lifted — see
+            // header).
+            if (stroke.points.empty()) return mesh;
 
-            // Apply Catmull-Rom smoothing only for legacy strokes
-            if (apply_smoothing && !stroke.is_modeled && stroke.points.size() >= 4) {
-                StrokeSmoother::SmoothingConfig config;
-                points_to_render = StrokeSmoother::SmoothStroke(stroke.points, config);
+            // Single point (click without drag) → emit one round
+            // cap so the dot is visible. Without this the user
+            // taps and sees nothing, since tessellatePolyline bails
+            // when there are fewer than 2 vertices.
+            if (stroke.points.size() == 1) {
+                float sx, sy;
+                toScreen(stroke.points[0], sx, sy);
+                addRoundCap(sx, sy, halfWidth, r, g, b, a, mesh);
+                break;
             }
 
-            if (points_to_render.size() < 2) return mesh;
-
-            // Convert to screen coords
-            std::vector<ImVec2> screen_pts(points_to_render.size());
-            for (size_t i = 0; i < points_to_render.size(); ++i) {
-                NormalizedToScreen(points_to_render[i].x, points_to_render[i].y,
-                                   display_pos_x, display_pos_y, display_width, display_height,
-                                   screen_pts[i].x, screen_pts[i].y);
+            std::vector<QPointF> screen(stroke.points.size());
+            for (std::size_t i = 0; i < stroke.points.size(); ++i) {
+                float sx, sy;
+                toScreen(stroke.points[i], sx, sy);
+                screen[i] = QPointF(sx, sy);
             }
-
-            TessellatePolyline(screen_pts, half_width, r, g, b, a, mesh);
+            tessellatePolyline(screen, halfWidth, r, g, b, a, mesh);
             break;
         }
 
-        case DrawingTool::RECTANGLE: {
+        case DrawingTool::Rectangle: {
             if (stroke.points.size() < 4) return mesh;
 
             float x1, y1, x2, y2;
-            NormalizedToScreen(stroke.points[0].x, stroke.points[0].y,
-                               display_pos_x, display_pos_y, display_width, display_height, x1, y1);
-            NormalizedToScreen(stroke.points[2].x, stroke.points[2].y,
-                               display_pos_x, display_pos_y, display_width, display_height, x2, y2);
+            toScreen(stroke.points[0], x1, y1);
+            toScreen(stroke.points[2], x2, y2);
 
             if (stroke.filled) {
-                TessellateFilledRect(x1, y1, x2, y2, r, g, b, a, mesh);
+                tessellateFilledRect(x1, y1, x2, y2, r, g, b, a, mesh);
             } else {
-                // 4-segment closed polyline
-                std::vector<ImVec2> rect_pts = {
+                std::vector<QPointF> rect = {
                     {x1, y1}, {x2, y1}, {x2, y2}, {x1, y2}, {x1, y1}
                 };
-                TessellatePolyline(rect_pts, half_width, r, g, b, a, mesh);
+                tessellatePolyline(rect, halfWidth, r, g, b, a, mesh);
             }
             break;
         }
 
-        case DrawingTool::OVAL: {
+        case DrawingTool::Oval: {
             if (stroke.points.size() < 2) return mesh;
 
             float cx, cy;
-            NormalizedToScreen(stroke.points[0].x, stroke.points[0].y,
-                               display_pos_x, display_pos_y, display_width, display_height, cx, cy);
-            float rx = stroke.points[1].x * display_width;
-            float ry = stroke.points[1].y * display_height;
+            toScreen(stroke.points[0], cx, cy);
+            const float rx = static_cast<float>(stroke.points[1].x()) * displayWidth;
+            const float ry = static_cast<float>(stroke.points[1].y()) * displayHeight;
 
             if (stroke.filled) {
-                TessellateFilledOval(cx, cy, rx, ry, r, g, b, a, mesh);
+                tessellateFilledOval(cx, cy, rx, ry, r, g, b, a, mesh);
             } else {
-                // Approximate ellipse as polyline
-                std::vector<ImVec2> oval_pts(kOvalSegments + 1);
+                std::vector<QPointF> oval(kOvalSegments + 1);
                 for (int i = 0; i <= kOvalSegments; ++i) {
-                    float angle = 2.0f * kPi * i / kOvalSegments;
-                    oval_pts[i] = {cx + rx * std::cos(angle), cy + ry * std::sin(angle)};
+                    const float angle = 2.0f * kPi * i / kOvalSegments;
+                    oval[i] = QPointF(cx + rx * std::cos(angle),
+                                      cy + ry * std::sin(angle));
                 }
-                TessellatePolyline(oval_pts, half_width, r, g, b, a, mesh);
+                tessellatePolyline(oval, halfWidth, r, g, b, a, mesh);
             }
             break;
         }
 
-        case DrawingTool::ARROW: {
+        case DrawingTool::Arrow: {
             if (stroke.points.size() < 2) return mesh;
 
-            float start_x, start_y, end_x, end_y;
-            NormalizedToScreen(stroke.points[0].x, stroke.points[0].y,
-                               display_pos_x, display_pos_y, display_width, display_height, start_x, start_y);
-            NormalizedToScreen(stroke.points[1].x, stroke.points[1].y,
-                               display_pos_x, display_pos_y, display_width, display_height, end_x, end_y);
+            float startX, startY, endX, endY;
+            toScreen(stroke.points[0], startX, startY);
+            toScreen(stroke.points[1], endX,   endY);
 
-            float dir_x = end_x - start_x;
-            float dir_y = end_y - start_y;
-            float length = std::sqrt(dir_x * dir_x + dir_y * dir_y);
+            float dirX = endX - startX;
+            float dirY = endY - startY;
+            const float length = std::sqrt(dirX * dirX + dirY * dirY);
             if (length < 0.001f) return mesh;
 
-            dir_x /= length;
-            dir_y /= length;
+            dirX /= length;
+            dirY /= length;
 
-            float arrow_size = 12.0f + scaled_width * 2.0f;
-            float arrow_angle = 0.436332f;  // 25 degrees
-            float cos_angle = std::cos(arrow_angle);
-            float sin_angle = std::sin(arrow_angle);
+            const float arrowSize     = 12.0f + scaledWidth * 2.0f;
+            const float arrowAngleRad = 0.436332f;   // 25 degrees
+            const float cosA = std::cos(arrowAngleRad);
+            const float sinA = std::sin(arrowAngleRad);
 
-            float arrow_back_dist = arrow_size * cos_angle;
-            float line_end_x = end_x - dir_x * arrow_back_dist;
-            float line_end_y = end_y - dir_y * arrow_back_dist;
+            const float arrowBackDist = arrowSize * cosA;
+            const float lineEndX = endX - dirX * arrowBackDist;
+            const float lineEndY = endY - dirY * arrowBackDist;
 
-            // Shaft line
-            std::vector<ImVec2> line_pts = {{start_x, start_y}, {line_end_x, line_end_y}};
-            TessellatePolyline(line_pts, half_width, r, g, b, a, mesh);
+            std::vector<QPointF> shaft = {
+                QPointF(startX, startY),
+                QPointF(lineEndX, lineEndY)
+            };
+            tessellatePolyline(shaft, halfWidth, r, g, b, a, mesh);
 
-            // Arrowhead triangle
-            float a1x = end_x - arrow_size * (dir_x * cos_angle - dir_y * sin_angle);
-            float a1y = end_y - arrow_size * (dir_y * cos_angle + dir_x * sin_angle);
-            float a2x = end_x - arrow_size * (dir_x * cos_angle + dir_y * sin_angle);
-            float a2y = end_y - arrow_size * (dir_y * cos_angle - dir_x * sin_angle);
-
-            TessellateFilledTriangle(end_x, end_y, a1x, a1y, a2x, a2y, r, g, b, a, mesh);
+            const float a1x = endX - arrowSize * (dirX * cosA - dirY * sinA);
+            const float a1y = endY - arrowSize * (dirY * cosA + dirX * sinA);
+            const float a2x = endX - arrowSize * (dirX * cosA + dirY * sinA);
+            const float a2y = endY - arrowSize * (dirY * cosA - dirX * sinA);
+            tessellateFilledTriangle(endX, endY, a1x, a1y, a2x, a2y,
+                                     r, g, b, a, mesh);
             break;
         }
 
-        case DrawingTool::LINE: {
+        case DrawingTool::Line: {
             if (stroke.points.size() < 2) return mesh;
 
-            float start_x, start_y, end_x, end_y;
-            NormalizedToScreen(stroke.points[0].x, stroke.points[0].y,
-                               display_pos_x, display_pos_y, display_width, display_height, start_x, start_y);
-            NormalizedToScreen(stroke.points[1].x, stroke.points[1].y,
-                               display_pos_x, display_pos_y, display_width, display_height, end_x, end_y);
+            float startX, startY, endX, endY;
+            toScreen(stroke.points[0], startX, startY);
+            toScreen(stroke.points[1], endX,   endY);
 
-            std::vector<ImVec2> line_pts = {{start_x, start_y}, {end_x, end_y}};
-            TessellatePolyline(line_pts, half_width, r, g, b, a, mesh);
+            std::vector<QPointF> line = {
+                QPointF(startX, startY),
+                QPointF(endX,   endY)
+            };
+            tessellatePolyline(line, halfWidth, r, g, b, a, mesh);
             break;
         }
 
+        case DrawingTool::None:
         default:
             break;
     }
@@ -171,82 +187,83 @@ TessellatedMesh StrokeTessellator::Tessellate(
     return mesh;
 }
 
-void StrokeTessellator::TessellatePolyline(
-    const std::vector<ImVec2>& screen_points,
-    float half_width,
+void StrokeTessellator::tessellatePolyline(
+    const std::vector<QPointF> &screenPoints,
+    float halfWidth,
     float r, float g, float b, float a,
-    TessellatedMesh& mesh
-) {
-    if (screen_points.size() < 2) return;
+    TessellatedMesh &mesh)
+{
+    if (screenPoints.size() < 2) return;
 
-    // Precompute segment directions and normals
-    size_t n = screen_points.size();
+    const std::size_t n = screenPoints.size();
+
     struct SegInfo {
-        float dx, dy;  // direction
-        float nx, ny;  // normal (left-hand perpendicular)
+        float dx, dy;   // direction
+        float nx, ny;   // left-hand perpendicular
         float len;
     };
     std::vector<SegInfo> segs(n - 1);
 
-    for (size_t i = 0; i < n - 1; ++i) {
-        float dx = screen_points[i + 1].x - screen_points[i].x;
-        float dy = screen_points[i + 1].y - screen_points[i].y;
+    for (std::size_t i = 0; i < n - 1; ++i) {
+        float dx = static_cast<float>(screenPoints[i + 1].x() - screenPoints[i].x());
+        float dy = static_cast<float>(screenPoints[i + 1].y() - screenPoints[i].y());
         float len = std::sqrt(dx * dx + dy * dy);
         if (len < 1e-6f) len = 1e-6f;
-        segs[i].dx = dx / len;
-        segs[i].dy = dy / len;
-        segs[i].nx = -segs[i].dy;
-        segs[i].ny = segs[i].dx;
+        segs[i].dx  = dx / len;
+        segs[i].dy  = dy / len;
+        segs[i].nx  = -segs[i].dy;
+        segs[i].ny  =  segs[i].dx;
         segs[i].len = len;
     }
 
-    // Circle at every vertex (acts as round brush stamp — handles caps and joins)
-    for (size_t i = 0; i < n; ++i) {
-        AddRoundCap(screen_points[i].x, screen_points[i].y,
-                    0, 0, half_width, false, r, g, b, a, mesh);
+    // Round-cap stamp at every vertex (handles caps + joins uniformly).
+    for (std::size_t i = 0; i < n; ++i) {
+        addRoundCap(static_cast<float>(screenPoints[i].x()),
+                    static_cast<float>(screenPoints[i].y()),
+                    halfWidth, r, g, b, a, mesh);
     }
 
-    // Connecting quads between adjacent circles
-    for (size_t i = 0; i < n - 1; ++i) {
-        float nx = segs[i].nx * half_width;
-        float ny = segs[i].ny * half_width;
+    // Connecting quads between adjacent stamps.
+    for (std::size_t i = 0; i < n - 1; ++i) {
+        const float nx = segs[i].nx * halfWidth;
+        const float ny = segs[i].ny * halfWidth;
 
-        const auto& p0 = screen_points[i];
-        const auto& p1 = screen_points[i + 1];
+        const QPointF &p0 = screenPoints[i];
+        const QPointF &p1 = screenPoints[i + 1];
 
-        TessVertex v0 = {p0.x + nx, p0.y + ny, r, g, b, a};
-        TessVertex v1 = {p0.x - nx, p0.y - ny, r, g, b, a};
-        TessVertex v2 = {p1.x + nx, p1.y + ny, r, g, b, a};
-        TessVertex v3 = {p1.x - nx, p1.y - ny, r, g, b, a};
+        const TessVertex v0 = {static_cast<float>(p0.x()) + nx, static_cast<float>(p0.y()) + ny, r, g, b, a};
+        const TessVertex v1 = {static_cast<float>(p0.x()) - nx, static_cast<float>(p0.y()) - ny, r, g, b, a};
+        const TessVertex v2 = {static_cast<float>(p1.x()) + nx, static_cast<float>(p1.y()) + ny, r, g, b, a};
+        const TessVertex v3 = {static_cast<float>(p1.x()) - nx, static_cast<float>(p1.y()) - ny, r, g, b, a};
 
         mesh.vertices.push_back(v0);
         mesh.vertices.push_back(v1);
         mesh.vertices.push_back(v2);
-
         mesh.vertices.push_back(v1);
         mesh.vertices.push_back(v3);
         mesh.vertices.push_back(v2);
     }
 }
 
-void StrokeTessellator::AddRoundCap(
+void StrokeTessellator::addRoundCap(
     float cx, float cy,
-    float /*dx*/, float /*dy*/,
-    float half_width,
-    bool /*is_start*/,
+    float halfWidth,
     float r, float g, float b, float a,
-    TessellatedMesh& mesh
-) {
-    // Full circle — direction-independent, overlap with line body is invisible
-    int segments = CircleSegments(half_width);
+    TessellatedMesh &mesh)
+{
+    const int segments = circleSegments(halfWidth);
 
     for (int i = 0; i < segments; ++i) {
-        float a0 = 2.0f * kPi * i / segments;
-        float a1 = 2.0f * kPi * (i + 1) / segments;
+        const float a0 = 2.0f * kPi * i       / segments;
+        const float a1 = 2.0f * kPi * (i + 1) / segments;
 
-        TessVertex v0 = {cx, cy, r, g, b, a};
-        TessVertex v1 = {cx + half_width * std::cos(a0), cy + half_width * std::sin(a0), r, g, b, a};
-        TessVertex v2 = {cx + half_width * std::cos(a1), cy + half_width * std::sin(a1), r, g, b, a};
+        const TessVertex v0 = {cx, cy, r, g, b, a};
+        const TessVertex v1 = {cx + halfWidth * std::cos(a0),
+                               cy + halfWidth * std::sin(a0),
+                               r, g, b, a};
+        const TessVertex v2 = {cx + halfWidth * std::cos(a1),
+                               cy + halfWidth * std::sin(a1),
+                               r, g, b, a};
 
         mesh.vertices.push_back(v0);
         mesh.vertices.push_back(v1);
@@ -254,38 +271,41 @@ void StrokeTessellator::AddRoundCap(
     }
 }
 
-void StrokeTessellator::TessellateFilledRect(
+void StrokeTessellator::tessellateFilledRect(
     float x1, float y1, float x2, float y2,
     float r, float g, float b, float a,
-    TessellatedMesh& mesh
-) {
-    TessVertex v0 = {x1, y1, r, g, b, a};
-    TessVertex v1 = {x2, y1, r, g, b, a};
-    TessVertex v2 = {x2, y2, r, g, b, a};
-    TessVertex v3 = {x1, y2, r, g, b, a};
+    TessellatedMesh &mesh)
+{
+    const TessVertex v0 = {x1, y1, r, g, b, a};
+    const TessVertex v1 = {x2, y1, r, g, b, a};
+    const TessVertex v2 = {x2, y2, r, g, b, a};
+    const TessVertex v3 = {x1, y2, r, g, b, a};
 
     mesh.vertices.push_back(v0);
     mesh.vertices.push_back(v1);
     mesh.vertices.push_back(v2);
-
     mesh.vertices.push_back(v0);
     mesh.vertices.push_back(v2);
     mesh.vertices.push_back(v3);
 }
 
-void StrokeTessellator::TessellateFilledOval(
+void StrokeTessellator::tessellateFilledOval(
     float cx, float cy, float rx, float ry,
     float r, float g, float b, float a,
-    TessellatedMesh& mesh
-) {
-    TessVertex center = {cx, cy, r, g, b, a};
+    TessellatedMesh &mesh)
+{
+    const TessVertex center = {cx, cy, r, g, b, a};
 
     for (int i = 0; i < kOvalSegments; ++i) {
-        float a0 = 2.0f * kPi * i / kOvalSegments;
-        float a1 = 2.0f * kPi * (i + 1) / kOvalSegments;
+        const float a0 = 2.0f * kPi * i       / kOvalSegments;
+        const float a1 = 2.0f * kPi * (i + 1) / kOvalSegments;
 
-        TessVertex v1 = {cx + rx * std::cos(a0), cy + ry * std::sin(a0), r, g, b, a};
-        TessVertex v2 = {cx + rx * std::cos(a1), cy + ry * std::sin(a1), r, g, b, a};
+        const TessVertex v1 = {cx + rx * std::cos(a0),
+                               cy + ry * std::sin(a0),
+                               r, g, b, a};
+        const TessVertex v2 = {cx + rx * std::cos(a1),
+                               cy + ry * std::sin(a1),
+                               r, g, b, a};
 
         mesh.vertices.push_back(center);
         mesh.vertices.push_back(v1);
@@ -293,17 +313,16 @@ void StrokeTessellator::TessellateFilledOval(
     }
 }
 
-void StrokeTessellator::TessellateFilledTriangle(
+void StrokeTessellator::tessellateFilledTriangle(
     float x0, float y0,
     float x1, float y1,
     float x2, float y2,
     float r, float g, float b, float a,
-    TessellatedMesh& mesh
-) {
+    TessellatedMesh &mesh)
+{
     mesh.vertices.push_back({x0, y0, r, g, b, a});
     mesh.vertices.push_back({x1, y1, r, g, b, a});
     mesh.vertices.push_back({x2, y2, r, g, b, a});
 }
 
-} // namespace Annotations
-} // namespace qcview
+} // namespace qcv

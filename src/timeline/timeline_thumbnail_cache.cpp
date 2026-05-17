@@ -1,574 +1,459 @@
+// TimelineThumbnailCache implementation. Architectural notes in the
+// header — this file is the worker / queue / GPU-upload mechanics
+// ported from the old app with namespace + API renames.
+
 #include "timeline_thumbnail_cache.h"
-#include "../utils/debug_utils.h"
-#include "../player/image_loaders.h"
-#include "../player/streaming_video_decoder.h"
+
+#include "decode/exr_image_loader.h"
+#include "decode/jpeg_image_loader.h"
+#include "decode/png_image_loader.h"
+#include "decode/tiff_image_loader.h"
+#include "decode/video_image_loader.h"
+
+// QtGlobal must come before the platform gate below — Q_OS_APPLE and
+// Q_OS_WIN are defined by Qt's qsystemdetection.h, NOT by the C++
+// compiler's predefined macros. Without this, the gate evaluates false
+// and the GPU-upload backend is silently stubbed out on both platforms.
+#include <QtGlobal>
+
+#if defined(QCV_NATIVE_PLAYER) && defined(Q_OS_APPLE)
+#include "render/metal/metal_texture_pool.h"
+#elif defined(QCV_NATIVE_PLAYER) && defined(Q_OS_WIN)
+#include "render/d3d11/d3d11_texture_pool.h"
+#endif
+// GPU-upload backend: Metal on Apple, D3D11 on Windows. Both pools
+// share API + format enum (see d3d11_texture_pool.h) so the call sites
+// below differ only by the pool type.
+
+#include <QtLogging>
+
 #include <algorithm>
 #include <climits>
+#include <cstdlib>
 
-#ifdef _WIN32
-#include <Windows.h>
-#endif
+namespace qcv {
 
-#ifdef QCVIEW_USE_VULKAN
-#include "../gpu/vulkan_texture_pool.h"
-#elif defined(QCVIEW_USE_METAL)
-#include "../gpu/metal_texture_pool.h"
-#endif
+namespace {
 
-namespace qcview {
-
-TimelineThumbnailCache::TimelineThumbnailCache() {
-    Debug::Log("TimelineThumbnailCache: Created");
+// Match the old app's pool format codes:
+//   0 = RGBA8Unorm   1 = RGBA16Float   2 = BGRA8Unorm   3 = RGBA16Unorm
+int poolFormatFor(PixelFormat fmt) {
+    switch (fmt) {
+        case PixelFormat::RGBA8:   return 0;
+        case PixelFormat::RGBA16:  return 3;
+        case PixelFormat::RGBA16F: return 1;
+    }
+    return 0;
 }
 
-TimelineThumbnailCache::~TimelineThumbnailCache() {
+// Lower-case ASCII extension. Empty if no dot.
+std::string extOf(const std::string &path) {
+    const std::size_t dot = path.find_last_of('.');
+    if (dot == std::string::npos) return {};
+    std::string ext = path.substr(dot + 1);
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return ext;
+}
+
+// Split off `?layer=...` suffix used by EXR keys to identify a part.
+void splitLayer(const std::string &keyPath,
+                std::string &filePath, std::string &layer) {
+    const std::size_t q = keyPath.find("?layer=");
+    if (q == std::string::npos) {
+        filePath = keyPath;
+        layer.clear();
+        return;
+    }
+    filePath = keyPath.substr(0, q);
+    layer    = keyPath.substr(q + 7);  // skip "?layer="
+}
+
+} // namespace
+
+TimelineThumbnailCache::TimelineThumbnailCache() = default;
+
+TimelineThumbnailCache::~TimelineThumbnailCache()
+{
     try {
-        Shutdown();
+        shutdown();
     } catch (...) {
-        // Destructor is noexcept — any uncaught exception calls std::terminate.
-        // During global static destruction, Shutdown may throw because singletons
-        // (Debug::AsyncLogger, MetalTexturePool) are already destroyed.
+        // Static-destruction-time exceptions: nothing safe to log.
     }
 }
 
-void TimelineThumbnailCache::Initialize(double fps) {
-    if (initialized_) return;
+void TimelineThumbnailCache::initialize(double fps)
+{
+    if (m_initialized) return;
 
-    fps_ = fps;
-    initialized_ = true;
-    running_ = true;
-    worker_state_ = ThumbnailWorkerState::ACTIVE;
-    active_thread_count_ = kMaxWorkerThreads;
-    is_playing_ = false;
+    m_fps                = fps;
+    m_initialized        = true;
+    m_running            = true;
+    m_workerState        = ThumbnailWorkerState::ACTIVE;
+    m_activeThreadCount  = kMaxWorkerThreads;
+    m_isPlaying          = false;
 
-    // Start multiple background worker threads
-    worker_threads_.reserve(kMaxWorkerThreads);
+    m_workers.reserve(kMaxWorkerThreads);
     for (int i = 0; i < kMaxWorkerThreads; ++i) {
-        worker_threads_.emplace_back(&TimelineThumbnailCache::WorkerThread, this, i);
-
-#ifdef _WIN32
-        // Lower priority to avoid competing with playback
-        SetThreadPriority(worker_threads_.back().native_handle(), THREAD_PRIORITY_BELOW_NORMAL);
-#endif
+        m_workers.emplace_back(
+            &TimelineThumbnailCache::workerThread, this, i);
     }
 
-    Debug::Log("TimelineThumbnailCache: Initialized at " + std::to_string(fps) +
-               " fps with " + std::to_string(kMaxWorkerThreads) + " worker threads");
+    qInfo("TimelineThumbnailCache: initialized fps=%.3f workers=%d",
+          fps, kMaxWorkerThreads);
 }
 
-void TimelineThumbnailCache::Shutdown() {
-    if (!initialized_) return;
+void TimelineThumbnailCache::shutdown()
+{
+    if (!m_initialized) return;
 
-    // Note: Shutdown() may be called during global static destruction (from ~unique_ptr).
-    // At that point Debug::AsyncLogger may already be destroyed, so avoid Debug::Log
-    // after setting running_=false.
+    m_running     = false;
+    m_workerState = ThumbnailWorkerState::STOPPED;
+    m_queueCv.notify_all();
+    m_workerCv.notify_all();
 
-    running_ = false;
-    worker_state_ = ThumbnailWorkerState::STOPPED;
-
-    // Wake all workers so they can exit
-    queue_cv_.notify_all();
-    worker_cv_.notify_all();
-
-    // Join or detach all worker threads. If join() throws (during static
-    // destruction workers may have already crashed), detach to prevent
-    // std::thread::~thread() from calling std::terminate on a joinable thread.
-    for (auto& thread : worker_threads_) {
-        if (thread.joinable()) {
-            try {
-                thread.join();
-            } catch (...) {
-                try { thread.detach(); } catch (...) {}
+    for (auto &t : m_workers) {
+        if (t.joinable()) {
+            try { t.join(); }
+            catch (...) {
+                try { t.detach(); } catch (...) {}
             }
         }
     }
-    worker_threads_.clear();
+    m_workers.clear();
 
-    // Clear cache (delete textures)
     {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        for (auto& [key, entry] : cache_) {
-            if (entry.texture_id != 0) {
-#ifdef QCVIEW_USE_VULKAN
-                qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
-#elif defined(QCVIEW_USE_METAL)
-                // Guard against static destruction order: pool may already be shut down at exit
-                if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
-                    qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+        std::lock_guard<std::mutex> lock(m_cacheMutex);
+        for (auto &kv : m_cache) {
+            if (kv.second.texture_id != 0) {
+#if defined(QCV_NATIVE_PLAYER) && defined(Q_OS_APPLE)
+                if (MetalTexturePool::thumbnailInstance().isInitialized()) {
+                    MetalTexturePool::thumbnailInstance().queueDelete(
+                        kv.second.texture_id);
                 }
-#else
-                glDeleteTextures(1, &entry.texture_id);
+#elif defined(QCV_NATIVE_PLAYER) && defined(Q_OS_WIN)
+                if (D3D11TexturePool::thumbnailInstance().isInitialized()) {
+                    D3D11TexturePool::thumbnailInstance().queueDelete(
+                        kv.second.texture_id);
+                }
 #endif
             }
         }
-        cache_.clear();
-        lru_order_.clear();
+        m_cache.clear();
+        m_lruOrder.clear();
     }
 
-    // Clear per-worker loaders
     {
-        std::lock_guard<std::mutex> lock(loaders_mutex_);
-        worker_loaders_.clear();
+        std::lock_guard<std::mutex> lock(m_loadersMutex);
+        m_workerLoaders.clear();
     }
-
-    // Clear worker task tracking
     {
-        std::lock_guard<std::mutex> lock(worker_task_mutex_);
-        worker_current_task_.clear();
+        std::lock_guard<std::mutex> lock(m_workerTaskMutex);
+        m_workerCurrentTask.clear();
     }
 
-    initialized_ = false;
-    Debug::Log("TimelineThumbnailCache: Shutdown complete");
+    m_initialized = false;
+    qInfo("TimelineThumbnailCache: shutdown complete");
 }
 
-GLuint TimelineThumbnailCache::GetThumbnail(const std::string& source_path, int source_frame,
-                                             int& width, int& height, bool allow_fallback) {
-    if (!config_.enabled || !initialized_) {
-        width = 0;
-        height = 0;
+std::uint64_t TimelineThumbnailCache::getThumbnail(
+    const std::string &source_path, int source_frame,
+    int &width, int &height, bool allow_fallback)
+{
+    if (!m_config.enabled || !m_initialized) {
+        width = height = 0;
         return 0;
     }
-
-    // If Clear() was just called, don't return any textures until next ProcessPendingUploads
-    // This prevents returning stale texture IDs that may have been reassigned
-    if (clear_pending_.load()) {
-        width = 0;
-        height = 0;
+    // Hold off returning textures during the in-flight clear()
+    // until processPendingUploads has run (next main-thread tick).
+    if (m_clearPending.load()) {
+        width = height = 0;
         return 0;
     }
 
     TimelineThumbnailKey key{source_path, source_frame};
+    std::lock_guard<std::mutex> lock(m_cacheMutex);
 
-    std::lock_guard<std::mutex> lock(cache_mutex_);
-
-    // Check cache for exact match
-    auto it = cache_.find(key);
-    if (it != cache_.end()) {
-        cache_hits_++;
-
-        // Update LRU order - move to front
-        lru_order_.remove(key);
-        lru_order_.push_front(key);
-
-        width = it->second.width;
+    auto it = m_cache.find(key);
+    if (it != m_cache.end()) {
+        m_cacheHits++;
+        m_lruOrder.remove(key);
+        m_lruOrder.push_front(key);
+        width  = it->second.width;
         height = it->second.height;
         return it->second.texture_id;
     }
 
-    // Cache miss - queue request
-    cache_misses_++;
-
+    m_cacheMisses++;
     {
-        std::lock_guard<std::mutex> queue_lock(queue_mutex_);
-
-        // Only queue if not already in progress or queued (O(1) set lookup)
-        if (in_progress_.find(key) == in_progress_.end() &&
-            queued_keys_.find(key) == queued_keys_.end()) {
-            request_queue_.push_front({key, true});  // High priority at front
-            queued_keys_.insert(key);
-            queue_cv_.notify_one();
+        std::lock_guard<std::mutex> qlock(m_queueMutex);
+        if (m_inProgress.find(key) == m_inProgress.end()
+            && m_queuedKeys.find(key) == m_queuedKeys.end()) {
+            m_requestQueue.push_front({key, /*high_priority=*/true});
+            m_queuedKeys.insert(key);
+            m_queueCv.notify_one();
         }
     }
 
-    // Try fallback to nearest cached frame from same source
     if (allow_fallback) {
-        int nearest = FindNearestCachedFrame(source_path, source_frame);
-        if (nearest >= 0) {
-            TimelineThumbnailKey nearest_key{source_path, nearest};
-            auto nearest_it = cache_.find(nearest_key);
-            if (nearest_it != cache_.end()) {
-                width = nearest_it->second.width;
-                height = nearest_it->second.height;
-                return nearest_it->second.texture_id;
+        // Same-source nearest-frame (video case — many entries, all
+        // sharing source_path, varying source_frame).
+        const int near = findNearestCachedFrame(source_path,
+                                                  source_frame);
+        if (near >= 0) {
+            TimelineThumbnailKey nk{source_path, near};
+            auto nit = m_cache.find(nk);
+            if (nit != m_cache.end()) {
+                width  = nit->second.width;
+                height = nit->second.height;
+                return nit->second.texture_id;
+            }
+        }
+        // Image-seq nearest-sibling (each frame is its own
+        // source_path; the by-frame match above never fires here).
+        // Keeps the corner overlay populated with a neighbor frame
+        // from the same sequence while the worker decodes the
+        // exact one.
+        TimelineThumbnailKey siblingKey;
+        if (findNearestSequenceSibling(source_path, siblingKey)) {
+            auto sit = m_cache.find(siblingKey);
+            if (sit != m_cache.end()) {
+                width  = sit->second.width;
+                height = sit->second.height;
+                return sit->second.texture_id;
             }
         }
     }
 
-    width = 0;
-    height = 0;
-    return 0;  // Not ready yet
+    width = height = 0;
+    return 0;
 }
 
-void TimelineThumbnailCache::PrecacheRange(const std::string& source_path, int start_frame, int end_frame,
-                                            int priority_frame, int step) {
-    if (!config_.enabled || !initialized_) return;
+void TimelineThumbnailCache::precacheRange(
+    const std::string &source_path, int start_frame, int end_frame,
+    int priority_frame, int step)
+{
+    if (!m_config.enabled || !m_initialized) return;
+    if (step <= 0) step = 1;
 
-    std::lock_guard<std::mutex> queue_lock(queue_mutex_);
+    std::lock_guard<std::mutex> qlock(m_queueMutex);
 
-    // First, queue the priority frame (current position) with high priority
-    if (priority_frame >= start_frame && priority_frame <= end_frame) {
-        TimelineThumbnailKey priority_key{source_path, priority_frame};
-        if (in_progress_.find(priority_key) == in_progress_.end() &&
-            queued_keys_.find(priority_key) == queued_keys_.end()) {
-            request_queue_.push_front({priority_key, true});
-            queued_keys_.insert(priority_key);
+    if (priority_frame >= start_frame
+        && priority_frame <= end_frame) {
+        TimelineThumbnailKey k{source_path, priority_frame};
+        if (m_inProgress.find(k) == m_inProgress.end()
+            && m_queuedKeys.find(k) == m_queuedKeys.end()) {
+            m_requestQueue.push_front({k, true});
+            m_queuedKeys.insert(k);
         }
     }
-
-    // Then queue strategic frames at intervals
-    for (int frame = start_frame; frame <= end_frame; frame += step) {
-        if (frame == priority_frame) continue;  // Already queued
-
-        TimelineThumbnailKey key{source_path, frame};
-
-        // Skip if already cached
+    for (int f = start_frame; f <= end_frame; f += step) {
+        if (f == priority_frame) continue;
+        TimelineThumbnailKey k{source_path, f};
         {
-            std::lock_guard<std::mutex> cache_lock(cache_mutex_);
-            if (cache_.find(key) != cache_.end()) continue;
+            std::lock_guard<std::mutex> clock(m_cacheMutex);
+            if (m_cache.find(k) != m_cache.end()) continue;
         }
-
-        // Skip if already in progress or queued (O(1) set lookup)
-        if (in_progress_.find(key) != in_progress_.end()) continue;
-        if (queued_keys_.find(key) != queued_keys_.end()) continue;
-
-        request_queue_.push_back({key, false});  // Low priority at back
-        queued_keys_.insert(key);
+        if (m_inProgress.find(k) != m_inProgress.end()) continue;
+        if (m_queuedKeys.find(k) != m_queuedKeys.end()) continue;
+        m_requestQueue.push_back({k, /*high_priority=*/false});
+        m_queuedKeys.insert(k);
     }
-
-    queue_cv_.notify_one();
-
-    Debug::Log("TimelineThumbnailCache: Precaching " + source_path +
-               " frames " + std::to_string(start_frame) + "-" + std::to_string(end_frame) +
-               " (step=" + std::to_string(step) + ")");
+    m_queueCv.notify_one();
 }
 
-void TimelineThumbnailCache::CancelPendingRequests() {
-    std::lock_guard<std::mutex> lock(queue_mutex_);
-    request_queue_.clear();
-    queued_keys_.clear();
-    // Note: in_progress_ items will finish but results will be discarded if clip changed
+void TimelineThumbnailCache::cancelPendingRequests()
+{
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_requestQueue.clear();
+    m_queuedKeys.clear();
+    // in_progress_ items finish naturally; their result is discarded
+    // by the clear-generation check if the caller has since
+    // moved on.
 }
 
-void TimelineThumbnailCache::ProcessPendingUploads() {
-    if (!initialized_) return;
+void TimelineThumbnailCache::processPendingUploads()
+{
+    if (!m_initialized) return;
 
-    // Clear the protection flag - safe to return textures now
-    // This is called at the start of each frame before any GetThumbnail calls
-    clear_pending_ = false;
+    m_clearPending = false;
 
     std::deque<PendingUpload> uploads;
-
     {
-        std::lock_guard<std::mutex> lock(upload_mutex_);
-        uploads.swap(pending_uploads_);
+        std::lock_guard<std::mutex> lock(m_uploadMutex);
+        uploads.swap(m_pendingUploads);
     }
-
     if (uploads.empty()) return;
 
-    // Metal/Vulkan: textures already created on worker thread — just insert into cache (no limit needed).
-    // OpenGL: limit per frame to avoid blocking the main thread with synchronous GPU texture copies.
-#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
-    constexpr int kMaxUploadsPerFrame = 64;  // No GPU work, just cache insertions
-#else
-    constexpr int kMaxUploadsPerFrame = 3;
-#endif
-    int upload_count = 0;
-
+    // Metal/Vulkan: textures already created on worker thread, this
+    // pass is just cache-map insertion. Old app caps at 64 to
+    // amortize lock contention; same here.
+    constexpr int kMaxUploadsPerFrame = 64;
+    int n = 0;
     while (!uploads.empty()) {
-        if (upload_count >= kMaxUploadsPerFrame) {
-            // Put remaining uploads back for next frame
-            std::lock_guard<std::mutex> lock(upload_mutex_);
+        if (n >= kMaxUploadsPerFrame) {
+            std::lock_guard<std::mutex> lock(m_uploadMutex);
             while (!uploads.empty()) {
-                pending_uploads_.push_back(std::move(uploads.front()));
+                m_pendingUploads.push_back(std::move(uploads.front()));
                 uploads.pop_front();
             }
             break;
         }
-
-        auto& upload = uploads.front();
-
-        // Use pre-created GPU texture if available (Metal/Vulkan worker thread path)
-        GLuint texture_id = upload.gpu_texture_id;
-        int tex_width = upload.width;
-        int tex_height = upload.height;
-        if (texture_id == 0 && upload.pixels) {
-            // OpenGL fallback: create texture on main thread
-            texture_id = CreateGLTexture(upload.pixels);
-            tex_width = upload.pixels->width;
-            tex_height = upload.pixels->height;
-        }
-
-        if (texture_id != 0) {
-            std::lock_guard<std::mutex> lock(cache_mutex_);
-
-            // Evict LRU if cache is full
-            while (static_cast<int>(cache_.size()) >= config_.cache_size) {
-                EvictLRU();
+        auto &up = uploads.front();
+        std::uint64_t tex = up.gpu_texture_id;
+        int tw = up.width;
+        int th = up.height;
+        if (tex != 0) {
+            std::lock_guard<std::mutex> lock(m_cacheMutex);
+            while (static_cast<int>(m_cache.size())
+                   >= m_config.cache_size) {
+                evictLru();
             }
-
-            // Add to cache
-            TimelineThumbnailEntry entry;
-            entry.texture_id = texture_id;
-            entry.width = tex_width;
-            entry.height = tex_height;
-            cache_[upload.key] = entry;
-
-            // Add to LRU order
-            lru_order_.push_front(upload.key);
+            TimelineThumbnailEntry e;
+            e.texture_id = tex;
+            e.width      = tw;
+            e.height     = th;
+            m_cache[up.key] = e;
+            m_lruOrder.push_front(up.key);
         }
-
         uploads.pop_front();
-        upload_count++;
+        ++n;
     }
 }
 
-void TimelineThumbnailCache::Clear() {
-    Debug::Log("TimelineThumbnailCache: Clearing cache");
+void TimelineThumbnailCache::clear()
+{
+    qInfo("TimelineThumbnailCache: clear");
 
-    // Signal workers to discard any in-flight work
-    clear_generation_.fetch_add(1, std::memory_order_release);
+    m_clearGeneration.fetch_add(1, std::memory_order_release);
+    m_clearPending = true;
 
-    // Set clear pending flag - prevents GetThumbnail from returning stale IDs
-    // until ProcessPendingUploads is called (next frame)
-    clear_pending_ = true;
-
-    // Clear pending requests
     {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        request_queue_.clear();
-        queued_keys_.clear();
-        in_progress_.clear();
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        m_requestQueue.clear();
+        m_queuedKeys.clear();
+        m_inProgress.clear();
     }
-
-    // Clear pending uploads
     {
-        std::lock_guard<std::mutex> lock(upload_mutex_);
-        pending_uploads_.clear();
+        std::lock_guard<std::mutex> lock(m_uploadMutex);
+        m_pendingUploads.clear();
     }
-
-    // Clear cache
     {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        for (auto& [key, entry] : cache_) {
-            if (entry.texture_id != 0) {
-#ifdef QCVIEW_USE_VULKAN
-                qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
-#elif defined(QCVIEW_USE_METAL)
-                // Guard against static destruction order: pool may already be shut down at exit
-                if (qcview::MetalTexturePool::ThumbnailInstance().IsInitialized()) {
-                    qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(entry.texture_id));
+        std::lock_guard<std::mutex> lock(m_cacheMutex);
+        for (auto &kv : m_cache) {
+            if (kv.second.texture_id != 0) {
+#if defined(QCV_NATIVE_PLAYER) && defined(Q_OS_APPLE)
+                if (MetalTexturePool::thumbnailInstance().isInitialized()) {
+                    MetalTexturePool::thumbnailInstance().queueDelete(
+                        kv.second.texture_id);
                 }
-#else
-                glDeleteTextures(1, &entry.texture_id);
+#elif defined(QCV_NATIVE_PLAYER) && defined(Q_OS_WIN)
+                if (D3D11TexturePool::thumbnailInstance().isInitialized()) {
+                    D3D11TexturePool::thumbnailInstance().queueDelete(
+                        kv.second.texture_id);
+                }
 #endif
             }
         }
-        cache_.clear();
-        lru_order_.clear();
+        m_cache.clear();
+        m_lruOrder.clear();
     }
 
-    // NOTE: Do NOT clear worker_loaders_ here — workers may be mid-load.
-    // Loaders are only cleared in Shutdown() after threads are joined.
-    // The clear_generation_ mechanism handles discarding stale results.
+    // Worker-loader map intentionally NOT cleared here — workers may
+    // be mid-load. Loaders are torn down only in shutdown() after
+    // threads are joined. clear_generation_ keeps stale results out
+    // of the cache.
 
-    cache_hits_ = 0;
-    cache_misses_ = 0;
+    m_cacheHits   = 0;
+    m_cacheMisses = 0;
 }
 
-TimelineThumbnailCache::Stats TimelineThumbnailCache::GetStats() const {
-    Stats stats;
-
+TimelineThumbnailCache::Stats
+TimelineThumbnailCache::stats() const
+{
+    Stats s;
     {
-        std::lock_guard<std::mutex> lock(cache_mutex_);
-        stats.total_cached = static_cast<int>(cache_.size());
+        std::lock_guard<std::mutex> lock(m_cacheMutex);
+        s.total_cached = static_cast<int>(m_cache.size());
     }
-
     {
-        std::lock_guard<std::mutex> lock(queue_mutex_);
-        stats.pending_requests = static_cast<int>(request_queue_.size() + in_progress_.size());
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        s.pending_requests = static_cast<int>(
+            m_requestQueue.size() + m_inProgress.size());
     }
-
-    stats.cache_hits = cache_hits_.load();
-    stats.cache_misses = cache_misses_.load();
-
-    return stats;
+    s.cache_hits   = m_cacheHits.load();
+    s.cache_misses = m_cacheMisses.load();
+    return s;
 }
 
-void TimelineThumbnailCache::WorkerThread(int worker_id) {
-    Debug::Log("TimelineThumbnailCache: Worker thread " + std::to_string(worker_id) + " started");
-
-    while (running_) {
-        ThumbnailRequest request;
-        bool have_request = false;
-
-        // Wait for work
-        {
-            std::unique_lock<std::mutex> lock(queue_mutex_);
-
-            queue_cv_.wait(lock, [this, worker_id]() {
-                return !running_ ||
-                       (!request_queue_.empty() && ShouldWorkerRun(worker_id));
-            });
-
-            if (!running_) break;
-
-            // If this worker should pause (playback started), re-queue current work and wait
-            if (!ShouldWorkerRun(worker_id)) {
-                RequeueCurrentTask(worker_id);
-                // Wait for resume signal (unlock queue_mutex, wait on worker_cv_)
-                worker_cv_.wait(lock, [this, worker_id]() {
-                    return !running_ || ShouldWorkerRun(worker_id);
-                });
-                if (!running_) break;
-                continue;
-            }
-
-            if (!request_queue_.empty()) {
-                request = request_queue_.front();
-                request_queue_.pop_front();
-                queued_keys_.erase(request.key);
-                in_progress_.insert(request.key);
-                have_request = true;
-
-                // Track current task for this worker (for potential re-queuing)
-                {
-                    std::lock_guard<std::mutex> task_lock(worker_task_mutex_);
-                    worker_current_task_[worker_id] = request.key;
-                }
-            }
-        }
-
-        if (have_request) {
-            // Capture generation before doing work — if Clear() fires during load, discard result
-            uint64_t gen_before = clear_generation_.load(std::memory_order_acquire);
-
-            // Load thumbnail pixels (uses per-worker loaders)
-            auto pixels = LoadThumbnailPixels(request.key, worker_id);
-
-            // Check if Clear() was called while we were loading — discard stale result
-            if (clear_generation_.load(std::memory_order_acquire) != gen_before) {
-                std::lock_guard<std::mutex> lock(queue_mutex_);
-                in_progress_.erase(request.key);
-                continue;
-            }
-
-            if (pixels && running_) {
-#if defined(QCVIEW_USE_VULKAN) || defined(QCVIEW_USE_METAL)
-                // Metal/Vulkan: create GPU texture on worker thread (API is thread-safe).
-                // Main thread just inserts the texture ID into the cache (zero GPU work).
-                GLuint texture_id = CreateGLTexture(pixels);
-                if (texture_id != 0) {
-                    std::lock_guard<std::mutex> lock(upload_mutex_);
-                    pending_uploads_.push_back({request.key, nullptr, texture_id,
-                                                pixels->width, pixels->height});
-                }
-#else
-                // OpenGL: queue pixel data for main thread texture creation
-                std::lock_guard<std::mutex> lock(upload_mutex_);
-                pending_uploads_.push_back({request.key, pixels});
-#endif
-            }
-
-            // Remove from in-progress and clear current task
-            {
-                std::lock_guard<std::mutex> lock(queue_mutex_);
-                in_progress_.erase(request.key);
-            }
-            {
-                std::lock_guard<std::mutex> task_lock(worker_task_mutex_);
-                worker_current_task_.erase(worker_id);
-            }
-        }
-    }
-
-    // No Debug::Log here — logger may be destroyed during global static destruction
+bool TimelineThumbnailCache::shouldWorkerRun(int worker_id) const
+{
+    return worker_id == 0 || !m_isPlaying.load();
 }
 
-bool TimelineThumbnailCache::ShouldWorkerRun(int worker_id) const {
-    // Worker 0 always runs; others only when not playing
-    return worker_id == 0 || !is_playing_.load();
+void TimelineThumbnailCache::requeueCurrentTask(int worker_id)
+{
+    // Caller already holds m_queueMutex.
+    std::lock_guard<std::mutex> lock(m_workerTaskMutex);
+    auto it = m_workerCurrentTask.find(worker_id);
+    if (it == m_workerCurrentTask.end()) return;
+    TimelineThumbnailKey k = it->second;
+    m_workerCurrentTask.erase(it);
+    m_inProgress.erase(k);
+    m_requestQueue.push_front({k, /*high_priority=*/true});
 }
 
-void TimelineThumbnailCache::RequeueCurrentTask(int worker_id) {
-    // Note: queue_mutex_ is already held by caller (WorkerThread)
-    // We only need to lock worker_task_mutex_
-    std::lock_guard<std::mutex> lock(worker_task_mutex_);
-
-    auto it = worker_current_task_.find(worker_id);
-    if (it != worker_current_task_.end()) {
-        TimelineThumbnailKey key = it->second;
-        worker_current_task_.erase(it);
-
-        // Re-queue at front (high priority)
-        // queue_mutex_ is already held by caller, so direct access is safe
-        in_progress_.erase(key);
-        request_queue_.push_front({key, /*high_priority=*/true});
-    }
-}
-
-void TimelineThumbnailCache::NotifyPlaybackState(bool is_playing) {
-    bool was_playing = is_playing_.exchange(is_playing);
-
-    if (is_playing && !was_playing) {
-        // Playback started - reduce to 1 worker (worker 0 only)
-        active_thread_count_ = kPlaybackWorkerThreads;
-        worker_state_ = ThumbnailWorkerState::PAUSED_PLAYBACK;
-        queue_cv_.notify_all();  // Wake workers to check state and pause
-
-        Debug::Log("TimelineThumbnailCache: Playback started - reducing to " +
-                   std::to_string(kPlaybackWorkerThreads) + " worker(s)");
-
-    } else if (!is_playing && was_playing) {
-        // Playback stopped - resume all workers
-        active_thread_count_ = kMaxWorkerThreads;
-        worker_state_ = ThumbnailWorkerState::ACTIVE;
-        worker_cv_.notify_all();  // Wake paused workers
-        queue_cv_.notify_all();   // Also notify queue in case work is waiting
-
-        Debug::Log("TimelineThumbnailCache: Playback stopped - resuming all " +
-                   std::to_string(kMaxWorkerThreads) + " workers");
+void TimelineThumbnailCache::notifyPlaybackState(bool isPlaying)
+{
+    bool was = m_isPlaying.exchange(isPlaying);
+    if (isPlaying && !was) {
+        m_activeThreadCount = kPlaybackWorkerThreads;
+        m_workerState       =
+            ThumbnailWorkerState::PAUSED_PLAYBACK;
+        m_queueCv.notify_all();
+        qInfo("TimelineThumbnailCache: playback → %d worker(s)",
+              kPlaybackWorkerThreads);
+    } else if (!isPlaying && was) {
+        m_activeThreadCount = kMaxWorkerThreads;
+        m_workerState       = ThumbnailWorkerState::ACTIVE;
+        m_workerCv.notify_all();
+        m_queueCv.notify_all();
+        qInfo("TimelineThumbnailCache: paused → %d workers",
+              kMaxWorkerThreads);
     }
 }
 
 std::shared_ptr<TimelineThumbnailCache::LoaderInfo>
-TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path, int worker_id) {
-    std::lock_guard<std::mutex> lock(loaders_mutex_);
+TimelineThumbnailCache::getOrCreateLoader(
+    const std::string &source_path, int worker_id)
+{
+    std::lock_guard<std::mutex> lock(m_loadersMutex);
+    auto &wm = m_workerLoaders[worker_id];
+    auto it = wm.find(source_path);
+    if (it != wm.end()) return it->second;
 
-    // Check if this worker already has a loader for this source
-    auto& worker_map = worker_loaders_[worker_id];
-    auto it = worker_map.find(source_path);
-    if (it != worker_map.end()) {
-        return it->second;
-    }
-
-    // Create new loader based on file type (per-worker to avoid FFmpeg contention)
     auto info = std::make_shared<LoaderInfo>();
 
-    // Parse out ?layer= parameter if present (for EXR files)
-    std::string file_path = source_path;
-    std::string layer_name;
-    size_t layer_pos = source_path.find("?layer=");
-    if (layer_pos != std::string::npos) {
-        file_path = source_path.substr(0, layer_pos);
-        layer_name = source_path.substr(layer_pos + 7);  // Skip "?layer="
-    }
+    // EXR keys carry "?layer=Beauty" suffixes. Strip before
+    // extension-check.
+    std::string filePath, layer;
+    splitLayer(source_path, filePath, layer);
+    const std::string ext = extOf(filePath);
 
-    // Detect media type from extension (use file_path without query params)
-    size_t dot_pos = file_path.find_last_of('.');
-    std::string ext = (dot_pos != std::string::npos) ? file_path.substr(dot_pos + 1) : "";
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    const bool isVideo =
+        (ext == "mov" || ext == "mp4" || ext == "mxf"
+         || ext == "avi" || ext == "mkv" || ext == "m4v");
 
-    bool is_video = (ext == "mov" || ext == "mp4" || ext == "mxf" ||
-                     ext == "avi" || ext == "mkv" || ext == "m4v");
-
-    if (is_video) {
+    if (isVideo) {
         info->is_video = true;
-        // Create per-worker VideoImageLoader - each worker has its own FFmpeg context
-        info->image_loader = std::make_unique<VideoImageLoader>(file_path, fps_, 0.0);
-        Debug::Log("TimelineThumbnailCache: Worker " + std::to_string(worker_id) +
-                   " created VideoImageLoader for " + file_path);
+        info->image_loader = std::make_unique<VideoImageLoader>(
+            filePath, m_fps, /*durationHint=*/0.0);
     } else {
         info->is_video = false;
-        // Create appropriate image loader
         if (ext == "exr") {
-            auto exr_loader = std::make_unique<EXRImageLoader>();
-            // Set layer if specified
-            if (!layer_name.empty()) {
-                exr_loader->SetLayer(layer_name);
-                Debug::Log("TimelineThumbnailCache: Worker " + std::to_string(worker_id) +
-                           " created EXRImageLoader with layer '" + layer_name + "'");
-            }
-            info->image_loader = std::move(exr_loader);
+            auto loader = std::make_unique<EXRImageLoader>();
+            if (!layer.empty()) loader->setLayer(layer);
+            info->image_loader = std::move(loader);
         } else if (ext == "tiff" || ext == "tif") {
             info->image_loader = std::make_unique<TIFFImageLoader>();
         } else if (ext == "png") {
@@ -578,158 +463,290 @@ TimelineThumbnailCache::GetOrCreateLoader(const std::string& source_path, int wo
         }
     }
 
-    worker_map[source_path] = info;
+    wm[source_path] = info;
     return info;
 }
 
-std::shared_ptr<PixelData> TimelineThumbnailCache::LoadThumbnailPixels(const TimelineThumbnailKey& key, int worker_id) {
-    auto loader_info = GetOrCreateLoader(key.source_path, worker_id);
-    if (!loader_info || !loader_info->image_loader) {
-        //Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: No loader for " + key.source_path);
-        return nullptr;
+std::shared_ptr<PixelData>
+TimelineThumbnailCache::loadThumbnailPixels(
+    const TimelineThumbnailKey &key, int worker_id)
+{
+    auto info = getOrCreateLoader(key.source_path, worker_id);
+    if (!info || !info->image_loader) return nullptr;
+
+    const int maxThumb = std::max(m_config.width, m_config.height);
+
+    if (info->is_video) {
+        // VideoImageLoader takes the frame number as a string.
+        return info->image_loader->loadThumbnail(
+            std::to_string(key.source_frame), maxThumb);
     }
 
-    // Strip ?layer= from path for actual file loading (layer already set on loader)
-    std::string file_path = key.source_path;
-    size_t layer_pos = file_path.find("?layer=");
-    if (layer_pos != std::string::npos) {
-        file_path = file_path.substr(0, layer_pos);
-    }
-
-    // Use cached loader for both video and image sequences
-    // For video: image_loader is a VideoImageLoader (created in GetOrCreateLoader)
-    // For images: image_loader is an EXRImageLoader/TIFFImageLoader/etc.
-    int max_thumb_size = std::max(config_.width, config_.height);
-
-    /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: Worker " + std::to_string(worker_id) +
-               " loading frame " + std::to_string(key.source_frame) + " from " + file_path +
-               " (is_video=" + std::to_string(loader_info->is_video) + ")");*/
-
-    if (loader_info->is_video) {
-        // Video: pass frame number as string to LoadThumbnail
-        auto result = loader_info->image_loader->LoadThumbnail(std::to_string(key.source_frame), max_thumb_size);
-        if (result) {
-            /*Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: SUCCESS - got " +
-                       std::to_string(result->width) + "x" + std::to_string(result->height));*/
-        } else {
-           /* Debug::Log("TimelineThumbnailCache::LoadThumbnailPixels: FAILED for frame " +
-                       std::to_string(key.source_frame));*/
-        }
-        return result;
-    } else {
-        // Image sequence: pass the file path directly (layer already set on EXRImageLoader)
-        return loader_info->image_loader->LoadThumbnail(file_path, max_thumb_size);
-    }
+    // Image-seq path: source_path is the per-frame file (with
+    // optional ?layer= suffix). Strip the suffix for the loader's
+    // file open — the layer was already pushed into EXRImageLoader
+    // via setLayer() in getOrCreateLoader.
+    std::string filePath, layer;
+    splitLayer(key.source_path, filePath, layer);
+    return info->image_loader->loadThumbnail(filePath, maxThumb);
 }
 
-GLuint TimelineThumbnailCache::CreateGLTexture(const std::shared_ptr<PixelData>& pixels) {
-    if (!pixels || pixels->pixels.empty()) {
-        return 0;
-    }
+std::uint64_t TimelineThumbnailCache::createGpuTexture(
+    const std::shared_ptr<PixelData> &pixels)
+{
+    if (!pixels || pixels->pixels.empty()) return 0;
 
-#ifdef QCVIEW_USE_VULKAN
-    VkFormat vk_format = VK_FORMAT_R8G8B8A8_UNORM;
-    switch (pixels->pixel_format) {
-        case PixelFormat::RGBA8:  vk_format = VK_FORMAT_R8G8B8A8_UNORM; break;
-        case PixelFormat::RGBA16: vk_format = VK_FORMAT_R16G16B16A16_UNORM; break;
-        case PixelFormat::RGBA16F: vk_format = VK_FORMAT_R16G16B16A16_SFLOAT; break;
+#if defined(QCV_NATIVE_PLAYER) && defined(Q_OS_APPLE)
+    auto &pool = MetalTexturePool::thumbnailInstance();
+    if (!pool.isInitialized()) {
+        pool.initialize(/*maxBytes=*/256ULL * 1024 * 1024);
     }
-    uint64_t pool_id = qcview::VulkanTexturePool::ThumbnailInstance().CreateTextureFromPixels(
-        pixels->width, pixels->height, vk_format,
+    return pool.createTextureFromPixels(
+        pixels->width, pixels->height,
+        poolFormatFor(pixels->pixel_format),
         pixels->pixels.data(), pixels->pixels.size());
-    return static_cast<GLuint>(pool_id);
-#elif defined(QCVIEW_USE_METAL)
-    int mtl_format = 0;
-    switch (pixels->pixel_format) {
-        case PixelFormat::RGBA8:  mtl_format = 0; break;
-        case PixelFormat::RGBA16: mtl_format = 0; break;
-        case PixelFormat::RGBA16F: mtl_format = 1; break;
+#elif defined(QCV_NATIVE_PLAYER) && defined(Q_OS_WIN)
+    auto &pool = D3D11TexturePool::thumbnailInstance();
+    if (!pool.isInitialized()) {
+        pool.initialize(/*maxBytes=*/256ULL * 1024 * 1024);
     }
-    uint64_t pool_id = qcview::MetalTexturePool::ThumbnailInstance().CreateTextureFromPixels(
-        pixels->width, pixels->height, mtl_format,
+    return pool.createTextureFromPixels(
+        pixels->width, pixels->height,
+        poolFormatFor(pixels->pixel_format),
         pixels->pixels.data(), pixels->pixels.size());
-    return static_cast<GLuint>(pool_id);
 #else
-    // Save current GL state to avoid corrupting ImGui during render
-    GLint previous_texture = 0;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &previous_texture);
-
-    GLuint texture_id = 0;
-    glGenTextures(1, &texture_id);
-    if (texture_id == 0) {
-        glBindTexture(GL_TEXTURE_2D, previous_texture);  // Restore even on failure
-        return 0;
-    }
-
-    // Determine internal format based on pixel type
-    GLenum internal_format = GL_RGBA8;
-    if (pixels->gl_type == GL_HALF_FLOAT) {
-        internal_format = GL_RGBA16F;
-    } else if (pixels->gl_type == GL_UNSIGNED_SHORT) {
-        internal_format = GL_RGBA16;
-    }
-
-    glBindTexture(GL_TEXTURE_2D, texture_id);
-    glTexImage2D(GL_TEXTURE_2D, 0, internal_format,
-                 pixels->width, pixels->height, 0,
-                 pixels->gl_format, pixels->gl_type,
-                 pixels->pixels.data());
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    // Restore previous texture binding (critical for ImGui compatibility)
-    glBindTexture(GL_TEXTURE_2D, previous_texture);
-
-    return texture_id;
+    (void)pixels;
+    return 0;
 #endif
 }
 
-void TimelineThumbnailCache::EvictLRU() {
-    if (lru_order_.empty()) return;
+void TimelineThumbnailCache::evictLru()
+{
+    if (m_lruOrder.empty()) return;
+    TimelineThumbnailKey k = m_lruOrder.back();
+    m_lruOrder.pop_back();
 
-    // LRU item is at the back
-    TimelineThumbnailKey lru_key = lru_order_.back();
-    lru_order_.pop_back();
-
-    auto it = cache_.find(lru_key);
-    if (it != cache_.end()) {
-        if (it->second.texture_id != 0) {
-#ifdef QCVIEW_USE_VULKAN
-            qcview::VulkanTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
-#elif defined(QCVIEW_USE_METAL)
-            qcview::MetalTexturePool::ThumbnailInstance().QueueDelete(static_cast<uint64_t>(it->second.texture_id));
-#else
-            glDeleteTextures(1, &it->second.texture_id);
+    auto it = m_cache.find(k);
+    if (it == m_cache.end()) return;
+    if (it->second.texture_id != 0) {
+#if defined(QCV_NATIVE_PLAYER) && defined(Q_OS_APPLE)
+        MetalTexturePool::thumbnailInstance().queueDelete(
+            it->second.texture_id);
+#elif defined(QCV_NATIVE_PLAYER) && defined(Q_OS_WIN)
+        D3D11TexturePool::thumbnailInstance().queueDelete(
+            it->second.texture_id);
 #endif
+    }
+    m_cache.erase(it);
+}
+
+int TimelineThumbnailCache::findNearestCachedFrame(
+    const std::string &path, int target) const
+{
+    // Caller holds m_cacheMutex.
+    if (m_cache.empty()) return -1;
+    int best     = -1;
+    int bestDist = INT_MAX;
+    for (const auto &kv : m_cache) {
+        if (kv.first.source_path != path) continue;
+        const int d = std::abs(kv.first.source_frame - target);
+        if (d < bestDist) {
+            bestDist = d;
+            best     = kv.first.source_frame;
         }
-        cache_.erase(it);
+    }
+    return best;
+}
+
+namespace {
+
+// Parse a sequence-style path into (prefix, suffix, frameNumber).
+// Returns false if the path doesn't have a digit-run before its
+// extension. `?layer=...` (cache-key suffix for EXR multi-layer) is
+// preserved as part of `suffix` so siblings with the same layer
+// match and siblings with different layers don't.
+//
+// Examples:
+//   /a/b/shot_v1_0042.exr
+//     prefix="/a/b/shot_v1_", suffix=".exr", number=42
+//   /a/b/shot_v1_0042.exr?layer=Beauty
+//     prefix="/a/b/shot_v1_", suffix=".exr?layer=Beauty", number=42
+struct SequenceParts {
+    std::string prefix;
+    std::string suffix;
+    int         number = 0;
+};
+bool parseSequenceParts(const std::string &path,
+                         SequenceParts &out)
+{
+    const std::size_t q = path.find("?layer=");
+    const std::string filePath =
+        (q == std::string::npos) ? path : path.substr(0, q);
+    const std::string keySuf =
+        (q == std::string::npos) ? std::string() : path.substr(q);
+
+    const std::size_t dot = filePath.find_last_of('.');
+    if (dot == std::string::npos) return false;
+    const std::string ext  = filePath.substr(dot);
+    const std::string stem = filePath.substr(0, dot);
+
+    // Walk back through trailing digits.
+    std::size_t end = stem.size();
+    std::size_t pos = end;
+    while (pos > 0
+           && std::isdigit(static_cast<unsigned char>(stem[pos-1]))) {
+        --pos;
+    }
+    if (pos == end) return false;     // no digits at end
+
+    try {
+        out.number = std::stoi(stem.substr(pos, end - pos));
+    } catch (...) {
+        return false;
+    }
+    out.prefix = stem.substr(0, pos);
+    out.suffix = ext + keySuf;
+    return true;
+}
+
+bool startsWith(const std::string &s, const std::string &p) {
+    return s.size() >= p.size()
+        && std::memcmp(s.data(), p.data(), p.size()) == 0;
+}
+bool endsWith(const std::string &s, const std::string &p) {
+    return s.size() >= p.size()
+        && std::memcmp(s.data() + (s.size() - p.size()),
+                       p.data(), p.size()) == 0;
+}
+
+} // namespace
+
+bool TimelineThumbnailCache::findNearestSequenceSibling(
+    const std::string &targetPath,
+    TimelineThumbnailKey &outKey) const
+{
+    // Caller holds m_cacheMutex.
+    if (m_cache.empty()) return false;
+
+    SequenceParts target;
+    if (!parseSequenceParts(targetPath, target)) return false;
+
+    int  bestDist  = INT_MAX;
+    bool found     = false;
+    for (const auto &kv : m_cache) {
+        const std::string &p = kv.first.source_path;
+        if (p == targetPath) continue;             // exact match handled
+        if (!startsWith(p, target.prefix)) continue;
+        if (!endsWith(p, target.suffix)) continue;
+
+        // Extract the number between prefix and suffix.
+        const std::size_t numStart = target.prefix.size();
+        const std::size_t numEnd   = p.size() - target.suffix.size();
+        if (numEnd <= numStart) continue;
+        bool allDigits = true;
+        for (std::size_t i = numStart; i < numEnd; ++i) {
+            if (!std::isdigit(static_cast<unsigned char>(p[i]))) {
+                allDigits = false;
+                break;
+            }
+        }
+        if (!allDigits) continue;
+
+        int candidateNum = 0;
+        try {
+            candidateNum = std::stoi(
+                p.substr(numStart, numEnd - numStart));
+        } catch (...) {
+            continue;
+        }
+        const int d = std::abs(candidateNum - target.number);
+        if (d < bestDist) {
+            bestDist = d;
+            outKey   = kv.first;
+            found    = true;
+        }
+    }
+    return found;
+}
+
+void TimelineThumbnailCache::workerThread(int worker_id)
+{
+    qInfo("TimelineThumbnailCache: worker %d started", worker_id);
+
+    while (m_running.load()) {
+        Request req;
+        bool haveRequest = false;
+
+        {
+            std::unique_lock<std::mutex> lock(m_queueMutex);
+            m_queueCv.wait(lock, [this, worker_id]() {
+                return !m_running.load()
+                    || (!m_requestQueue.empty()
+                        && shouldWorkerRun(worker_id));
+            });
+            if (!m_running.load()) break;
+
+            // If playback started while we were waiting, requeue
+            // current and CV-wait for the resume signal.
+            if (!shouldWorkerRun(worker_id)) {
+                requeueCurrentTask(worker_id);
+                m_workerCv.wait(lock, [this, worker_id]() {
+                    return !m_running.load()
+                        || shouldWorkerRun(worker_id);
+                });
+                if (!m_running.load()) break;
+                continue;
+            }
+
+            if (!m_requestQueue.empty()) {
+                req = m_requestQueue.front();
+                m_requestQueue.pop_front();
+                m_queuedKeys.erase(req.key);
+                m_inProgress.insert(req.key);
+                haveRequest = true;
+                std::lock_guard<std::mutex> tl(m_workerTaskMutex);
+                m_workerCurrentTask[worker_id] = req.key;
+            }
+        }
+
+        if (!haveRequest) continue;
+
+        const std::uint64_t genBefore =
+            m_clearGeneration.load(std::memory_order_acquire);
+
+        auto pixels = loadThumbnailPixels(req.key, worker_id);
+
+        // Drop result if a clear() raced through during the load.
+        if (m_clearGeneration.load(std::memory_order_acquire)
+            != genBefore) {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_inProgress.erase(req.key);
+            continue;
+        }
+
+        if (pixels && m_running.load()) {
+            // GPU upload happens on the worker (Metal API is
+            // thread-safe for texture creation). Main thread will
+            // pick the handle out of m_pendingUploads and insert
+            // into m_cache.
+            const std::uint64_t tex = createGpuTexture(pixels);
+            if (tex != 0) {
+                std::lock_guard<std::mutex> lock(m_uploadMutex);
+                m_pendingUploads.push_back(
+                    {req.key, nullptr, tex,
+                     pixels->width, pixels->height});
+            }
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(m_queueMutex);
+            m_inProgress.erase(req.key);
+        }
+        {
+            std::lock_guard<std::mutex> lock(m_workerTaskMutex);
+            m_workerCurrentTask.erase(worker_id);
+        }
     }
 }
 
-int TimelineThumbnailCache::FindNearestCachedFrame(const std::string& source_path, int target_frame) const {
-    // Note: cache_mutex_ should already be locked by caller
-    if (cache_.empty()) {
-        return -1;
-    }
-
-    int min_distance = INT_MAX;
-    int nearest_frame = -1;
-
-    for (const auto& [key, entry] : cache_) {
-        // Only consider frames from the same source file
-        if (key.source_path != source_path) continue;
-
-        int distance = std::abs(key.source_frame - target_frame);
-        if (distance < min_distance) {
-            min_distance = distance;
-            nearest_frame = key.source_frame;
-        }
-    }
-
-    return nearest_frame;
-}
-
-} // namespace qcview
+} // namespace qcv

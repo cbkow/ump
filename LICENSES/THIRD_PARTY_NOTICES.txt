@@ -1,229 +1,292 @@
-QCview - Third-Party Software Notices and Information
+QCView — Third-Party Software Notices and Information
 
 This file contains notices and information for third-party software included
-with or used by QCview. The full license text for each library can be
-found in the respective LICENSE file in this directory.
+with or linked dynamically by QCView. The full license text for each library
+is provided in this directory or linked to its canonical upstream location.
+
+QCView itself is licensed under the GNU General Public License version 3
+(see ../LICENSE). The third-party components below ship with the binary
+distribution and are subject to their respective licenses listed here.
 
 ================================================================================
+APPLICATION FRAMEWORK
+================================================================================
 
-1. FFmpeg
-   Copyright (C) 2000-2024 FFmpeg developers
-   License: GPL v3
+1. Qt 6.11 (Qt Project / The Qt Company)
+   Copyright (C) The Qt Company Ltd. and other contributors.
+   License: GNU Lesser General Public License version 3 (LGPL v3)
+   Website: https://www.qt.io / https://www.qt.io/licensing/
+   Source: https://download.qt.io/archive/qt/6.11/
+   Files: Qt-LGPL-v3.txt
+
+   QCView links Qt dynamically. The Qt DLLs ship alongside qcview.exe (and
+   inside the macOS .app bundle's Frameworks/) and can be replaced by the
+   end user with their own LGPL-compliant Qt build of the same major.minor
+   release. Source for the exact Qt version shipped with each release is
+   available from the URL above; an equivalent corresponding-source offer
+   is satisfied by that download archive.
+
+   Modules linked dynamically include: Qt6Core, Qt6Gui, Qt6Quick,
+   Qt6QuickControls2 (and style implementations), Qt6QuickDialogs2,
+   Qt6QuickShapes, Qt6QuickLayouts, Qt6QuickTemplates2, Qt6Qml (and
+   plugins), Qt6ShaderTools, Qt6Network, Qt6OpenGL, Qt6Svg,
+   Qt6LabsFolderListModel.
+
+================================================================================
+MEDIA / DECODE
+================================================================================
+
+2. FFmpeg
+   Copyright (c) 2000-2025 FFmpeg developers.
+   License: GNU General Public License version 3 (GPL v3)
+            (QCView's Windows build links the BtbN "GPL Shared" build,
+             which uses --enable-gpl; on macOS, the Homebrew / system
+             FFmpeg may be LGPL v2.1+ depending on how it was configured.)
    Website: https://ffmpeg.org/
-   File: FFmpeg-LICENSE.txt
+   Source: https://github.com/FFmpeg/FFmpeg
+   Files: FFmpeg-LICENSE.txt
 
-2. Dear ImGui
-   Copyright (c) 2014-2025 Omar Cornut
-   License: MIT
-   Website: https://github.com/ocornut/imgui
-   File: ImGui-LICENSE.txt
+   Modules linked dynamically: libavcodec, libavformat, libavutil,
+   libavfilter, libavdevice, libswscale, libswresample.
 
-3. ImPlot
-   Copyright (c) 2020 Evan Pezent
-   License: MIT
-   Website: https://github.com/epezent/implot
-   File: ImPlot-LICENSE.txt
+   The Windows build (BtbN's FFmpeg.GPL.Shared.8.1) statically links
+   libplacebo and libshaderc into the avutil / avcodec DLLs. See entries
+   below.
 
-4. ImNodes
-   Copyright (c) 2019 Yuki Koyama
-   License: MIT
-   Website: https://github.com/rokups/ImNodes
-   File: ImNodes-LICENSE.md
+3. libplacebo
+   Copyright (c) 2017-present Niklas Haas
+   License: LGPL v2.1+
+   Website: https://code.videolan.org/videolan/libplacebo
+   Files: libplacebo-LICENSE.txt
+   Note: statically linked into BtbN FFmpeg on Windows.
 
-5. GLFW
-   Copyright (c) 2002-2006 Marcus Geelnard
-   Copyright (c) 2006-2019 Camilla Löwy
-   License: zlib/libpng
-   Website: https://www.glfw.org/
-   File: GLFW-LICENSE.md
+4. shaderc / glslang / SPIRV-Tools
+   Copyright (c) 2015-present Google LLC, The Khronos Group, LunarG, Inc.
+   License: Apache License 2.0 (shaderc) / BSD-3-Clause (glslang)
+            / Apache License 2.0 + Khronos source-license (SPIRV-Tools)
+   Website: https://github.com/google/shaderc /
+            https://github.com/KhronosGroup/glslang
+   Files: Apache-2.0.txt, BSD-3-Clause.txt
 
-6. OpenEXR
-   Copyright Contributors to the OpenEXR Project
+5. x264 (Windows GPL Shared build only)
+   Copyright (c) 2003-2023 x264 project
+   License: GPL v2+ (also available under a commercial license; QCView
+            uses the GPL variant via BtbN FFmpeg.)
+   Website: https://www.videolan.org/developers/x264.html
+   Files: GPL-v2.txt
+   Note: statically linked into BtbN FFmpeg on Windows.
+
+6. Vulkan loader and headers
+   Copyright (c) 2014-present The Khronos Group Inc.
+   License: Apache License 2.0
+   Website: https://www.lunarg.com/vulkan-sdk/ /
+            https://github.com/KhronosGroup/Vulkan-Loader
+   Files: Apache-2.0.txt
+
+7. FFmpeg transitive codec libraries (Windows, dynamic)
+   These ship alongside qcview.exe as separate DLLs:
+
+   - aom (AV1)             — BSD-2-Clause + Alliance for Open Media
+                              patent grant   https://aomedia.googlesource.com/aom/
+   - dav1d (AV1 decode)    — BSD-2-Clause     https://code.videolan.org/videolan/dav1d
+   - OpenH264 (H.264)      — BSD-2-Clause; Cisco distributes a separate
+                              binary under its own terms.
+                              https://www.openh264.org/BINARY_LICENSE.txt
+   - OpenJPEG2 (JPEG2000)  — BSD-2-Clause     https://github.com/uclouvain/openjpeg
+   - OpenJPH (HTJ2K)       — BSD-2-Clause     https://github.com/aous72/OpenJPH
+   - libtheora             — BSD-3-Clause     https://www.theora.org/
+   - libvorbis / libogg    — BSD-3-Clause     https://xiph.org/vorbis/
+   - libopus               — BSD-3-Clause     https://opus-codec.org/
+   - libspeex              — BSD-3-Clause     https://www.speex.org/
+   - mpg123                — LGPL 2.1         https://www.mpg123.de/
+   - libmp3lame            — LGPL 2           https://lame.sourceforge.io/
+   - libmodplug            — Public Domain    https://modplug-xmms.sourceforge.net/
+   - libopenmpt            — BSD-3-Clause     https://lib.openmpt.org/
+   - libilbc               — BSD-3-Clause     https://github.com/TimothyGu/libilbc
+   - soxr                  — LGPL 2.1+        https://sourceforge.net/projects/soxr/
+   - libwebp / libsharpyuv — BSD-3-Clause     https://chromium.googlesource.com/webm/libwebp/
+   - libsrt                — MPL 2.0          https://github.com/Haivision/srt
+   - libssh                — BSD-3-Clause     https://www.libssh.org/
+
+   Where multiple licenses apply (e.g., OpenH264's source-vs-binary split),
+   QCView complies with each by shipping the upstream-recommended binaries
+   unmodified.
+
+================================================================================
+IMAGE / EXR
+================================================================================
+
+8. OpenEXR (incl. Imath, Iex, IlmThread, OpenEXRCore)
+   Copyright (c) Contributors to the OpenEXR Project.
    License: BSD-3-Clause
-   Website: https://www.openexr.com/
-   File: OpenEXR-LICENSE.txt
-   Note: Includes Imath, Iex, IlmThread, OpenEXR, OpenEXRCore, OpenEXRUtil
+   Website: https://openexr.com/
+   Files: OpenEXR-LICENSE.txt
 
-7. OpenColorIO
-   Copyright Contributors to the OpenColorIO Project
-   License: BSD-3-Clause
-   Website: https://opencolorio.org/
-   File: OpenColorIO-LICENSE.txt
+9. libtiff
+   Copyright (c) 1988-1997 Sam Leffler
+   Copyright (c) 1991-1997 Silicon Graphics, Inc.
+   License: libtiff license (BSD-style)
+   Website: http://www.libtiff.org/
+   Files: libtiff-LICENSE.txt
 
-8. ExifTool
-   Copyright (C) 2003-2024 Phil Harvey
-   License: GPL v3 / Artistic License (dual licensed)
-   Website: https://exiftool.org/
-   File: ExifTool-LICENSE.txt
-
-9. Native File Dialog Extended (nfd)
-    License: zlib
-    Website: https://github.com/btzy/nativefiledialog-extended
-    File: NativeFileDialog-LICENSE.txt
-
-10. libharu (PDF generation)
-    Copyright (c) 1999-2006 Takeshi Kanno
-    Copyright (c) 2007-2009 Antony Dovgal
-    License: zlib/libpng
-    Website: http://libharu.org/
-    File: libharu-LICENSE.txt
-
-11. libtiff
-    Copyright (c) 1988-1997 Sam Leffler
-    Copyright (c) 1991-1997 Silicon Graphics, Inc.
-    License: libtiff License (BSD-style)
-    Website: http://www.libtiff.org/
-
-12. libpng
-    Copyright (c) 1998-2024 Glenn Randers-Pehrson
-    License: libpng/zlib License
+10. libpng
+    Copyright (c) 1995-2024 The PNG Reference Library Authors
+    License: libpng / PNG Reference Library License
     Website: http://www.libpng.org/
+    Files: libpng-LICENSE.txt
 
-13. libjpeg-turbo
-    Copyright (C) 1991-2024, Thomas G. Lane, Guido Vollbeding, The libjpeg-turbo Project
-    License: IJG License + Modified BSD + zlib
+11. libjpeg-turbo
+    Copyright (c) 2009-2024 D. R. Commander and contributors.
+    License: BSD-3-Clause + IJG license (mixed; libjpeg-turbo's
+             upstream LICENSE.md fully enumerates).
     Website: https://libjpeg-turbo.org/
+    Files: libjpeg-turbo-LICENSE.md
 
-14. zlib
-    Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
-    License: zlib License
-    Website: https://www.zlib.net/
+================================================================================
+COLOR MANAGEMENT
+================================================================================
 
-15. yaml-cpp
-    Copyright (c) 2008-2015 Jesse Beder
-    License: MIT
-    Website: https://github.com/jbeder/yaml-cpp
+12. OpenColorIO 2.5
+    Copyright (c) Contributors to the OpenColorIO Project.
+    License: BSD-3-Clause
+    Website: https://opencolorio.org/
+    Files: OpenColorIO-LICENSE.txt
 
-16. fmt
-    Copyright (c) 2012-present Victor Zverovich
-    License: MIT
-    Website: https://fmt.dev/
+13. OpenColorIO transitive components (static into OCIO, or shipped as DLLs)
+    - yaml-cpp           — MIT               https://github.com/jbeder/yaml-cpp
+    - libexpat           — MIT               https://libexpat.github.io/
+    - pystring           — BSD-3-Clause      https://github.com/imageworks/pystring
+    - minizip-ng         — zlib              https://github.com/zlib-ng/minizip-ng
 
-17. exiv2
-    Copyright (C) 2004-2024 Exiv2 authors
-    License: GPL v2+
-    Website: https://exiv2.org/
+14. Bundled OCIO configs
+    - ACES 2.0 / ACES 1.3: Academy Color Encoding System reference configs,
+      Academy of Motion Picture Arts and Sciences, BSD-style ACES license.
+      https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES
+    - Blender 5.1 config: GPL v3+, Blender Foundation.
+      https://projects.blender.org/blender/blender/
 
-18. expat (libexpat)
-    Copyright (c) 1998-2024 Thai Open Source Software Center Ltd
-    License: MIT
-    Website: https://libexpat.github.io/
+================================================================================
+ANNOTATIONS / STROKES
+================================================================================
 
-19. bzip2 (bz2.dll)
-    Copyright (C) 1996-2024 Julian Seward
-    License: BSD-style
-    Website: https://sourceware.org/bzip2/
-
-20. liblzma (XZ Utils)
-    License: Public Domain / BSD-style
-    Website: https://tukaani.org/xz/
-
-21. zstd (Zstandard)
-    Copyright (c) 2016-present Facebook, Inc.
-    License: BSD / GPLv2 (dual licensed)
-    Website: https://facebook.github.io/zstd/
-
-22. deflate
-    License: MIT / zlib
-    Website: https://github.com/ebiggers/libdeflate
-
-23. GLM (OpenGL Mathematics)
-    Copyright (c) 2005 - 2024 G-Truc Creation
-    License: MIT
-    Website: https://glm.g-truc.net/
-
-24. nlohmann/json
-    Copyright (c) 2013-2024 Niels Lohmann
-    License: MIT
-    Website: https://github.com/nlohmann/json
-
-25. stb_image, stb_image_resize
-    Copyright (c) 2017 Sean Barrett
-    License: Public Domain / MIT
-    Website: https://github.com/nothings/stb
-
-26. Inter Font
-    Copyright 2020 The Inter Project Authors (https://github.com/rsms/inter)
-    License: SIL Open Font License 1.1
-    Website: https://rsms.me/inter/
-    File: Inter-JetBrainsMono-LICENSE.txt
-
-27. JetBrains Mono Font
-    Copyright 2020 The JetBrains Mono Project Authors
-    License: SIL Open Font License 1.1
-    Website: https://www.jetbrains.com/lp/mono/
-    File: Inter-JetBrainsMono-LICENSE.txt
-
-28. Material Symbols (Sharp variant)
-    Copyright Google Inc.
-    License: Apache License 2.0
-    Website: https://fonts.google.com/icons
-    File: MaterialSymbols-LICENSE.txt
-
-29. github-markdown-css
-    Copyright (c) Sindre Sorhus <sindresorhus@gmail.com>
-    License: MIT
-    Website: https://github.com/sindresorhus/github-markdown-css
-    File: github-markdown-css-LICENSE.txt
-
-30. OpenTimelineIO
-    Copyright Contributors to the OpenTimelineIO Project
-    License: Apache License 2.0
-    Website: https://opentimeline.io/
-    File: OpenTimelineIO-LICENSE.txt
-    Note: Multi-track timeline interchange format library (ASWF project)
-
-31. miniaudio
-    Copyright 2025 David Reid
-    License: Public Domain (Unlicense) / MIT No Attribution (dual licensed)
-    Website: https://miniaud.io/
-    GitHub: https://github.com/mackron/miniaudio
-    File: miniaudio-LICENSE.txt
-    Note: Single-header audio playback and capture library for cross-platform audio
-
-32. SoundTouch
-    Copyright (c) Olli Parviainen
-    License: LGPL v2.1
-    Website: https://www.surina.net/soundtouch/
-    Source: https://codeberg.org/soundtouch/soundtouch
-    File: SoundTouch-LICENSE.txt
-    Note: Audio processing library for tempo/pitch adjustment without affecting the other
-
-33. NanoVG
-    Copyright (c) 2013 Mikko Mononen
-    License: zlib
-    Website: https://github.com/memononen/nanovg
-    File: NanoVG-LICENSE.txt
-    Note: Antialiased 2D vector drawing library for OpenGL
-
-34. Ink Stroke Modeler
+15. Ink Stroke Modeler
     Copyright 2022 Google LLC
     License: Apache License 2.0
     Website: https://github.com/google/ink-stroke-modeler
-    File: InkStrokeModeler-LICENSE.txt
-    Note: Library for smoothing input strokes for handwriting/drawing applications
+    Files: Apache-2.0.txt
+    Note: statically linked into qcview.
 
-35. Abseil C++ Common Libraries
-    Copyright 2017 The Abseil Authors
+16. Abseil (transitive via Ink Stroke Modeler)
+    Copyright Abseil Authors.
     License: Apache License 2.0
-    Website: https://github.com/abseil/abseil-cpp
-    File: Abseil-LICENSE.txt
-    Note: Google's C++ common libraries (dependency of Ink Stroke Modeler)
-
-36. imgui_markdown
-    Copyright (c) 2019 Juliette Foucaut and Doug Binks
-    License: zlib
-    Website: https://github.com/enkisoftware/imgui_markdown
-    File: imgui_markdown_LICENSE.txt
+    Website: https://abseil.io/
+    Files: Apache-2.0.txt
 
 ================================================================================
-
-ACES and Blender OpenColorIO Configurations
-Located in assets/OCIO/ - See respective LICENSE files for details.
-
+METADATA
 ================================================================================
 
-For the complete license text of each library, please refer to the individual
-LICENSE files in this directory or visit the respective project websites.
+17. ExifTool
+    Copyright (C) 2003-2025 Phil Harvey
+    License: GPL v1+ / Artistic License (dual)
+    Website: https://exiftool.org/
+    Files: ExifTool-LICENSE.txt
+    Note: QCView bundles a Windows distribution of ExifTool (assets/exiftool/)
+    that includes a Strawberry Perl runtime plus XS native modules. The Perl
+    runtime is GPL v1+ / Artistic dual; individual XS modules retain their
+    own per-file licenses, included with the Perl distribution.
 
-QCView is licensed under GPL v3 due to its dependency on FFmpeg and ExifTool.
+18. Strawberry Perl runtime + XS modules (Windows only)
+    Copyright Larry Wall and the Perl 5 Porters / individual module authors.
+    License: GPL v1+ / Artistic License (Perl) plus per-module licenses.
+    Website: https://strawberryperl.com/
+
+================================================================================
+NETWORKING / SECURITY (vcpkg transitive)
+================================================================================
+
+19. OpenSSL 3 (libcrypto)
+    Copyright OpenSSL Project, dual-licensed under Apache 2.0 since 3.0.
+    License: Apache License 2.0
+    Website: https://www.openssl.org/
+    Files: Apache-2.0.txt
+    Note: shipped as libcrypto-3-x64.dll via vcpkg; pulled transitively by
+    networking-capable Qt and FFmpeg components.
+
+================================================================================
+COMPRESSION / GENERAL UTILITY (vcpkg transitive)
+================================================================================
+
+20. zlib                — zlib license       https://www.zlib.net/
+21. zstd                — BSD-3-Clause (also dual-licensed under GPL v2)
+                                              https://facebook.github.io/zstd/
+22. bzip2               — BSD-style (bzip2)  https://sourceware.org/bzip2/
+23. liblzma (xz-utils)  — Public Domain      https://tukaani.org/xz/
+24. libdeflate          — MIT                https://github.com/ebiggers/libdeflate
+25. snappy              — BSD-3-Clause       https://github.com/google/snappy
+
+================================================================================
+TEXT / LOCALE (vcpkg transitive)
+================================================================================
+
+26. libxml2             — MIT                https://gitlab.gnome.org/GNOME/libxml2
+27. libiconv            — LGPL 2.1+          https://www.gnu.org/software/libiconv/
+28. ICU (icuuc)         — ICU License (X11-style) https://icu.unicode.org/
+29. fmt (transitive)    — MIT                https://github.com/fmtlib/fmt
+
+================================================================================
+FONTS
+================================================================================
+
+30. Inter
+    Copyright (c) The Inter Project Authors.
+    License: SIL Open Font License 1.1
+    Website: https://rsms.me/inter/
+    Files: OFL-1.1.txt
+
+31. JetBrains Mono
+    Copyright (c) JetBrains s.r.o.
+    License: SIL Open Font License 1.1
+    Website: https://www.jetbrains.com/lp/mono/
+    Files: OFL-1.1.txt
+
+32. Phosphor Icons (icon font / SVG set)
+    Copyright (c) 2023 Phosphor Icons
+    License: MIT
+    Website: https://phosphoricons.com/
+    Files: Phosphor-LICENSE.txt
+
+================================================================================
+MICROSOFT / KHRONOS REDISTRIBUTABLES (Windows)
+================================================================================
+
+33. D3DCompiler_47.dll, dxcompiler.dll, opengl32sw.dll
+    Microsoft Direct3D and Khronos / Mesa redistributables shipped as part
+    of the Windows GPU toolchain. Distributed under their respective
+    redistributable licenses (MIT for opengl32sw / Mesa LLVMpipe;
+    Microsoft redistribution rights for D3DCompiler_47.dll and
+    dxcompiler.dll per their EULAs).
+
+34. OpenCL loader (OpenCL.dll)
+    Copyright (c) The Khronos Group Inc.
+    License: Apache License 2.0
+    Website: https://github.com/KhronosGroup/OpenCL-ICD-Loader
+
+================================================================================
+SOURCE AND OFFER
+================================================================================
+
+QCView is itself released under the GNU General Public License version 3 — see
+../LICENSE. The complete corresponding source code for this distribution,
+including build scripts and the upstream tags / commits for each third-party
+component above, is available at:
+
+   https://github.com/cbkow/QCView-Player
+
+If you received a binary copy of QCView without the corresponding source code,
+you may obtain it from the URL above for at least three years from the date
+of distribution. This satisfies GPL v3 §6 and LGPL v3 §4 corresponding-source
+obligations for all components above.
+
+For questions about licensing, please open an issue at:
+   https://github.com/cbkow/QCView-Player/issues

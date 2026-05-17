@@ -1,48 +1,74 @@
+// AnnotationIO — direct lift from old QCView's
+// src/annotations/annotation_io.{h,cpp} per Guide 19 §2.4.
+//
+// Folder layout + JSON read/write for note metadata. Two layouts:
+//
+//   1. Per-media (single clip):
+//        <media_dir>/.qcview/<media_filename>/notes.json
+//        <media_dir>/.qcview/<media_filename>/images/note_<TC>.png
+//
+//   2. Per-project-timeline (when notes belong to a timeline, not a
+//      single clip):
+//        <project_dir>/.qcview/<timeline_name>/notes.json
+//        <project_dir>/.qcview/<timeline_name>/images/note_<TC>.png
+//
+// Read-side falls back to legacy `.ump` folder if `.qcview` doesn't
+// exist (old "UMP" alpha used .ump). Write-side always creates
+// `.qcview`.
+//
+// Adaptation notes vs old app:
+//   - Namespace qcview::AnnotationIO → qcv::annotation_io
+//   - std::string → QString throughout
+//   - std::filesystem → QDir / QFile / QFileInfo
+//   - Async via QtConcurrent::run (was std::thread::detach)
+//   - SaveScreenshot dropped — Phase B annotation pass writes PNGs via
+//     QImage::save (no separate stb_image_write dep needed)
+//   - Per-Windows hidden-attr: keep (AttributesNormal | Hidden via
+//     SetFileAttributesA, guarded by Q_OS_WIN)
+
 #pragma once
 
 #include "annotation_note.h"
-#include <string>
-#include <vector>
+
+#include <QString>
+
 #include <functional>
+#include <vector>
 
-namespace qcview {
-namespace AnnotationIO {
+namespace qcv::annotation_io {
 
-/**
- * AnnotationIO - Async file I/O for annotations
- *
- * Handles creating .qcview folder structure and reading/writing JSON
- * All operations are async to avoid blocking playback
- */
+// ---- Per-media path helpers ----
+QString getQcViewPath(const QString &mediaPath);
+QString getNotesJsonPath(const QString &mediaPath);
+QString getImagesFolder(const QString &mediaPath);
+QString sanitizeMediaName(const QString &filename);
+QString generateImageFilename(const QString &timecode);
 
-// Path helpers
-std::string GetQCViewPath(const std::string& media_path);
-std::string GetNotesJSONPath(const std::string& media_path);
-std::string GetImagesFolder(const std::string& media_path);
-std::string SanitizeMediaName(const std::string& filename);
-std::string GenerateImageFilename(const std::string& timecode);
+// ---- Per-project-timeline path helpers ----
+// `projectPath` is the path to the project file (e.g. "foo.qcvproj");
+// the project dir is its parent. timelineName is sanitized.
+QString getProjectAnnotationPath(const QString &projectPath,
+                                 const QString &timelineName);
+QString getProjectImagesFolder(const QString &projectPath,
+                               const QString &timelineName);
+bool createProjectQcViewFolder(const QString &projectPath,
+                               const QString &timelineName);
 
-// Project-relative path helpers (for timelines without media source)
-// Returns: {project_dir}/.qcview/{timeline_name}/notes.json
-std::string GetProjectAnnotationPath(const std::string& project_path, const std::string& timeline_name);
-std::string GetProjectImagesFolder(const std::string& project_path, const std::string& timeline_name);
-bool CreateProjectQCViewFolder(const std::string& project_path, const std::string& timeline_name);
+// ---- Folder management ----
+bool createQcViewFolder(const QString &mediaPath);
+bool ensureImagesFolderExists(const QString &mediaPath);
 
-// Folder management
-bool CreateQCViewFolder(const std::string& media_path);
-bool EnsureImagesFolderExists(const std::string& media_path);
+// ---- JSON I/O (sync) ----
+bool saveNotes(const std::vector<AnnotationNote> &notes,
+               const QString &mediaPath);
+bool loadNotes(std::vector<AnnotationNote> &notes,
+               const QString &mediaPath);
 
-// JSON I/O (sync versions for now, will add async later)
-bool SaveNotes(const std::vector<AnnotationNote>& notes, const std::string& media_path);
-bool LoadNotes(std::vector<AnnotationNote>& notes, const std::string& media_path);
+// ---- Async wrappers (fire-and-forget, off the calling thread) ----
+using LoadCallback =
+    std::function<void(bool success, const std::vector<AnnotationNote> &)>;
+void loadNotesAsync(const QString &mediaPath, LoadCallback callback);
+void saveNotesAsync(const std::vector<AnnotationNote> &notes,
+                    const QString &mediaPath);
 
-// Async versions (future)
-using LoadCallback = std::function<void(bool success, const std::vector<AnnotationNote>&)>;
-void LoadNotesAsync(const std::string& media_path, LoadCallback callback);
-void SaveNotesAsync(const std::vector<AnnotationNote>& notes, const std::string& media_path);
-
-// Screenshot save
-bool SaveScreenshot(const std::string& image_path, const unsigned char* data, int width, int height);
-
-} // namespace AnnotationIO
-} // namespace qcview
+} // namespace qcv::annotation_io

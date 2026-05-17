@@ -1,12 +1,12 @@
 ---
 title: Privacy Policy
 permalink: /privacy/
-nav_order: 18
+nav_order: 16
 ---
 
 # Privacy Policy
 
-**QCView** — Last updated: February 2026
+**QCView** — Last updated: May 2026
 
 ## Summary
 
@@ -20,29 +20,27 @@ QCView does not collect analytics, telemetry, crash reports, or usage statistics
 
 QCView stores the following data locally on your device:
 
-- **Windows:** `%LOCALAPPDATA%\qcview\`
-- **macOS:** `~/Library/Application Support/qcview/`
-- **Linux:** `~/.config/qcview/` and `~/.cache/qcview/`
+- **Windows**: `%LOCALAPPDATA%\QCView\`
+- **macOS**: `~/Library/Application Support/QCView/`
 
-Data stored:
+Stored data includes:
 
 - Application settings and preferences
 - Project files and timeline data
 - Frame cache and temporary render files
+- Annotation notes, strokes, and exports
 
-This data never leaves your device unless you explicitly choose to share it.
+This data never leaves your device unless you explicitly choose to share it (for example, by exporting an annotation report or copying a project file to a shared drive).
 
 ## Network Activity
 
-QCView makes no automatic network connections. The only network features are:
+QCView makes no automatic network connections.
 
-- **Frame.io Integration (Optional):** If you choose to use the Frame.io integration, QCView connects to the Frame.io API (`api.frame.io`) using an API token that you provide. This connection is used solely to retrieve comments associated with your Frame.io assets. No data is uploaded to Frame.io through QCView.
-
-- **Help Menu Links:** The Help menu contains links to documentation, license information, and release notes. Selecting these opens your default web browser. QCView itself does not fetch or transmit any data through these links.
+The Help menu contains links to documentation and license information. Selecting these opens your default web browser. QCView itself does not fetch or transmit any data through these links.
 
 ## Third-Party Services
 
-QCView does not integrate with any advertising, analytics, or tracking services. The optional Frame.io integration communicates only with Frame.io's API at your direction and with your credentials.
+QCView does not integrate with any advertising, analytics, or tracking services.
 
 ## Children's Privacy
 
@@ -54,5 +52,5 @@ If this policy changes, the updated version will be published at the same locati
 
 ## Contact
 
-If you have questions about this privacy policy, please open an issue
-[here](https://github.com/cbkow/QCView-Player/issues).
+If you have questions about this privacy policy, please open an issue at:
+[https://github.com/cbkow/QCView-Player/issues](https://github.com/cbkow/QCView-Player/issues).
