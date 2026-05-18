@@ -16,7 +16,7 @@ QCView is a Qt 6.11 Quick / QML application with a native player surface drawn u
 |---|---|---|
 | **UI** | Qt Quick / QML | Qt Quick / QML |
 | **GPU** | Direct3D 11 + DirectComposition (multi-visual for HDR) | Metal |
-| **HW decode** | Vulkan-video via FFmpeg (with software fallback) | VideoToolbox via FFmpeg |
+| **HW decode** | Vulkan-video for ProRes, D3D11 for h.264/h.265 via FFmpeg (with software fallback) | VideoToolbox via FFmpeg |
 | **Audio** | WASAPI shared mode, MMCSS "Pro Audio" priority | CoreAudio AudioUnit |
 | **HDR output** | HDR10 (PQ / ST.2084, BT.2020) via DXGI swapchain | EDR (Extended Dynamic Range, linear-light) |
 
