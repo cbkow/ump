@@ -16,4 +16,4 @@ Hover the timeline to preview the frame in the corner of the viewport. Hover thu
 
 ## Disabling thumbnails
 
-Turn hover thumbnails off in Settings, or by clicking the toggle on the transport button row, if you prefer (focus mode, low-RAM systems). The clip filmstrip stays.
+Turn hover thumbnails off in Settings, or by clicking the toggle on the transport button row, if you prefer (focus mode, low-RAM systems). 

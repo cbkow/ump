@@ -67,7 +67,7 @@ You can also use the mouse to toggle panels. Rails can be opened and closed by c
 
 ### Backgrounds
 
-QCView provides background options for reviewing alpha-channel media: grey (default), black, checkerboard. Alpha channels in any media pass through to the selected background. Open the Background section from the Left Rail (Tools menu → Background, or `Ctrl + 1` then expand).
+QCView provides background options for reviewing alpha-channel media: grey, black, light checkerboard, dark checkerboard. Alpha channels in any media pass through to the selected background. Open the Background section from the Left Rail (Tools menu → Background, or `Ctrl + 1` then expand).
 
 ![Background section in the Left Rail](images/qcv007.jpg)
 

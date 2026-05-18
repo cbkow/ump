@@ -6,7 +6,7 @@ nav_order: 13
 
 # Playlists
 
-To create a playlist, right-click the **Playlists** bin in the Project panel → New Playlist.
+To create a playlist, click the `+` button to the right of the Playlist header in the left rail.
 
 To build a playlist, drag video or image-sequence sources from the Project panel into the timeline. Mixed video + image-sequence playlists work — QCView swaps backends at clip boundaries.
 

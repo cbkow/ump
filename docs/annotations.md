@@ -16,7 +16,7 @@ Open the Notes panel with `Ctrl + 4`.
 
 ## Creating Notes
 
-Click **Add Note** to create a note at the current playhead position. A diamond marker appears on the timeline. Type in the text field — basic Markdown (headings, lists, bold, italics, code) renders in preview and exports.
+Click **Add Note** to create a note at the current playhead position. A diamond marker appears on the timeline. Type in the text field.
 
 ### Drawing Tools
 
@@ -27,7 +27,7 @@ The annotation toolbar provides shapes (freehand, box, circle, arrow), a line-wi
 | `Ctrl + Z` | Undo |
 | `Ctrl + Y` | Redo |
 
-Save your drawing when finished. Screenshots captured with annotations are saved as illustration thumbnails alongside the clean frame, so notes include a visual reference of what was marked up.
+> If the Notes panel is open, screenshots are captured with embedded annotations.
 
 ---
 

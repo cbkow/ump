@@ -24,7 +24,7 @@ The video frame path is hardware-accelerated end-to-end on both platforms — no
 
 ## Pipeline modes
 
-The pipeline mode controls the precision the source frame is carried at through OCIO and to the display. QCView picks one automatically based on the source format; you can override it for video sources from the Inspector.
+The pipeline mode controls the precision the source frame is carried at through OCIO and to the display. QCView picks one automatically based on the source format.
 
 | Mode | Texture | Bit depth | When QCView picks it |
 |---|---|---|---|
