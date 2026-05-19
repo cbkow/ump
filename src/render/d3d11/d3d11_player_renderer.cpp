@@ -646,15 +646,18 @@ void D3D11PlayerRenderer::applyPendingResizeIfNeeded()
     }
     // After a real resize, give DComp a freshly-presented back buffer
     // at the new dims immediately — don't wait for the next wake-cv
-    // tick. Clear to black; the normal drawFrame() right after this
-    // will overlay the real content.
+    // tick. Seed with #1b1b1b (27/255 = 0.1059) to match the QML
+    // centerStage Rectangle and WindowManager's WM_ERASEBKGND fill,
+    // so the 1-frame seam during rail-collapse animations blends in.
+    // The normal drawFrame() right after this will overlay the real
+    // content.
     auto *rtv       = static_cast<ID3D11RenderTargetView *>(m_impl->hdrSwapchain.rtv());
     auto *swapchain = static_cast<IDXGISwapChain1 *>(m_impl->hdrSwapchain.swapchain());
     if (sizeActuallyChanged && rtv && swapchain) {
         auto *ctx = static_cast<ID3D11DeviceContext *>(
             D3D11DeviceManager::instance().context());
-        const float black[4] = {0.f, 0.f, 0.f, 1.f};
-        ctx->ClearRenderTargetView(rtv, black);
+        const float seed[4] = {0.1059f, 0.1059f, 0.1059f, 1.f};
+        ctx->ClearRenderTargetView(rtv, seed);
         swapchain->Present(0, 0);
         m_pendingDraw.store(true, std::memory_order_release);
     }

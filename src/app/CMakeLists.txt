@@ -5,96 +5,22 @@
 # get layered in.
 
 qt_add_executable(qcview
+    MANUAL_FINALIZATION
     main.cpp
 )
 
 # Phase 2.4: full UI skeleton + slot-machine Color panel.
-# Each component lives in its own QML file under src/ui/qml. They're
-# all in the Qcv module via qt_add_qml_module so they cross-reference
-# each other by short name (e.g., `LeftRail { }` from Main.qml).
-set(QCVIEW_QML_FILES
-    Main.qml
-    PlayerWindow.qml
-    TransportBar.qml
-    TimelinePanel.qml
-    TimelineStatus.qml
-    ViewportOverlay.qml
-    ColorPanel.qml
-    StatusStrip.qml
-    LeftRail.qml
-    RightRail.qml
-    CollapsibleSection.qml
-    ImageSequenceInspector.qml
-    InspectorPanel.qml
-    NotesPanel.qml
-    ColorPickerInline.qml
-    Theme.qml
-    Icon.qml
-    FlatButton.qml
-    FlatComboBox.qml
-    FlatSlider.qml
-    FlatSpinBox.qml
-    FlatSwitch.qml
-    FlatTextField.qml
-    FlatToolTip.qml
-    ToolStrip.qml
-    ThemedMenu.qml
-)
-
-foreach(qml_file IN LISTS QCVIEW_QML_FILES)
-    set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/qml/${qml_file}
-        PROPERTIES QT_RESOURCE_ALIAS ${qml_file}
-    )
-endforeach()
-
-# Theme.qml is registered as a singleton — call sites use
-# `import Qcv` then `Theme.accent` etc.
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/qml/Theme.qml
-    PROPERTIES
-        QT_QML_SINGLETON_TYPE TRUE
-        QT_RESOURCE_ALIAS Theme.qml
-)
-# PhosphorIcons.js is bundled as a non-QML resource so Icon.qml's
-# JS import can resolve it. Alias makes the absolute path land at
-# the module's relative resource root.
-set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/qml/PhosphorIcons.js
-    PROPERTIES
-        QT_RESOURCE_ALIAS PhosphorIcons.js
-)
-
-qt_add_qml_module(qcview
-    URI Qcv
-    VERSION 1.0
-    QML_FILES
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/Main.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/PlayerWindow.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/TransportBar.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/TimelinePanel.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/TimelineStatus.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ViewportOverlay.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ColorPanel.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/StatusStrip.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/LeftRail.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/RightRail.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/CollapsibleSection.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ImageSequenceInspector.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/InspectorPanel.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/NotesPanel.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ColorPickerInline.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/Theme.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/Icon.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatButton.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatComboBox.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatSlider.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatSpinBox.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatSwitch.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatTextField.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/FlatToolTip.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ToolStrip.qml
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/ThemedMenu.qml
-    RESOURCES
-        ${CMAKE_SOURCE_DIR}/src/ui/qml/PhosphorIcons.js
-)
+# QML module config lives in src/ui/qml/CMakeLists.txt so that Qt's
+# qmlcachegen output paths don't contain `..` segments (Windows
+# can't create directories with trailing dots — see comment there).
+#
+# MANUAL_FINALIZATION above defers qt_finalize_target(qcview) until
+# after qt_add_qml_module has registered the QML resources; otherwise
+# auto-finalize fires at end of src/app's dir scope and the QML
+# metatypes-collection rule never gets installed (qmltyperegistrar
+# then chokes on the 0-byte qt6qcview_metatypes.json placeholder).
+add_subdirectory(${CMAKE_SOURCE_DIR}/src/ui/qml
+                 ${CMAKE_BINARY_DIR}/src/ui/qml)
 
 target_link_libraries(qcview
     PRIVATE
@@ -326,3 +252,10 @@ if(WIN32)
         endforeach()
     endif()
 endif()
+
+# Pairs with MANUAL_FINALIZATION on qt_add_executable above. Must come
+# AFTER everything that mutates the qcview target (sources, link libs,
+# QML module, POST_BUILD commands) — finalization is what writes the
+# moc --collect-json rule, the qmltyperegistration step, and any
+# applocal deploy hooks.
+qt_finalize_target(qcview)

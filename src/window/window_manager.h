@@ -508,6 +508,14 @@ public:
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void seekToFrame(int frame);
+    // Same as seekToFrame, plus a deferred-resume: when `resume`
+    // is true, play() is called by applyPlaylistSeek AFTER the new
+    // seek target has been committed. Used by the playlist branch
+    // of QML's doRelease so the decoder doesn't play frames at its
+    // OLD position during the 50 ms debounce window (frames from
+    // the source clip would otherwise flash in the viewport before
+    // the user-target frame lands).
+    Q_INVOKABLE void seekToFrameAndResume(int frame, bool resume);
     // Unified +/- frame stepper that routes to image-seq timeline or
     // video decoder. Pauses playback first (matches old app's
     // StepFrame which calls Pause then advances).
@@ -1160,6 +1168,24 @@ private:
     // compared to the per-click decoder cost it replaces.
     QTimer                               *m_playlistSeekDebounce    = nullptr;
     int                                   m_pendingPlaylistSeekFrame = -1;
+    // Target SOURCE frame of an in-flight playlist seek. Set by
+    // applyPlaylistSeek right before m_videoDecoder->seekToFrame(),
+    // cleared by the currentFrameChanged mirror once the decoder
+    // lands within tolerance. While >= 0 the mirror skips updates
+    // so the playhead doesn't briefly jump to the new clip's
+    // sourceIn from keyframe-rounded intermediate frames before
+    // settling at the user-target source frame.
+    int                                   m_playlistSeekTargetFrame = -1;
+    // Pair of state for the deferred-resume seek path used by the
+    // playlist branch of seekToFrame. The QML release handler used to
+    // call WindowManager.videoDecoder.play() immediately after a
+    // playlist seekToFrame(), which meant the decoder was playing
+    // from its OLD position for the entire 50 ms debounce window —
+    // visible as a frame from the current clip flashing in the
+    // viewport before the user-target frame lands. Holding the
+    // resume here defers the play() until applyPlaylistSeek has
+    // actually committed the new seek target.
+    bool                                  m_resumePlayAfterPlaylistSeek = false;
     void applyPlaylistSeek(int frame);
 
     // Phase 3.H.4 — pre-warm cache for the next image-seq clip.
@@ -1187,7 +1213,15 @@ private:
     // seek settles. EOS-driven boundary crosses pass true; initial
     // load and user-driven scrubs pass false (or the playing state
     // they captured before the seek).
-    int  playlistAdvanceToClip(int trackClipIndex, bool autoplay);
+    // targetTimelinePos: when >= 0, seek the freshly-opened decoder
+    // directly to the source frame corresponding to this timeline
+    // position instead of to clip.sourceIn. Used by applyPlaylistSeek
+    // for user-initiated cross-clip seeks so the decoder doesn't
+    // decode + present the clip's first frame just to be re-seeked
+    // moments later (read on screen as a "frame 1" flash in the
+    // viewport before the user-target frame lands).
+    int  playlistAdvanceToClip(int trackClipIndex, bool autoplay,
+                               double targetTimelinePos = -1.0);
     // Find the next non-gap clip index after `from` in the given
     // direction (+1 forward, -1 backward). Returns -1 if none.
     int  playlistFindNonGapClip(int from, int direction) const;

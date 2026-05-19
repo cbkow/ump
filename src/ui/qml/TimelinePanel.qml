@@ -2010,21 +2010,35 @@ Pane {
                 function doRelease(viewX) {
                     if (!loaded) return;
                     const f = frameAtX(viewX);
+                    // Optimistic timer update so the playhead's
+                    // `timeToX(position)` binding lands at the target
+                    // the instant `scrubArea.pressed` flips false —
+                    // otherwise the playhead snaps to the stale
+                    // pre-scrub `position` until the async decoder
+                    // seek lands and fires the 7.2.d mirror, which
+                    // reads on screen as a jump-back-then-settle.
+                    // Idempotent: when the mirror eventually fires
+                    // with the same frame, PlaybackTimer::seek's
+                    // qFuzzyCompare short-circuits the second emit.
+                    if (timer && frameRate > 0) {
+                        timer.seek(f / frameRate);
+                    }
                     if (isDual) {
                         commitFrame(f);
                         if (wasPlayingBeforeScrub) WindowManager.play();
                         return;
                     }
                     if (root.playlistActive) {
-                        // Full commit: WindowManager.seekToFrame
-                        // routes the cross-clip swap (if any) and
-                        // seeks the active decoder to the exact
-                        // source frame.
-                        WindowManager.seekToFrame(f);
-                        if (wasPlayingBeforeScrub
-                            && WindowManager.videoDecoder) {
-                            WindowManager.videoDecoder.play();
-                        }
+                        // Full commit: seekToFrameAndResume pairs the
+                        // seek with a deferred play() inside
+                        // applyPlaylistSeek so the decoder doesn't
+                        // play from its OLD position during the 50ms
+                        // playlist debounce window — that would
+                        // otherwise flash a frame from the source
+                        // clip in the viewport before the user-target
+                        // frame lands.
+                        WindowManager.seekToFrameAndResume(
+                            f, wasPlayingBeforeScrub);
                         return;
                     }
                     if (isImageSequence) {

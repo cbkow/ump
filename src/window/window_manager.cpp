@@ -66,6 +66,16 @@
 #include <QtLogging>
 #include <utility>
 
+#if defined(Q_OS_WIN)
+#  ifndef NOMINMAX
+#    define NOMINMAX
+#  endif
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#endif
+
 namespace qcv {
 
 WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
@@ -484,6 +494,28 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // boundary cross at the clip's sourceOut and hop to the
         // next clip.
         if (m_playlistActive && !m_playlistAdvancing) {
+            // Gate during the 50 ms playlist-seek debounce window
+            // (see seekToFrame's coalescer). The OLD decoder, still
+            // on the previously-active clip, can emit a queued
+            // currentFrameChanged before applyPlaylistSeek even
+            // runs — translating it through this clip's offsets
+            // would overwrite the QML-side optimistic timer update
+            // with a stale source-clip pos, reading on screen as
+            // the playhead jumping back to the old clip before
+            // settling on the new target.
+            if (m_pendingPlaylistSeekFrame >= 0) return;
+            // Gate during the in-flight decoder seek (between
+            // applyPlaylistSeek issuing seekToFrame and the decoder
+            // landing on the target). Skip intermediate keyframe-
+            // rounded frames so the playhead doesn't briefly snap
+            // to clip.startTime before settling on the user target.
+            if (m_playlistSeekTargetFrame >= 0) {
+                if (std::abs(m_videoDecoder->currentFrame()
+                             - m_playlistSeekTargetFrame) > 1) {
+                    return;
+                }
+                m_playlistSeekTargetFrame = -1;
+            }
             const Clip *clip = playlistActiveClip();
             if (clip) {
                 // Boundary cross — swap to next clip BEFORE mirroring,
@@ -1029,6 +1061,41 @@ bool WindowManager::initialize()
     }
     qInfo("WindowManager: UI swapchain colorspace = %s",
           qPrintable(m_uiWindow->format().colorSpace().description()));
+
+#if defined(Q_OS_WIN)
+    // Subclass the UI window's WNDPROC to paint WM_ERASEBKGND with
+    // #1b1b1b. WNDCLASS background brush is ignored on Qt Quick
+    // windows because QWindowsWindow handles WM_ERASEBKGND via the
+    // GDI default proc → DefWindowProc paints with the class brush,
+    // but Qt's window is created with hbrBackground=null. Subclassing
+    // and painting the fill ourselves is what reliably hits this
+    // surface. Companion fills (D3D11 seed-present, QML centerStage
+    // Rectangle) are also #1b1b1b so all three blend during the
+    // 1-frame seams during rail-collapse animations.
+    {
+        HWND hwnd = reinterpret_cast<HWND>(m_uiWindow->winId());
+        if (hwnd) {
+            static WNDPROC s_origProc = nullptr;
+            s_origProc = reinterpret_cast<WNDPROC>(
+                GetWindowLongPtrW(hwnd, GWLP_WNDPROC));
+            static const auto subclassProc =
+                +[](HWND h, UINT msg, WPARAM wp, LPARAM lp) -> LRESULT {
+                    if (msg == WM_ERASEBKGND) {
+                        HDC hdc = reinterpret_cast<HDC>(wp);
+                        RECT rc;
+                        GetClientRect(h, &rc);
+                        HBRUSH fill = CreateSolidBrush(RGB(27, 27, 27));
+                        FillRect(hdc, &rc, fill);
+                        DeleteObject(fill);
+                        return 1;
+                    }
+                    return CallWindowProcW(s_origProc, h, msg, wp, lp);
+                };
+            SetWindowLongPtrW(hwnd, GWLP_WNDPROC,
+                              reinterpret_cast<LONG_PTR>(subclassProc));
+        }
+    }
+#endif
 
 #if defined(Q_OS_MACOS)
     // Green title-bar button → standard zoom, not OS-fullscreen Space.
@@ -2445,7 +2512,8 @@ int WindowManager::playlistFindNonGapClip(int from, int direction) const
     return -1;
 }
 
-int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay)
+int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay,
+                                         double targetTimelinePos)
 {
     if (!m_timeline || !m_videoDecoder) return -1;
     const Timeline &t = m_timeline->timeline();
@@ -2503,21 +2571,27 @@ int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay)
         const bool prewarmHit = static_cast<bool>(prewarmed);
         startImageSequence(*src, std::move(prewarmed));
         // Boundary auto-resume. Seek the timer to the clip's
-        // startTime so the cache picks up at sourceIn, then play
-        // if requested. Without this the timer would sit paused
-        // at the previous clip's end + the next frame never
-        // advances until the user hits Space.
+        // startTime (or to targetTimelinePos if a user-initiated
+        // cross-clip seek passed one through) so the cache picks
+        // up at the right source frame. Without this the timer
+        // would sit paused at the previous clip's end + the next
+        // frame never advances until the user hits Space.
         if (m_timeline) {
-            m_timeline->timer()->seek(clip.startTime);
-            // Force the cache's playhead to clip.sourceIn IMMEDIATELY.
-            // frameAdvanced fires on integer master-frame crossings,
-            // not on seek; without this nudge the cache would still
-            // think it's at the previous clip's end-frame for ~1
-            // master-frame tick, so the renderer holds a stale or
-            // empty frame at the boundary.
+            const double timelineSeekTo =
+                (targetTimelinePos >= 0.0) ? targetTimelinePos
+                                            : clip.startTime;
+            m_timeline->timer()->seek(timelineSeekTo);
+            // Force the cache's playhead to the right source frame
+            // IMMEDIATELY. frameAdvanced fires on integer master-
+            // frame crossings, not on seek; without this nudge the
+            // cache would still think it's at the previous clip's
+            // end-frame for ~1 master-frame tick, so the renderer
+            // holds a stale or empty frame at the boundary.
             if (m_imageSeqCache && m_imageSeqCache->fps() > 0.0) {
+                const double srcT = clip.sourceIn
+                                  + (timelineSeekTo - clip.startTime);
                 const int cFrame = std::max(0, static_cast<int>(
-                    std::round(clip.sourceIn * m_imageSeqCache->fps())));
+                    std::round(srcT * m_imageSeqCache->fps())));
                 m_imageSeqCache->updatePlayhead(cFrame, /*force_seek=*/true);
             }
             if (autoplay) {
@@ -2538,11 +2612,21 @@ int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay)
             m_playlistAdvancing = false;
             return -1;
         }
-        // Seek to the clip's source-in frame (honors trim).
+        // Seek to the clip's source-in frame (or directly to the
+        // user-target source frame if applyPlaylistSeek passed a
+        // targetTimelinePos). Combining the open's initial seek
+        // with the user-target seek avoids decoding + presenting
+        // an intermediate frame at clip start that would otherwise
+        // briefly flash in the viewport before the user-target
+        // frame lands.
         const double fps = m_videoDecoder->fps();
+        const double timelineSeekTo =
+            (targetTimelinePos >= 0.0) ? targetTimelinePos
+                                        : clip.startTime;
         if (fps > 0.0) {
-            const int targetFrame =
-                static_cast<int>(std::round(clip.sourceIn * fps));
+            const double srcT = clip.sourceIn
+                              + (timelineSeekTo - clip.startTime);
+            const int targetFrame = static_cast<int>(std::round(srcT * fps));
             m_videoDecoder->seekToFrame(targetFrame);
         } else {
             m_videoDecoder->seekToFrame(0);
@@ -2550,13 +2634,13 @@ int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay)
         if (autoplay) {
             m_videoDecoder->play();
         }
-        // Reset the timeline timer to the new clip's startTime —
-        // otherwise a loop wrap from the last clip back to clip 0
-        // leaves m_position at duration (clamped, since playlist mode
-        // disables timer-level looping). The first mirror seek fixes
-        // it eventually, but until then the QML transport reads stale
-        // position.
-        if (m_timeline) m_timeline->timer()->seek(clip.startTime);
+        // Reset the timeline timer to the new clip's startTime (or
+        // to the user target). Without this a loop wrap from the
+        // last clip back to clip 0 leaves m_position at duration
+        // (clamped, since playlist mode disables timer-level
+        // looping). The first mirror seek fixes it eventually, but
+        // until then the QML transport reads stale position.
+        if (m_timeline) m_timeline->timer()->seek(timelineSeekTo);
     }
 
     m_playlistCurrentClipIndex = idx;
@@ -2935,8 +3019,15 @@ void WindowManager::scrubToTimelineFrame(int frame)
     // requesting the scrub frame. The swap pays the open cost
     // (~50–100 ms) which is the one unavoidable stall on cross-
     // clip drag — Stage 2.b prewarm shaves most of this off.
+    //
+    // Pass `pos` so the freshly-opened decoder's initial seek lands
+    // at the user-target source frame instead of clip.sourceIn —
+    // otherwise the videoDecoder publishes the new clip's first
+    // frame, the renderer paints it, and only then does the
+    // scrubDecoder's preview frame arrive (read on screen as a
+    // frame-1 flash on mouse-down).
     if (target != m_playlistCurrentClipIndex) {
-        playlistAdvanceToClip(target, /*autoplay=*/false);
+        playlistAdvanceToClip(target, /*autoplay=*/false, /*targetTimelinePos=*/pos);
     }
 
     // Same-clip (or post-swap) scrub.
@@ -2965,6 +3056,20 @@ void WindowManager::scrubToTimelineFrame(int frame)
     // Reflect the requested timeline position in the timer so QML
     // scrubbers and timecode readouts see immediate feedback.
     m_timeline->timer()->seek(pos);
+}
+
+void WindowManager::seekToFrameAndResume(int frame, bool resume)
+{
+    // Pause the decoder NOW so it doesn't keep publishing frames at
+    // its current (pre-seek) position during the 50 ms playlist
+    // debounce window. applyPlaylistSeek will resume after committing
+    // the new seek target.
+    if (resume && m_playlistActive && m_videoDecoder
+        && m_videoDecoder->isPlaying()) {
+        m_videoDecoder->pause();
+    }
+    m_resumePlayAfterPlaylistSeek = resume;
+    seekToFrame(frame);
 }
 
 void WindowManager::seekToFrame(int frame)
@@ -3075,7 +3180,13 @@ void WindowManager::applyPlaylistSeek(int frame)
 
     const bool wasPlaying = m_timeline->timer()->isPlaying();
     if (target != m_playlistCurrentClipIndex) {
-        playlistAdvanceToClip(target, wasPlaying);
+        // Pass `pos` so playlistAdvanceToClip seeks the freshly-
+        // opened decoder directly to the user-target source frame
+        // instead of clip.sourceIn first. Without this the decoder
+        // decodes + presents a clip-start frame, then re-seeks to
+        // the user target — visible as a frame-1 flash in the
+        // viewport during cross-clip seeks.
+        playlistAdvanceToClip(target, wasPlaying, pos);
     }
     // Seek the (possibly newly-loaded) decoder to the right source
     // frame.
@@ -3087,12 +3198,27 @@ void WindowManager::applyPlaylistSeek(int frame)
                               + (pos - now->startTime);
             const int srcFrame = static_cast<int>(
                 std::round(srcT * clipFps));
+            // Arm the mirror gate: skip currentFrameChanged events
+            // until the decoder lands within tolerance of srcFrame.
+            // Otherwise intermediate keyframe-rounded frames during
+            // the seek translate to clip.startTime via the mirror's
+            // (sourceTime - sourceIn) math, briefly snapping the
+            // playhead to the new clip's beginning.
+            m_playlistSeekTargetFrame = srcFrame;
             m_videoDecoder->seekToFrame(srcFrame);
         }
         // Reflect the requested timeline position in the timer so
         // QML scrubbers see immediate feedback even before the
         // decoder publishes the new frame.
         m_timeline->timer()->seek(pos);
+    }
+    // Deferred resume: if QML's release handler asked to play after
+    // the seek (via seekToFrameAndResume), do it now — the decoder
+    // has its target queued and performSeek will publish the user-
+    // target frame as the FIRST visible frame at the new position.
+    if (m_resumePlayAfterPlaylistSeek) {
+        m_resumePlayAfterPlaylistSeek = false;
+        if (m_videoDecoder) m_videoDecoder->play();
     }
 }
 

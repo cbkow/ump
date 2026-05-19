@@ -15,7 +15,7 @@ endif()
 # Project
 # ---------------------------------------------------------------------
 project(qcview
-    VERSION 2.0.1
+    VERSION 2.0.2
     LANGUAGES CXX
     DESCRIPTION "QCView Player — HDR-capable review tool (Qt Quick + QRhi rebuild)"
 )

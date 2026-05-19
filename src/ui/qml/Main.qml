@@ -865,12 +865,16 @@ ApplicationWindow {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        // Picked to match the native renderer's clear color so
-                        // any sub-pixel gap between the player QWindow and this
-                        // Item reads as the renderer's background, not a seam.
-                        // Windows D3D11 clears to #161616 (kClearR/G/B = 0.0863);
-                        // macOS Metal clears to pure black — match each.
-                        color: Qt.platform.os === "osx" ? "black" : Theme.bg
+                        // Sits UNDER the D3D11 child HWND. Peeks through
+                        // whenever the child can't keep up with QML
+                        // layout changes (e.g. rail-collapse animation).
+                        // Matched to #1b1b1b along with the WM_ERASEBKGND
+                        // fill in window_manager.cpp and the D3D11
+                        // seed-present in d3d11_player_renderer.cpp, so
+                        // the three seam surfaces blend into one tone.
+                        // macOS Metal renderer clears to black, so keep
+                        // that match on that platform.
+                        color: Qt.platform.os === "osx" ? "black" : "#1b1b1b"
 
                         Item {
                             id: centerStage
