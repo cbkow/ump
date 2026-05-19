@@ -22,6 +22,30 @@ CMakeUserPresets.json
 .qmlls.ini
 .qmlls.build.ini
 
+# Qt CMake build artifacts that escape to the source tree when someone
+# configures CMake with `-B <src-subdir>` instead of the canonical
+# build-release/. These are all regenerated on every build; tracking
+# them is what caused the cafe11f4 disaster (committed an entire
+# in-tree build dir with paths like src/app/.rcc/qmlcache/qcview_../...
+# that Windows literally cannot check out — `qcview_..` is an illegal
+# NTFS directory name). Patterns intentionally match at any depth so
+# the safety holds regardless of where the accidental -B points.
+**/.qt/
+**/.rcc/
+**/*_autogen/
+**/meta_types/
+**/qmltypes/
+**/*_qmltyperegistrations.cpp
+# qt_add_qml_module's per-module staging dir (target_path-derived).
+# For the qcview target the URI is "Qcv", so its in-tree staging
+# would be src/app/Qcv/ — generated, not the source QML location
+# (those live in src/ui/qml/).
+src/app/Qcv/
+# CMake's Makefile generator output; the canonical setup is Ninja
+# (see CMakePresets.json), so any in-tree Makefile is a misconfigured
+# build pointing at the source tree.
+src/**/Makefile
+
 # IDE
 .vscode/
 .idea/
