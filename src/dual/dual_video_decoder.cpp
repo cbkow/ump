@@ -915,13 +915,6 @@ void DualVideoDecoder::addCurrentFrameToBuffer(AVFrame *frame, int frameNumber)
         std::lock_guard<std::mutex> lk(m_callbackMutex);
         cb = m_onFrameAvailable;
     }
-    {
-        static std::atomic<int> sWakeLog{0};
-        if (sWakeLog.fetch_add(1) < 12) {
-            qInfo("[dual-wake] DualVideoDecoder frame=%d cb=%s",
-                  frameNumber, cb ? "set" : "NULL");
-        }
-    }
     if (cb) cb();
 }
 
@@ -972,8 +965,6 @@ bool DualVideoDecoder::decodeOneFrame(AVFrame *frame, AVPacket *packet)
 
 void DualVideoDecoder::performSeek(int targetFrame, AVPacket *pkt, AVFrame *frame)
 {
-    const auto tStart = std::chrono::steady_clock::now();
-
     avcodec_flush_buffers(m_cctx);
 
     {
@@ -988,50 +979,24 @@ void DualVideoDecoder::performSeek(int targetFrame, AVPacket *pkt, AVFrame *fram
     // codecs every frame is a keyframe; for inter-frame codecs FFmpeg
     // walks back to the nearest IDR/keyframe.
     const int64_t targetPts = ptsForFrameNumber(targetFrame);
-    const auto tAfterClear = std::chrono::steady_clock::now();
     if (av_seek_frame(m_fmt, m_streamIdx, targetPts, AVSEEK_FLAG_BACKWARD) < 0) {
         qWarning("DualVideoDecoder: av_seek_frame failed for frame %d", targetFrame);
         return;
     }
     avcodec_flush_buffers(m_cctx);
-    const auto tAfterSeek = std::chrono::steady_clock::now();
 
     // Burst-decode forward to the target. For intra codecs this is
     // ~1 frame; for B-frame H.264 it can be up to GOP_size.
     constexpr int kBurstMax = 256;
     int decoded = 0;
-    bool foundTarget = false;
-    int firstDecodedFrame = -1;
-    int lastDecodedFrame  = -1;
     while (decoded < kBurstMax && !m_stopRequested.load(std::memory_order_acquire)) {
         if (!decodeOneFrame(frame, pkt)) break;
         ++decoded;
 
         // Stop bursting once target is buffered.
         std::lock_guard<std::mutex> lk(m_bufferMutex);
-        for (const auto &kv : m_frameMap) {
-            if (firstDecodedFrame < 0 || kv.first < firstDecodedFrame)
-                firstDecodedFrame = kv.first;
-            if (kv.first > lastDecodedFrame) lastDecodedFrame = kv.first;
-        }
-        if (m_frameMap.find(targetFrame) != m_frameMap.end()) {
-            foundTarget = true;
-            break;
-        }
+        if (m_frameMap.find(targetFrame) != m_frameMap.end()) break;
     }
-
-    const auto tEnd = std::chrono::steady_clock::now();
-    auto ms = [](auto a, auto b) {
-        return std::chrono::duration<double, std::milli>(b - a).count();
-    };
-    qInfo("[dual-seek-perf] target=%d decoded=%d found=%d "
-          "ringSpan=[%d..%d] clear=%.1fms avseek=%.1fms burst=%.1fms "
-          "total=%.1fms hw=%s",
-          targetFrame, decoded, foundTarget ? 1 : 0,
-          firstDecodedFrame, lastDecodedFrame,
-          ms(tStart, tAfterClear), ms(tAfterClear, tAfterSeek),
-          ms(tAfterSeek, tEnd), ms(tStart, tEnd),
-          m_hwBackend.isEmpty() ? "sw" : qPrintable(m_hwBackend));
 }
 
 void DualVideoDecoder::decodeThreadFunc()

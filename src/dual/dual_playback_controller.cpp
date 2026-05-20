@@ -203,12 +203,6 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
         ? std::max(1, static_cast<int>(std::round(maxDur * m_masterFps)))
         : 0;
 
-    qInfo("[dual-open] fpsA=%.4f fpsB=%.4f countA=%d countB=%d "
-          "-> masterFps=%.4f masterFrameCount=%d "
-          "(durA=%.6f durB=%.6f)",
-          fpsA, fpsB, countA, countB, m_masterFps, m_masterFrameCount,
-          durA, durB);
-
     m_timer->setFps(m_masterFps);
     m_timer->seekToFrame(0);
 
@@ -351,11 +345,6 @@ void DualPlaybackController::play()
 {
     if (!m_open.load(std::memory_order_acquire)) return;
     if (m_timer->isPlaying()) return;
-    qInfo("[dual-play] entry: timer.currentFrame=%d masterFrameCount=%d "
-          "loopRange=[%d,%d] hasLoopRange=%d",
-          m_timer->currentFrame(), m_masterFrameCount,
-          m_timer->loopIn(), m_timer->loopOut(),
-          m_timer->hasLoopRange() ? 1 : 0);
     m_timer->play();
     if (m_audio) m_audio->play();
     {
@@ -377,17 +366,10 @@ void DualPlaybackController::pause()
 void DualPlaybackController::seekToFrame(int frameNumber)
 {
     if (!m_open.load(std::memory_order_acquire)) return;
-    const int requested = frameNumber;
     if (frameNumber < 0) frameNumber = 0;
     if (m_masterFrameCount > 0 && frameNumber >= m_masterFrameCount) {
         frameNumber = m_masterFrameCount - 1;
     }
-    qInfo("[dual-seek] req=%d clamped=%d masterFrameCount=%d "
-          "countA=%d countB=%d masterFps=%.3f",
-          requested, frameNumber, m_masterFrameCount,
-          m_sourceA ? m_sourceA->frameCount() : 0,
-          m_sourceB ? m_sourceB->frameCount() : 0,
-          m_masterFps);
     m_timer->seekToFrame(frameNumber);
 
     // Phase 7.8 — translate the master frame to per-side source
@@ -610,15 +592,6 @@ void DualPlaybackController::setTimeline(qcv::TimelineController *t)
             if (dur > 0.0 && m_masterFps > 0.0) {
                 const int newCount = std::max(1, static_cast<int>(
                     std::round(dur * m_masterFps)));
-                qInfo("[dual-timelineChg] t->duration=%.6f masterFps=%.4f "
-                      "newCount=%d oldMasterFrameCount=%d "
-                      "sourceA.frameCount=%d sourceB.frameCount=%d "
-                      "sourceA.fps=%.4f sourceB.fps=%.4f",
-                      dur, m_masterFps, newCount, m_masterFrameCount,
-                      m_sourceA ? m_sourceA->frameCount() : 0,
-                      m_sourceB ? m_sourceB->frameCount() : 0,
-                      m_sourceA ? m_sourceA->fps() : 0.0,
-                      m_sourceB ? m_sourceB->fps() : 0.0);
                 if (newCount != m_masterFrameCount) {
                     m_masterFrameCount = newCount;
                     emit frameCountChanged();

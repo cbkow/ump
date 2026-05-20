@@ -1,6 +1,5 @@
 #include "dual_playback_timer.h"
 
-#include <QtLogging>
 #include <algorithm>
 #include <cmath>
 
@@ -89,16 +88,11 @@ int DualPlaybackTimer::update()
             const int loOut = m_loopOut.load(std::memory_order_acquire);
             const double rangeLen = static_cast<double>(loOut - loIn + 1);
             if (rangeLen > 0.0) {
-                const double prePos = pos;
                 while (pos > static_cast<double>(loOut)) {
                     pos -= rangeLen;
                 }
                 if (pos < static_cast<double>(loIn)) {
                     pos = static_cast<double>(loIn);
-                }
-                if (pos != prePos) {
-                    qInfo("[dual-wrap] pre=%.2f post=%.2f loop=[%d,%d]",
-                          prePos, pos, loIn, loOut);
                 }
             }
         }

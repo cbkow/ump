@@ -129,7 +129,6 @@ Rectangle {
         const h  = Math.floor(seconds / 3600);
         const m  = Math.floor((seconds % 3600) / 60);
         const s  = Math.floor(seconds % 60);
-        const ff = Math.floor((seconds - Math.floor(seconds)) * 24);  // 24fps approx
         if (h > 0) {
             return ("00" + h).slice(-2) + ":" +
                    ("00" + m).slice(-2) + ":" +

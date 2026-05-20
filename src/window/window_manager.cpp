@@ -1700,28 +1700,9 @@ void WindowManager::setCompositorMode(int mode)
                 if (m_timeline) {
                     const double fps = m_dualController->fps();
                     if (fps > 0.0) {
-                        const int curFrame = m_dualController->currentFrame();
-                        // [dual-mirror] backward-jump detector — log when
-                        // master frame moves backward by more than 2 frames
-                        // between mirror events. Catches snap-backs that
-                        // [dual-wrap] would miss (e.g. if something is
-                        // calling seekToFrame from a non-user path or the
-                        // pump's m_positionFrames is being reset by some
-                        // other route). Playing forward should only ever
-                        // emit increasing frames.
-                        static thread_local int s_lastMirrorFrame = -1;
-                        if (s_lastMirrorFrame >= 0
-                            && curFrame < s_lastMirrorFrame - 2) {
-                            qInfo("[dual-mirror] BACKWARD: prev=%d cur=%d "
-                                  "delta=%d playing=%d masterFrameCount=%d",
-                                  s_lastMirrorFrame, curFrame,
-                                  curFrame - s_lastMirrorFrame,
-                                  m_dualController->isPlaying() ? 1 : 0,
-                                  m_dualController->frameCount());
-                        }
-                        s_lastMirrorFrame = curFrame;
                         const double posSec =
-                            static_cast<double>(curFrame) / fps;
+                            static_cast<double>(m_dualController->currentFrame())
+                            / fps;
                         m_timeline->timer()->seek(posSec);
                     }
                 }
@@ -1760,13 +1741,10 @@ void WindowManager::setCompositorMode(int mode)
             // capture for the source's life.
             if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
                 auto wakeRenderer = [r] { r->requestUpdate(); };
-                auto *sa = m_dualController->sourceA();
-                auto *sb = m_dualController->sourceB();
-                if (sa) sa->setFrameAvailableCallback(wakeRenderer);
-                if (sb) sb->setFrameAvailableCallback(wakeRenderer);
-                qInfo("[dual-wake] install: sourceA=%p sourceB=%p renderer=%p",
-                      static_cast<void *>(sa), static_cast<void *>(sb),
-                      static_cast<void *>(r));
+                if (auto *sa = m_dualController->sourceA())
+                    sa->setFrameAvailableCallback(wakeRenderer);
+                if (auto *sb = m_dualController->sourceB())
+                    sb->setFrameAvailableCallback(wakeRenderer);
             }
 
             qInfo("WindowManager: Single→Dual transition complete (mode=%d, "
@@ -1956,12 +1934,6 @@ void WindowManager::pushInOutToTimer()
                 t->clearLoopRange();
             }
         }
-        qInfo("[dual-pushInOut] loopEnabled=%d hasInOut=%d inPoint=%d outPoint=%d "
-              "dualFrameCount=%d -> setLoopRange(%d,%d)",
-              m_loopEnabled ? 1 : 0, hasInOutRange() ? 1 : 0,
-              m_inPoint, m_outPoint,
-              m_dualController->frameCount(), loIn, loOut);
-
         // Push to per-side image-seq sources too — without a loop
         // hint they LRU-evict the loop start as the playhead
         // approaches the loop end, and the wrap stalls on disk

@@ -77,7 +77,12 @@ Rectangle {
                 }
                 const fc = WindowManager.frameCountUnified();
                 if (fc <= 0) return qsTr("Frame —");
-                const cf = Math.round(t.position * t.frameRate);
+                // Source-of-truth frame number — the active decoder's
+                // own currentFrame (dual master / video source / image-
+                // seq cache), NOT position × timeline.frameRate. The
+                // latter is wrong in dual mode where the timeline's
+                // frameRate is fpsA but the master clock runs masterFps.
+                const cf = WindowManager.currentFrameUnified();
                 return qsTr("Frame %1 / %2").arg(cf).arg(fc - 1);
             }
             color: Theme.textPrimary
@@ -173,13 +178,23 @@ Rectangle {
                 text: {
                     const inP  = WindowManager.inPoint;
                     const outP = WindowManager.outPoint;
-                    const t = WindowManager.timeline
-                              ? WindowManager.timeline.timer : null;
-                    const fps = t ? t.frameRate : 0;
-                    if (inP < 0 || outP <= inP || fps <= 0) return "";
-                    if (root.isPlaylistMode) {
-                        return root.fmtSec((outP - inP + 1) / fps);
+                    // In/out points are frame numbers in the active
+                    // clock's space (dual master / video source). Use
+                    // THAT clock's fps to convert to seconds — not the
+                    // timeline display frameRate, which is fpsA in dual.
+                    let fps = 0;
+                    if (WindowManager.dualController) {
+                        fps = WindowManager.dualController.fps;
+                    } else if (WindowManager.videoDecoder
+                               && !WindowManager.imageSeqActive
+                               && WindowManager.videoDecoder.fps > 0) {
+                        fps = WindowManager.videoDecoder.fps;
+                    } else {
+                        const t = WindowManager.timeline
+                                  ? WindowManager.timeline.timer : null;
+                        fps = t ? t.frameRate : 0;
                     }
+                    if (inP < 0 || outP <= inP || fps <= 0) return "";
                     return qsTr("%1 s")
                         .arg(((outP - inP + 1) / fps).toFixed(2));
                 }
@@ -195,9 +210,21 @@ Rectangle {
         Text {
             visible: !root.isPlaylistMode
             text: {
-                const t = WindowManager.timeline
-                          ? WindowManager.timeline.timer : null;
-                const fps = t ? t.frameRate : 0;
+                // Show the active clock's fps. In dual that's the
+                // master fps (max of both sides), not the timeline's
+                // frameRate which stayed at fpsA.
+                let fps = 0;
+                if (WindowManager.dualController) {
+                    fps = WindowManager.dualController.fps;
+                } else if (WindowManager.videoDecoder
+                           && !WindowManager.imageSeqActive
+                           && WindowManager.videoDecoder.fps > 0) {
+                    fps = WindowManager.videoDecoder.fps;
+                } else {
+                    const t = WindowManager.timeline
+                              ? WindowManager.timeline.timer : null;
+                    fps = t ? t.frameRate : 0;
+                }
                 return fps > 0 ? qsTr("%1 fps").arg(fps.toFixed(3)) : "";
             }
             color: Theme.textSecondary
