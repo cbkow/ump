@@ -83,8 +83,13 @@ DualPlaybackController::makeSource(const QString &path, DualSourceKind kind,
             auto src = std::make_unique<DualVideoDecoder>();
             // Set the per-instance ProRes force-SW flag BEFORE open()
             // — initFFmpeg reads it when deciding whether to attach
-            // Vulkan/D3D11VA. Only B in dual mode sets this true; A
-            // and single-flow ProRes paths stay HW-accelerated.
+            // Vulkan/D3D11VA. Both A and B set this true in dual mode
+            // (the NVIDIA Vulkan device-lost crash trips on whichever
+            // side is ProRes — there is no safe side). Non-ProRes
+            // sources are unaffected: the decoder's gate is
+            // (kIsProRes && this flag). Single-flow ProRes is never
+            // forced — the flag is only set here, inside the dual
+            // controller.
             src->setForceSoftwareDecodeForProRes(forceSwForProRes);
             if (!src->open(path)) return nullptr;
             return src;
