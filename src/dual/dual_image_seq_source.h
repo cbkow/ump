@@ -132,16 +132,11 @@ public:
     void setFps(double fps);
 
     // Wake callback fired (on a worker thread) after a newly loaded
-    // frame is inserted into the cache. Hookup is owner-side: the
-    // renderer (via WindowManager) installs a callback that calls
-    // requestUpdate so the render-on-demand loop redraws once the
-    // cache has the frame the renderer wants. Without this, the
-    // first-frame-after-open / first-frame-after-loop-wrap stays
-    // blank because the renderer redraws on `currentFrameChanged`
-    // signal only — which fires when the master frame NUMBER
-    // changes, not when the cache catches up.
-    using FrameAvailableCallback = std::function<void()>;
-    void setFrameAvailableCallback(FrameAvailableCallback cb);
+    // frame is inserted into the cache. See IDualSource for the full
+    // rationale — the render-on-demand loop needs a wake once an
+    // async load completes, otherwise first-frame-after-open /
+    // first-frame-after-loop-wrap / seek-while-paused stay blank.
+    void setFrameAvailableCallback(FrameAvailableCallback cb) override;
 
 private:
     bool discoverSequence(const QString &path);

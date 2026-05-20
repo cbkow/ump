@@ -444,6 +444,7 @@ bool DualVideoDecoder::initFFmpeg(const QString &path)
             m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
             m_cctx->get_format    = hwaccelGetFormat;
             m_hwAttached          = true;
+            m_hwBackend           = QStringLiteral("videotoolbox");
             qInfo("DualVideoDecoder: %s hwaccel attached", kHwName);
         } else {
             qInfo("DualVideoDecoder: %s hwaccel unavailable; software decode",
@@ -463,9 +464,14 @@ bool DualVideoDecoder::initFFmpeg(const QString &path)
     // software decode.
     const bool kHwDecodeEnabled = QSettings().value(
         QStringLiteral("performance/hardwareDecodeEnabled"), true).toBool();
-    const bool kForceSoftwareDecode = !kHwDecodeEnabled;
     const bool kIsProRes =
         codecpar && codecpar->codec_id == AV_CODEC_ID_PRORES;
+    // Per-instance ProRes-only force-SW (set by DualPlaybackController
+    // for B in dual mode) joins the global hardwareDecodeEnabled toggle
+    // — both routes take ProRes through software, sidestepping the
+    // ProRes-over-Vulkan instability on NVIDIA dual paths.
+    const bool kForceSoftwareDecode =
+        !kHwDecodeEnabled || (kIsProRes && m_forceSwForProRes);
     bool skipVulkan = !kIsProRes || kForceSoftwareDecode;
     bool skipAllHw  = kForceSoftwareDecode;
 
@@ -519,6 +525,7 @@ bool DualVideoDecoder::initFFmpeg(const QString &path)
         m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
         m_cctx->get_format    = hwaccelGetFormat;
         m_hwAttached          = true;
+        m_hwBackend           = QStringLiteral("vulkan");
         qInfo("DualVideoDecoder: vulkan hwaccel attached (FFmpeg-managed pool)");
     } else if (!skipAllHw
                && av_hwdevice_ctx_create(&m_hwDeviceCtx,
@@ -527,13 +534,16 @@ bool DualVideoDecoder::initFFmpeg(const QString &path)
         m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
         m_cctx->get_format    = hwaccelGetFormat;
         m_hwAttached          = true;
+        m_hwBackend           = QStringLiteral("d3d11va");
         qInfo("DualVideoDecoder: d3d11va hwaccel attached%s",
               skipVulkan ? " (codec-routed)"
                          : " (Vulkan shared-device unavailable)");
     } else {
         qInfo("DualVideoDecoder: software decode%s",
               kForceSoftwareDecode
-                  ? " (performance/hardwareDecodeEnabled is off)"
+                  ? (m_forceSwForProRes && kIsProRes
+                     ? " (ProRes B-side dual-mode force-SW)"
+                     : " (performance/hardwareDecodeEnabled is off)")
                   : "");
     }
 #elif defined(Q_OS_LINUX)
@@ -545,6 +555,7 @@ bool DualVideoDecoder::initFFmpeg(const QString &path)
             m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
             m_cctx->get_format    = hwaccelGetFormat;
             m_hwAttached          = true;
+            m_hwBackend           = QStringLiteral("vaapi");
             qInfo("DualVideoDecoder: %s hwaccel attached", kHwName);
         } else {
             qInfo("DualVideoDecoder: %s hwaccel unavailable; software decode",
@@ -845,43 +856,73 @@ DualVideoDecoder::convertFrameToRgba(AVFrame *frame, int frameNumber)
     return out;
 }
 
+void DualVideoDecoder::setFrameAvailableCallback(FrameAvailableCallback cb)
+{
+    std::lock_guard<std::mutex> lk(m_callbackMutex);
+    m_onFrameAvailable = std::move(cb);
+}
+
 void DualVideoDecoder::addCurrentFrameToBuffer(AVFrame *frame, int frameNumber)
 {
     auto dualFrame = convertFrameToRgba(frame, frameNumber);
     if (!dualFrame) return;
 
-    std::lock_guard<std::mutex> lk(m_bufferMutex);
+    // Ring insert in its own scope so the buffer mutex is released
+    // before the wake callback runs (the callback calls into the
+    // renderer; don't hold a decode-path lock across it).
+    {
+        std::lock_guard<std::mutex> lk(m_bufferMutex);
 
-    // If frame already buffered (e.g., re-decode after seek), update in place.
-    auto existing = m_frameMap.find(frameNumber);
-    if (existing != m_frameMap.end()) {
-        BufferedFrame &slot = m_ring[existing->second];
-        slot.frame = std::move(dualFrame);
-        slot.frameNumber = frameNumber;
-        slot.valid = true;
-        return;
-    }
+        // If frame already buffered (e.g., re-decode after seek),
+        // update in place.
+        auto existing = m_frameMap.find(frameNumber);
+        if (existing != m_frameMap.end()) {
+            BufferedFrame &slot = m_ring[existing->second];
+            slot.frame = std::move(dualFrame);
+            slot.frameNumber = frameNumber;
+            slot.valid = true;
+        } else {
+            int slotIdx;
+            if (m_ringCount < kRingSize) {
+                slotIdx = (m_ringHead + m_ringCount) % kRingSize;
+                ++m_ringCount;
+            } else {
+                // FIFO eviction — evict the head (oldest) frame.
+                slotIdx = m_ringHead;
+                m_ringHead = (m_ringHead + 1) % kRingSize;
+                BufferedFrame &evicted = m_ring[slotIdx];
+                if (evicted.valid) {
+                    m_frameMap.erase(evicted.frameNumber);
+                }
+                evicted.reset();
+            }
 
-    int slotIdx;
-    if (m_ringCount < kRingSize) {
-        slotIdx = (m_ringHead + m_ringCount) % kRingSize;
-        ++m_ringCount;
-    } else {
-        // FIFO eviction — evict the head (oldest) frame.
-        slotIdx = m_ringHead;
-        m_ringHead = (m_ringHead + 1) % kRingSize;
-        BufferedFrame &evicted = m_ring[slotIdx];
-        if (evicted.valid) {
-            m_frameMap.erase(evicted.frameNumber);
+            BufferedFrame &slot = m_ring[slotIdx];
+            slot.frameNumber = frameNumber;
+            slot.frame       = std::move(dualFrame);
+            slot.valid       = true;
+            m_frameMap[frameNumber] = slotIdx;
         }
-        evicted.reset();
     }
 
-    BufferedFrame &slot = m_ring[slotIdx];
-    slot.frameNumber = frameNumber;
-    slot.frame       = std::move(dualFrame);
-    slot.valid       = true;
-    m_frameMap[frameNumber] = slotIdx;
+    // Wake the renderer — a freshly decoded frame is now pullable.
+    // Fired on the decode thread; the installed callback's
+    // requestUpdate() is thread-safe. This is what redraws the
+    // viewport after a timeline seek while paused, when
+    // currentFrameChanged already fired before the decode finished.
+    FrameAvailableCallback cb;
+    {
+        std::lock_guard<std::mutex> lk(m_callbackMutex);
+        cb = m_onFrameAvailable;
+    }
+    {
+        static std::atomic<int> sWakeLog{0};
+        if (sWakeLog.fetch_add(1) < 12) {
+            qInfo("[dual-wake] DualVideoDecoder frame=%d cb=%s",
+                  frameNumber, cb ? "set" : "NULL");
+        }
+    }
+    if (cb) cb();
 }
 
 bool DualVideoDecoder::decodeOneFrame(AVFrame *frame, AVPacket *packet)
@@ -931,6 +972,8 @@ bool DualVideoDecoder::decodeOneFrame(AVFrame *frame, AVPacket *packet)
 
 void DualVideoDecoder::performSeek(int targetFrame, AVPacket *pkt, AVFrame *frame)
 {
+    const auto tStart = std::chrono::steady_clock::now();
+
     avcodec_flush_buffers(m_cctx);
 
     {
@@ -945,24 +988,50 @@ void DualVideoDecoder::performSeek(int targetFrame, AVPacket *pkt, AVFrame *fram
     // codecs every frame is a keyframe; for inter-frame codecs FFmpeg
     // walks back to the nearest IDR/keyframe.
     const int64_t targetPts = ptsForFrameNumber(targetFrame);
+    const auto tAfterClear = std::chrono::steady_clock::now();
     if (av_seek_frame(m_fmt, m_streamIdx, targetPts, AVSEEK_FLAG_BACKWARD) < 0) {
         qWarning("DualVideoDecoder: av_seek_frame failed for frame %d", targetFrame);
         return;
     }
     avcodec_flush_buffers(m_cctx);
+    const auto tAfterSeek = std::chrono::steady_clock::now();
 
     // Burst-decode forward to the target. For intra codecs this is
     // ~1 frame; for B-frame H.264 it can be up to GOP_size.
     constexpr int kBurstMax = 256;
     int decoded = 0;
+    bool foundTarget = false;
+    int firstDecodedFrame = -1;
+    int lastDecodedFrame  = -1;
     while (decoded < kBurstMax && !m_stopRequested.load(std::memory_order_acquire)) {
         if (!decodeOneFrame(frame, pkt)) break;
         ++decoded;
 
         // Stop bursting once target is buffered.
         std::lock_guard<std::mutex> lk(m_bufferMutex);
-        if (m_frameMap.find(targetFrame) != m_frameMap.end()) break;
+        for (const auto &kv : m_frameMap) {
+            if (firstDecodedFrame < 0 || kv.first < firstDecodedFrame)
+                firstDecodedFrame = kv.first;
+            if (kv.first > lastDecodedFrame) lastDecodedFrame = kv.first;
+        }
+        if (m_frameMap.find(targetFrame) != m_frameMap.end()) {
+            foundTarget = true;
+            break;
+        }
     }
+
+    const auto tEnd = std::chrono::steady_clock::now();
+    auto ms = [](auto a, auto b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
+    qInfo("[dual-seek-perf] target=%d decoded=%d found=%d "
+          "ringSpan=[%d..%d] clear=%.1fms avseek=%.1fms burst=%.1fms "
+          "total=%.1fms hw=%s",
+          targetFrame, decoded, foundTarget ? 1 : 0,
+          firstDecodedFrame, lastDecodedFrame,
+          ms(tStart, tAfterClear), ms(tAfterClear, tAfterSeek),
+          ms(tAfterSeek, tEnd), ms(tStart, tEnd),
+          m_hwBackend.isEmpty() ? "sw" : qPrintable(m_hwBackend));
 }
 
 void DualVideoDecoder::decodeThreadFunc()

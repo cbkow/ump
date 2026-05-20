@@ -516,6 +516,16 @@ public:
     // the source clip would otherwise flash in the viewport before
     // the user-target frame lands).
     Q_INVOKABLE void seekToFrameAndResume(int frame, bool resume);
+    // Time-based seek — the canonical seek entry point. The timeline
+    // is conceptually time (seconds); fps is a per-decoder concern.
+    // seekToFrame() is now a thin wrapper that converts via
+    // activeClockFps() and delegates here. QML's scrubber calls
+    // seekToTime() directly so a click at time T always lands at T,
+    // regardless of any source's fps.
+    Q_INVOKABLE void seekToTime(double seconds);
+    // Time-based counterpart of seekToFrameAndResume — deferred
+    // resume for the playlist debounce window.
+    Q_INVOKABLE void seekToTimeAndResume(double seconds, bool resume);
     // Unified +/- frame stepper that routes to image-seq timeline or
     // video decoder. Pauses playback first (matches old app's
     // StepFrame which calls Pause then advances).
@@ -1125,6 +1135,12 @@ private:
     int                                   m_lastFailedFrameCount = -1;
 
     bool                                  m_imageSeqActive      = false;
+    // Last source frame pushed to the image-seq cache. The cache
+    // mirror runs off PlaybackTimer::positionChanged and converts
+    // position × cache.fps() — this dedupes so updatePlayhead +
+    // imageSeqFrameAdvanced only fire when the source frame actually
+    // changes. -1 = nothing pushed yet.
+    int                                   m_lastImageSeqFrame   = -1;
     // Audio-only mode: timer runs in wall-clock mode driven by the
     // wallclock pump (m_imageSeqDriverTimer reused), and transport
     // toggles drive both timer + AudioPlayer directly.
@@ -1167,7 +1183,10 @@ private:
     // services only the final stored target. 50 ms is invisible
     // compared to the per-click decoder cost it replaces.
     QTimer                               *m_playlistSeekDebounce    = nullptr;
-    int                                   m_pendingPlaylistSeekFrame = -1;
+    // Pending playlist seek target, in TIMELINE SECONDS. Negative =
+    // nothing pending. Stored in seconds (not frames) so the seek
+    // path stays fps-agnostic end to end.
+    double                                m_pendingPlaylistSeekSec  = -1.0;
     // Target SOURCE frame of an in-flight playlist seek. Set by
     // applyPlaylistSeek right before m_videoDecoder->seekToFrame(),
     // cleared by the currentFrameChanged mirror once the decoder
@@ -1186,7 +1205,17 @@ private:
     // resume here defers the play() until applyPlaylistSeek has
     // actually committed the new seek target.
     bool                                  m_resumePlayAfterPlaylistSeek = false;
-    void applyPlaylistSeek(int frame);
+    // Takes a TIMELINE position in SECONDS (the debounce stores
+    // m_pendingPlaylistSeekSec). Resolves the target clip, swaps if
+    // needed, seeks the active decoder to the right source frame.
+    void applyPlaylistSeek(double pos);
+
+    // Framerate of whatever clock the active mode runs on — used
+    // only to convert the legacy frame-based seekToFrame() into the
+    // time-based seekToTime(). Dual → masterFps; single video →
+    // decoder fps; image-seq / audio / playlist → timeline timer
+    // fps. NOT a master-of-all-modes fps; each mode owns its own.
+    double activeClockFps() const;
 
     // Phase 3.H.4 — pre-warm cache for the next image-seq clip.
     // Initialized ~5 s before the boundary so the CacheThread has

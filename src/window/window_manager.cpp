@@ -495,7 +495,7 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // next clip.
         if (m_playlistActive && !m_playlistAdvancing) {
             // Gate during the 50 ms playlist-seek debounce window
-            // (see seekToFrame's coalescer). The OLD decoder, still
+            // (see seekToTime's coalescer). The OLD decoder, still
             // on the previously-active clip, can emit a queued
             // currentFrameChanged before applyPlaylistSeek even
             // runs — translating it through this clip's offsets
@@ -503,7 +503,7 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             // with a stale source-clip pos, reading on screen as
             // the playhead jumping back to the old clip before
             // settling on the new target.
-            if (m_pendingPlaylistSeekFrame >= 0) return;
+            if (m_pendingPlaylistSeekSec >= 0.0) return;
             // Gate during the in-flight decoder seek (between
             // applyPlaylistSeek issuing seekToFrame and the decoder
             // landing on the target). Skip intermediate keyframe-
@@ -576,20 +576,27 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         });
     }
 
-    // Phase 7.4.b.4 pull-model: when the timer crosses a frame
-    // boundary, position the cache's playhead and let the renderer
-    // pull. PlayerRhiItem connects to imageSeqFrameAdvanced (in QML)
-    // and calls update() — the renderer reads the playhead from the
-    // cache directly during synchronize/render. There's no per-frame
-    // emit/lock/publish anywhere on this path.
-    connect(m_timeline->timer(), &PlaybackTimer::frameAdvanced, this,
-            [this](int frame) {
+    // Phase 7.4.b.4 pull-model: position the cache's playhead and let
+    // the renderer pull. PlayerRhiItem connects to imageSeqFrameAdvanced
+    // (in QML) and calls update() — the renderer reads the playhead
+    // from the cache directly during synchronize/render.
+    //
+    // Driven off positionChanged (seconds), NOT frameAdvanced. The
+    // timer's frameAdvanced fires at the timeline's frameRate, which
+    // desyncs the cache whenever timeline fps != cache fps (e.g. a
+    // 50 fps sequence on a timeline still set to 24). Converting
+    // position × cache.fps() makes the cache's OWN fps the only fps
+    // in the conversion. Deduped via m_lastImageSeqFrame so the
+    // updatePlayhead + emit only fire when the source frame changes.
+    connect(m_timeline->timer(), &PlaybackTimer::positionChanged, this,
+            [this] {
         if (!m_imageSeqCache) return;
-        // Phase 3.H.4 — playlist mode: the cache's playhead has to
-        // map to the active clip's source-frame range, not the
-        // master timeline frame. Translate via clip.sourceIn +
-        // (timer.position - clip.startTime), then × cache fps.
+        const double cFps = m_imageSeqCache->fps();
+        if (cFps <= 0.0) return;
+        int cFrame;
         if (m_playlistActive) {
+            // Playlist: map to the active clip's source-frame range
+            // via clip.sourceIn + (position - clip.startTime).
             const Clip *c = playlistActiveClip();
             if (!c || c->mediaKind != ClipMediaKind::ImageSequence) {
                 return;
@@ -597,15 +604,16 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             const double pos = m_timeline->timer()->position();
             const double srcT = qMax(0.0,
                 c->sourceIn + (pos - c->startTime));
-            const double cFps = m_imageSeqCache->fps();
-            if (cFps <= 0.0) return;
-            const int cFrame = static_cast<int>(std::round(srcT * cFps));
-            m_imageSeqCache->updatePlayhead(qMax(0, cFrame));
-            emit imageSeqFrameAdvanced(cFrame);
-            return;
+            cFrame = static_cast<int>(std::lround(srcT * cFps));
+        } else {
+            cFrame = static_cast<int>(
+                std::lround(m_timeline->timer()->position() * cFps));
         }
-        m_imageSeqCache->updatePlayhead(frame);
-        emit imageSeqFrameAdvanced(frame);
+        cFrame = qMax(0, cFrame);
+        if (cFrame == m_lastImageSeqFrame) return;
+        m_lastImageSeqFrame = cFrame;
+        m_imageSeqCache->updatePlayhead(cFrame);
+        emit imageSeqFrameAdvanced(cFrame);
     });
     // Buffer-status pump — polls cache fill counters at the same
     // 30 Hz the playback timer ticks, independent of frame
@@ -1692,8 +1700,28 @@ void WindowManager::setCompositorMode(int mode)
                 if (m_timeline) {
                     const double fps = m_dualController->fps();
                     if (fps > 0.0) {
+                        const int curFrame = m_dualController->currentFrame();
+                        // [dual-mirror] backward-jump detector — log when
+                        // master frame moves backward by more than 2 frames
+                        // between mirror events. Catches snap-backs that
+                        // [dual-wrap] would miss (e.g. if something is
+                        // calling seekToFrame from a non-user path or the
+                        // pump's m_positionFrames is being reset by some
+                        // other route). Playing forward should only ever
+                        // emit increasing frames.
+                        static thread_local int s_lastMirrorFrame = -1;
+                        if (s_lastMirrorFrame >= 0
+                            && curFrame < s_lastMirrorFrame - 2) {
+                            qInfo("[dual-mirror] BACKWARD: prev=%d cur=%d "
+                                  "delta=%d playing=%d masterFrameCount=%d",
+                                  s_lastMirrorFrame, curFrame,
+                                  curFrame - s_lastMirrorFrame,
+                                  m_dualController->isPlaying() ? 1 : 0,
+                                  m_dualController->frameCount());
+                        }
+                        s_lastMirrorFrame = curFrame;
                         const double posSec =
-                            static_cast<double>(m_dualController->currentFrame()) / fps;
+                            static_cast<double>(curFrame) / fps;
                         m_timeline->timer()->seek(posSec);
                     }
                 }
@@ -1716,26 +1744,29 @@ void WindowManager::setCompositorMode(int mode)
             // is null, so it skipped during the single-flow phase).
             pushInOutToTimer();
 
-            // H.4 — wake the renderer when a DualImageSeqSource
-            // worker finishes loading a frame into its cache.
-            // Without this, the render-on-demand loop only redraws
-            // on currentFrameChanged (which fires when the master
-            // frame *number* changes); the very first frame after
-            // open and the first frame after each loop wrap stay
-            // blank because the renderer pulls before the cache
-            // catches up and nothing wakes it once the cache does.
-            // The renderer outlives the controller's sources, so a
-            // raw pointer is safe to capture for the source's life.
+            // H.4 — wake the renderer when a dual source finishes
+            // producing a frame (image-seq worker load OR video
+            // decode-thread frame). Without this, the render-on-demand
+            // loop only redraws on currentFrameChanged (which fires
+            // when the master frame *number* changes); the first frame
+            // after open, the first frame after each loop wrap, and —
+            // critically — a timeline seek while paused stay blank
+            // because the renderer pulls before the source catches up
+            // and nothing wakes it once the source does. Both
+            // DualImageSeqSource and DualVideoDecoder implement the
+            // IDualSource::setFrameAvailableCallback hook, so no
+            // per-type dispatch is needed. The renderer outlives the
+            // controller's sources, so a raw pointer is safe to
+            // capture for the source's life.
             if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
                 auto wakeRenderer = [r] { r->requestUpdate(); };
-                auto installOn = [&](qcv::dual::IDualSource *s) {
-                    if (auto *seq =
-                            dynamic_cast<qcv::dual::DualImageSeqSource *>(s)) {
-                        seq->setFrameAvailableCallback(wakeRenderer);
-                    }
-                };
-                installOn(m_dualController->sourceA());
-                installOn(m_dualController->sourceB());
+                auto *sa = m_dualController->sourceA();
+                auto *sb = m_dualController->sourceB();
+                if (sa) sa->setFrameAvailableCallback(wakeRenderer);
+                if (sb) sb->setFrameAvailableCallback(wakeRenderer);
+                qInfo("[dual-wake] install: sourceA=%p sourceB=%p renderer=%p",
+                      static_cast<void *>(sa), static_cast<void *>(sb),
+                      static_cast<void *>(r));
             }
 
             qInfo("WindowManager: Single→Dual transition complete (mode=%d, "
@@ -1925,6 +1956,11 @@ void WindowManager::pushInOutToTimer()
                 t->clearLoopRange();
             }
         }
+        qInfo("[dual-pushInOut] loopEnabled=%d hasInOut=%d inPoint=%d outPoint=%d "
+              "dualFrameCount=%d -> setLoopRange(%d,%d)",
+              m_loopEnabled ? 1 : 0, hasInOutRange() ? 1 : 0,
+              m_inPoint, m_outPoint,
+              m_dualController->frameCount(), loIn, loOut);
 
         // Push to per-side image-seq sources too — without a loop
         // hint they LRU-evict the loop start as the playhead
@@ -3058,7 +3094,46 @@ void WindowManager::scrubToTimelineFrame(int frame)
     m_timeline->timer()->seek(pos);
 }
 
+double WindowManager::activeClockFps() const
+{
+    // Mirrors currentFrameUnified()'s fps basis so the legacy
+    // frame-based seekToFrame() round-trips losslessly through
+    // seekToTime(). Each mode owns its own clock — there is no
+    // single global fps.
+    if (m_dualController) {
+        const double f = m_dualController->fps();
+        return f > 0.0 ? f : 24.0;
+    }
+    if ((m_imageSeqActive || m_audioActive || m_playlistActive)
+        && m_timeline) {
+        const double f = m_timeline->timer()->frameRate();
+        return f > 0.0 ? f : 24.0;
+    }
+    if (m_videoDecoder && !m_videoDecoder->sourcePath().isEmpty()) {
+        const double f = m_videoDecoder->fps();
+        if (f > 0.0) return f;
+    }
+    if (m_timeline) {
+        const double f = m_timeline->timer()->frameRate();
+        if (f > 0.0) return f;
+    }
+    return 24.0;
+}
+
+void WindowManager::seekToFrame(int frame)
+{
+    const double fps = activeClockFps();
+    seekToTime(fps > 0.0 ? static_cast<double>(frame) / fps : 0.0);
+}
+
 void WindowManager::seekToFrameAndResume(int frame, bool resume)
+{
+    const double fps = activeClockFps();
+    seekToTimeAndResume(
+        fps > 0.0 ? static_cast<double>(frame) / fps : 0.0, resume);
+}
+
+void WindowManager::seekToTimeAndResume(double seconds, bool resume)
 {
     // Pause the decoder NOW so it doesn't keep publishing frames at
     // its current (pre-seek) position during the 50 ms playlist
@@ -3069,52 +3144,65 @@ void WindowManager::seekToFrameAndResume(int frame, bool resume)
         m_videoDecoder->pause();
     }
     m_resumePlayAfterPlaylistSeek = resume;
-    seekToFrame(frame);
+    seekToTime(seconds);
 }
 
-void WindowManager::seekToFrame(int frame)
+void WindowManager::seekToTime(double seconds)
 {
+    // Canonical seek. `seconds` is a TIMELINE position. Each branch
+    // converts to its own decoder's frame space using THAT decoder's
+    // fps — never a global one.
+    if (seconds < 0.0) seconds = 0.0;
+
     if (m_dualController) {
-        m_dualController->seekToFrame(frame);
+        const double fps = m_dualController->fps();
+        if (fps > 0.0) {
+            m_dualController->seekToFrame(
+                static_cast<int>(std::lround(seconds * fps)));
+        }
         return;
     }
+
     const bool bLoaded = m_videoDecoderB
                       && !m_videoDecoderB->sourcePath().isEmpty();
+
     if (m_imageSeqActive) {
-        if (m_timeline && m_timeline->timer()->frameRate() > 0.0) {
-            m_timeline->timer()->seek(
-                static_cast<double>(frame) /
-                m_timeline->timer()->frameRate());
+        // The timer is the image-seq scrub engine; it owns position
+        // in seconds. The frameAdvanced / positionChanged mirror
+        // routes to the cache using the cache's own fps.
+        if (m_timeline) m_timeline->timer()->seek(seconds);
+        if (bLoaded) {
+            const double fpsB = m_videoDecoderB->fps();
+            if (fpsB > 0.0) {
+                m_videoDecoderB->seekToFrame(
+                    static_cast<int>(std::lround(seconds * fpsB)));
+            }
         }
-        if (bLoaded) m_videoDecoderB->seekToFrame(frame);
         return;
     }
+
     if (m_audioActive) {
         // Audio-only seek: drive the timer so the playhead snaps,
         // then nudge AudioPlayer to the new position so play-after-
-        // scrub is in sync.
-        const double fps = m_timeline
-            ? m_timeline->timer()->frameRate() : 24.0;
-        if (fps > 0.0 && m_timeline) {
-            const double sec = static_cast<double>(frame) / fps;
-            m_timeline->timer()->seek(sec);
-            if (m_audio) m_audio->seek(sec);
-        }
+        // scrub is in sync. Both speak seconds.
+        if (m_timeline) m_timeline->timer()->seek(seconds);
+        if (m_audio) m_audio->seek(seconds);
         return;
     }
 
-    // Phase 3.H.2 — playlist mode: `frame` is in TIMELINE coordinates
-    // (master fps). Resolve the target clip, swap if needed, seek
-    // the active decoder to the right SOURCE frame. The timer
-    // mirrors timeline-time on the next currentFrameChanged.
+    // Phase 3.H.2 — playlist mode: `seconds` is a TIMELINE position.
+    // Resolve the target clip, swap if needed, seek the active
+    // decoder to the right SOURCE frame (applyPlaylistSeek does the
+    // per-clip-fps conversion). The timer mirrors timeline-time on
+    // the next currentFrameChanged.
     //
     // Coalesce via 50 ms single-shot debounce. A rapid burst of
     // user clicks on the timeline (the original repro for the
     // teardown cascade crash) collapses to one playlistAdvanceToClip
-    // for the latest target frame instead of stacking 6-7 full
-    // VideoDecoder + audio teardown+reopen cycles into the cleanup
-    // queue. The lazy initialization keeps the timer cost out of
-    // single-mode and dual-mode paths that don't need it.
+    // for the latest target instead of stacking 6-7 full VideoDecoder
+    // + audio teardown+reopen cycles into the cleanup queue. The lazy
+    // initialization keeps the timer cost out of single-mode and
+    // dual-mode paths that don't need it.
     if (m_playlistActive && m_timeline) {
         if (!m_playlistSeekDebounce) {
             m_playlistSeekDebounce = new QTimer(this);
@@ -3122,36 +3210,48 @@ void WindowManager::seekToFrame(int frame)
             m_playlistSeekDebounce->setInterval(50);
             connect(m_playlistSeekDebounce, &QTimer::timeout,
                     this, [this] {
-                if (m_pendingPlaylistSeekFrame >= 0) {
-                    const int f = m_pendingPlaylistSeekFrame;
-                    m_pendingPlaylistSeekFrame = -1;
-                    applyPlaylistSeek(f);
+                if (m_pendingPlaylistSeekSec >= 0.0) {
+                    const double s = m_pendingPlaylistSeekSec;
+                    m_pendingPlaylistSeekSec = -1.0;
+                    applyPlaylistSeek(s);
                 }
             });
         }
-        m_pendingPlaylistSeekFrame = frame;
+        m_pendingPlaylistSeekSec = seconds;
         m_playlistSeekDebounce->start();   // restarts if already pending
         return;
     }
 
-    if (m_videoDecoder) m_videoDecoder->seekToFrame(frame);
-    if (bLoaded) m_videoDecoderB->seekToFrame(frame);
+    // Single video. B (legacy non-dual-controller second decoder)
+    // converts with ITS own fps — fixes a latent bug where B used to
+    // be seeked with A's frame number.
+    if (m_videoDecoder) {
+        const double fps = m_videoDecoder->fps();
+        if (fps > 0.0) {
+            m_videoDecoder->seekToFrame(
+                static_cast<int>(std::lround(seconds * fps)));
+        }
+    }
+    if (bLoaded) {
+        const double fpsB = m_videoDecoderB->fps();
+        if (fpsB > 0.0) {
+            m_videoDecoderB->seekToFrame(
+                static_cast<int>(std::lround(seconds * fpsB)));
+        }
+    }
 }
 
-void WindowManager::applyPlaylistSeek(int frame)
+void WindowManager::applyPlaylistSeek(double pos)
 {
-    // Debounced playlist seek body — extracted from seekToFrame so
+    // Debounced playlist seek body — extracted from seekToTime so
     // the same logic runs whether the user single-clicked (timer
     // fires once) or chained 7 clicks in a burst (timer fires once
     // for the latest target). Runs only in playlist mode; bails out
     // gracefully if the playlist was torn down between debounce
-    // start and timer fire.
+    // start and timer fire. `pos` is a TIMELINE position in seconds.
     if (!m_playlistActive || !m_timeline) return;
     const Timeline &t = m_timeline->timeline();
     if (t.tracks.isEmpty()) return;
-    const double masterFps = m_timeline->timer()->frameRate();
-    if (masterFps <= 0.0) return;
-    const double pos = static_cast<double>(frame) / masterFps;
 
     const Track &track = t.tracks.first();
     int target = -1;
@@ -3570,6 +3670,18 @@ bool WindowManager::setBSource(const QString &path)
     // synchronously, so they're valid immediately after swapB.
     if (m_dualController) {
         m_dualController->swapB(path);
+        // Re-install the render-wake callback on the freshly-created
+        // B source. swapB() constructs a brand-new IDualSource; the
+        // original install only ran for the open()-time sources in
+        // the Single→Dual block. Without this a hot-swapped B never
+        // wakes the render-on-demand loop after an async decode, so
+        // paused seeks leave the B side stuck on a stale frame.
+        if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
+            if (auto *sb = m_dualController->sourceB()) {
+                sb->setFrameAvailableCallback(
+                    [r] { r->requestUpdate(); });
+            }
+        }
         if (m_timeline) {
             if (auto *src = m_dualController->sourceB()) {
                 const double fps = src->fps();

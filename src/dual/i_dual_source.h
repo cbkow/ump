@@ -19,6 +19,7 @@
 #include <QImage>
 #include <QString>
 #include <cstdint>
+#include <functional>
 #include <memory>
 
 namespace qcv::dual {
@@ -145,6 +146,22 @@ public:
     // invalidate the ring on change so cached CPU-converted frames
     // don't linger with the wrong range.
     virtual void setRangeOverride(int /*v*/) {}
+
+    // Optional wake-on-frame hook. Fired (typically on the source's
+    // decode / worker thread) once a newly decoded or loaded frame is
+    // available for pull. The owner (WindowManager) installs a
+    // callback that calls the renderer's requestUpdate() so the
+    // render-on-demand loop redraws after an async decode completes.
+    //
+    // Without this, a timeline seek while paused can leave the
+    // viewport on a stale frame: currentFrameChanged fires (and
+    // requests one redraw) the instant the master frame number
+    // changes, but the decoder hasn't produced the target frame yet
+    // — the redraw pulls Empty / stale and nothing wakes the
+    // renderer once the real frame lands. Both concrete sources
+    // implement this; default no-op keeps the interface optional.
+    using FrameAvailableCallback = std::function<void()>;
+    virtual void setFrameAvailableCallback(FrameAvailableCallback /*cb*/) {}
 };
 
 } // namespace qcv::dual

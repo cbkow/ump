@@ -1860,6 +1860,11 @@ Pane {
                     WindowManager.clearHoverThumbnail();
                 }
 
+                // frameAtX — display-only frame number at a pixel X
+                // (hover tooltips, etc.). NOT on the scrub commit path:
+                // scrubbing is time-based end to end via xToTime() →
+                // WindowManager.seekToTime(), so a click at time T lands
+                // at T regardless of any source's fps.
                 function frameAtX(px) {
                     const clampedX = Math.max(0, Math.min(width, px));
                     return Math.round(xToTime(clampedX) * frameRate);
@@ -1884,27 +1889,14 @@ Pane {
                     WindowManager.dualController !== null
                     && WindowManager.dualController !== undefined
 
-                function commitFrame(frame) {
-                    if (isDual) {
-                        // Phase 7.7 — dual mode routes through the
-                        // controller via WindowManager.seekToFrame.
-                        WindowManager.seekToFrame(frame);
-                    } else if (root.playlistActive) {
-                        // Phase 3.H.2 — playlist routes through
-                        // WindowManager so cross-clip scrubs swap
-                        // the active decoder before seeking.
-                        WindowManager.seekToFrame(frame);
-                    } else if (isImageSequence) {
-                        if (frameRate > 0)
-                            timer.seek(frame / frameRate);
-                    } else if (isAudio) {
-                        // Audio-only: WM.seekToFrame seeks both the
-                        // timer + AudioPlayer in lockstep so play-
-                        // after-scrub stays in sync.
-                        WindowManager.seekToFrame(frame);
-                    } else if (WindowManager.videoDecoder) {
-                        WindowManager.videoDecoder.seekToFrame(frame);
-                    }
+                // commitTime — the single scrub-commit entry point.
+                // `seconds` is a timeline position. WindowManager.
+                // seekToTime resolves the active mode (dual / playlist /
+                // image-seq / audio / single) and converts to each
+                // decoder's own frame space internally. No fps math
+                // happens in QML.
+                function commitTime(seconds) {
+                    WindowManager.seekToTime(seconds);
                 }
 
                 // Scrub state machine. Both this MouseArea (over the
@@ -1912,6 +1904,13 @@ Pane {
                 // row above) call these so the user can scrub from
                 // either surface — useful when the playhead lives on
                 // the ruler in dual / playlist mode.
+                // ScrubDecoder / videoDecoderB take SOURCE frames.
+                // Convert timeline seconds with each decoder's OWN fps.
+                function srcFrameAtTime(dec, seconds) {
+                    if (!dec || !(dec.fps > 0)) return -1;
+                    return Math.round(seconds * dec.fps);
+                }
+
                 function doPress(viewX) {
                     if (!loaded) return;
                     // Phase 3.H.5 — drag = scrubbing, not hovering.
@@ -1920,31 +1919,36 @@ Pane {
                     // preview.
                     hoverThumbRequestThrottle.stop();
                     WindowManager.clearHoverThumbnail();
-                    const f = frameAtX(viewX);
+                    const seconds = xToTime(viewX);
                     if (isDual) {
                         wasPlayingBeforeScrub = WindowManager.dualController
                             && WindowManager.dualController.isPlaying;
                         WindowManager.pause();
-                        commitFrame(f);
+                        commitTime(seconds);
                         return;
                     }
                     if (root.playlistActive) {
                         // Phase 3.H.2 — playlist scrub: lightweight
                         // preview during drag (ScrubDecoder + clip
-                        // swap); heavy commit on release.
+                        // swap); heavy commit on release. The preview
+                        // path stays frame-based; playlist `frameRate`
+                        // IS the playlist master fps (consistent), so
+                        // the conversion here is exact.
                         wasPlayingBeforeScrub =
                             timer && timer.playing;
                         if (timer) timer.pause();
                         if (WindowManager.videoDecoder) {
                             WindowManager.videoDecoder.pause();
                         }
-                        WindowManager.scrubToTimelineFrame(f);
+                        if (frameRate > 0)
+                            WindowManager.scrubToTimelineFrame(
+                                Math.round(seconds * frameRate));
                         return;
                     }
                     if (isImageSequence) {
                         wasPlayingBeforeScrub = timer && timer.playing;
                         if (timer) timer.pause();
-                        commitFrame(f);
+                        commitTime(seconds);
                         return;
                     }
                     if (isAudio) {
@@ -1952,7 +1956,7 @@ Pane {
                         // + AudioPlayer stop together, then seek.
                         wasPlayingBeforeScrub = timer && timer.playing;
                         if (wasPlayingBeforeScrub) WindowManager.pause();
-                        commitFrame(f);
+                        commitTime(seconds);
                         return;
                     }
                     if (!WindowManager.videoDecoder) return;
@@ -1961,7 +1965,9 @@ Pane {
                     // Video: lightweight preview through ScrubDecoder;
                     // heavy VideoDecoder seek waits for onReleased.
                     if (WindowManager.scrubDecoder) {
-                        WindowManager.scrubDecoder.requestFrame(f);
+                        const sf = srcFrameAtTime(WindowManager.videoDecoder,
+                                                  seconds);
+                        if (sf >= 0) WindowManager.scrubDecoder.requestFrame(sf);
                     }
                     // Source B has no ScrubDecoder (Phase B follow-up)
                     // — full seekToFrame each scrub move so it tracks.
@@ -1970,46 +1976,54 @@ Pane {
                     if (WindowManager.videoDecoderB
                         && WindowManager.videoDecoderB.sourcePath) {
                         WindowManager.videoDecoderB.pause();
-                        WindowManager.videoDecoderB.seekToFrame(f);
+                        const bf = srcFrameAtTime(WindowManager.videoDecoderB,
+                                                  seconds);
+                        if (bf >= 0) WindowManager.videoDecoderB.seekToFrame(bf);
                     }
                 }
 
                 function doMove(viewX) {
                     if (!loaded) return;
-                    const f = frameAtX(viewX);
+                    const seconds = xToTime(viewX);
                     if (isDual) {
-                        commitFrame(f);
+                        commitTime(seconds);
                         return;
                     }
                     if (root.playlistActive) {
-                        WindowManager.scrubToTimelineFrame(f);
+                        if (frameRate > 0)
+                            WindowManager.scrubToTimelineFrame(
+                                Math.round(seconds * frameRate));
                         return;
                     }
                     if (isImageSequence) {
                         // Drive the timer directly. The driver tick
-                        // picks up the new currentFrame within ~16 ms
+                        // picks up the new position within ~16 ms
                         // and publishes the matching ring-buffer entry.
-                        commitFrame(f);
+                        commitTime(seconds);
                         return;
                     }
                     if (isAudio) {
                         // Audio: same pattern as image-seq — direct
-                        // timer + AudioPlayer seek through commitFrame.
-                        commitFrame(f);
+                        // timer + AudioPlayer seek through commitTime.
+                        commitTime(seconds);
                         return;
                     }
                     if (WindowManager.scrubDecoder) {
-                        WindowManager.scrubDecoder.requestFrame(f);
+                        const sf = srcFrameAtTime(WindowManager.videoDecoder,
+                                                  seconds);
+                        if (sf >= 0) WindowManager.scrubDecoder.requestFrame(sf);
                     }
                     if (WindowManager.videoDecoderB
                         && WindowManager.videoDecoderB.sourcePath) {
-                        WindowManager.videoDecoderB.seekToFrame(f);
+                        const bf = srcFrameAtTime(WindowManager.videoDecoderB,
+                                                  seconds);
+                        if (bf >= 0) WindowManager.videoDecoderB.seekToFrame(bf);
                     }
                 }
 
                 function doRelease(viewX) {
                     if (!loaded) return;
-                    const f = frameAtX(viewX);
+                    const seconds = xToTime(viewX);
                     // Optimistic timer update so the playhead's
                     // `timeToX(position)` binding lands at the target
                     // the instant `scrubArea.pressed` flips false —
@@ -2018,18 +2032,16 @@ Pane {
                     // seek lands and fires the 7.2.d mirror, which
                     // reads on screen as a jump-back-then-settle.
                     // Idempotent: when the mirror eventually fires
-                    // with the same frame, PlaybackTimer::seek's
+                    // with the same position, PlaybackTimer::seek's
                     // qFuzzyCompare short-circuits the second emit.
-                    if (timer && frameRate > 0) {
-                        timer.seek(f / frameRate);
-                    }
+                    if (timer) timer.seek(seconds);
                     if (isDual) {
-                        commitFrame(f);
+                        commitTime(seconds);
                         if (wasPlayingBeforeScrub) WindowManager.play();
                         return;
                     }
                     if (root.playlistActive) {
-                        // Full commit: seekToFrameAndResume pairs the
+                        // Full commit: seekToTimeAndResume pairs the
                         // seek with a deferred play() inside
                         // applyPlaylistSeek so the decoder doesn't
                         // play from its OLD position during the 50ms
@@ -2037,31 +2049,27 @@ Pane {
                         // otherwise flash a frame from the source
                         // clip in the viewport before the user-target
                         // frame lands.
-                        WindowManager.seekToFrameAndResume(
-                            f, wasPlayingBeforeScrub);
+                        WindowManager.seekToTimeAndResume(
+                            seconds, wasPlayingBeforeScrub);
                         return;
                     }
                     if (isImageSequence) {
-                        commitFrame(f);
+                        commitTime(seconds);
                         if (wasPlayingBeforeScrub && timer) timer.play();
                         return;
                     }
                     if (isAudio) {
-                        commitFrame(f);
+                        commitTime(seconds);
                         if (wasPlayingBeforeScrub) WindowManager.play();
                         return;
                     }
                     if (!WindowManager.videoDecoder) return;
                     // Commit the final position to the streaming
-                    // decoder so playback resumes from the exact
-                    // frame the user dropped on (and so audio/clock
-                    // re-sync to it). The playhead's pressed binding
+                    // decoder(s) so playback resumes from the exact
+                    // frame the user dropped on. seekToTime converts
+                    // per-decoder; the playhead's pressed binding
                     // releases here, falling back to timeToX(position).
-                    WindowManager.videoDecoder.seekToFrame(f);
-                    if (WindowManager.videoDecoderB
-                        && WindowManager.videoDecoderB.sourcePath) {
-                        WindowManager.videoDecoderB.seekToFrame(f);
-                    }
+                    WindowManager.seekToTime(seconds);
                     if (wasPlayingBeforeScrub) {
                         WindowManager.videoDecoder.play();
                         if (WindowManager.videoDecoderB

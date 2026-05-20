@@ -68,7 +68,8 @@ DualSourceKind DualPlaybackController::detectKind(const QString &path)
 std::unique_ptr<IDualSource>
 DualPlaybackController::makeSource(const QString &path, DualSourceKind kind,
                                      const QString &exrLayer,
-                                     int imageSeqThreadCount)
+                                     int imageSeqThreadCount,
+                                     bool forceSwForProRes)
 {
     if (path.isEmpty()) return nullptr;
 
@@ -80,6 +81,11 @@ DualPlaybackController::makeSource(const QString &path, DualSourceKind kind,
     switch (effective) {
         case DualSourceKind::Video: {
             auto src = std::make_unique<DualVideoDecoder>();
+            // Set the per-instance ProRes force-SW flag BEFORE open()
+            // — initFFmpeg reads it when deciding whether to attach
+            // Vulkan/D3D11VA. Only B in dual mode sets this true; A
+            // and single-flow ProRes paths stay HW-accelerated.
+            src->setForceSoftwareDecodeForProRes(forceSwForProRes);
             if (!src->open(path)) return nullptr;
             return src;
         }
@@ -131,13 +137,24 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
               halved);
     }
 
-    m_sourceA = makeSource(pathA, kindA, exrLayerA, seqThreads);
+    // Both sides force ProRes through software decode in dual mode.
+    // The dual Vulkan path is unstable on NVIDIA with ProRes: a seek
+    // into the gap region where one side is past-end and the other
+    // triggers a VK_ERROR_DEVICE_LOST that disables hwaccel for the
+    // whole session. The crash trips regardless of whether ProRes is
+    // on A or B, so both sides take the SW path for ProRes specifically.
+    // Non-ProRes codecs still HW-accelerate normally on each side.
+    // Single-flow ProRes is also unaffected (the flag is per-instance
+    // and only gets set inside DualPlaybackController).
+    m_sourceA = makeSource(pathA, kindA, exrLayerA, seqThreads,
+                            /*forceSwForProRes=*/true);
     if (!m_sourceA && !pathA.isEmpty()) {
         qWarning("DualPlaybackController: source A open failed (%s)",
                  qPrintable(pathA));
         return false;
     }
-    m_sourceB = makeSource(pathB, kindB, exrLayerB, seqThreads);
+    m_sourceB = makeSource(pathB, kindB, exrLayerB, seqThreads,
+                            /*forceSwForProRes=*/true);
     if (!m_sourceB && !pathB.isEmpty()) {
         qWarning("DualPlaybackController: source B open failed (%s)",
                  qPrintable(pathB));
@@ -171,7 +188,26 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
 
     int countA = m_sourceA ? m_sourceA->frameCount() : 0;
     int countB = m_sourceB ? m_sourceB->frameCount() : 0;
-    m_masterFrameCount = std::max(countA, countB);
+    // Per-side frame counts are in their own source fps, not the
+    // master fps. Convert to seconds first, then back to master
+    // frames — otherwise mixed-fps pairs (e.g. 23.976 A + 50 B)
+    // compute masterFrameCount = max(countA, countB) in disjoint
+    // frame-rate spaces, which under-sizes the master range when
+    // the longer-duration side has the lower fps. Seek clamps to
+    // (masterFrameCount - 1) then snap the playhead back into the
+    // truncated range, looking like "playback resumes earlier."
+    const double durA = (fpsA > 0.0) ? countA / fpsA : 0.0;
+    const double durB = (fpsB > 0.0) ? countB / fpsB : 0.0;
+    const double maxDur = std::max(durA, durB);
+    m_masterFrameCount = (maxDur > 0.0 && m_masterFps > 0.0)
+        ? std::max(1, static_cast<int>(std::round(maxDur * m_masterFps)))
+        : 0;
+
+    qInfo("[dual-open] fpsA=%.4f fpsB=%.4f countA=%d countB=%d "
+          "-> masterFps=%.4f masterFrameCount=%d "
+          "(durA=%.6f durB=%.6f)",
+          fpsA, fpsB, countA, countB, m_masterFps, m_masterFrameCount,
+          durA, durB);
 
     m_timer->setFps(m_masterFps);
     m_timer->seekToFrame(0);
@@ -261,7 +297,11 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
         return true;
     }
 
-    auto src = makeSource(path, kind);
+    // swapB replaces B mid-session; force-SW for ProRes on B mirrors
+    // the dual-entry default in open().
+    auto src = makeSource(path, kind, /*exrLayer=*/QString(),
+                           /*imageSeqThreadCount=*/0,
+                           /*forceSwForProRes=*/true);
     if (!src) {
         qWarning("DualPlaybackController::swapB: open failed for %s",
                  qPrintable(path));
@@ -270,9 +310,20 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
     m_sourceB = std::move(src);
 
     // Recompute master frame count (might extend past prior max).
+    // Per-side counts are in their own fps — must convert via
+    // duration before comparing in master-fps space, otherwise
+    // mixed-fps pairs under-size the master range. See open() for
+    // the full rationale.
+    const double fpsA = m_sourceA ? m_sourceA->fps() : 0.0;
+    const double fpsB = m_sourceB ? m_sourceB->fps() : 0.0;
     int countA = m_sourceA ? m_sourceA->frameCount() : 0;
     int countB = m_sourceB ? m_sourceB->frameCount() : 0;
-    m_masterFrameCount = std::max(countA, countB);
+    const double durA = (fpsA > 0.0) ? countA / fpsA : 0.0;
+    const double durB = (fpsB > 0.0) ? countB / fpsB : 0.0;
+    const double maxDur = std::max(durA, durB);
+    m_masterFrameCount = (maxDur > 0.0 && m_masterFps > 0.0)
+        ? std::max(1, static_cast<int>(std::round(maxDur * m_masterFps)))
+        : 0;
 
     // Sync the new B to the current playhead so it starts buffering
     // around where the user is, not at frame 0.
@@ -300,6 +351,11 @@ void DualPlaybackController::play()
 {
     if (!m_open.load(std::memory_order_acquire)) return;
     if (m_timer->isPlaying()) return;
+    qInfo("[dual-play] entry: timer.currentFrame=%d masterFrameCount=%d "
+          "loopRange=[%d,%d] hasLoopRange=%d",
+          m_timer->currentFrame(), m_masterFrameCount,
+          m_timer->loopIn(), m_timer->loopOut(),
+          m_timer->hasLoopRange() ? 1 : 0);
     m_timer->play();
     if (m_audio) m_audio->play();
     {
@@ -321,10 +377,17 @@ void DualPlaybackController::pause()
 void DualPlaybackController::seekToFrame(int frameNumber)
 {
     if (!m_open.load(std::memory_order_acquire)) return;
+    const int requested = frameNumber;
     if (frameNumber < 0) frameNumber = 0;
     if (m_masterFrameCount > 0 && frameNumber >= m_masterFrameCount) {
         frameNumber = m_masterFrameCount - 1;
     }
+    qInfo("[dual-seek] req=%d clamped=%d masterFrameCount=%d "
+          "countA=%d countB=%d masterFps=%.3f",
+          requested, frameNumber, m_masterFrameCount,
+          m_sourceA ? m_sourceA->frameCount() : 0,
+          m_sourceB ? m_sourceB->frameCount() : 0,
+          m_masterFps);
     m_timer->seekToFrame(frameNumber);
 
     // Phase 7.8 — translate the master frame to per-side source
@@ -457,12 +520,26 @@ int DualPlaybackController::translateMasterToSourceFrame(int masterFrame,
     const double sourceSec = (masterSec - clip->startTime) + clip->sourceIn;
 
     // Use the source's actual fps (most accurate); fall back to
-    // clip's cached sourceFps; final fallback to master fps.
+    // clip's cached sourceFps. Don't fall back to master fps —
+    // mixed-fps pairs (e.g. 23.976 A + 50 B) would silently translate
+    // the source frame at the WRONG rate, putting decoders at random
+    // positions inside the clip. Better to refuse the translation
+    // and surface the missing-metadata bug than to corrupt position.
     const IDualSource *src = (trackSide == 'A') ? m_sourceA.get()
                                                  : m_sourceB.get();
     double srcFps = src ? src->fps() : 0.0;
     if (srcFps <= 0.0) srcFps = clip->sourceFps;
-    if (srcFps <= 0.0) srcFps = fps;
+    if (srcFps <= 0.0) {
+        static std::atomic<bool> sWarned{false};
+        if (!sWarned.exchange(true)) {
+            qWarning("DualPlaybackController::translateMasterToSourceFrame: "
+                     "side=%c has no fps (source.fps=0, clip.sourceFps=0) — "
+                     "refusing to translate. Decoder will hold its previous "
+                     "position. This warning fires once per session.",
+                     trackSide);
+        }
+        return -1;
+    }
 
     const int srcFrame = static_cast<int>(std::lround(sourceSec * srcFps));
     return std::max(0, srcFrame);
@@ -497,7 +574,13 @@ int DualPlaybackController::nextClipSourceFrame(int masterFrame,
                                                  : m_sourceB.get();
     double srcFps = src ? src->fps() : 0.0;
     if (srcFps <= 0.0) srcFps = next->sourceFps;
-    if (srcFps <= 0.0) srcFps = fps;
+    if (srcFps <= 0.0) {
+        // Match translateMasterToSourceFrame's policy — refuse to
+        // guess when neither source nor clip has a known fps.
+        // Decoder won't pre-warm; first frame after the clip
+        // boundary will be a normal seek instead.
+        return -1;
+    }
 
     // Decoder pre-warms around the clip's start-source frame.
     return std::max(0, static_cast<int>(std::lround(next->sourceIn * srcFps)));
@@ -527,6 +610,15 @@ void DualPlaybackController::setTimeline(qcv::TimelineController *t)
             if (dur > 0.0 && m_masterFps > 0.0) {
                 const int newCount = std::max(1, static_cast<int>(
                     std::round(dur * m_masterFps)));
+                qInfo("[dual-timelineChg] t->duration=%.6f masterFps=%.4f "
+                      "newCount=%d oldMasterFrameCount=%d "
+                      "sourceA.frameCount=%d sourceB.frameCount=%d "
+                      "sourceA.fps=%.4f sourceB.fps=%.4f",
+                      dur, m_masterFps, newCount, m_masterFrameCount,
+                      m_sourceA ? m_sourceA->frameCount() : 0,
+                      m_sourceB ? m_sourceB->frameCount() : 0,
+                      m_sourceA ? m_sourceA->fps() : 0.0,
+                      m_sourceB ? m_sourceB->fps() : 0.0);
                 if (newCount != m_masterFrameCount) {
                     m_masterFrameCount = newCount;
                     emit frameCountChanged();

@@ -234,7 +234,8 @@ private:
     static std::unique_ptr<IDualSource>
     makeSource(const QString &path, DualSourceKind kind,
                  const QString &exrLayer = QString(),
-                 int imageSeqThreadCount = 0);
+                 int imageSeqThreadCount = 0,
+                 bool forceSwForProRes = false);
 
     void clockPumpLoop();
 

@@ -38,6 +38,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <mutex>
 #include <thread>
 #include <unordered_map>
@@ -87,19 +88,25 @@ public:
     void setRangeOverride(int v) override;
 
     QString hwAccelName() const override {
-        // m_hwAttached is set only after a successful HW probe +
-        // FFmpeg hwaccel attach in initFFmpeg — VideoToolbox on macOS,
-        // Vulkan on Windows, VAAPI on Linux. Anything else falls
-        // through to sws_scale (empty string = software decode).
+        // Reports the backend that actually attached, not the one we
+        // tried first. On Windows the dual decoder probes Vulkan first
+        // and falls back to D3D11VA — m_hwBackend distinguishes them.
+        // Empty string = software decode.
         if (!m_hwAttached) return QString();
-#if defined(Q_OS_MACOS)
-        return QStringLiteral("videotoolbox");
-#elif defined(Q_OS_LINUX)
-        return QStringLiteral("vaapi");
-#else
-        return QStringLiteral("vulkan");
-#endif
+        return m_hwBackend;
     }
+
+    // Per-instance "force software decode for ProRes" flag. Set by
+    // DualPlaybackController for B in dual mode to sidestep the
+    // ProRes-over-Vulkan instability on NVIDIA. Harmless when B isn't
+    // ProRes — the gate inside initFFmpeg is (kIsProRes && this flag),
+    // so non-ProRes B still tries HW normally.
+    void setForceSoftwareDecodeForProRes(bool v) { m_forceSwForProRes = v; }
+
+    // Wake-on-frame hook (see IDualSource). Fired on the decode
+    // thread once a freshly decoded frame lands in the ring buffer,
+    // so the render-on-demand loop redraws after a seek-while-paused.
+    void setFrameAvailableCallback(FrameAvailableCallback cb) override;
 
     // Ring depth (compile-time constant from old QCView pattern).
     static constexpr int kRingSize = 16;
@@ -145,6 +152,8 @@ private:
     AVBufferRef     *m_hwDeviceCtx = nullptr;   // VT/D3D11/VAAPI; null on SW
     AVFrame         *m_swFrame     = nullptr;   // landing pad for HW→SW transfer
     bool             m_hwAttached  = false;     // true if hwaccel attached + active
+    QString          m_hwBackend;               // "vulkan" | "d3d11va" | "vaapi" | "videotoolbox"; empty on SW
+    bool             m_forceSwForProRes = false; // per-instance: gate hwaccel for ProRes (B-side dual)
     int              m_streamIdx  = -1;
     AVRational       m_streamTimeBase{0, 1};
     AVRational       m_streamFrameRate{0, 1};
@@ -179,6 +188,13 @@ private:
     std::condition_variable m_decodeCv;
     mutable std::mutex      m_decodeCvMutex;
     std::thread             m_thread;
+
+    // ---- Wake-on-frame callback ----
+    // Installed by WindowManager; invoked on the decode thread after
+    // a frame lands in the ring buffer. Guarded by its own mutex so
+    // install (GUI thread) doesn't race the decode-thread invoke.
+    mutable std::mutex      m_callbackMutex;
+    FrameAvailableCallback  m_onFrameAvailable;
 };
 
 } // namespace qcv::dual
