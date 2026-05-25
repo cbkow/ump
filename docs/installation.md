@@ -39,3 +39,26 @@ Download the latest release [here](https://github.com/cbkow/QCView-Player/releas
 - macOS 13.0 (Ventura) or later.
 - Apple Silicon (arm64) — native Metal rendering, no Rosetta.
 - EDR-capable display recommended for HDR workflows.
+
+---
+
+# Version History
+
+What's new in 2.04
+- Slight UI change to playhead when a timeline track is in edit mode
+- Fixed a bug where thumbnails didn't respect clip edits in dual-view mode.
+
+
+What's new in 2.03
+- Fixed issues in dual view mode when two clips with different FPS were compared
+- Fixed issues with dual view when two ProRes clips were loaded in systems with NVIDIA gpus
+
+What's new in 2.02
+- fixed glitches with windows resizing
+- fixed glitches with the playhead flickering on seek operations
+
+What's new in 2.01
+- new UI and backend - a complete rewrite of the frontend
+- stereo audio mixing for 5.1 SMTPE broadcast master video review
+- added extended linear sRGB as an HDR option
+- vulkan HW accelerated decoding for ProRes
