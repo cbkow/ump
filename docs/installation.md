@@ -45,20 +45,21 @@ Download the latest release [here](https://github.com/cbkow/QCView-Player/releas
 # Version History
 
 What's new in 2.04
-- Slight UI change to playhead when a timeline track is in edit mode
+- Slight UI change to playhead when a timeline track is in edit mode.
 - Fixed a bug where thumbnails didn't respect clip edits in dual-view mode.
 
-
 What's new in 2.03
-- Fixed issues in dual view mode when two clips with different FPS were compared
-- Fixed issues with dual view when two ProRes clips were loaded in systems with NVIDIA gpus
+- Fixed issues in dual view mode when two clips with different FPS were compared.
+- Fixed issues with dual view when two ProRes clips were loaded in systems with NVIDIA gpus.
 
 What's new in 2.02
-- fixed glitches with windows resizing
-- fixed glitches with the playhead flickering on seek operations
+- fixed glitches with windows resizing.
+- fixed glitches with the playhead flickering on seek operations.
 
 What's new in 2.01
-- new UI and backend - a complete rewrite of the frontend
-- stereo audio mixing for 5.1 SMTPE broadcast master video review
-- added extended linear sRGB as an HDR option
-- vulkan HW accelerated decoding for ProRes
+- new UI and backend - a complete rewrite of the frontend.
+- stereo audio mixing for 5.1 SMTPE broadcast master video review.
+- added extended linear sRGB as an HDR option for Windows.
+- OCIO default presets are now based on app display mode.
+- vulkan HW accelerated decoding for ProRes in Windows.
+- new dual view and playlist flows. new edit modes for both.
