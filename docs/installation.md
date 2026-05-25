@@ -42,7 +42,7 @@ Download the latest release [here](https://github.com/cbkow/QCView-Player/releas
 
 ---
 
-# Version History
+## Version History
 
 What's new in 2.04
 - Slight UI change to playhead when a timeline track is in edit mode.
