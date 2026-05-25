@@ -4937,9 +4937,14 @@ bool WindowManager::resolveHoverKey(double timelineSec,
     // Dual mode: route per-track. The track-B clip in the
     // controller is currently hardcoded to ClipMediaKind::Video
     // (see TimelineController::setSecondarySource), which loses
-    // the image-seq distinction. So when in dual mode we ask the
-    // dual controller's IDualSource directly and dispatch on the
-    // concrete subclass (DualVideoDecoder vs DualImageSeqSource).
+    // the image-seq distinction. So we dispatch path/encoding off
+    // the IDualSource subclass (DualVideoDecoder vs
+    // DualImageSeqSource), but consult the Track for this side
+    // first so per-side trim / slide / slip edits map timelineSec
+    // through the clip's (sourceIn, startTime, duration) window —
+    // the same way playlist mode does via resolveFromTrack.
+    // Without that, edits on a dual clip are silently ignored by
+    // the hover thumbnail and the user sees raw source frames.
     if (m_dualController) {
         dual::IDualSource *src =
             (side == QStringLiteral("A"))
@@ -4949,19 +4954,50 @@ bool WindowManager::resolveHoverKey(double timelineSec,
                     : nullptr;
         if (!src || !src->isOpen()) return false;
 
-        // Past this side's natural duration — return false so the
-        // caller clears the corner overlay for that side. (Mismatched
-        // dual lengths leave a gap on the shorter side.)
         const double sideFps = src->fps();
         const int    sideMax = src->frameCount() - 1;
         if (sideFps <= 0.0 || sideMax < 0) return false;
-        const double sideDuration =
+
+        // Map timelineSec → source-relative time. Default is the
+        // raw passthrough (used as a fallback when no track exists
+        // for this side, and a harmless no-op when the user hasn't
+        // trimmed: sourceIn=0, startTime=0 → srcTime=timelineSec).
+        // When a clip is found, srcTime + srcWindowEnd reflect the
+        // edit, so trims clip the overlay range and slips shift the
+        // displayed frame.
+        double srcTime      = timelineSec;
+        double srcWindowEnd =
             static_cast<double>(sideMax + 1) / sideFps;
-        if (timelineSec >= sideDuration) return false;
+
+        const Timeline &tl = m_timeline->timeline();
+        const Track *sideTrack = nullptr;
+        for (const Track &t : tl.tracks) {
+            if (t.id == side) { sideTrack = &t; break; }
+        }
+        if (sideTrack && !sideTrack->clips.isEmpty()) {
+            const Clip *hit = nullptr;
+            for (const Clip &c : sideTrack->clips) {
+                if (timelineSec < c.startTime) continue;
+                if (timelineSec >= c.startTime + c.duration) continue;
+                hit = &c;
+                break;
+            }
+            // Outside any clip on this side (gap, or past trim) —
+            // return false so the corner overlay clears. Matches
+            // playlist-mode behaviour.
+            if (!hit) return false;
+            srcTime      = hit->sourceIn + (timelineSec - hit->startTime);
+            srcWindowEnd = hit->sourceIn + hit->duration;
+        }
+        // Past this side's window — same return-false-to-clear
+        // contract. With a clip, this is past the trim; without
+        // one, past the source's natural duration (mismatched A/B
+        // lengths leave a gap on the shorter side).
+        if (srcTime >= srcWindowEnd) return false;
 
         if (auto *seq = dynamic_cast<dual::DualImageSeqSource *>(src)) {
             int frame = static_cast<int>(
-                std::round(timelineSec * sideFps));
+                std::round(srcTime * sideFps));
             if (frame < 0) frame = 0;
             if (frame > sideMax) frame = sideMax;
             QString filePath = seq->frameFilePath(frame);
@@ -4979,7 +5015,7 @@ bool WindowManager::resolveHoverKey(double timelineSec,
         // source path + frame-number-as-string convention that
         // VideoImageLoader expects.
         int frame = static_cast<int>(
-            std::round(timelineSec * sideFps));
+            std::round(srcTime * sideFps));
         if (frame < 0) frame = 0;
         if (frame > sideMax) frame = sideMax;
         outPath  = src->path().toStdString();

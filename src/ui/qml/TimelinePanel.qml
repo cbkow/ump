@@ -1782,20 +1782,24 @@ Pane {
             // timeline_view.cpp does the same trick — see comment
             // in scrub_decoder.cpp:279-288 about the worker's
             // latest-pending-target throttle.
-            Rectangle {
+            Item {
                 id: playhead
-                // Hidden when the user is actively editing clips on a
-                // track (playlist edit, or dual A/B edit) — the ruler
-                // playhead alone marks position so the track row is
-                // free for trim / slide / reorder gestures. In every
-                // other mode the track playhead pairs with the ruler
-                // playhead to draw a continuous line top-to-bottom.
+                // In edit mode (playlist edit, or dual A/B edit) the
+                // playhead stays visible but goes dim + dashed so it
+                // reads as informational only: the user still gets
+                // the through-line from ruler to track row, but the
+                // visual hierarchy belongs to the edit handles. The
+                // playhead doesn't capture mouse events (no
+                // MouseArea on it) — EditTrackMa at z:27 already
+                // wins clicks regardless of whether we draw the
+                // playhead or not.
+                readonly property bool dimmed:
+                    root.editableMode
+                    && (root.editingA || root.editingB)
                 visible: loaded
-                         && !(root.editableMode
-                              && (root.editingA || root.editingB))
                 width: 1
                 height: parent.height
-                color: Theme.success
+                opacity: dimmed ? 0.35 : 1.0
                 // Above cacheIndicator (z:1) and its children
                 // (failed-frame ticks at z:5 inside it). Below the
                 // drop ghost (z:31) which only appears during DnD.
@@ -1808,6 +1812,29 @@ Pane {
                    : (rulerScrubArea.pressed
                       ? Math.max(0, Math.min(parent.width - 1, rulerScrubArea.mouseX))
                       : (timeToX(position) - root.scrollX))
+
+                // Solid line in normal mode.
+                Rectangle {
+                    visible: !playhead.dimmed
+                    anchors.fill: parent
+                    color: Theme.success
+                }
+
+                // Dashed in edit mode — 3 px dash / 3 px gap so the
+                // playhead reads as "don't grab me" without losing
+                // its value as a position indicator.
+                Repeater {
+                    model: playhead.dimmed
+                           ? Math.max(1, Math.ceil(playhead.height / 6))
+                           : 0
+                    Rectangle {
+                        x: 0
+                        y: index * 6
+                        width: 1
+                        height: 3
+                        color: Theme.success
+                    }
+                }
             }
 
             // Click + drag to scrub. Mirrors the old slider stub:
