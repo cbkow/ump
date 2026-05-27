@@ -2273,6 +2273,43 @@ Pane {
                 // brightness ≈ #2F2F2F (15 % brighter than the
                 // earlier 2.5-darken value).
                 color: Qt.darker(Theme.textMuted, 2.2)
+
+                // Grab handles — paired vertical lines (`||`) at each
+                // edge so the user can see the indicator's edges are
+                // draggable. The kEdgeZone hit-test (6 px from the
+                // edge) catches the drag whether the cursor lands on
+                // the grip lines or just near them; these are purely
+                // visual affordance. Width 1 px, inset 2 + 4 px from
+                // the indicator's edge so both lines sit clear of
+                // the corner.
+                Rectangle {
+                    anchors.left: parent.left; anchors.leftMargin: 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 1
+                    height: parent.height - 4
+                    color: Theme.textSecondary
+                }
+                Rectangle {
+                    anchors.left: parent.left; anchors.leftMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 1
+                    height: parent.height - 4
+                    color: Theme.textSecondary
+                }
+                Rectangle {
+                    anchors.right: parent.right; anchors.rightMargin: 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 1
+                    height: parent.height - 4
+                    color: Theme.textSecondary
+                }
+                Rectangle {
+                    anchors.right: parent.right; anchors.rightMargin: 4
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 1
+                    height: parent.height - 4
+                    color: Theme.textSecondary
+                }
             }
 
             MouseArea {

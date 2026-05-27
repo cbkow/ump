@@ -496,6 +496,20 @@ ApplicationWindow {
     // allowed for the active item (dual / playlist / non-AV).
     property bool notesPanelVisible:  false
 
+    // Color and Notes share the bottom band, so only one can be
+    // open at a time. Enforced at the property level so every
+    // toggle site (menus, transport button, view* helpers, future
+    // callers) gets the mutex for free — no risk of one site
+    // forgetting. The "if (...)" guards short-circuit the no-op
+    // case so we don't bounce signals when the other panel was
+    // already closed.
+    onColorPanelVisibleChanged: {
+        if (colorPanelVisible && notesPanelVisible) notesPanelVisible = false;
+    }
+    onNotesPanelVisibleChanged: {
+        if (notesPanelVisible && colorPanelVisible) colorPanelVisible = false;
+    }
+
     // Fullscreen short-circuits *every* panel: when the window's
     // visibility flips to FullScreen, the player surface is the
     // only thing on screen. Each panel binds `visible` and its

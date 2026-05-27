@@ -650,9 +650,8 @@ Rectangle {
                                 anchors.centerIn: parent
                                 text: parent.buttonLabel
                                 color: parent.isActive ? Theme.textBright : Theme.textPrimary
-                                font.family: Theme.fontFamily
+                                font.family: Theme.monoFamily
                                 font.pixelSize: Theme.fontSizeTiny
-                                font.bold: parent.isActive
                             }
                             MouseArea {
                                 id: chipMa
