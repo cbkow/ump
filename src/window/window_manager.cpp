@@ -1438,6 +1438,19 @@ qcv::IPlayerRenderer *fetchActiveRenderer(QWindow *playerWindow)
     return nullptr;
 }
 
+// Cast the controller's side to DualImageSeqSource, or nullptr if
+// the side isn't an image sequence (or the controller is null).
+// Used by both the dualImageSeq* Q_PROPERTY getters and the
+// pollImageSeqBufferStatus delta detector.
+qcv::dual::DualImageSeqSource *dualImageSeqSide(
+    qcv::dual::DualPlaybackController *ctl, char side)
+{
+    if (!ctl) return nullptr;
+    qcv::dual::IDualSource *src =
+        (side == 'A') ? ctl->sourceA() : ctl->sourceB();
+    return dynamic_cast<qcv::dual::DualImageSeqSource *>(src);
+}
+
 } // namespace
 
 void WindowManager::teardownSingleFlowForDual()
@@ -1747,6 +1760,20 @@ void WindowManager::setCompositorMode(int mode)
                     sb->setFrameAvailableCallback(wakeRenderer);
             }
 
+            // Dual-mode image-seq buffer-status poll. DualImageSeqSource
+            // doesn't emit Qt signals on cache state change (no QObject
+            // inheritance), so we poll at ~30 Hz like the single-flow
+            // image-seq path. Started here, stopped in the Dual→Single
+            // branch below. Lazy-constructed.
+            if (!m_dualBufferPollTimer) {
+                m_dualBufferPollTimer = new QTimer(this);
+                m_dualBufferPollTimer->setInterval(33);
+                m_dualBufferPollTimer->setTimerType(Qt::CoarseTimer);
+                connect(m_dualBufferPollTimer, &QTimer::timeout,
+                        this, &WindowManager::pollImageSeqBufferStatus);
+            }
+            m_dualBufferPollTimer->start();
+
             qInfo("WindowManager: Single→Dual transition complete (mode=%d, "
                   "A='%s', B='%s') — paused for readahead warm-up",
                   mode, qPrintable(pathA), qPrintable(pathB));
@@ -1760,6 +1787,18 @@ void WindowManager::setCompositorMode(int mode)
         }
     } else if (!wasSingle && nowSingle) {
         // Dual → Single cold transition.
+        // Stop the dual-mode image-seq poll timer BEFORE we tear
+        // down m_dualController — the timer's slot reads through
+        // m_dualController and would dereference nullptr otherwise.
+        if (m_dualBufferPollTimer) m_dualBufferPollTimer->stop();
+        // Reset cached dual-side stats so a future re-entry into
+        // dual starts from a clean delta-detection baseline.
+        m_lastDualAheadA = m_lastDualBehindA = m_lastDualFrameCountA = -1;
+        m_lastDualActiveA = false; m_lastDualFpsA = 0.0;
+        m_lastDualAheadB = m_lastDualBehindB = m_lastDualFrameCountB = -1;
+        m_lastDualActiveB = false; m_lastDualFpsB = 0.0;
+        emit dualImageSeqStatusChanged();   // QML strips clear
+
         if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
             r->setRendererMode(qcv::RendererMode::SingleFlow);
             r->setDualController(nullptr);
@@ -2184,22 +2223,63 @@ void WindowManager::startImageSequence(
 
 void WindowManager::pollImageSeqBufferStatus()
 {
-    if (!m_imageSeqCache) return;
-    const int newAhead  = m_imageSeqCache->bufferedAhead();
-    const int newBehind = m_imageSeqCache->bufferedBehind();
-    const int newSize   = m_imageSeqCache->bufferSize();
-    const int newFailed = m_imageSeqCache->failedFrameCount();
-    if (newAhead  == m_lastBufferedAhead  &&
-        newBehind == m_lastBufferedBehind &&
-        newSize   == m_lastBufferSize     &&
-        newFailed == m_lastFailedFrameCount) {
+    // Single-flow cache poll (existing path). Short-circuits when no
+    // single-flow image-seq is active.
+    if (m_imageSeqCache) {
+        const int newAhead  = m_imageSeqCache->bufferedAhead();
+        const int newBehind = m_imageSeqCache->bufferedBehind();
+        const int newSize   = m_imageSeqCache->bufferSize();
+        const int newFailed = m_imageSeqCache->failedFrameCount();
+        if (newAhead  != m_lastBufferedAhead  ||
+            newBehind != m_lastBufferedBehind ||
+            newSize   != m_lastBufferSize     ||
+            newFailed != m_lastFailedFrameCount) {
+            m_lastBufferedAhead    = newAhead;
+            m_lastBufferedBehind   = newBehind;
+            m_lastBufferSize       = newSize;
+            m_lastFailedFrameCount = newFailed;
+            emit imageSeqBufferStatusChanged();
+        }
+    }
+
+    // Dual-mode per-side poll. Cheap when m_dualController is null
+    // (early return). Each side dynamic_casts to DualImageSeqSource —
+    // null means that side isn't an image sequence; cached fields
+    // get zeroed/false, and the QML strip's visibility gate hides it.
+    // Emit dualImageSeqStatusChanged only on delta to avoid QML
+    // binding storms during steady-state playback.
+    if (!m_dualController) return;
+    auto *sa = dualImageSeqSide(m_dualController.get(), 'A');
+    auto *sb = dualImageSeqSide(m_dualController.get(), 'B');
+    const int    nAheadA  = sa ? sa->bufferedAhead()  : 0;
+    const int    nBehindA = sa ? sa->bufferedBehind() : 0;
+    const int    nFcA     = sa ? sa->frameCount()     : 0;
+    const bool   nActA    = sa != nullptr;
+    const double nFpsA    = sa ? sa->fps()            : 0.0;
+    const int    nAheadB  = sb ? sb->bufferedAhead()  : 0;
+    const int    nBehindB = sb ? sb->bufferedBehind() : 0;
+    const int    nFcB     = sb ? sb->frameCount()     : 0;
+    const bool   nActB    = sb != nullptr;
+    const double nFpsB    = sb ? sb->fps()            : 0.0;
+    if (nAheadA  == m_lastDualAheadA  && nBehindA == m_lastDualBehindA  &&
+        nFcA     == m_lastDualFrameCountA && nActA == m_lastDualActiveA &&
+        qFuzzyCompare(nFpsA, m_lastDualFpsA)                             &&
+        nAheadB  == m_lastDualAheadB  && nBehindB == m_lastDualBehindB  &&
+        nFcB     == m_lastDualFrameCountB && nActB == m_lastDualActiveB &&
+        qFuzzyCompare(nFpsB, m_lastDualFpsB)) {
         return;
     }
-    m_lastBufferedAhead    = newAhead;
-    m_lastBufferedBehind   = newBehind;
-    m_lastBufferSize       = newSize;
-    m_lastFailedFrameCount = newFailed;
-    emit imageSeqBufferStatusChanged();
+    m_lastDualAheadA      = nAheadA;
+    m_lastDualBehindA     = nBehindA;
+    m_lastDualFrameCountA = nFcA;
+    m_lastDualActiveA     = nActA;
+    m_lastDualFpsA        = nFpsA;
+    m_lastDualAheadB      = nAheadB;
+    m_lastDualBehindB     = nBehindB;
+    m_lastDualFrameCountB = nFcB;
+    m_lastDualActiveB     = nActB;
+    m_lastDualFpsB        = nFpsB;
+    emit dualImageSeqStatusChanged();
 }
 
 QVariantList WindowManager::imageSeqFailedFrames() const
@@ -2245,6 +2325,77 @@ int WindowManager::imageSeqReadBehindFrames() const
 int WindowManager::imageSeqFrameCount() const
 {
     return m_imageSeqCache ? m_imageSeqCache->frameCount() : 0;
+}
+
+// ---------------------------------------------------------------------------
+// Dual-mode per-side image-seq cache accessors. Mirror of the single-flow
+// imageSeqBuffered* getters above, but sourced from DualImageSeqSource via
+// the controller. 0 / false when the matching side isn't an image sequence
+// (or when dual mode isn't active). Polled at 33 ms via m_dualBufferPollTimer
+// → pollImageSeqBufferStatus(). DualImageSeqSource has no cache stride, so
+// raw bufferedAhead == coverage — no separate coverage accessors.
+//
+// Helper `dualImageSeqSide` lives in the anonymous namespace at the top
+// of this file (next to fetchActiveRenderer) so both these getters and
+// pollImageSeqBufferStatus can use it.
+// ---------------------------------------------------------------------------
+
+int WindowManager::dualImageSeqBufferedAheadA() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'A');
+    return s ? s->bufferedAhead() : 0;
+}
+
+int WindowManager::dualImageSeqBufferedBehindA() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'A');
+    return s ? s->bufferedBehind() : 0;
+}
+
+int WindowManager::dualImageSeqFrameCountA() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'A');
+    return s ? s->frameCount() : 0;
+}
+
+bool WindowManager::dualImageSeqIsActiveA() const
+{
+    return dualImageSeqSide(m_dualController.get(), 'A') != nullptr;
+}
+
+double WindowManager::dualImageSeqFpsA() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'A');
+    return s ? s->fps() : 0.0;
+}
+
+int WindowManager::dualImageSeqBufferedAheadB() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'B');
+    return s ? s->bufferedAhead() : 0;
+}
+
+int WindowManager::dualImageSeqBufferedBehindB() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'B');
+    return s ? s->bufferedBehind() : 0;
+}
+
+int WindowManager::dualImageSeqFrameCountB() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'B');
+    return s ? s->frameCount() : 0;
+}
+
+bool WindowManager::dualImageSeqIsActiveB() const
+{
+    return dualImageSeqSide(m_dualController.get(), 'B') != nullptr;
+}
+
+double WindowManager::dualImageSeqFpsB() const
+{
+    auto *s = dualImageSeqSide(m_dualController.get(), 'B');
+    return s ? s->fps() : 0.0;
 }
 
 int WindowManager::imageSeqCacheStride() const

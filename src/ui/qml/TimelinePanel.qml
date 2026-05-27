@@ -1503,14 +1503,32 @@ Pane {
                 // is active, a band can extend past the clip rect's
                 // edge — we split the overflow back to the opposite
                 // edge so the user sees the wrapped portion.
-                readonly property int  fps2: Math.max(1, Math.round(frameRate))
-                readonly property int  fc:   WindowManager.imageSeqFrameCount
-                // Use coverage (max cached-frame distance) rather
-                // than count: at stride > 1 the count under-reports
-                // the actual span (every Nth frame); coverage gives
-                // the true buffered band even with sparse density.
-                readonly property int  ahCov: WindowManager.imageSeqBufferedAheadCoverage
-                readonly property int  bhCov: WindowManager.imageSeqBufferedBehindCoverage
+                //
+                // Dual-aware bindings: in dual mode with A as an
+                // image sequence, single-flow's m_imageSeqCache is
+                // null (torn down by teardownSingleFlowForDual), so
+                // imageSeqBuffered* return 0. Fall over to the
+                // dualImageSeqBuffered*A properties driven by
+                // WindowManager::pollImageSeqBufferStatus's dual
+                // poll branch. Same shape, different source.
+                readonly property bool dualA:
+                    WindowManager.dualController
+                    && WindowManager.dualImageSeqIsActiveA
+                readonly property double fpsRaw:
+                    dualA ? WindowManager.dualImageSeqFpsA : frameRate
+                readonly property int  fps2: Math.max(1, Math.round(fpsRaw))
+                readonly property int  fc:   dualA
+                    ? WindowManager.dualImageSeqFrameCountA
+                    : WindowManager.imageSeqFrameCount
+                // Coverage on single-flow accounts for cache stride
+                // (every Nth frame). Dual image-seq has no stride,
+                // so raw bufferedAhead/Behind == coverage there.
+                readonly property int  ahCov: dualA
+                    ? WindowManager.dualImageSeqBufferedAheadA
+                    : WindowManager.imageSeqBufferedAheadCoverage
+                readonly property int  bhCov: dualA
+                    ? WindowManager.dualImageSeqBufferedBehindA
+                    : WindowManager.imageSeqBufferedBehindCoverage
                 readonly property real frameWidth:
                     fps2 > 0 && pps > 0 ? pps / fps2 : 0
                 readonly property real centerX: timeToX(position)
@@ -1644,7 +1662,12 @@ Pane {
                 // visible. modelData is the 0-based frame index
                 // relative to the sequence's startFrame.
                 Repeater {
-                    model: WindowManager.imageSeqFailedFrames
+                    // Dual-mode image-seq has no failure tracking
+                    // (DualImageSeqSource has no failedFrames API).
+                    // Skip the warning lane there; binding is empty.
+                    model: cacheIndicator.dualA
+                        ? []
+                        : WindowManager.imageSeqFailedFrames
                     Rectangle {
                         required property int modelData
                         x: modelData * cacheIndicator.frameWidth
@@ -1663,6 +1686,113 @@ Pane {
                                // playhead is a sibling of cacheIndicator
                                // declared later, so it still draws above
                     }
+                }
+            }
+
+            // B-side image-seq cache strip — dual mode only, visible
+            // when source B is a DualImageSeqSource. Mirror of the A
+            // strip above, anchored to track B's bottom edge instead
+            // of track A's. No failed-frame ticks (DualImageSeqSource
+            // doesn't track failures). Geometry / wrap / animation
+            // logic is a near-copy; bindings switch to dualImageSeq*B.
+            Item {
+                id: cacheIndicatorB
+                visible: loaded && hasTrackB
+                         && WindowManager.dualController
+                         && WindowManager.dualImageSeqIsActiveB
+                x: -root.scrollX
+                width: Math.max(parent.width, duration * pps)
+                height: 3
+                // Inside track B's row, hugging its bottom edge.
+                y: kRowHA + kRowHB - 3 - 1
+                z: 1
+
+                readonly property double fpsRaw: WindowManager.dualImageSeqFpsB
+                readonly property int  fps2: Math.max(1, Math.round(fpsRaw))
+                readonly property int  fc:   WindowManager.dualImageSeqFrameCountB
+                readonly property int  ahCov: WindowManager.dualImageSeqBufferedAheadB
+                readonly property int  bhCov: WindowManager.dualImageSeqBufferedBehindB
+                readonly property real frameWidth:
+                    fps2 > 0 && pps > 0 ? pps / fps2 : 0
+                readonly property real centerX: timeToX(position)
+                readonly property real aheadW:
+                    Math.max(0, ahCov * frameWidth)
+                readonly property real behindW:
+                    Math.max(0, bhCov * frameWidth)
+
+                // In/out range is master-timeline scoped — both sides
+                // share the same loop range — so reuse the same
+                // WindowManager properties as the A strip.
+                readonly property bool hasRange:
+                    WindowManager.hasInOutRange
+                    && !(WindowManager.timeline
+                         && WindowManager.timeline.sourceMode === 1)
+                readonly property real inEdgeX: {
+                    if (!hasRange) return 1;
+                    if (fps2 <= 0) return 1;
+                    return timeToX(WindowManager.inPoint / fps2);
+                }
+                readonly property real outEdgeX: {
+                    const fullW = duration * pps;
+                    if (!hasRange) return Math.max(0, fullW - 1);
+                    if (fps2 <= 0) return Math.max(0, fullW - 1);
+                    return timeToX((WindowManager.outPoint + 1) / fps2);
+                }
+                readonly property real leftEdge:  inEdgeX
+                readonly property real rightEdge: outEdgeX
+
+                readonly property real behindStart:
+                    parent !== null ? centerX - behindW : 0
+                readonly property real behindOverflow:
+                    Math.max(0, leftEdge - behindStart)
+                readonly property real behindMainX:
+                    Math.max(leftEdge, centerX - behindW)
+                readonly property real behindMainW:
+                    centerX - behindMainX
+                readonly property real behindWrapX:
+                    rightEdge - behindOverflow
+                readonly property real behindWrapW:
+                    behindOverflow
+
+                readonly property real aheadEnd: centerX + aheadW
+                readonly property real aheadOverflow:
+                    Math.max(0, aheadEnd - rightEdge)
+                readonly property real aheadMainW:
+                    Math.min(aheadEnd, rightEdge) - centerX
+                readonly property real aheadWrapX: leftEdge
+                readonly property real aheadWrapW: aheadOverflow
+
+                readonly property int kBandAnimMs: 90
+
+                Rectangle {
+                    visible: parent.behindMainW > 0
+                    x: parent.behindMainX
+                    y: 0; width: parent.behindMainW; height: 3
+                    color: "#3a8c3a"; opacity: 0.65
+                    Behavior on width { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
+                    Behavior on x     { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
+                }
+                Rectangle {
+                    visible: parent.behindWrapW > 0
+                    x: parent.behindWrapX
+                    y: 0; width: parent.behindWrapW; height: 3
+                    color: "#3a8c3a"; opacity: 0.65
+                    Behavior on width { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
+                    Behavior on x     { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
+                }
+                Rectangle {
+                    visible: parent.aheadMainW > 0
+                    x: parent.centerX
+                    y: 0; width: parent.aheadMainW; height: 3
+                    color: Theme.success; opacity: 0.85
+                    Behavior on width { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
+                }
+                Rectangle {
+                    visible: parent.aheadWrapW > 0
+                    x: parent.aheadWrapX
+                    y: 0; width: parent.aheadWrapW; height: 3
+                    color: Theme.success; opacity: 0.85
+                    Behavior on width { NumberAnimation { duration: cacheIndicatorB.kBandAnimMs; easing.type: Easing.OutQuad } }
                 }
             }
 

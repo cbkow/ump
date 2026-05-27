@@ -10,6 +10,7 @@
 #include "timeline/timeline_types.h"
 
 #include <QFileInfo>
+#include <QSettings>
 #include <QtLogging>
 #include <algorithm>
 #include <chrono>
@@ -121,26 +122,36 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
 {
     close();
 
-    // Resolve effective kinds up-front so we can decide thread
-    // budget BEFORE constructing the sources (image-seq spawns its
-    // worker pool at open() time; setThreadCount has no effect
-    // post-open). When both sides are image sequences, halve each
-    // side's pool so dual mode doesn't oversubscribe at 2N workers.
+    // Resolve effective kinds up-front (image-seq spawns its worker
+    // pool at open() time; setThreadCount has no effect post-open).
     const DualSourceKind effA =
         (!pathA.isEmpty() && kindA == DualSourceKind::AutoDetect)
             ? detectKind(pathA) : kindA;
     const DualSourceKind effB =
         (!pathB.isEmpty() && kindB == DualSourceKind::AutoDetect)
             ? detectKind(pathB) : kindB;
-    int seqThreads = 0;   // 0 = use default in DualImageSeqSource
+
+    // Thread budget — read the user's performance/imageSeqThreads
+    // setting (single-flow's knob, default 16, clamped 1-64) and
+    // halve it for each dual side. Applied regardless of whether
+    // one or both sides are image-seq: if only A is image-seq, B's
+    // pool is irrelevant (DualVideoDecoder has its own threading),
+    // so A gets HALF the budget. That's by design — dual mode is
+    // CPU-heavier than single (two decoders + a compositor + the
+    // dual audio mixer) and we don't want image-seq workers
+    // saturating the system. Pre-fix this was hard-coded to 4
+    // (DualImageSeqSource::kDefaultThreadCount), which couldn't
+    // keep up with EXR decode + slow disk on long sequences.
+    const int userThreads = std::clamp(
+        QSettings().value(
+            QStringLiteral("performance/imageSeqThreads"), 16).toInt(),
+        1, 64);
+    const int seqThreads = std::max(1, userThreads / 2);
     if (effA == DualSourceKind::ImageSequence
-        && effB == DualSourceKind::ImageSequence) {
-        const int halved =
-            std::max(1, DualImageSeqSource::kDefaultThreadCount / 2);
-        seqThreads = halved;
-        qInfo("DualPlaybackController: both sources are image sequences "
-              "— halving each side's worker pool to %d threads",
-              halved);
+        || effB == DualSourceKind::ImageSequence) {
+        qInfo("DualPlaybackController: image-seq side(s) get %d worker "
+              "threads each (half of performance/imageSeqThreads=%d)",
+              seqThreads, userThreads);
     }
 
     // Both sides force ProRes through software decode in dual mode.
@@ -739,6 +750,29 @@ int DualPlaybackController::nextClipSourceFrame(int masterFrame,
     return std::max(0, static_cast<int>(std::lround(next->sourceIn * srcFps)));
 }
 
+int DualPlaybackController::firstClipSourceFrame(char trackSide) const
+{
+    if (!m_timeline) return -1;
+    const QString trackId = (trackSide == 'A')
+        ? QStringLiteral("A") : QStringLiteral("B");
+    const Clip *first = nullptr;
+    for (const Track &track : m_timeline->timeline().tracks) {
+        if (track.id != trackId) continue;
+        for (const Clip &c : track.clips) {
+            if (c.isGap) continue;
+            if (!first || c.startTime < first->startTime) first = &c;
+        }
+        break;
+    }
+    if (!first) return -1;
+    const IDualSource *src = (trackSide == 'A') ? m_sourceA.get()
+                                                 : m_sourceB.get();
+    double srcFps = src ? src->fps() : 0.0;
+    if (srcFps <= 0.0) srcFps = first->sourceFps;
+    if (srcFps <= 0.0) return -1;
+    return std::max(0, static_cast<int>(std::lround(first->sourceIn * srcFps)));
+}
+
 void DualPlaybackController::setTimeline(qcv::TimelineController *t)
 {
     m_timeline = t;
@@ -836,17 +870,29 @@ void DualPlaybackController::clockPumpLoop()
         // frame stall. With pre-warm, the decoder is already
         // buffering around the right area when the clip becomes
         // visible.
+        // Loop pre-warm: when a side is past-end (or in a gap with
+        // no upcoming clip) AND the master timer has a loop range,
+        // point the cache at the FIRST clip's start so it's ready
+        // for the wrap. Without this, mismatched-duration pairs
+        // (e.g. short image-seq A + long video B in loop mode)
+        // would stop prefetching A during master frames past A's
+        // end, and the wrap to master=0 would show a cold-start
+        // miss on A.
+        const bool hasLoop =
+            m_timer && m_timer->hasLoopRange();
         int translatedA = -1, translatedB = -1;
         if (m_sourceA) {
             translatedA = translateMasterToSourceFrame(target, 'A');
             int decodeA = translatedA;
             if (decodeA < 0) decodeA = nextClipSourceFrame(target, 'A');
+            if (decodeA < 0 && hasLoop) decodeA = firstClipSourceFrame('A');
             if (decodeA >= 0) m_sourceA->setDecodeTarget(decodeA);
         }
         if (m_sourceB) {
             translatedB = translateMasterToSourceFrame(target, 'B');
             int decodeB = translatedB;
             if (decodeB < 0) decodeB = nextClipSourceFrame(target, 'B');
+            if (decodeB < 0 && hasLoop) decodeB = firstClipSourceFrame('B');
             if (decodeB >= 0) m_sourceB->setDecodeTarget(decodeB);
         }
 

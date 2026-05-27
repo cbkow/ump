@@ -133,6 +133,35 @@ class WindowManager : public QObject
                WRITE setImageSeqCacheStride
                NOTIFY imageSeqCacheStrideChanged)
 
+    // Dual-mode per-side image-seq buffer status. Mirror of the
+    // single-flow imageSeqBuffered* properties above, but sourced
+    // from DualImageSeqSource on each side of m_dualController.
+    // 0 / false when the matching side isn't an image sequence (or
+    // when dual mode isn't active). Polled at 33 ms via
+    // m_dualBufferPollTimer; emit is delta-gated by cached members.
+    // DualImageSeqSource has no cache stride, so raw bufferedAhead
+    // == coverage for these — no separate coverage properties.
+    Q_PROPERTY(int  dualImageSeqBufferedAheadA  READ dualImageSeqBufferedAheadA
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(int  dualImageSeqBufferedBehindA READ dualImageSeqBufferedBehindA
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(int  dualImageSeqFrameCountA     READ dualImageSeqFrameCountA
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(bool dualImageSeqIsActiveA       READ dualImageSeqIsActiveA
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(double dualImageSeqFpsA          READ dualImageSeqFpsA
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(int  dualImageSeqBufferedAheadB  READ dualImageSeqBufferedAheadB
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(int  dualImageSeqBufferedBehindB READ dualImageSeqBufferedBehindB
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(int  dualImageSeqFrameCountB     READ dualImageSeqFrameCountB
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(bool dualImageSeqIsActiveB       READ dualImageSeqIsActiveB
+               NOTIFY dualImageSeqStatusChanged)
+    Q_PROPERTY(double dualImageSeqFpsB          READ dualImageSeqFpsB
+               NOTIFY dualImageSeqStatusChanged)
+
     // Per-source-channel audio peak meters, sampled at ~30 Hz from
     // the active AudioPlayer / DualAudioMixer side. Each list entry
     // is a float in [0..1]. Names matches Peaks element-wise; e.g.
@@ -485,6 +514,21 @@ public:
     int imageSeqCacheStride() const;
     Q_INVOKABLE void setImageSeqCacheStride(int stride);
 
+    // Dual-mode per-side image-seq accessors. All zero / false when
+    // the matching side isn't a DualImageSeqSource (or when dual
+    // mode isn't active). See Q_PROPERTY declarations above for
+    // the QML binding shape.
+    int    dualImageSeqBufferedAheadA()  const;
+    int    dualImageSeqBufferedBehindA() const;
+    int    dualImageSeqFrameCountA()     const;
+    bool   dualImageSeqIsActiveA()       const;
+    double dualImageSeqFpsA()            const;
+    int    dualImageSeqBufferedAheadB()  const;
+    int    dualImageSeqBufferedBehindB() const;
+    int    dualImageSeqFrameCountB()     const;
+    bool   dualImageSeqIsActiveB()       const;
+    double dualImageSeqFpsB()            const;
+
     // Per-source-channel audio meter readouts. Single-mode reads
     // from m_audio; dual-mode reads from m_dualController->audio()
     // sides A and B respectively. The B accessors return empty in
@@ -781,6 +825,11 @@ signals:
     void imageSeqBufferStatusChanged();
     void imageSeqCacheStrideChanged();
     void imageSeqActiveChanged();
+    // Dual-mode per-side image-seq buffer status notify. Fired by
+    // pollImageSeqBufferStatus when a delta is detected on either
+    // side. Shared across all dualImageSeq* properties so QML
+    // bindings re-evaluate together.
+    void dualImageSeqStatusChanged();
     void audioActiveChanged();
     // Bumped at ~30 Hz by m_audioMeterTimer when peaks have moved.
     // Inspector level meters bind via Q_PROPERTY notify.
@@ -1133,6 +1182,23 @@ private:
     int                                   m_lastBufferedBehind  = -1;
     int                                   m_lastBufferSize      = -1;
     int                                   m_lastFailedFrameCount = -1;
+    // Dual-mode per-side image-seq cache stats — populated by
+    // pollImageSeqBufferStatus when m_dualController is alive.
+    // -1 sentinel for delta detection on first poll.
+    int                                   m_lastDualAheadA      = -1;
+    int                                   m_lastDualBehindA     = -1;
+    int                                   m_lastDualFrameCountA = -1;
+    bool                                  m_lastDualActiveA     = false;
+    double                                m_lastDualFpsA        = 0.0;
+    int                                   m_lastDualAheadB      = -1;
+    int                                   m_lastDualBehindB     = -1;
+    int                                   m_lastDualFrameCountB = -1;
+    bool                                  m_lastDualActiveB     = false;
+    double                                m_lastDualFpsB        = 0.0;
+    // Polls m_dualController's sources every 33 ms while dual is
+    // active. Started in setCompositorMode Single→Dual entry,
+    // stopped in Dual→Single exit. Fires pollImageSeqBufferStatus.
+    QTimer                               *m_dualBufferPollTimer = nullptr;
 
     bool                                  m_imageSeqActive      = false;
     // Last source frame pushed to the image-seq cache. The cache

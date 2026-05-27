@@ -172,6 +172,14 @@ public:
     // beyond `masterFrame`. Returns -1 if no upcoming clip.
     int nextClipSourceFrame(int masterFrame, char trackSide) const;
 
+    // Mismatched-duration loop pre-warm. When the shorter side is
+    // past-end and there's no upcoming clip on its track but loop
+    // is active, the pump uses this to point the cache at the
+    // FIRST non-gap clip's start source frame — so the cache is
+    // pre-warmed for the imminent master wrap. Returns -1 if no
+    // non-gap clip exists on the track.
+    int firstClipSourceFrame(char trackSide) const;
+
     // Phase 7.8 — generation counter that bumps on every timeline
     // mutation (edit commit, save-load, etc.). The compositor
     // reads it and drops its cached MTLTextures when the value

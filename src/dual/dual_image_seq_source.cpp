@@ -244,8 +244,34 @@ bool DualImageSeqSource::hasFrame(int frameNumber) const
 int DualImageSeqSource::bufferedAhead() const
 {
     const int target = m_decodeTarget.load(std::memory_order_acquire);
+    const int loIn   = m_loopIn.load(std::memory_order_acquire);
+    const int loOut  = m_loopOut.load(std::memory_order_acquire);
+    const bool hasRange = (loIn >= 0 && loOut > loIn);
     std::lock_guard<std::mutex> lk(m_cacheMutex);
     int count = 0;
+    if (hasRange) {
+        // Loop-aware: count frames within kReadAheadFrames of target
+        // in MODULAR forward distance. This makes the cache strip's
+        // ahead band reflect the wrap-around prefetch correctly —
+        // at target=loOut the strip should show loop-start frames as
+        // "ahead via wrap", not as "behind" via linear distance.
+        //
+        // fwd > 0 — strictly ahead, excluding the current frame.
+        // The strip draws bands flanking the playhead; the current
+        // frame is AT the playhead and shouldn't extend either band.
+        // Without this exclusion the wrap-overflow band is 1 frame
+        // wider than the actual cached set.
+        const int loopSize = loOut - loIn + 1;
+        const int curIn = std::max(loIn, std::min(loOut, target)) - loIn;
+        for (const auto &kv : m_cache) {
+            const int k = kv.first;
+            if (k < loIn || k > loOut) continue;
+            const int kIn = k - loIn;
+            const int fwd = ((kIn - curIn) % loopSize + loopSize) % loopSize;
+            if (fwd > 0 && fwd <= kReadAheadFrames) ++count;
+        }
+        return count;
+    }
     for (const auto &kv : m_cache) {
         if (kv.first >= target) ++count;
     }
@@ -255,8 +281,25 @@ int DualImageSeqSource::bufferedAhead() const
 int DualImageSeqSource::bufferedBehind() const
 {
     const int target = m_decodeTarget.load(std::memory_order_acquire);
+    const int loIn   = m_loopIn.load(std::memory_order_acquire);
+    const int loOut  = m_loopOut.load(std::memory_order_acquire);
+    const bool hasRange = (loIn >= 0 && loOut > loIn);
     std::lock_guard<std::mutex> lk(m_cacheMutex);
     int count = 0;
+    if (hasRange) {
+        const int loopSize = loOut - loIn + 1;
+        const int curIn = std::max(loIn, std::min(loOut, target)) - loIn;
+        for (const auto &kv : m_cache) {
+            const int k = kv.first;
+            if (k < loIn || k > loOut) continue;
+            const int kIn = k - loIn;
+            const int bwd = ((curIn - kIn) % loopSize + loopSize) % loopSize;
+            // bwd==0 is the current frame — count it as ahead only
+            // (above), not behind, so the two don't double-count.
+            if (bwd > 0 && bwd <= kReadBehindFrames) ++count;
+        }
+        return count;
+    }
     for (const auto &kv : m_cache) {
         if (kv.first < target) ++count;
     }
