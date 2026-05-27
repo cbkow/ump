@@ -26,6 +26,17 @@ QtObject {
     readonly property color borderStrong: "#333333"
     readonly property color divider:      "#2a2a2a"
     readonly property color selection:    accentMuted
+    // Currently-loaded media row fill. Distinctly brighter and
+    // more saturated than `selection` so a row that's BOTH
+    // selected and loaded reads unambiguously as "this is what's
+    // open". Roughly midway between `selection` and `accent` in
+    // saturation; lightness held back so white text keeps AAA
+    // contrast.
+    readonly property color rowActive:    "#0d5ba8"
+    // Expanded section header fill. Sits between `bg` and
+    // `surfaceHover` so an open header groups visually with its
+    // content below without competing with the hover state.
+    readonly property color sectionOpenBg: "#1f1f1f"
 
     // --- Text ---
     readonly property color textPrimary:   "#dddddd"

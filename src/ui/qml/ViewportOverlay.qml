@@ -105,14 +105,13 @@ Pane {
                     && WindowManager.videoDecoder.sourcePath
                     && WindowManager.videoDecoder.sourcePath.length > 0)
                 || WindowManager.imageSeqActive
-            // Flat chip — drop border, lean on the colored "A"
-            // letter inside as the source-marker. Drag-target
-            // tint = side color at low alpha; hover lifts to
-            // surfaceHover.
-            color: aDrop.containsDrag
-                   ? Qt.darker(root.sideAColor, 4.0)
-                   : (aChipMa.containsMouse
-                        ? Theme.surfaceHover : "transparent")
+            // Flat chip — the colored "A" letter inside is the
+            // source-marker. Drag-over uses the standard 2-px
+            // Theme.accent border via the overlay below (matches
+            // the Media bin + PlayerWindow viewport pattern);
+            // hover lifts to surfaceHover.
+            color: aChipMa.containsMouse
+                   ? Theme.surfaceHover : "transparent"
             radius: 0
 
             RowLayout {
@@ -217,6 +216,19 @@ Pane {
                 hoverEnabled: true
                 acceptedButtons: Qt.NoButton
             }
+
+            // Drop highlight overlay. Drawn ON TOP of the chip's
+            // RowLayout so the 2-px accent border isn't covered
+            // by the inner text/icons. Matches the Media bin
+            // pattern in LeftRail.qml.
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: Theme.accent
+                border.width: 2
+                visible: aDrop.containsDrag
+                z: 10
+            }
         }
 
         // Small gap between the A and B chips so they read as
@@ -241,12 +253,12 @@ Pane {
                 : (WindowManager.videoDecoderB
                    ? WindowManager.videoDecoderB.sourcePath
                    : "")
-            // Flat chip — drop border, lean on the colored "B"
-            // letter inside as the source-marker.
-            color: bDrop.containsDrag
-                   ? Qt.darker(root.sideBColor, 4.0)
-                   : (bChipMa.containsMouse
-                        ? Theme.surfaceHover : "transparent")
+            // Flat chip — the colored "B" letter inside is the
+            // source-marker. Drag-over uses the standard 2-px
+            // Theme.accent border via the overlay below; hover
+            // lifts to surfaceHover. Matches A chip + Media bin.
+            color: bChipMa.containsMouse
+                   ? Theme.surfaceHover : "transparent"
             radius: 0
 
             // Drop zone — currently video-only. Source B
@@ -369,6 +381,16 @@ Pane {
                 anchors.fill: parent
                 hoverEnabled: true
                 acceptedButtons: Qt.NoButton
+            }
+
+            // Drop highlight overlay — same pattern as A chip.
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: Theme.accent
+                border.width: 2
+                visible: bDrop.containsDrag
+                z: 10
             }
         }
 

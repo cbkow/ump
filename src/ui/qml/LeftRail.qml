@@ -383,16 +383,18 @@ Rectangle {
             readonly property bool isEditing:
                 itemId === root.editingItemId
 
-            // Row background — Theme.selection (accent-muted) when
-            // selected, Theme.surfaceHover on hover, transparent
-            // otherwise. Active row gets a 2-px accent left-rule
-            // (the MinRender "primary row" pattern).
+            // Row background. Priority: active (loaded) → selected →
+            // hover → transparent. Active uses Theme.rowActive (a
+            // brighter cobalt than Theme.selection) so a row that's
+            // both selected and loaded still reads as "loaded".
             Rectangle {
                 anchors.fill: parent
-                color: rowItem.isSelected
-                       ? Theme.selection
-                       : (rowMa.containsMouse
-                            ? Theme.surfaceHover : "transparent")
+                color: rowItem.isActive
+                       ? Theme.rowActive
+                       : (rowItem.isSelected
+                            ? Theme.selection
+                            : (rowMa.containsMouse
+                                 ? Theme.surfaceHover : "transparent"))
             }
             // Active (currently-loaded) media — accent left-rule.
             Rectangle {
@@ -797,7 +799,9 @@ Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.headerHeight
                     color: binHeaderMa.containsMouse
-                           ? Theme.surfaceHover : "transparent"
+                           ? Theme.surfaceHover
+                           : (bodyColumn.binExpanded
+                                ? Theme.sectionOpenBg : "transparent")
 
                     MouseArea {
                         id: binHeaderMa
@@ -872,14 +876,13 @@ Rectangle {
             Behavior on Layout.preferredHeight {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
             }
-            // Drop highlight: 2-px accent border on top of the
-            // surface fill while a drag is hovering. Idle has no
-            // border — the section divider above + the row hover
-            // states carry the visual structure.
+            // Drop highlight is rendered as a sibling overlay below
+            // (dropHighlight), not as a border on this rectangle —
+            // the ListView's section delegates and row backgrounds
+            // are drawn on top of listFrame's border and were eating
+            // the top/bottom edges (especially the in-list "VIDEOS"
+            // section header butting against the bin header above).
             color: Theme.bg
-            border.color: dropZone.containsDrag
-                          ? Theme.accent : "transparent"
-            border.width: dropZone.containsDrag ? 2 : 0
             clip: true
 
             DropArea {
@@ -971,6 +974,19 @@ Rectangle {
                     horizontalAlignment: Text.AlignHCenter
                 }
             }
+
+            // Drop highlight overlay. Drawn ON TOP of mediaList so
+            // the accent border isn't covered by section delegates
+            // or row backgrounds. Non-interactive — DropArea below
+            // still receives the drag events; this is paint-only.
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                border.color: Theme.accent
+                border.width: 2
+                visible: dropZone.containsDrag
+                z: 10
+            }
         }
 
         // ---- Playlists section (Phase 3.H.3) ----
@@ -984,7 +1000,9 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.headerHeight
             color: playlistsHeadMa.containsMouse
-                   ? Theme.surfaceHover : "transparent"
+                   ? Theme.surfaceHover
+                   : (bodyColumn.playlistsExpanded
+                        ? Theme.sectionOpenBg : "transparent")
 
             MouseArea {
                 id: playlistsHeadMa

@@ -39,7 +39,9 @@ Pane {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.headerHeight
             color: headerMouseArea.containsMouse
-                   ? Theme.surfaceHover : "transparent"
+                   ? Theme.surfaceHover
+                   : (root.expanded
+                        ? Theme.sectionOpenBg : "transparent")
 
             RowLayout {
                 anchors.fill: parent
