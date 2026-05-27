@@ -3,6 +3,7 @@
 #include "decode/timecode_formatter.h"
 #include "dual_image_seq_source.h"
 #include "dual_playback_timer.h"
+#include "dual_scrub_decoder.h"
 #include "dual_video_decoder.h"
 #include "timeline/timeline_controller.h"
 #include "timeline/timeline_flattener.h"
@@ -234,6 +235,29 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
         m_audio->open(audioA, audioB);
     }
 
+    // Eager scrub-decoder construction for video sides. Image-seq
+    // sources don't get one — the cache is already random-access.
+    // Open is synchronous (avformat_open_input + find_stream_info)
+    // — small cold-start cost (~50-200 ms × video sides) traded for
+    // zero hitch on the user's first scrub gesture. Matches single-
+    // flow's eager ScrubDecoder open in WindowManager.
+    if (auto *va = dynamic_cast<DualVideoDecoder *>(m_sourceA.get())) {
+        m_scrubA = std::make_unique<DualScrubDecoder>(va, this);
+        if (!m_scrubA->open(pathA)) {
+            qWarning("DualPlaybackController: scrub decoder A open failed (%s)",
+                     qPrintable(pathA));
+            m_scrubA.reset();
+        }
+    }
+    if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
+        m_scrubB = std::make_unique<DualScrubDecoder>(vb, this);
+        if (!m_scrubB->open(pathB)) {
+            qWarning("DualPlaybackController: scrub decoder B open failed (%s)",
+                     qPrintable(pathB));
+            m_scrubB.reset();
+        }
+    }
+
     m_pumpThread = std::thread([this] { clockPumpLoop(); });
 
     qInfo("DualPlaybackController: opened — A=%s (%dx%d, %d frames, %.2f fps), "
@@ -269,6 +293,15 @@ void DualPlaybackController::close()
 
     if (m_audio) m_audio->close();
 
+    // Scrub decoders MUST tear down before their paired streaming
+    // sources — DualScrubDecoder::workerLoop reads
+    // m_streaming->ptsForFrameNumber(), so the streaming decoder's
+    // FFmpeg state must outlive the scrub worker. close() joins
+    // the scrub worker thread internally.
+    if (m_scrubA) { m_scrubA->close(); m_scrubA.reset(); }
+    if (m_scrubB) { m_scrubB->close(); m_scrubB.reset(); }
+    m_scrubActive.store(false, std::memory_order_release);
+
     if (m_sourceA) m_sourceA->close();
     if (m_sourceB) m_sourceB->close();
     m_sourceA.reset();
@@ -283,6 +316,11 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
 {
     if (!m_open.load(std::memory_order_acquire)) return false;
 
+    // Tear down B's scrub decoder BEFORE the streaming source it
+    // points at (close()-then-reset on the streaming pointer would
+    // leave the scrub worker mid-call into a destroyed object).
+    if (m_scrubB) { m_scrubB->close(); m_scrubB.reset(); }
+
     // Close existing B (decoder thread join inside its own close()).
     if (m_sourceB) {
         m_sourceB->close();
@@ -290,7 +328,7 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
     }
     if (path.isEmpty()) {
         // Cleared B — render-side will see hasFrame=false and draw
-        // transparent on that side.
+        // transparent on that side. No scrub decoder rebuild.
         emit frameCountChanged();
         emit hwAccelChanged();
         return true;
@@ -307,6 +345,16 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
         return false;
     }
     m_sourceB = std::move(src);
+
+    // Build a scrub decoder for the new B if it's video. Image-seq
+    // B uses the cache directly for scrub.
+    if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
+        m_scrubB = std::make_unique<DualScrubDecoder>(vb, this);
+        if (!m_scrubB->open(path)) {
+            qWarning("DualPlaybackController::swapB: scrub B open failed");
+            m_scrubB.reset();
+        }
+    }
 
     // Recompute master frame count (might extend past prior max).
     // Per-side counts are in their own fps — must convert via
@@ -425,6 +473,106 @@ void DualPlaybackController::togglePlayback()
     else play();
 }
 
+// ---------------------------------------------------------------------------
+// Scrub gesture API. Mirrors single-flow's WindowManager → ScrubDecoder
+// pattern: pause streaming + audio, fire scrub-decoder requests during
+// drag, warm-seek on release. Idempotent — safe to call beginScrub
+// while already scrubbing.
+// ---------------------------------------------------------------------------
+
+void DualPlaybackController::beginScrub()
+{
+    if (!m_open.load(std::memory_order_acquire)) return;
+    if (m_scrubActive.exchange(true, std::memory_order_acq_rel)) return;
+
+    // Park each video source's streaming decode thread. Codec contexts
+    // stay hot for the release-time seek. Image-seq sources don't have
+    // a streaming decode loop — they're random-access via the cache,
+    // so the scrubActive flag doesn't apply.
+    if (auto *va = dynamic_cast<DualVideoDecoder *>(m_sourceA.get())) {
+        va->setScrubActive(true);
+    }
+    if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
+        vb->setScrubActive(true);
+    }
+
+    // Pause audio for the duration of the gesture. Mute state on
+    // m_mutedA / m_mutedB atomics is preserved (DualAudioMixer::pause
+    // only toggles m_playing). QML caller resumes via
+    // WindowManager.play() on release if was-playing.
+    if (m_audio) m_audio->pause();
+}
+
+void DualPlaybackController::requestScrubFrame(int masterFrame)
+{
+    if (!m_open.load(std::memory_order_acquire)) return;
+    if (!m_scrubActive.load(std::memory_order_acquire)) return;
+
+    // Move the dual timer so the compositor's pullFrameA/B sees the
+    // scrub position. Critical for image-seq sides: their fallthrough
+    // path is m_sourceA->getBufferedFrame(translatedSrcFrame), where
+    // translatedSrcFrame is derived from m_timer->currentFrame() via
+    // translateMasterToSourceFrame — if the timer stays stale the
+    // cache gets pulled at the OLD frame even though the right one
+    // is loaded. Video sides return the scrub slot directly so they
+    // happen to work without this, but we want a coherent position
+    // for the QML scrubber readout too.
+    //
+    // We use the timer's own seekToFrame, NOT controller::seekToFrame —
+    // the controller version would also call each source's seekTo()
+    // which sets m_pendingSeekTarget and wakes the streaming decode
+    // thread through the scrub gate (pendingSeek bypasses the
+    // !scrubActive predicate). The timer-only update keeps the
+    // streaming decoders parked.
+    if (m_timer) m_timer->seekToFrame(masterFrame);
+
+    // Per-side dispatch. Video sides → scrub decoder. Image-seq sides
+    // → setDecodeTarget so the cache prefetch window follows the
+    // user's scrub (cache reads remain random-access; this just keeps
+    // the LRU centered around the drag position).
+    auto dispatch = [&](char side,
+                        IDualSource *src,
+                        DualScrubDecoder *scrub) {
+        if (!src) return;
+        int sf = translateMasterToSourceFrame(masterFrame, side);
+        if (sf < 0) sf = nextClipSourceFrame(masterFrame, side);
+        if (sf < 0) return;   // gap with no upcoming clip
+        if (scrub) {
+            scrub->requestFrame(sf);
+        } else {
+            // Image-seq side — keep the cache window aligned.
+            src->setDecodeTarget(sf);
+        }
+    };
+    dispatch('A', m_sourceA.get(), m_scrubA.get());
+    dispatch('B', m_sourceB.get(), m_scrubB.get());
+}
+
+void DualPlaybackController::endScrub(int finalMasterFrame)
+{
+    if (!m_open.load(std::memory_order_acquire)) return;
+    if (!m_scrubActive.exchange(false, std::memory_order_acq_rel)) return;
+
+    // Wake streaming decoders — they parked on the scrubActive gate
+    // in their CV predicate. They'll now see needsMoreFrames() and
+    // re-engage.
+    if (auto *va = dynamic_cast<DualVideoDecoder *>(m_sourceA.get())) {
+        va->setScrubActive(false);
+    }
+    if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
+        vb->setScrubActive(false);
+    }
+
+    // Warm-seek both sources to the landing position. seekToFrame
+    // routes through each IDualSource::seekTo, which the existing
+    // path does for transport seeks. Streaming codec contexts are
+    // still hot — this is the cheap warm seek, not a cold open.
+    seekToFrame(finalMasterFrame);
+
+    // Audio resume is the QML caller's responsibility via
+    // WindowManager.play() — they know wasPlayingBeforeScrub.
+}
+
 int DualPlaybackController::currentFrame() const
 {
     return m_timer ? m_timer->currentFrame() : 0;
@@ -452,6 +600,18 @@ std::shared_ptr<DualFrame>
 DualPlaybackController::pullFrameA(int masterFrame) const
 {
     if (!m_sourceA) return nullptr;
+    // Scrub gate — when scrubActive AND this side is a video source,
+    // the per-side scrub publish slot supersedes the streaming ring.
+    // Image-seq sources fall through to the cache's normal random-
+    // access read (the cache IS the scrub engine there).
+    if (m_scrubActive.load(std::memory_order_acquire)) {
+        if (auto *va = dynamic_cast<DualVideoDecoder *>(m_sourceA.get())) {
+            auto f = va->getScrubFrame();
+            if (f) return f;
+            // No scrub frame yet — fall through; compositor's cachedA
+            // (last good) keeps painting until the worker publishes.
+        }
+    }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'A');
     if (srcFrame < 0) return nullptr;
     return m_sourceA->getBufferedFrame(srcFrame);
@@ -461,6 +621,12 @@ std::shared_ptr<DualFrame>
 DualPlaybackController::pullFrameB(int masterFrame) const
 {
     if (!m_sourceB) return nullptr;
+    if (m_scrubActive.load(std::memory_order_acquire)) {
+        if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
+            auto f = vb->getScrubFrame();
+            if (f) return f;
+        }
+    }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'B');
     if (srcFrame < 0) return nullptr;
     return m_sourceB->getBufferedFrame(srcFrame);

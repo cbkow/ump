@@ -34,6 +34,7 @@ namespace qcv { class TimelineController; }
 namespace qcv::dual {
 
 class DualPlaybackTimer;
+class DualScrubDecoder;
 
 // Source kind hint for the factory. AutoDetect inspects the path's
 // extension; existing video extensions go through DualVideoDecoder,
@@ -107,6 +108,20 @@ public:
     Q_INVOKABLE void pause();
     Q_INVOKABLE void seekToFrame(int frameNumber);
     Q_INVOKABLE void togglePlayback();
+
+    // ---- Scrub gesture (Phase 7.x — dual scrub decoder) ----
+    // Mirror of single-flow's WindowManager → ScrubDecoder path,
+    // adapted for two sides. beginScrub parks each video side's
+    // streaming decode thread (codec contexts stay hot) and pauses
+    // the audio mixer; requestScrubFrame dispatches per-side
+    // (video → DualScrubDecoder::requestFrame writing the
+    // per-side scrub publish slot; image-seq → setDecodeTarget so
+    // the cache prefetch window follows); endScrub clears the gate
+    // and warm-seeks each streaming source to the landing frame.
+    // QML caller resumes audio via WindowManager.play() if was-playing.
+    Q_INVOKABLE void beginScrub();
+    Q_INVOKABLE void requestScrubFrame(int masterFrame);
+    Q_INVOKABLE void endScrub(int finalMasterFrame);
 
     // ---- Q_PROPERTY accessors ----
     int    currentFrame() const;
@@ -247,6 +262,19 @@ private:
     // callback. Driven by play/pause/seek calls below + the master
     // clock pump's drift correction.
     std::unique_ptr<DualAudioMixer>     m_audio;
+
+    // Dual scrub decoders — one per video side. Image-seq sides
+    // are random-access via the cache and don't need a dedicated
+    // scrub decoder. Owned by the controller; lifetime nested
+    // inside the matching m_sourceA / m_sourceB (closed BEFORE the
+    // streaming source — scrub worker holds raw DualVideoDecoder*
+    // for its pts façade calls). Constructed in open() / swapB().
+    std::unique_ptr<DualScrubDecoder>   m_scrubA;
+    std::unique_ptr<DualScrubDecoder>   m_scrubB;
+    // Gated by beginScrub / endScrub. Read in pullFrameA/B to
+    // route to the scrub publish slot, and in the pump's pump-tick
+    // path (indirectly, via each video source's own m_scrubActive).
+    std::atomic<bool>                   m_scrubActive{false};
 
     int    m_masterFrameCount = 0;
     double m_masterFps        = 0.0;

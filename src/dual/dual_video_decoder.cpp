@@ -1020,17 +1020,25 @@ void DualVideoDecoder::decodeThreadFunc()
             continue;
         }
 
-        // ---- Wait until buffer needs more frames (or shutdown / seek).
+        // ---- Wait until buffer needs more frames (or shutdown / seek /
+        // scrub-active transition). The scrub-active gate parks the
+        // streaming decode thread while the user drags the timeline —
+        // DualScrubDecoder owns the per-side scrub publish slot during
+        // that window. Codec contexts stay hot (no flush) so the
+        // release-time seekToFrame is a warm seek. Stop and pending-
+        // seek still wake regardless so endScrub's seek path takes effect.
         {
             std::unique_lock<std::mutex> lk(m_decodeCvMutex);
             m_decodeCv.wait_for(lk, std::chrono::milliseconds(timeoutMs), [this] {
                 return m_stopRequested.load(std::memory_order_acquire) ||
                        m_pendingSeekTarget.load(std::memory_order_acquire) >= 0 ||
-                       needsMoreFrames();
+                       (!m_scrubActive.load(std::memory_order_acquire)
+                        && needsMoreFrames());
             });
         }
         if (m_stopRequested.load(std::memory_order_acquire)) break;
         if (m_pendingSeekTarget.load(std::memory_order_acquire) >= 0) continue;
+        if (m_scrubActive.load(std::memory_order_acquire)) continue;
         if (!needsMoreFrames()) continue;
 
         // ---- Decode one frame (no wall-clock pacing; the master timer
@@ -1048,6 +1056,37 @@ void DualVideoDecoder::decodeThreadFunc()
 
     av_packet_free(&pkt);
     av_frame_free(&frame);
+}
+
+// ---------------------------------------------------------------------------
+// Scrub publish slot (cross-thread). Independent of the ring buffer.
+// DualScrubDecoder calls publishExternalFrame from its worker thread;
+// the render thread (via DualPlaybackController::pullFrameA/B) calls
+// getScrubFrame. Mutex separate from m_bufferMutex.
+// ---------------------------------------------------------------------------
+
+void DualVideoDecoder::publishExternalFrame(int frameNumber,
+                                              std::shared_ptr<DualFrame> frame)
+{
+    // frameNumber arg is currently unused — the slot is "latest scrub
+    // frame for this side." Kept in the signature for symmetry with
+    // single-flow's VideoDecoder::publishExternalFrame and so future
+    // logging / drift detection can use it without an API change.
+    (void)frameNumber;
+    std::lock_guard<std::mutex> lk(m_scrubMutex);
+    m_scrubFrame = std::move(frame);
+}
+
+std::shared_ptr<DualFrame> DualVideoDecoder::getScrubFrame() const
+{
+    std::lock_guard<std::mutex> lk(m_scrubMutex);
+    return m_scrubFrame;   // copy under lock — caller's lifetime extended
+}
+
+void DualVideoDecoder::clearScrubFrame()
+{
+    std::lock_guard<std::mutex> lk(m_scrubMutex);
+    m_scrubFrame.reset();
 }
 
 } // namespace qcv::dual

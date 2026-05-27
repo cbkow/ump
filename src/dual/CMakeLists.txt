@@ -22,6 +22,8 @@ qt_add_library(qcv_dual STATIC
     dual_playback_controller.h
     dual_audio_mixer.cpp
     dual_audio_mixer.h
+    dual_scrub_decoder.cpp
+    dual_scrub_decoder.h
 )
 
 if(APPLE)

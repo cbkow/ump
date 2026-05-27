@@ -108,6 +108,40 @@ public:
     // so the render-on-demand loop redraws after a seek-while-paused.
     void setFrameAvailableCallback(FrameAvailableCallback cb) override;
 
+    // PTS ↔ frame conversion (formula based; old app's intra path).
+    // Public so the paired DualScrubDecoder can map between the
+    // FFmpeg PTS space and source-frame numbers without duplicating
+    // the timebase math. Safe to call from any thread: the underlying
+    // members (m_streamTimeBase, m_streamFrameRate, m_streamStartPts,
+    // m_fps) are set in initFFmpeg BEFORE the decode thread spawns
+    // and never mutate afterwards.
+    int     frameNumberForPts(int64_t pts) const;
+    int64_t ptsForFrameNumber(int frameNumber) const;
+
+    // Scrub coordination — set by DualPlaybackController during a
+    // scrub gesture. When true, the decode loop's main CV wait
+    // predicate gates `needsMoreFrames()` so the streaming decode
+    // thread parks. Codec contexts stay hot for warm-seek on
+    // scrub release. Stop and pending-seek paths still wake.
+    void setScrubActive(bool v) {
+        m_scrubActive.store(v, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lk(m_decodeCvMutex);
+        }
+        m_decodeCv.notify_one();
+    }
+
+    // Per-side scrub publish slot — written by DualScrubDecoder, read
+    // by DualPlaybackController::pullFrameA/B while scrubActive.
+    // Independent of the ring buffer (the ring is the streaming-
+    // cursor cache; scrub frames are NOT cursor predictions and would
+    // poison the ring). Mutex separate from m_bufferMutex so the
+    // ring and the scrub slot don't share a lock.
+    void publishExternalFrame(int frameNumber,
+                                std::shared_ptr<DualFrame> frame);
+    std::shared_ptr<DualFrame> getScrubFrame() const;
+    void clearScrubFrame();
+
     // Ring depth (compile-time constant from old QCView pattern).
     static constexpr int kRingSize = 16;
 
@@ -130,10 +164,6 @@ private:
     bool decodeOneFrame(AVFrame *frame, AVPacket *packet);
     void addCurrentFrameToBuffer(AVFrame *frame, int frameNumber);
     std::shared_ptr<DualFrame> convertFrameToRgba(AVFrame *frame, int frameNumber);
-
-    // PTS ↔ frame conversion (formula based; old app's intra path)
-    int     frameNumberForPts(int64_t pts) const;
-    int64_t ptsForFrameNumber(int frameNumber) const;
 
     // Seek handling — called from decode thread when m_seekPending is set
     void performSeek(int targetFrame, AVPacket *pkt, AVFrame *frame);
@@ -172,6 +202,17 @@ private:
     // ---- Decode-ahead state ----
     std::atomic<int>  m_decodeTarget{0};
     std::atomic<int>  m_pendingSeekTarget{-1};
+
+    // ---- Scrub coordination ----
+    // m_scrubActive: when true, decode thread's primary CV wait
+    // predicate skips needsMoreFrames(). The flag is set by
+    // DualPlaybackController on beginScrub / endScrub. m_scrubFrame
+    // is the per-side scrub publish slot (independent of m_ring);
+    // DualScrubDecoder writes it via publishExternalFrame, the
+    // controller reads it via getScrubFrame.
+    std::atomic<bool>                     m_scrubActive{false};
+    mutable std::mutex                    m_scrubMutex;
+    std::shared_ptr<DualFrame>            m_scrubFrame;
 
     // Per-clip videoRangeOverride. Pushed by DualPlaybackController
     // when its own setRangeOverrideA/B fires (which fires from

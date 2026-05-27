@@ -1948,10 +1948,28 @@ Pane {
                     WindowManager.clearHoverThumbnail();
                     const seconds = xToTime(viewX);
                     if (isDual) {
+                        // Dual scrub gesture (Phase 7.x — dual scrub
+                        // decoders). beginScrub parks streaming decode
+                        // threads + pauses audio mixer; requestScrubFrame
+                        // dispatches per side to scrub decoder (video) or
+                        // setDecodeTarget (image-seq). The heavy
+                        // seekToFrame waits for onReleased — same shape as
+                        // the single-flow ScrubDecoder path below.
                         wasPlayingBeforeScrub = WindowManager.dualController
                             && WindowManager.dualController.isPlaying;
                         WindowManager.pause();
-                        commitTime(seconds);
+                        const dualFps = WindowManager.dualController.fps;
+                        const masterFrame = dualFps > 0
+                            ? Math.round(seconds * dualFps) : 0;
+                        WindowManager.dualController.beginScrub();
+                        WindowManager.dualController.requestScrubFrame(masterFrame);
+                        // Optimistic timer update — keeps the QML scrubber
+                        // position bound to time (commitTime → seekToTime
+                        // currently routes through seekToFrame which would
+                        // re-flush; the dual scrub gate prevents that, but
+                        // we still want the timer to reflect the gesture
+                        // for the playhead readout).
+                        if (timer) timer.seek(seconds);
                         return;
                     }
                     if (root.playlistActive) {
@@ -2013,7 +2031,11 @@ Pane {
                     if (!loaded) return;
                     const seconds = xToTime(viewX);
                     if (isDual) {
-                        commitTime(seconds);
+                        const dualFps = WindowManager.dualController.fps;
+                        const masterFrame = dualFps > 0
+                            ? Math.round(seconds * dualFps) : 0;
+                        WindowManager.dualController.requestScrubFrame(masterFrame);
+                        if (timer) timer.seek(seconds);
                         return;
                     }
                     if (root.playlistActive) {
@@ -2063,7 +2085,15 @@ Pane {
                     // qFuzzyCompare short-circuits the second emit.
                     if (timer) timer.seek(seconds);
                     if (isDual) {
-                        commitTime(seconds);
+                        // endScrub clears the per-side scrubActive flag,
+                        // warm-seeks the streaming decoders to the
+                        // landing position. Audio resume is the QML
+                        // caller's call (controller doesn't know
+                        // wasPlayingBeforeScrub).
+                        const dualFps = WindowManager.dualController.fps;
+                        const finalMaster = dualFps > 0
+                            ? Math.round(seconds * dualFps) : 0;
+                        WindowManager.dualController.endScrub(finalMaster);
                         if (wasPlayingBeforeScrub) WindowManager.play();
                         return;
                     }
