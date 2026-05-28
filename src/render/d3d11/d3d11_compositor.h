@@ -46,11 +46,19 @@ public:
     // `bgMode`  — qcv::BackgroundMode enum:
     //              0 = Black, 1 = DarkGray,
     //              2 = DarkCheckerboard, 3 = LightCheckerboard.
+    // `borderPx`        — edge-frame width in px; 0 (default) = no
+    //                      frame. Used by renderCornerOverlay so the
+    //                      thumbnail doesn't blend into the viewport.
+    // `borderR/G/B`     — frame color (only when borderPx > 0).
     void renderSingle(void *ctx,
                        void *srcSrv,
                        int   dstW, int dstH,
                        int   srcW, int srcH,
-                       int   bgMode);
+                       int   bgMode,
+                       float borderPx = 0.0f,
+                       float borderR = 0.0f,
+                       float borderG = 0.0f,
+                       float borderB = 0.0f);
 
     // Phase F.2.8 follow-up — uniform output multiplier applied to
     // the final pixel before write. 1.0 = identity. Stored as state;
@@ -62,8 +70,10 @@ public:
     // renderSingle pipeline by setting a tiny viewport at the chosen
     // corner and treating that rect as a fake canvas — the existing
     // aspect-fit shader letter-/pillarboxes the thumb inside the box
-    // (bgMode 0 = black fill). Caller's viewport is saved + restored
-    // so downstream draws (annotation, screenshot, present) aren't
+    // (bgMode 0 = black fill) and draws a faint edge frame. Box height
+    // is capped at the box width, so a tall portrait thumb is never
+    // taller than wide. Caller's viewport is saved + restored so
+    // downstream draws (annotation, screenshot, present) aren't
     // affected.
     //
     //   ctx          — immediate context, RTV already bound by caller.

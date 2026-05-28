@@ -30,6 +30,10 @@ struct UBO {
     int    aActive;      // 1 = sample srcA, 0 = transparent in A region
     int    bActive;      // 1 = sample srcB, 0 = transparent in B region
     float  brightness;   // linear-light multiplier; 1.0 = identity
+    float  borderPx;     // corner-overlay edge frame width px; 0 = none
+    float  borderR;      // edge frame color (used when borderPx > 0)
+    float  borderG;
+    float  borderB;
 };
 
 struct VsOut {
@@ -89,6 +93,14 @@ fragment float4 fs_main(VsOut in [[stage_in]],
     const float2 uv    = in.uv;
     const float2 dstPx = uv * u.dstSize;
 
+    // Edge frame for corner-overlay thumbnails (borderPx > 0). The
+    // main compositor pass leaves borderPx at 0, so this is skipped.
+    if (u.borderPx > 0.0 &&
+        (dstPx.x < u.borderPx || dstPx.x > u.dstSize.x - u.borderPx ||
+         dstPx.y < u.borderPx || dstPx.y > u.dstSize.y - u.borderPx)) {
+        return float4(float3(u.borderR, u.borderG, u.borderB) * u.brightness, 1.0);
+    }
+
     float4 color = float4(0.0);
 
     if (u.mode == 1) {
@@ -141,10 +153,17 @@ fragment float4 fs_main(VsOut in [[stage_in]],
                         u.dstSize, u.srcSizeA);
     }
 
-    // Letterbox / pillarbox / outside source area → discard so the
-    // background pass underneath shows through. Sample-fit returns
-    // float4(0) (alpha=0) for those regions.
-    if (color.a == 0.0) discard_fragment();
+    // Letterbox / pillarbox / outside source area. Normally discard
+    // so the background pass underneath shows through. For corner-
+    // overlay thumbnails (borderPx > 0) fill black instead, so the
+    // framed box reads as a solid tile (matches the D3D11 path) rather
+    // than letting the video behind show through the thumb's bars.
+    if (color.a == 0.0) {
+        if (u.borderPx > 0.0) {
+            return float4(0.0, 0.0, 0.0, 1.0);
+        }
+        discard_fragment();
+    }
     color.rgb *= u.brightness;
     return color;
 }
@@ -512,6 +531,8 @@ void MetalCompositor::renderSources(void *encoderPtr,
         int   aActive;
         int   bActive;
         float brightness;
+        float borderPx;
+        float borderR, borderG, borderB;
     } ubo = {
         static_cast<float>(dstWidth),  static_cast<float>(dstHeight),
         static_cast<float>(srcAW),     static_cast<float>(srcAH),
@@ -520,6 +541,8 @@ void MetalCompositor::renderSources(void *encoderPtr,
         aActive ? 1 : 0,
         bActive ? 1 : 0,
         m_impl->brightness,
+        /*borderPx=*/0.0f,
+        0.0f, 0.0f, 0.0f,
     };
 
     [enc setRenderPipelineState:m_impl->pipeline];
@@ -551,18 +574,16 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
     overlayFrac = std::clamp(overlayFrac, 0.05f, 0.5f);
     if (marginPx < 0.0f) marginPx = 0.0f;
 
-    // Corner box dimensions. Width = dstWidth * overlayFrac;
-    // height follows the THUMB aspect — that way landscape thumbs
-    // get a wider box and portrait thumbs a taller one. Letterbox
-    // is handled by the shader's sampleFit anyway, but matching the
-    // box to the thumb keeps the visual tight.
+    // Corner box dimensions. Width = dstWidth * overlayFrac; height
+    // follows the THUMB aspect so landscape thumbs get a wider box.
+    // Cap height at the box width so a tall portrait thumb is never
+    // taller than wide — it then pillarboxes inside the square box
+    // (filled black + framed, since borderPx > 0 below).
     const float boxW = static_cast<float>(dstWidth) * overlayFrac;
     const float aspect =
         static_cast<float>(thumbW) / static_cast<float>(thumbH);
     float boxH = boxW / std::max(aspect, 0.0001f);
-    if (boxH > dstHeight * 0.5f) {
-        boxH = dstHeight * 0.5f;
-    }
+    if (boxH > boxW) boxH = boxW;
 
     // Origin in viewport coords (Metal viewport origin = top-left).
     float originX = marginPx;
@@ -595,6 +616,8 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
         int   aActive;
         int   bActive;
         float brightness;
+        float borderPx;
+        float borderR, borderG, borderB;
     } ubo = {
         boxW, boxH,
         static_cast<float>(thumbW), static_cast<float>(thumbH),
@@ -604,6 +627,8 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
         /*aActive=*/1,
         /*bActive=*/0,
         m_impl->brightness,
+        /*borderPx=*/2.0f,
+        /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f,
     };
 
     [enc setRenderPipelineState:m_impl->pipeline];

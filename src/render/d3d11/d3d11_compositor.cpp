@@ -46,12 +46,13 @@ cbuffer Constants : register(b0) {
     float2 dstSize;        // destination viewport, pixels
     float2 fitRectMin;     // source-fit top-left, pixels
     float2 fitRectSize;    // source-fit size, pixels
-    float2 _pad0;
+    float  borderPx;       // edge-frame width in px; 0 = no border
+    float  _pad0;
     int    hasSrc;
     int    bgMode;
     int2   _pad1;
     float  brightness;     // post-composite multiplier; 1.0 = identity
-    float3 _pad2;
+    float3 borderColor;    // RGB of the edge frame (used when borderPx > 0)
 };
 
 Texture2D    src       : register(t0);
@@ -82,6 +83,14 @@ float4 backgroundColor(float2 fragPx)
 float4 PSMain(VsOut input) : SV_TARGET
 {
     float2 fragPx = input.uv * dstSize;
+    // Edge frame — painted over everything when borderPx > 0 (corner-
+    // overlay thumbnails). The main video pass leaves borderPx at 0,
+    // so this is a no-op there.
+    if (borderPx > 0.0 &&
+        (fragPx.x < borderPx || fragPx.x > dstSize.x - borderPx ||
+         fragPx.y < borderPx || fragPx.y > dstSize.y - borderPx)) {
+        return float4(borderColor * brightness, 1.0);
+    }
     float4 bg = backgroundColor(fragPx);
     if (hasSrc != 0 &&
         fragPx.x >= fitRectMin.x && fragPx.x <  fitRectMin.x + fitRectSize.x &&
@@ -125,12 +134,13 @@ struct CompositorCB {
     float dstSize[2];     // 8
     float fitMin[2];      // 16
     float fitSize[2];     // 24
-    float pad0[2];        // 32
+    float borderPx;       // 28
+    float pad0;           // 32
     int   hasSrc;         // 36
     int   bgMode;         // 40
     int   pad1[2];        // 48
     float brightness;     // 52
-    float pad2[3];        // 64
+    float borderColor[3]; // 64
 };
 static_assert(sizeof(CompositorCB) == 64,
               "CompositorCB must match HLSL packing exactly.");
@@ -244,7 +254,9 @@ void D3D11Compositor::shutdown()
 void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
                                      int dstW, int dstH,
                                      int srcW, int srcH,
-                                     int bgMode)
+                                     int bgMode,
+                                     float borderPx,
+                                     float borderR, float borderG, float borderB)
 {
     if (!m_impl || !m_impl->initialized) return;
     if (dstW <= 0 || dstH <= 0) return;
@@ -285,6 +297,10 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
     cb.hasSrc     = srcSrv ? 1 : 0;
     cb.bgMode     = bgMode;
     cb.brightness = m_impl->brightness;
+    cb.borderPx       = borderPx;
+    cb.borderColor[0] = borderR;
+    cb.borderColor[1] = borderG;
+    cb.borderColor[2] = borderB;
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     ctx->Unmap(m_impl->cbuf.Get(), 0);
 
@@ -327,16 +343,14 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
     if (marginPx < 0.0f) marginPx = 0.0f;
 
     // Box width = fraction of canvas width; height follows the source
-    // aspect (landscape thumbs get wider box, portrait taller). Hard
-    // cap height to half the canvas so a tall portrait thumb can't
-    // dominate. Same math as MetalCompositor::renderCornerOverlay.
+    // aspect (landscape thumbs get a wider box). Cap height at the box
+    // width so a tall portrait thumb is never taller than it is wide —
+    // the source then pillarboxes inside the resulting square box.
     const float boxW = static_cast<float>(dstW) * overlayFrac;
     const float aspect =
         static_cast<float>(srcW) / static_cast<float>(std::max(srcH, 1));
     float boxH = boxW / std::max(aspect, 0.0001f);
-    if (boxH > static_cast<float>(dstH) * 0.5f) {
-        boxH = static_cast<float>(dstH) * 0.5f;
-    }
+    if (boxH > boxW) boxH = boxW;
 
     // D3D11 viewport origin = top-left; corner=0 (BL) and corner=1
     // (BR) sit at the bottom of the canvas with marginPx inset.
@@ -368,11 +382,14 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
     // Reuse renderSingle: it computes its own aspect-fit math with
     // the box dims as the canvas, draws the same fullscreen-triangle
     // (rasterizer clips to the corner viewport), and unbinds the SRV
-    // afterward.
+    // afterward. A faint grey frame (borderPx > 0) keeps the thumb
+    // from blending into the viewport behind it.
     renderSingle(ctxVoid, srcSrvVoid,
                  static_cast<int>(boxW), static_cast<int>(boxH),
                  srcW, srcH,
-                 /*bgMode=*/0);
+                 /*bgMode=*/0,
+                 /*borderPx=*/2.0f,
+                 /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f);
 
     ctx->RSSetViewports(1, &prev);
 }
