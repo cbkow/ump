@@ -1278,9 +1278,12 @@ Rectangle {
 
         // ---- PLAYLIST CONTENTS (Phase 3.H.1) ----
         // Only visible for MediaType::Playlist (== 4). Lists each
-        // entry with name + source duration. Read-only in this stage;
-        // editing is the timeline's job. Clicking a row reveals the
-        // source MediaItem in the bins.
+        // entry with name + source duration, and doubles as a tracker:
+        // the clip currently under the playhead is highlighted (bound
+        // to WindowManager.playlistCurrentItemIndex). Clicking a row
+        // seeks to that clip's first frame in the playlist (play/pause
+        // preserved); the open button on the right loads the source in
+        // single mode (the old row behavior).
         ColumnLayout {
             Layout.fillWidth: true
             spacing: 4
@@ -1326,67 +1329,119 @@ Rectangle {
                 model: parent.pl ? parent.pl.items : []
 
                 Rectangle {
+                    id: clipRow
                     required property var modelData
                     required property int index
+                    // Active-clip tracker — the playlist clip currently
+                    // under the playhead (mapped past timeline gaps in
+                    // WindowManager).
+                    readonly property bool isCurrentClip:
+                        WindowManager.playlistCurrentItemIndex === clipRow.index
                     Layout.fillWidth: true
                     Layout.preferredHeight: 26
-                    color: rowMa.containsMouse ? Theme.surfaceHover : Theme.surface
-                    border.color: Theme.border
+                    color: clipRow.isCurrentClip
+                           ? Theme.rowActive
+                           : (rowMa.containsMouse ? Theme.surfaceHover
+                                                  : Theme.surface)
+                    border.color: clipRow.isCurrentClip ? Theme.accent
+                                                        : Theme.border
                     border.width: 1
                     radius: 2
+
+                    // Row click seeks to this clip's first frame in the
+                    // playlist (works whether playing or paused).
+                    // Declared first so the open button below sits on
+                    // top and intercepts its own clicks; the text items
+                    // are non-interactive and fall through to here.
+                    MouseArea {
+                        id: rowMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: WindowManager.seekToPlaylistItem(clipRow.index)
+                    }
 
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: Theme.padding
-                        anchors.rightMargin: 6
+                        // Reserve room on the right for the open button.
+                        anchors.rightMargin: 28
                         spacing: 6
 
                         // Position number
                         Text {
-                            text: (parent.parent.index + 1) + "."
-                            color: Theme.textMuted
+                            text: (clipRow.index + 1) + "."
+                            color: clipRow.isCurrentClip ? Theme.textBright
+                                                         : Theme.textMuted
                             font.family: Theme.monoFamily
                             font.pixelSize: Theme.fontSizeTiny
                             Layout.preferredWidth: 18
                         }
                         Text {
                             Layout.fillWidth: true
-                            text: parent.parent.modelData.name || qsTr("(missing)")
-                            color: parent.parent.modelData.name
-                                   ? Theme.textPrimary : Theme.error
+                            text: clipRow.modelData.name || qsTr("(missing)")
+                            color: clipRow.modelData.name
+                                   ? (clipRow.isCurrentClip ? Theme.textBright
+                                                            : Theme.textPrimary)
+                                   : Theme.error
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSmall
                             elide: Text.ElideMiddle
                         }
                         Text {
                             text: {
-                                const d = parent.parent.modelData.duration || 0;
+                                const d = clipRow.modelData.duration || 0;
                                 if (!d) return "";
                                 const m = Math.floor(d / 60);
                                 const s = Math.floor(d % 60);
                                 return ("0" + m).slice(-2) + ":"
                                      + ("0" + s).slice(-2);
                             }
-                            color: Theme.textSecondary
+                            color: clipRow.isCurrentClip ? Theme.info
+                                                         : Theme.textSecondary
                             font.family: Theme.monoFamily
                             font.pixelSize: Theme.fontSizeTiny
                         }
                     }
 
-                    MouseArea {
-                        id: rowMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: parent.modelData.mediaId
-                                     ? Qt.PointingHandCursor : Qt.ArrowCursor
-                        onClicked: {
-                            // Reveal the source MediaItem in bins —
-                            // makes "where did this come from?" a
-                            // one-click answer.
-                            if (parent.modelData.mediaId
-                                && WindowManager.project) {
-                                WindowManager.project.setActiveItem(
-                                    parent.modelData.mediaId);
+                    // Open-in-single-mode button — mirrors the old row
+                    // behavior (the row click now seeks instead).
+                    // Declared after rowMa so its MouseArea wins inside
+                    // its own bounds.
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 22
+                        height: 22
+                        radius: Theme.radiusSmall
+                        visible: clipRow.modelData.mediaId
+                        color: openMa.containsMouse ? Theme.surfaceHover
+                                                    : "transparent"
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "arrow-square-out"
+                            size: Theme.iconSizeSmall
+                            color: openMa.containsMouse
+                                   ? Theme.accent
+                                   : (clipRow.isCurrentClip ? Theme.textBright
+                                                            : Theme.textSecondary)
+                        }
+                        MouseArea {
+                            id: openMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (clipRow.modelData.mediaId
+                                    && WindowManager.project) {
+                                    WindowManager.project.setActiveItem(
+                                        clipRow.modelData.mediaId);
+                                }
+                            }
+                            FlatToolTip {
+                                visible: openMa.containsMouse
+                                text: qsTr("Open in single mode")
                             }
                         }
                     }

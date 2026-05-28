@@ -2826,6 +2826,7 @@ int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay,
     // this emit the QML binding never re-evaluates on cross-clip
     // transitions because activeItemId stays on the playlist.
     emit audioRoutingScopeChanged();
+    emit playlistCurrentItemIndexChanged();
     return idx;
 }
 
@@ -3579,6 +3580,46 @@ void WindowManager::seekToNextClipStart()
     if (nextIdx < 0 || nextIdx >= track.clips.size()) return;
     const double nextSec = track.clips[nextIdx].startTime;
     seekToFrame(frameAtOrAfter(nextSec, fps));
+}
+
+int WindowManager::playlistCurrentItemIndex() const
+{
+    if (!m_timeline || m_timeline->sourceModeInt() != 1) return -1;
+    const int curIdx = m_playlistCurrentClipIndex;
+    if (curIdx < 0) return -1;
+    const Timeline &tl = m_timeline->timeline();
+    if (tl.tracks.isEmpty()) return -1;
+    const Track &track = tl.tracks.first();
+    if (curIdx >= track.clips.size() || track.clips[curIdx].isGap) return -1;
+    // The playlist `items` list carries no gap entries, so the item
+    // index is the count of non-gap clips preceding the current clip.
+    int itemIdx = 0;
+    for (int i = 0; i < curIdx; ++i) {
+        if (!track.clips[i].isGap) ++itemIdx;
+    }
+    return itemIdx;
+}
+
+void WindowManager::seekToPlaylistItem(int itemIndex)
+{
+    if (!m_timeline || m_timeline->sourceModeInt() != 1) return;
+    if (itemIndex < 0) return;
+    const double fps = m_timeline->frameRate();
+    if (fps <= 0.0) return;
+    const Timeline &tl = m_timeline->timeline();
+    if (tl.tracks.isEmpty()) return;
+    const Track &track = tl.tracks.first();
+    // Map the gap-free item index to the matching non-gap track clip,
+    // then seek to its start (same boundary-safe frame math the
+    // prev/next-clip buttons use). seekToFrame preserves play/pause.
+    int seen = -1;
+    for (int i = 0; i < track.clips.size(); ++i) {
+        if (track.clips[i].isGap) continue;
+        if (++seen == itemIndex) {
+            seekToFrame(frameAtOrAfter(track.clips[i].startTime, fps));
+            return;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

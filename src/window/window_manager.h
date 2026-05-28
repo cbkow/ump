@@ -449,6 +449,17 @@ public:
                NOTIFY audioRoutingScopeChanged)
     Q_INVOKABLE QString audioRoutingScopeMediaItemId() const;
 
+    // Index into the active playlist's `items` list of the clip
+    // currently under the playhead, or -1 outside playlist mode / when
+    // no clip resolves. The inspector's playlist list binds this to
+    // highlight the active clip (used as a tracker). Mapped past
+    // timeline gap clips. NOTIFY fires on every clip transition (same
+    // site as audioRoutingScopeChanged).
+    Q_PROPERTY(int playlistCurrentItemIndex
+               READ playlistCurrentItemIndex
+               NOTIFY playlistCurrentItemIndexChanged)
+    int playlistCurrentItemIndex() const;
+
     // Phase 7.6 — qcview:// URL builder for "Copy Project Link".
     // Format: qcview://<project-uuid>/<active-media-id>
     // Returns empty when the project hasn't been saved (no UUID
@@ -584,6 +595,13 @@ public:
     // timeline.sourceMode === 1.
     Q_INVOKABLE void seekToPrevClipStart();
     Q_INVOKABLE void seekToNextClipStart();
+
+    // Playlist-only — seek to the first frame of the clip at
+    // `itemIndex` in the playlist's `items` list (skips timeline gap
+    // clips when mapping the index). Preserves play/pause state — it
+    // shares seek logic with the prev/next-clip buttons. No-op outside
+    // playlist mode. The inspector clip list calls this on row click.
+    Q_INVOKABLE void seekToPlaylistItem(int itemIndex);
 
     // Fast-seek (FF/RW) — direction = +1 fast-forward, -1 rewind.
     // Hold-down semantics: caller starts on press, calls stop on
@@ -798,6 +816,7 @@ signals:
     // routing pill so its display + click-target follow whatever
     // clip is actually playing.
     void audioRoutingScopeChanged();
+    void playlistCurrentItemIndexChanged();
     void inOutPointsChanged();
     void splitPosChanged();
     void hdrModeChanged();
