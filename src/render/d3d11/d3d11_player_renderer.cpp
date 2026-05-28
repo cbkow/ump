@@ -289,10 +289,16 @@ bool D3D11PlayerRenderer::init(PlayerWindow *window)
     constexpr int kInitW = 640;
     constexpr int kInitH = 360;
 
+    // Created HIDDEN (no WS_VISIBLE): the window starts at (0,0)
+    // kInitW×kInitH, which would flash in the top-left corner for one
+    // frame before the first setViewportRect repositions it over the
+    // centerStage. WindowManager always calls setViewportRect once the
+    // layout settles, and applyPendingResizeIfNeeded's SetWindowPos uses
+    // SWP_SHOWWINDOW — so the HWND first appears already positioned.
     m_impl->childHwnd = CreateWindowExW(
         WS_EX_NOREDIRECTIONBITMAP,   // required for DComp ownership
         kChildWindowClassName, L"",
-        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+        WS_CHILD | WS_CLIPSIBLINGS,
         0, 0, kInitW, kInitH,
         parentHwnd, nullptr, GetModuleHandleW(nullptr), nullptr);
     if (!m_impl->childHwnd) {

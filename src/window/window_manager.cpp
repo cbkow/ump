@@ -1103,6 +1103,12 @@ bool WindowManager::initialize()
                               reinterpret_cast<LONG_PTR>(subclassProc));
         }
     }
+    // Reveal the window now that the dark WM_ERASEBKGND subclass is
+    // bound. Main.qml starts it hidden on Windows (visible bound to
+    // non-windows); winId() above already forced HWND creation while
+    // hidden, so the very first paint erases to #1b1b1b instead of the
+    // default white flash. No-op if QML somehow already showed it.
+    if (m_uiWindow) m_uiWindow->setVisible(true);
 #endif
 
 #if defined(Q_OS_MACOS)

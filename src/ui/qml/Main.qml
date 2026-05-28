@@ -38,7 +38,11 @@ import Qcv.Render
 
 ApplicationWindow {
     id: root
-    visible: true
+    // Windows: start hidden so the native HWND never shows its default
+    // white background. WindowManager::initialize() installs the dark
+    // WM_ERASEBKGND subclass, then reveals the window — so the first
+    // paint is #1b1b1b, not white. mac/Linux show immediately as before.
+    visible: Qt.platform.os !== "windows"
     width: 1480
     height: 900
     // The native player surface is a separate top-level QWindow,
