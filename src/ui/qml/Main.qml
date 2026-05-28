@@ -256,7 +256,7 @@ ApplicationWindow {
                 // exist only in the matching state.
                 Repeater {
                     model: WindowManager.recentMedia.length > 0 ? 1 : 0
-                    MenuSeparator { }
+                    ThemedMenuSeparator { }
                 }
                 Repeater {
                     model: WindowManager.recentMedia.length === 0 ? 1 : 0
@@ -273,7 +273,7 @@ ApplicationWindow {
                     }
                 }
             }
-            MenuSeparator {}
+            ThemedMenuSeparator {}
             Action {
                 text: qsTr("New Project")
                 onTriggered: root.projectNew()
@@ -309,7 +309,7 @@ ApplicationWindow {
                 }
                 Repeater {
                     model: WindowManager.recentProjects.length > 0 ? 1 : 0
-                    MenuSeparator { }
+                    ThemedMenuSeparator { }
                 }
                 Repeater {
                     model: WindowManager.recentProjects.length === 0 ? 1 : 0
@@ -336,7 +336,7 @@ ApplicationWindow {
                 shortcut: StandardKey.SaveAs
                 onTriggered: saveProjectAsDialog.open()
             }
-            MenuSeparator {}
+            ThemedMenuSeparator {}
             Action {
                 text: qsTr("Copy Project Link")
                 // Enabled when the project has been saved (so its
@@ -373,7 +373,7 @@ ApplicationWindow {
                 text: qsTr("Fullscreen")
                 onTriggered: root.toggleFullscreen()
             }
-            MenuSeparator {}
+            ThemedMenuSeparator {}
             // Panel toggles — explicitly NOT checkable. macOS
             // native menus reserve a checkmark indicator column
             // for the entire menu when any item is checkable,
@@ -462,7 +462,7 @@ ApplicationWindow {
                 text: qsTr("QCView v%1").arg(Qt.application.version)
                 enabled: false
             }
-            MenuSeparator {}
+            ThemedMenuSeparator {}
             Action {
                 text: qsTr("Docs")
                 onTriggered: Qt.openUrlExternally("https://qcview.app/")

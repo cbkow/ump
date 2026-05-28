@@ -37,6 +37,10 @@ QtObject {
     // `surfaceHover` so an open header groups visually with its
     // content below without competing with the hover state.
     readonly property color sectionOpenBg: "#1f1f1f"
+    // Collapsed section header fill. A touch LIGHTER than `bg` so a
+    // closed header still reads as its own bar against the rail
+    // instead of dissolving into the app background.
+    readonly property color sectionClosedBg: "#1a1a1a"
 
     // --- Text ---
     readonly property color textPrimary:   "#dddddd"

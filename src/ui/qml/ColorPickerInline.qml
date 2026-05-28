@@ -99,6 +99,12 @@ Pane {
     component ChannelField: TextField {
         id: cf
         Layout.fillWidth: true
+        // Equal preferred width so the three R/G/B grid columns size
+        // identically. Without it each column's base width tracks the
+        // field's text content, so a 1-digit value ("0") yields a
+        // narrower column than a 3-digit neighbour ("255"). fillWidth
+        // still expands all three equally to fill the panel.
+        Layout.preferredWidth: 40
         Layout.preferredHeight: 22
         font.family: Theme.monoFamily
         font.pixelSize: Theme.fontSizeSmall

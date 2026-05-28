@@ -41,7 +41,7 @@ Pane {
             color: headerMouseArea.containsMouse
                    ? Theme.surfaceHover
                    : (root.expanded
-                        ? Theme.sectionOpenBg : "transparent")
+                        ? Theme.sectionOpenBg : Theme.sectionClosedBg)
 
             RowLayout {
                 anchors.fill: parent
@@ -85,11 +85,10 @@ Pane {
                 Item { Layout.preferredWidth: Theme.padding }
             }
 
-            // Bottom divider — single-edge, only visible when
-            // expanded so a stack of collapsed sections reads as
-            // a clean list of header rows.
+            // Bottom divider — single-edge, shown in both states so
+            // each header reads as a discrete bar whether open or
+            // closed.
             Rectangle {
-                visible: root.expanded
                 anchors.left:  parent.left
                 anchors.right: parent.right
                 anchors.bottom: parent.bottom
