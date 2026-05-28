@@ -3,7 +3,7 @@
 #include "decode/timecode_formatter.h"
 #include "dual_image_seq_source.h"
 #include "dual_playback_timer.h"
-#include "dual_scrub_decoder.h"
+#include "i_dual_scrub_decoder.h"
 #include "dual_video_decoder.h"
 #include "timeline/timeline_controller.h"
 #include "timeline/timeline_flattener.h"
@@ -253,7 +253,7 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
     // zero hitch on the user's first scrub gesture. Matches single-
     // flow's eager ScrubDecoder open in WindowManager.
     if (auto *va = dynamic_cast<DualVideoDecoder *>(m_sourceA.get())) {
-        m_scrubA = std::make_unique<DualScrubDecoder>(va, this);
+        m_scrubA = makeDualScrubDecoder(va, this);
         if (!m_scrubA->open(pathA)) {
             qWarning("DualPlaybackController: scrub decoder A open failed (%s)",
                      qPrintable(pathA));
@@ -261,12 +261,28 @@ bool DualPlaybackController::open(const QString &pathA, DualSourceKind kindA,
         }
     }
     if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
-        m_scrubB = std::make_unique<DualScrubDecoder>(vb, this);
+        m_scrubB = makeDualScrubDecoder(vb, this);
         if (!m_scrubB->open(pathB)) {
             qWarning("DualPlaybackController: scrub decoder B open failed (%s)",
                      qPrintable(pathB));
             m_scrubB.reset();
         }
+    }
+
+    // Pre-warm the scrub path so the user's first scrub gesture is hot:
+    // each video side decodes + publishes one frame now, paying the cold
+    // first-seek + codec/file warm-up off the gesture. (Image-seq sides
+    // already prime their cache at the start frame on open.) Without this
+    // the first scrub right after dual entry stalls a beat.
+    if (m_scrubA) {
+        int sf = translateMasterToSourceFrame(0, 'A');
+        if (sf < 0) sf = nextClipSourceFrame(0, 'A');
+        if (sf >= 0) m_scrubA->requestFrame(sf);
+    }
+    if (m_scrubB) {
+        int sf = translateMasterToSourceFrame(0, 'B');
+        if (sf < 0) sf = nextClipSourceFrame(0, 'B');
+        if (sf >= 0) m_scrubB->requestFrame(sf);
     }
 
     m_pumpThread = std::thread([this] { clockPumpLoop(); });
@@ -360,7 +376,7 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
     // Build a scrub decoder for the new B if it's video. Image-seq
     // B uses the cache directly for scrub.
     if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
-        m_scrubB = std::make_unique<DualScrubDecoder>(vb, this);
+        m_scrubB = makeDualScrubDecoder(vb, this);
         if (!m_scrubB->open(path)) {
             qWarning("DualPlaybackController::swapB: scrub B open failed");
             m_scrubB.reset();
@@ -384,9 +400,16 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
         : 0;
 
     // Sync the new B to the current playhead so it starts buffering
-    // around where the user is, not at frame 0.
+    // around where the user is, not at frame 0; and pre-warm its scrub
+    // decoder (if video) so the next scrub gesture is hot.
     if (m_timer) {
-        m_sourceB->setDecodeTarget(m_timer->currentFrame());
+        const int master = m_timer->currentFrame();
+        m_sourceB->setDecodeTarget(master);
+        if (m_scrubB) {
+            int sf = translateMasterToSourceFrame(master, 'B');
+            if (sf < 0) sf = nextClipSourceFrame(master, 'B');
+            if (sf >= 0) m_scrubB->requestFrame(sf);
+        }
     }
 
     emit frameCountChanged();
@@ -543,7 +566,7 @@ void DualPlaybackController::requestScrubFrame(int masterFrame)
     // the LRU centered around the drag position).
     auto dispatch = [&](char side,
                         IDualSource *src,
-                        DualScrubDecoder *scrub) {
+                        IDualScrubDecoder *scrub) {
         if (!src) return;
         int sf = translateMasterToSourceFrame(masterFrame, side);
         if (sf < 0) sf = nextClipSourceFrame(masterFrame, side);

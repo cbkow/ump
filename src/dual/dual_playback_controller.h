@@ -34,7 +34,7 @@ namespace qcv { class TimelineController; }
 namespace qcv::dual {
 
 class DualPlaybackTimer;
-class DualScrubDecoder;
+class IDualScrubDecoder;
 
 // Source kind hint for the factory. AutoDetect inspects the path's
 // extension; existing video extensions go through DualVideoDecoder,
@@ -277,8 +277,8 @@ private:
     // inside the matching m_sourceA / m_sourceB (closed BEFORE the
     // streaming source — scrub worker holds raw DualVideoDecoder*
     // for its pts façade calls). Constructed in open() / swapB().
-    std::unique_ptr<DualScrubDecoder>   m_scrubA;
-    std::unique_ptr<DualScrubDecoder>   m_scrubB;
+    std::unique_ptr<IDualScrubDecoder>  m_scrubA;
+    std::unique_ptr<IDualScrubDecoder>  m_scrubB;
     // Gated by beginScrub / endScrub. Read in pullFrameA/B to
     // route to the scrub publish slot, and in the pump's pump-tick
     // path (indirectly, via each video source's own m_scrubActive).

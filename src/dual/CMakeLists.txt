@@ -22,8 +22,7 @@ qt_add_library(qcv_dual STATIC
     dual_playback_controller.h
     dual_audio_mixer.cpp
     dual_audio_mixer.h
-    dual_scrub_decoder.cpp
-    dual_scrub_decoder.h
+    i_dual_scrub_decoder.h
 )
 
 if(APPLE)
@@ -31,6 +30,10 @@ if(APPLE)
         metal/dual_compositor.h
         metal/dual_compositor.mm
         dual_cv_helpers.mm
+        # macOS scrub decoder — zero-copy VideoToolbox publish. Plain C++:
+        # the CVPixelBuffer is handled via DualVideoDecoder::makeMetalScrubFrame
+        # + dual_cv_helpers, so it needs no -fobjc-arc.
+        dual_scrub_decoder_macos.cpp
     )
     set_source_files_properties(
         metal/dual_compositor.mm
@@ -41,6 +44,15 @@ if(APPLE)
         "-framework Metal"
         "-framework QuartzCore"
         "-framework CoreVideo"
+    )
+else()
+    # Windows/Linux scrub decoder — CPU readback (sws_scale). Gated out of
+    # the macOS build entirely (it's a QObject; keeping it out of the macOS
+    # source list stops AUTOMOC emitting a meta-object for a class that is
+    # never compiled there).
+    target_sources(qcv_dual PRIVATE
+        dual_scrub_decoder.cpp
+        dual_scrub_decoder.h
     )
 endif()
 

@@ -28,7 +28,8 @@
 
 #pragma once
 
-#include "i_dual_source.h"   // DualFrame
+#include "i_dual_source.h"          // DualFrame
+#include "i_dual_scrub_decoder.h"   // IDualScrubDecoder
 
 #include <QObject>
 #include <QString>
@@ -49,7 +50,7 @@ namespace qcv::dual {
 
 class DualVideoDecoder;
 
-class DualScrubDecoder : public QObject
+class DualScrubDecoder : public QObject, public IDualScrubDecoder
 {
     Q_OBJECT
 public:
@@ -60,13 +61,13 @@ public:
     // Open / close are sequenced by DualPlaybackController against
     // the paired DualVideoDecoder. The streaming decoder MUST be
     // open before this scrub decoder opens (we read its pts façades).
-    bool open(const QString &path);
-    void close();
+    bool open(const QString &path) override;
+    void close() override;
 
     // QML-callable indirectly via the controller. Latest target wins;
     // older requests are abandoned mid-decode loop on the next
     // worker iteration. Cheap to call at slider-drag rate (60+ Hz).
-    Q_INVOKABLE void requestFrame(int frameNo);
+    Q_INVOKABLE void requestFrame(int frameNo) override;
 
 private:
     void workerLoop();

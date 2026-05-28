@@ -142,6 +142,16 @@ public:
     std::shared_ptr<DualFrame> getScrubFrame() const;
     void clearScrubFrame();
 
+#if defined(Q_OS_MACOS)
+    // Zero-copy VideoToolbox → DualFrame::Kind::Metal for the macOS scrub
+    // decoder: retains the CVPixelBuffer off a VT-decoded AVFrame and
+    // stamps the current rangeOverride. Returns nullptr if `frame` isn't
+    // a zero-copy-able VideoToolbox surface, so the caller falls back to
+    // CPU readback. Mirrors the streaming path in convertFrameToRgba.
+    std::shared_ptr<DualFrame> makeMetalScrubFrame(AVFrame *frame,
+                                                   int frameNumber);
+#endif
+
     // Ring depth (compile-time constant from old QCView pattern).
     static constexpr int kRingSize = 16;
 

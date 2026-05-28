@@ -1,17 +1,35 @@
-#include "dual_scrub_decoder.h"
-#include "dual_video_decoder.h"
+// MacDualScrubDecoder — macOS dual-view scrub decoder (zero-copy).
+//
+// macOS-only counterpart to DualScrubDecoder (Windows/Linux). Same shape
+// — own AVFormatContext + worker thread, latest-target-wins, PTS seek via
+// the paired DualVideoDecoder's façade — but it publishes zero-copy:
+// VideoToolbox hands back a CVPixelBuffer, which we wrap as a
+// DualFrame::Kind::Metal (reusing DualVideoDecoder::makeMetalScrubFrame).
+// The dual compositor's IDualPixbufConverter then does YUV→RGB on the GPU
+// — no av_hwframe_transfer_data, no sws_scale, no re-upload. This mirrors
+// the single-flow ScrubDecoder, which is the path that scrubs smoothly on
+// macOS.
+//
+// CPU readback (sws_scale → QImage → DualFrame::Kind::Cpu) is kept only as
+// a fallback for software-decoded frames or surfaces that can't be wrapped.
+//
+// Selected by the platform factory in src/dual/CMakeLists.txt: this file
+// is compiled only on Apple; dual_scrub_decoder.cpp is compiled elsewhere.
+// Both define makeDualScrubDecoder(); exactly one is linked per platform.
 
-#if defined(Q_OS_WIN)
-// Cut A — see VideoDecoder::close for rationale. Same flush before
-// async hwdevice unref so Intel Arc doesn't hit a device-lost on the
-// next decoder open while a stale frame is still GPU-active.
-#  include "decode/vulkan/vulkan_device_manager.h"
-#endif
+#include "i_dual_scrub_decoder.h"
+#include "dual_video_decoder.h"
 
 #include <QFileInfo>
 #include <QImage>
-#include <QSettings>
+#include <QString>
 #include <QtLogging>
+
+#include <atomic>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+#include <thread>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -28,66 +46,75 @@ namespace {
 
 AVPixelFormat hwaccelGetFormat(AVCodecContext * /*ctx*/, const AVPixelFormat *fmts)
 {
-#if defined(Q_OS_MACOS)
-    constexpr AVPixelFormat kPreferred = AV_PIX_FMT_VIDEOTOOLBOX;
-#elif defined(Q_OS_WIN)
-    constexpr AVPixelFormat kPreferred = AV_PIX_FMT_D3D11;
-#elif defined(Q_OS_LINUX)
-    constexpr AVPixelFormat kPreferred = AV_PIX_FMT_VAAPI;
-#else
-    constexpr AVPixelFormat kPreferred = AV_PIX_FMT_NONE;
-#endif
     for (int i = 0; fmts[i] != AV_PIX_FMT_NONE; ++i) {
-        if (fmts[i] == kPreferred) return kPreferred;
+        if (fmts[i] == AV_PIX_FMT_VIDEOTOOLBOX) return AV_PIX_FMT_VIDEOTOOLBOX;
     }
     return fmts[0];
 }
 
-// Build a DualFrame::Kind::Cpu from a packed-RGBA QImage (the format
-// our sws_scale produces). Mirrors the construction shape that
-// DualImageSeqSource publishes.
-std::shared_ptr<DualFrame> makeCpuFrame(QImage rgba, int frameNumber,
-                                         int rangeOverride)
+// CPU-readback fallback frame (software decode / non-wrappable surface).
+std::shared_ptr<DualFrame> makeCpuFrame(QImage rgba, int frameNumber)
 {
     auto f = std::make_shared<DualFrame>();
-    f->kind        = DualFrame::Kind::Cpu;
-    f->width       = rgba.width();
-    f->height      = rgba.height();
-    f->frameNumber = frameNumber;
-    f->rangeOverride = rangeOverride;
-    f->rgba        = std::make_shared<QImage>(std::move(rgba));
+    f->kind          = DualFrame::Kind::Cpu;
+    f->width         = rgba.width();
+    f->height        = rgba.height();
+    f->frameNumber   = frameNumber;
+    f->rangeOverride = 0;   // baked into the QImage by sws_scale
+    f->rgba          = std::make_shared<QImage>(std::move(rgba));
     return f;
 }
 
-} // namespace
+class MacDualScrubDecoder : public IDualScrubDecoder {
+public:
+    explicit MacDualScrubDecoder(DualVideoDecoder *streaming)
+        : m_streaming(streaming) {}
+    ~MacDualScrubDecoder() override { close(); }
 
-DualScrubDecoder::DualScrubDecoder(DualVideoDecoder *streaming, QObject *parent)
-    : QObject(parent), m_streaming(streaming)
-{}
+    MacDualScrubDecoder(const MacDualScrubDecoder &)            = delete;
+    MacDualScrubDecoder &operator=(const MacDualScrubDecoder &) = delete;
 
-DualScrubDecoder::~DualScrubDecoder()
-{
-    close();
-}
+    bool open(const QString &path) override;
+    void close() override;
+    void requestFrame(int frameNo) override;
 
-// Platform factory (Windows/Linux build). The macOS build supplies its
-// own definition in dual_scrub_decoder_metal.mm; CMake compiles exactly
-// one of the two per platform.
-std::unique_ptr<IDualScrubDecoder>
-makeDualScrubDecoder(DualVideoDecoder *streaming, QObject *parent)
-{
-    return std::make_unique<DualScrubDecoder>(streaming, parent);
-}
+private:
+    void workerLoop();
+    bool initFFmpeg(const QString &path);
+    void teardownFFmpeg();
+    bool initSwsContext(AVFrame *frame);
+    bool decodeAndPublish(int target, AVPacket *pkt,
+                          AVFrame *frame, AVFrame *swFrame);
 
-bool DualScrubDecoder::open(const QString &path)
+    DualVideoDecoder *m_streaming = nullptr;   // not owned
+
+    AVFormatContext *m_fmt  = nullptr;
+    AVCodecContext  *m_cctx = nullptr;
+    AVBufferRef     *m_hwDeviceCtx = nullptr;
+    int              m_videoStreamIdx = -1;
+
+    SwsContext      *m_sws = nullptr;
+    int              m_swsSrcWidth  = 0;
+    int              m_swsSrcHeight = 0;
+    int              m_swsSrcFormat = -1;
+
+    std::atomic<int> m_pendingTarget{-1};
+    int              m_lastDecodedFrame = -1;
+
+    std::thread             m_thread;
+    std::atomic<bool>       m_stopRequested{false};
+    std::mutex              m_condMutex;
+    std::condition_variable m_cond;
+};
+
+bool MacDualScrubDecoder::open(const QString &path)
 {
     close();
 
     if (!QFileInfo(path).isFile()) {
-        qWarning("DualScrubDecoder: file not found: %s", qPrintable(path));
+        qWarning("MacDualScrubDecoder: file not found: %s", qPrintable(path));
         return false;
     }
-
     if (!initFFmpeg(path)) {
         teardownFFmpeg();
         return false;
@@ -100,7 +127,7 @@ bool DualScrubDecoder::open(const QString &path)
     return true;
 }
 
-void DualScrubDecoder::close()
+void MacDualScrubDecoder::close()
 {
     m_stopRequested.store(true, std::memory_order_release);
     {
@@ -109,11 +136,6 @@ void DualScrubDecoder::close()
     m_cond.notify_one();
 
     if (m_thread.joinable()) m_thread.join();
-
-#if defined(Q_OS_WIN)
-    // See VideoDecoder::close for rationale (mirrored from ScrubDecoder).
-    VulkanDeviceManager::instance().waitForGpu();
-#endif
 
     if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
     if (m_cctx) avcodec_free_context(&m_cctx);
@@ -127,7 +149,7 @@ void DualScrubDecoder::close()
     m_lastDecodedFrame = -1;
 }
 
-void DualScrubDecoder::requestFrame(int frameNo)
+void MacDualScrubDecoder::requestFrame(int frameNo)
 {
     if (frameNo < 0) frameNo = 0;
     m_pendingTarget.store(frameNo, std::memory_order_release);
@@ -137,11 +159,11 @@ void DualScrubDecoder::requestFrame(int frameNo)
     m_cond.notify_one();
 }
 
-bool DualScrubDecoder::initFFmpeg(const QString &path)
+bool MacDualScrubDecoder::initFFmpeg(const QString &path)
 {
     const QByteArray pathUtf8 = path.toUtf8();
     const QString trimmedName = QFileInfo(path).fileName();
-    qInfo("DualScrubDecoder: initFFmpeg begin '%s'", qPrintable(trimmedName));
+    qInfo("MacDualScrubDecoder: initFFmpeg begin '%s'", qPrintable(trimmedName));
 
     if (avformat_open_input(&m_fmt, pathUtf8.constData(), nullptr, nullptr) < 0) return false;
     if (avformat_find_stream_info(m_fmt, nullptr) < 0) return false;
@@ -163,57 +185,28 @@ bool DualScrubDecoder::initFFmpeg(const QString &path)
     if (!m_cctx) return false;
     avcodec_parameters_to_context(m_cctx, codecpar);
 
-    // Deliberately NOT reading the user's `performance/ffmpegThreads`
-    // QSetting — see ScrubDecoder::initFFmpeg for the rationale.
-    // Scrub coexists with the streaming DualVideoDecoder and we
-    // don't want both reading the user's knob and doubling the
-    // requested thread count. FFmpeg's per-context auto picks a
-    // sensible value.
-
-#if defined(Q_OS_MACOS)
-    constexpr auto kHwType = AV_HWDEVICE_TYPE_VIDEOTOOLBOX;
-#elif defined(Q_OS_WIN)
-    constexpr auto kHwType = AV_HWDEVICE_TYPE_D3D11VA;
-#elif defined(Q_OS_LINUX)
-    constexpr auto kHwType = AV_HWDEVICE_TYPE_VAAPI;
-#else
-    constexpr auto kHwType = AV_HWDEVICE_TYPE_NONE;
-#endif
-
-    // Hwaccel is gated on intra-only codecs (same rationale as
-    // ScrubDecoder::initFFmpeg). Output is ALWAYS Cpu-kind via
-    // av_hwframe_transfer_data + sws_scale below — we never produce
-    // VulkanShared payloads, so the dual Vulkan compositor's compute
-    // pipeline (which crashes on NVIDIA with ProRes) is bypassed even
-    // when HW decode is attached.
+    // Attach VideoToolbox for intra-only codecs (ProRes et al. — the dual
+    // scrub workload). Frames come back as AV_PIX_FMT_VIDEOTOOLBOX and are
+    // published zero-copy. Non-intra falls to software decode + the CPU
+    // fallback below. (Matches the intra gate the dual island already used;
+    // the NVIDIA/Vulkan rationale behind it is moot on macOS but the gate
+    // keeps the HW-session footprint small.)
     const AVCodecDescriptor *desc = avcodec_descriptor_get(codecpar->codec_id);
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
-
-#if defined(Q_OS_WIN)
-    const bool kHwDecodeEnabled = QSettings().value(
-        QStringLiteral("performance/hardwareDecodeEnabled"), true).toBool();
-    const bool kForceSoftwareDecode = !kHwDecodeEnabled;
-#else
-    const bool kForceSoftwareDecode = false;
-#endif
-
-    if (intraOnly && kHwType != AV_HWDEVICE_TYPE_NONE
-        && !kForceSoftwareDecode) {
-        if (av_hwdevice_ctx_create(&m_hwDeviceCtx, kHwType, nullptr, nullptr, 0) >= 0) {
-            m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
-            m_cctx->get_format = hwaccelGetFormat;
-        }
-    } else if (kForceSoftwareDecode) {
-        qInfo("DualScrubDecoder: software decode forced — "
-              "performance/hardwareDecodeEnabled is off");
+    if (intraOnly &&
+        av_hwdevice_ctx_create(&m_hwDeviceCtx, AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
+                               nullptr, nullptr, 0) >= 0) {
+        m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
+        m_cctx->get_format = hwaccelGetFormat;
     }
 
     if (avcodec_open2(m_cctx, codec, nullptr) < 0) return false;
-    qInfo("DualScrubDecoder: opened '%s'", qPrintable(trimmedName));
+    qInfo("MacDualScrubDecoder: opened '%s' (%s)", qPrintable(trimmedName),
+          m_hwDeviceCtx ? "videotoolbox zero-copy" : "software");
     return true;
 }
 
-void DualScrubDecoder::teardownFFmpeg()
+void MacDualScrubDecoder::teardownFFmpeg()
 {
     if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
     if (m_cctx) avcodec_free_context(&m_cctx);
@@ -224,7 +217,7 @@ void DualScrubDecoder::teardownFFmpeg()
     m_swsSrcFormat = -1;
 }
 
-bool DualScrubDecoder::initSwsContext(AVFrame *frame)
+bool MacDualScrubDecoder::initSwsContext(AVFrame *frame)
 {
     if (m_sws &&
         m_swsSrcWidth  == frame->width &&
@@ -266,10 +259,10 @@ bool DualScrubDecoder::initSwsContext(AVFrame *frame)
     return true;
 }
 
-void DualScrubDecoder::workerLoop()
+void MacDualScrubDecoder::workerLoop()
 {
-    AVPacket *pkt    = av_packet_alloc();
-    AVFrame  *frame  = av_frame_alloc();
+    AVPacket *pkt     = av_packet_alloc();
+    AVFrame  *frame   = av_frame_alloc();
     AVFrame  *swFrame = av_frame_alloc();
     if (!pkt || !frame || !swFrame) {
         if (pkt) av_packet_free(&pkt);
@@ -289,8 +282,7 @@ void DualScrubDecoder::workerLoop()
             continue;
         }
         if (target == m_lastDecodedFrame) {
-            // Already showing this frame — skip (cache hit).
-            continue;
+            continue;   // already showing this frame
         }
         decodeAndPublish(target, pkt, frame, swFrame);
     }
@@ -300,8 +292,8 @@ void DualScrubDecoder::workerLoop()
     av_frame_free(&swFrame);
 }
 
-bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
-                                        AVFrame *frame, AVFrame *swFrame)
+bool MacDualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
+                                           AVFrame *frame, AVFrame *swFrame)
 {
     if (!m_streaming) return false;
 
@@ -314,11 +306,9 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
     avcodec_flush_buffers(m_cctx);
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
-        // No mid-decode preemption check — see ScrubDecoder::decodeAndPublish
-        // for the rationale. The worker-loop's exchange(-1) at the top
-        // of each iteration takes the LATEST pending target, naturally
-        // skipping intermediate drag values during fast drags.
-
+        // No mid-decode preemption: the worker loop's exchange(-1) takes
+        // the LATEST pending target on the next iteration, so fast drags
+        // naturally skip intermediate values.
         const int rc = av_read_frame(m_fmt, pkt);
         if (rc == AVERROR_EOF) {
             avcodec_send_packet(m_cctx, nullptr);
@@ -341,25 +331,32 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
                                      : frame->pts;
 
             if (framePts >= targetPts) {
-                // HW-decoded frames need av_hwframe_transfer_data to
-                // copy to a CPU AVFrame before sws_scale; SW frames
-                // go straight through. Both paths land at the same
-                // sws_scale → QImage → DualFrame::Cpu publish below.
-                AVFrame *src = frame;
-                if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX ||
-                    frame->format == AV_PIX_FMT_D3D11 ||
-                    frame->format == AV_PIX_FMT_VAAPI) {
+                // Zero-copy fast path: a VideoToolbox surface is wrapped as
+                // a Metal-kind DualFrame and the compositor's converter does
+                // YUV→RGB on the GPU.
+                if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+                    if (auto metalFrame =
+                            m_streaming->makeMetalScrubFrame(frame, target)) {
+                        m_streaming->publishExternalFrame(target,
+                                                          std::move(metalFrame));
+                        m_lastDecodedFrame = target;
+                        av_frame_unref(frame);
+                        return true;
+                    }
+                    // Couldn't wrap the surface — read it back to CPU.
                     if (av_hwframe_transfer_data(swFrame, frame, 0) < 0) {
                         av_frame_unref(frame);
-                        continue;
+                        return false;
                     }
                     swFrame->pts                   = frame->pts;
                     swFrame->best_effort_timestamp = frame->best_effort_timestamp;
                     swFrame->colorspace            = frame->colorspace;
                     swFrame->color_range           = frame->color_range;
-                    src = swFrame;
                 }
 
+                // CPU path: software-decoded frame, or the HW readback above.
+                AVFrame *src = (frame->format == AV_PIX_FMT_VIDEOTOOLBOX)
+                               ? swFrame : frame;
                 if (initSwsContext(src)) {
                     QImage rgba(src->width, src->height,
                                 QImage::Format_RGBA8888);
@@ -369,8 +366,7 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
                     sws_scale(m_sws, src->data, src->linesize, 0,
                               src->height, dst, dstStride);
                     m_streaming->publishExternalFrame(
-                        target, makeCpuFrame(std::move(rgba), target,
-                                              /*rangeOverride=*/0));
+                        target, makeCpuFrame(std::move(rgba), target));
                 }
                 if (src == swFrame) av_frame_unref(swFrame);
 
@@ -378,13 +374,20 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
                 av_frame_unref(frame);
                 return true;
             }
-            // Pre-target frame in inter-frame chain — drop silently.
-            av_frame_unref(frame);
+            av_frame_unref(frame);   // pre-target frame — drop
         }
 
         if (rc == AVERROR_EOF) return false;
     }
     return false;
+}
+
+} // namespace
+
+std::unique_ptr<IDualScrubDecoder>
+makeDualScrubDecoder(DualVideoDecoder *streaming, QObject * /*parent*/)
+{
+    return std::make_unique<MacDualScrubDecoder>(streaming);
 }
 
 } // namespace qcv::dual

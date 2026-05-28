@@ -752,6 +752,31 @@ bool DualVideoDecoder::needsMoreFrames() const
     return ahead < kRingSize / 2;
 }
 
+#if defined(Q_OS_MACOS)
+std::shared_ptr<DualFrame>
+DualVideoDecoder::makeMetalScrubFrame(AVFrame *frame, int frameNumber)
+{
+    if (!frame || frame->format != AV_PIX_FMT_VIDEOTOOLBOX || !frame->data[3]) {
+        return nullptr;
+    }
+    // Retain the VideoToolbox CVPixelBuffer and hand back a Metal-kind
+    // DualFrame; the compositor's IDualPixbufConverter does YUV→RGB on the
+    // GPU (no CPU transfer, no sws_scale). Mirrors convertFrameToRgba's
+    // macOS branch — kept separate so the streaming hot path is untouched.
+    void *cvPix = static_cast<void *>(frame->data[3]);
+    dualCvPixelBufferRetain(cvPix);
+
+    auto out = std::make_shared<DualFrame>();
+    out->frameNumber   = frameNumber;
+    out->width         = frame->width;
+    out->height        = frame->height;
+    out->kind          = DualFrame::Kind::Metal;
+    out->cvPixelBuffer = std::shared_ptr<void>(cvPix, dualCvPixelBufferRelease);
+    out->rangeOverride = m_rangeOverride.load(std::memory_order_acquire);
+    return out;
+}
+#endif
+
 std::shared_ptr<DualFrame>
 DualVideoDecoder::convertFrameToRgba(AVFrame *frame, int frameNumber)
 {
