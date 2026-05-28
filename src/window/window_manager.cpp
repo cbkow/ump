@@ -2053,6 +2053,64 @@ void WindowManager::setSplitSeamActive(bool active)
 #endif
 }
 
+void WindowManager::setLoadingActive(bool on)
+{
+#ifdef QCV_NATIVE_PLAYER
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        if (auto *r = pw->renderer()) {
+            r->setLoadingActive(on);
+        }
+    }
+#else
+    Q_UNUSED(on);
+#endif
+}
+
+// Brief defer so the menu popup closes and the render thread starts
+// drawing the spinner before the main thread blocks in the open call.
+static constexpr int kOpenDeferMs = 16;
+
+void WindowManager::openMediaPaths(const QStringList &paths)
+{
+    if (!m_project || paths.isEmpty()) return;
+    setLoadingActive(true);
+    const QStringList ps = paths;
+    QTimer::singleShot(kOpenDeferMs, this, [this, ps]() {
+        QString lastId;
+        for (const QString &p : ps) {
+            if (p.isEmpty()) continue;
+            const QString id = m_project->addMediaFile(p);
+            if (!id.isEmpty()) lastId = id;
+        }
+        if (!lastId.isEmpty()) m_project->setActiveItem(lastId);
+        setLoadingActive(false);
+    });
+}
+
+void WindowManager::addMediaPaths(const QStringList &paths)
+{
+    if (!m_project || paths.isEmpty()) return;
+    setLoadingActive(true);
+    const QStringList ps = paths;
+    QTimer::singleShot(kOpenDeferMs, this, [this, ps]() {
+        for (const QString &p : ps) {
+            if (!p.isEmpty()) m_project->addMediaFile(p);
+        }
+        setLoadingActive(false);
+    });
+}
+
+void WindowManager::openProjectPath(const QString &path)
+{
+    if (!m_project || path.isEmpty()) return;
+    setLoadingActive(true);
+    const QString p = path;
+    QTimer::singleShot(kOpenDeferMs, this, [this, p]() {
+        m_project->openProject(p);
+        setLoadingActive(false);
+    });
+}
+
 // ---------------------------------------------------------------------------
 // Phase 7.4.a — image-sequence playback
 // ---------------------------------------------------------------------------

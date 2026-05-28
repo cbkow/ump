@@ -96,6 +96,12 @@ public:
                               float overlayFrac,
                               float marginPx);
 
+    // Loading spinner — full-viewport dark fill + rotating accent dots.
+    // No source texture. `timeSeconds` drives the animation (render
+    // thread supplies elapsed-since-load-start). Caller binds the RTV +
+    // viewport first.
+    void renderSpinner(void *ctx, int dstW, int dstH, float timeSeconds);
+
 private:
     struct Impl;
     std::unique_ptr<Impl> m_impl;

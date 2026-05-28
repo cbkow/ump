@@ -93,6 +93,16 @@ public:
     // drawable.
     void renderFrame(void *encoderPtr, int dstWidth, int dstHeight);
 
+    // Encode the cold-transition spinner onto an EXISTING render
+    // encoder (the caller's drawable pass). Used by the player
+    // renderer to show a loading spinner during a blocking media/
+    // project open — reuses this compositor's spinner pipeline +
+    // shader. `targetPixelFormat` is the encoder's color-attachment
+    // format (MTLPixelFormat as int); the pipeline rebakes if it
+    // differs from the last build.
+    void encodeLoadingSpinner(void *encoderPtr, int dstWidth, int dstHeight,
+                              int targetPixelFormat);
+
     // Impl is exposed for free-function helpers in the .mm (spinner
     // pipeline + encode). Nothing outside dual_compositor.mm
     // references it.

@@ -58,6 +58,7 @@ public:
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
     void setSplitSeamHighlight(float h) override;
+    void setLoadingActive(bool on) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;
@@ -145,6 +146,13 @@ private:
     std::atomic<int>           m_compMode  {static_cast<int>(CompositorMode::Single)};
     std::atomic<float>         m_splitPos  {0.5f};
     std::atomic<float>         m_splitSeamHighlight {0.0f};
+    std::atomic<bool>          m_loadingActive {false};
+
+    // Draws the loading spinner over the swapchain when m_loadingActive
+    // (render-thread side; gates on an elapsed delay so fast loads
+    // don't flash). ctx/rtv passed as void* to keep d3d11 out of the
+    // header; dims come from m_impl->currentW/H.
+    void drawLoadingSpinner(void *ctxVoid, void *rtvVoid);
     std::atomic<int>           m_bgMode    {static_cast<int>(BackgroundMode::Black)};
     std::atomic<bool>          m_aActive   {true};
     std::atomic<bool>          m_bActive   {true};

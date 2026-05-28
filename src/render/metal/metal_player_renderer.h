@@ -60,6 +60,7 @@ public:
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
     void setSplitSeamHighlight(float h) override;
+    void setLoadingActive(bool on) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;
@@ -110,6 +111,7 @@ private:
     // Phase 7.7 — top-level flow flag + opaque pointer to the
     // DualPlaybackController. Atomic so GUI thread can flip mode
     // while render thread is mid-frame.
+    std::atomic<bool>   m_loadingActive{false};
     std::atomic<int>    m_rendererMode{static_cast<int>(RendererMode::SingleFlow)};
     std::atomic<void *> m_dualControllerPtr{nullptr};
 

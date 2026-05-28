@@ -250,6 +250,12 @@ struct MetalPlayerRenderer::Impl {
     dual::DualCompositor    dualCompositor;
     int                     dualLastPixelFmt = 0;
 
+    // Loading-spinner timing — render-thread-owned. spinnerStart is set
+    // when m_loadingActive is first observed true; the spinner reuses
+    // dualCompositor's spin pipeline.
+    bool                                  loadingSpinnerWasActive = false;
+    std::chrono::steady_clock::time_point loadingSpinnerStart;
+
     // Task #107/#108 commit 2 — qcv_render-side impl of
     // IDualPixbufConverter; injected into dualCompositor on first
     // dual-mode entry, cleared on shutdown. Owns the per-slot
@@ -620,6 +626,11 @@ void MetalPlayerRenderer::setSplitPos(float p)
 void MetalPlayerRenderer::setSplitSeamHighlight(float h)
 {
     if (m_impl) m_impl->dualCompositor.setSeamHighlight(h);
+}
+void MetalPlayerRenderer::setLoadingActive(bool on)
+{
+    m_loadingActive.store(on);
+    requestUpdate();
 }
 void MetalPlayerRenderer::setBackgroundMode(BackgroundMode m)       { m_bgMode = m; }
 void MetalPlayerRenderer::setSourceActivity(bool aActive, bool bActive)
@@ -1594,6 +1605,27 @@ void MetalPlayerRenderer::drawFrame()
             m_impl->annotations.drawMesh(
                 (__bridge void *)enc, safetyMesh, dstW, dstH);
         }
+    }
+
+    // Loading spinner overlay — drawn last (over content) on the same
+    // encoder while a media/project open blocks the main thread. The
+    // free-running render thread animates it; a brief delay avoids
+    // flashing on quick opens. Reuses the dual compositor's spinner.
+    if (m_loadingActive.load(std::memory_order_acquire)) {
+        const auto now = std::chrono::steady_clock::now();
+        if (!m_impl->loadingSpinnerWasActive) {
+            m_impl->loadingSpinnerWasActive = true;
+            m_impl->loadingSpinnerStart     = now;
+        }
+        const double elapsed =
+            std::chrono::duration<double>(now - m_impl->loadingSpinnerStart).count();
+        if (elapsed >= 0.18) {
+            m_impl->dualCompositor.encodeLoadingSpinner(
+                (__bridge void *)enc, dstW, dstH,
+                static_cast<int>(m_impl->layer.pixelFormat));
+        }
+    } else {
+        m_impl->loadingSpinnerWasActive = false;
     }
 
     [enc endEncoding];

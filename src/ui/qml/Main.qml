@@ -99,14 +99,10 @@ ApplicationWindow {
             qsTr("All files (*)"),
         ]
         onAccepted: {
+            // Route through WindowManager.openMediaPaths so the open
+            // shows the loading spinner (adds to the bin AND loads).
             const p = _urlToPath(selectedFile);
-            if (WindowManager.project) {
-                const id = WindowManager.project.addMediaFile(p);
-                // Activate it so the viewport loads — matches the
-                // drag-and-drop flow.
-                if (id && id.length > 0)
-                    WindowManager.project.setActiveItem(id);
-            }
+            if (p) WindowManager.openMediaPaths([p]);
         }
     }
     FileDialog {
@@ -116,8 +112,7 @@ ApplicationWindow {
         nameFilters: [qsTr("QCView Project (*.qcvproj)")]
         onAccepted: {
             const p = _urlToPath(selectedFile);
-            if (WindowManager.project)
-                WindowManager.project.openProject(p);
+            if (p) WindowManager.openProjectPath(p);
         }
     }
     FileDialog {
@@ -168,15 +163,11 @@ ApplicationWindow {
     }
     function loadRecentMedia(path) {
         if (!WindowManager.project || !path) return;
-        path = _fixWindowsPath(path);
-        const id = WindowManager.project.addMediaFile(path);
-        if (id && id.length > 0)
-            WindowManager.project.setActiveItem(id);
+        WindowManager.openMediaPaths([_fixWindowsPath(path)]);
     }
     function openRecentProject(path) {
         if (!WindowManager.project || !path) return;
-        path = _fixWindowsPath(path);
-        WindowManager.project.openProject(path);
+        WindowManager.openProjectPath(_fixWindowsPath(path));
     }
 
     // Surface project-IO errors to the user. Lightweight popup; the
@@ -797,13 +788,7 @@ ApplicationWindow {
             // loadRequested wiring). Opening a path that's already
             // in the bin returns the existing id without dupe.
             const path = _urlToPath(selectedFile);
-            if (!WindowManager.project) {
-                console.warn("Main: ProjectManager unavailable");
-                return;
-            }
-            const id = WindowManager.project.addMediaFile(path);
-            if (id) WindowManager.project.setActiveItem(id);
-            else    console.warn("Main: addMediaFile failed:", path);
+            if (path) WindowManager.openMediaPaths([path]);
         }
     }
 
@@ -910,15 +895,13 @@ ApplicationWindow {
                                 onDropped: (drop) => {
                                     if (!drop.hasUrls) return;
                                     if (!WindowManager.project) return;
-                                    let lastId = "";
+                                    let paths = [];
                                     for (let i = 0; i < drop.urls.length; ++i) {
                                         const path = WindowManager.urlToOsPath(drop.urls[i]);
-                                        if (!path) continue;
-                                        const id = WindowManager.project.addMediaFile(path);
-                                        if (id && id.length > 0) lastId = id;
+                                        if (path) paths.push(path);
                                     }
-                                    if (lastId.length > 0)
-                                        WindowManager.project.setActiveItem(lastId);
+                                    if (paths.length > 0)
+                                        WindowManager.openMediaPaths(paths);
                                     drop.accept();
                                 }
                             }

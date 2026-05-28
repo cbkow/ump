@@ -111,6 +111,46 @@ float4 PSMain(VsOut input) : SV_TARGET
 }
 )";
 
+// Loading spinner — full-viewport dark fill + a ring of 8 rotating
+// dots tinted with the cobalt accent. Self-contained (no source
+// texture). Verbatim port of the Metal spin_fs in dual_compositor.mm.
+// Reuses the compositor's fullscreen-triangle VS (VsOut.uv).
+constexpr const char *kSpinnerPsHlsl = R"(
+cbuffer SpinConstants : register(b0) {
+    float2 spinDstSize;   // viewport pixels
+    float  spinTime;      // seconds since the spinner started
+    float  _spinPad;
+};
+
+struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+float4 SpinPSMain(VsOut input) : SV_TARGET
+{
+    float4 bg = float4(0.1058, 0.1058, 0.1058, 1.0);   // #1B1B1B
+    float2 px = input.uv * spinDstSize;
+    float2 c  = spinDstSize * 0.5;
+    float  r  = min(spinDstSize.x, spinDstSize.y) * 0.03;
+    float  dotR = r * 0.18;
+    const int N = 8;
+    float rot = -spinTime * 6.2831853 / 1.2;   // one turn / 1.2 s
+    float minDist = 1e6;
+    int   minIdx  = 0;
+    for (int i = 0; i < N; ++i) {
+        float ang = rot + (6.2831853 * float(i) / float(N));
+        float2 dotPos = c + float2(cos(ang), sin(ang)) * r;
+        float d = distance(px, dotPos);
+        if (d < minDist) { minDist = d; minIdx = i; }
+    }
+    if (minDist < dotR) {
+        float  brightness = 0.35 + 0.65 * (1.0 - float(minIdx) / float(N - 1));
+        float3 accent = float3(0.0039, 0.5373, 0.9451);   // #0189f1
+        float  fade = smoothstep(dotR, dotR * 0.55, minDist);
+        return float4(lerp(bg.rgb, accent * brightness, fade), 1.0);
+    }
+    return bg;
+}
+)";
+
 ComPtr<ID3DBlob> compile(const char *src, const char *entry, const char *target)
 {
     ComPtr<ID3DBlob> code, errors;
@@ -127,6 +167,14 @@ ComPtr<ID3DBlob> compile(const char *src, const char *entry, const char *target)
     }
     return code;
 }
+
+struct SpinnerCB {
+    float dstSize[2];   // 0 : 8
+    float time;         // 8 : 12
+    float pad;          // 12 : 16
+};
+static_assert(sizeof(SpinnerCB) == 16,
+              "SpinnerCB must be 16-byte aligned for D3D11 cbuffer.");
 
 // Constant buffer layout — must align with HLSL `cbuffer Constants`.
 // HLSL packs in 16-byte rows; we pad explicitly to match.
@@ -152,8 +200,10 @@ static_assert(sizeof(CompositorCB) % 16 == 0,
 struct D3D11Compositor::Impl {
     ComPtr<ID3D11VertexShader>   vs;
     ComPtr<ID3D11PixelShader>    ps;
+    ComPtr<ID3D11PixelShader>    spinnerPs;
     ComPtr<ID3D11SamplerState>   sampler;
     ComPtr<ID3D11Buffer>         cbuf;
+    ComPtr<ID3D11Buffer>         spinnerCbuf;
     ComPtr<ID3D11RasterizerState> rasterState;
     ComPtr<ID3D11BlendState>     blendState;
     float                        brightness = 1.0f;
@@ -196,6 +246,15 @@ bool D3D11Compositor::initialize()
         return false;
     }
 
+    ComPtr<ID3DBlob> spinBlob = compile(kSpinnerPsHlsl, "SpinPSMain", "ps_5_0");
+    if (!spinBlob) return false;
+    if (FAILED(device->CreatePixelShader(spinBlob->GetBufferPointer(),
+                                            spinBlob->GetBufferSize(),
+                                            nullptr, m_impl->spinnerPs.GetAddressOf()))) {
+        qCritical("D3D11Compositor: CreatePixelShader (spinner) failed");
+        return false;
+    }
+
     D3D11_SAMPLER_DESC sd{};
     sd.Filter   = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
     sd.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
@@ -214,6 +273,16 @@ bool D3D11Compositor::initialize()
     cbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     if (FAILED(device->CreateBuffer(&cbd, nullptr, m_impl->cbuf.GetAddressOf()))) {
         qCritical("D3D11Compositor: CreateBuffer (cbuf) failed");
+        return false;
+    }
+
+    D3D11_BUFFER_DESC scbd{};
+    scbd.ByteWidth      = sizeof(SpinnerCB);
+    scbd.Usage          = D3D11_USAGE_DYNAMIC;
+    scbd.BindFlags      = D3D11_BIND_CONSTANT_BUFFER;
+    scbd.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(device->CreateBuffer(&scbd, nullptr, m_impl->spinnerCbuf.GetAddressOf()))) {
+        qCritical("D3D11Compositor: CreateBuffer (spinnerCbuf) failed");
         return false;
     }
 
@@ -245,7 +314,9 @@ void D3D11Compositor::shutdown()
     m_impl->blendState.Reset();
     m_impl->rasterState.Reset();
     m_impl->cbuf.Reset();
+    m_impl->spinnerCbuf.Reset();
     m_impl->sampler.Reset();
+    m_impl->spinnerPs.Reset();
     m_impl->ps.Reset();
     m_impl->vs.Reset();
     m_impl->initialized = false;
@@ -392,6 +463,38 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
                  /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f);
 
     ctx->RSSetViewports(1, &prev);
+}
+
+void D3D11Compositor::renderSpinner(void *ctxVoid, int dstW, int dstH,
+                                     float timeSeconds)
+{
+    if (!m_impl || !m_impl->initialized) return;
+    if (!ctxVoid || dstW <= 0 || dstH <= 0) return;
+    auto *ctx = static_cast<ID3D11DeviceContext *>(ctxVoid);
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (FAILED(ctx->Map(m_impl->spinnerCbuf.Get(), 0,
+                          D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+        return;
+    }
+    SpinnerCB cb{};
+    cb.dstSize[0] = static_cast<float>(dstW);
+    cb.dstSize[1] = static_cast<float>(dstH);
+    cb.time       = timeSeconds;
+    std::memcpy(mapped.pData, &cb, sizeof(cb));
+    ctx->Unmap(m_impl->spinnerCbuf.Get(), 0);
+
+    // Fullscreen triangle, opaque fill — no source texture/sampler.
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->IASetInputLayout(nullptr);
+    ctx->VSSetShader(m_impl->vs.Get(), nullptr, 0);
+    ctx->PSSetShader(m_impl->spinnerPs.Get(), nullptr, 0);
+    ID3D11Buffer *cb0 = m_impl->spinnerCbuf.Get();
+    ctx->PSSetConstantBuffers(0, 1, &cb0);
+    ctx->RSSetState(m_impl->rasterState.Get());
+    const float blendFactor[4] = {0, 0, 0, 0};
+    ctx->OMSetBlendState(m_impl->blendState.Get(), blendFactor, 0xFFFFFFFF);
+    ctx->Draw(3, 0);
 }
 
 } // namespace qcv

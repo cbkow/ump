@@ -745,4 +745,19 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
     m_impl->prepared = false;   // consumed
 }
 
+void DualCompositor::encodeLoadingSpinner(void *encoderPtr,
+                                          int dstWidth, int dstHeight,
+                                          int targetPixelFormat)
+{
+    if (!encoderPtr || !m_impl) return;
+    if (dstWidth <= 0 || dstHeight <= 0) return;
+    id<MTLDevice> device =
+        (__bridge id<MTLDevice>)MetalDeviceManager::instance().device();
+    if (!device) return;
+    if (!ensureSpinnerPipeline(*m_impl, device, targetPixelFormat)) return;
+    id<MTLRenderCommandEncoder> enc =
+        (__bridge id<MTLRenderCommandEncoder>)encoderPtr;
+    encodeSpinner(*m_impl, enc, dstWidth, dstHeight);
+}
+
 } // namespace qcv::dual

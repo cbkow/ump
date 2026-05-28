@@ -249,14 +249,14 @@ Rectangle {
         fileMode: FileDialog.OpenFiles
         onAccepted: {
             if (!WindowManager.project) return;
+            let paths = [];
             for (let i = 0; i < selectedFiles.length; ++i) {
                 const path = WindowManager.urlToOsPath(selectedFiles[i]);
-                if (!path) continue;
-                const id = WindowManager.project.addMediaFile(path);
-                if (id && i === selectedFiles.length - 1) {
-                    WindowManager.project.setActiveItem(id);
-                }
+                if (path) paths.push(path);
             }
+            // openMediaPaths adds each + loads the last (matches the
+            // prior behavior) and shows the loading spinner.
+            if (paths.length > 0) WindowManager.openMediaPaths(paths);
         }
     }
 
@@ -891,21 +891,19 @@ Rectangle {
                 onDropped: (drop) => {
                     if (!WindowManager.project) return;
                     if (!drop.hasUrls) return;
+                    let paths = [];
                     for (let i = 0; i < drop.urls.length; ++i) {
                         // Centralized urlToOsPath handles file://,
                         // file:///, and UNC //server/share uniformly.
-                        // The earlier hand-rolled substring(7) here
-                        // stripped one slash too many on UNC drops,
-                        // leaving "server/share/file.mov" that
-                        // addMediaFile then couldn't open.
                         const u = WindowManager.urlToOsPath(drop.urls[i]);
-                        if (!u) continue;
-                        WindowManager.project.addMediaFile(u);
+                        if (u) paths.push(u);
                     }
-                    // Drops into the project manager only add to the
-                    // project — they do NOT auto-load the viewport.
-                    // Drop into the viewport (PlayerWindow / overlay)
-                    // is the explicit "load now" gesture.
+                    // Drops into the project manager only ADD to the
+                    // project (no auto-load); addMediaPaths shows the
+                    // loading spinner during the add (e.g. large EXR
+                    // directory scan). Drop into the viewport is the
+                    // explicit "load now" gesture.
+                    if (paths.length > 0) WindowManager.addMediaPaths(paths);
                     drop.accept();
                 }
             }

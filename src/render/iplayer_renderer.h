@@ -121,6 +121,11 @@ public:
     // Wipe split-seam highlight (0 grey / 1 white on hover/drag).
     // Default no-op so platforms that don't draw a seam can ignore it.
     virtual void setSplitSeamHighlight(float /*h*/) {}
+    // Loading indicator — while true the render thread draws an
+    // animated spinner over the viewport (the main thread is blocked
+    // opening media/project, so only the independent render thread can
+    // animate). Default no-op for platforms without a spinner.
+    virtual void setLoadingActive(bool /*on*/) {}
     virtual void setBackgroundMode(BackgroundMode mode)    = 0;
 
     // Phase 7.5 B.6.5: the renderer queries the active stroke each

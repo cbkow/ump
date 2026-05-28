@@ -214,6 +214,12 @@ struct D3D11PlayerRenderer::Impl {
     ImageSequenceCache              *cacheBoundToUpload = nullptr;
     int                              lastCacheGen       = 0;
 
+    // Loading-spinner timing — render-thread-owned (no atomics needed;
+    // only the render thread touches these). spinnerStart is set when
+    // m_loadingActive is first observed true.
+    bool                                  spinnerWasActive = false;
+    std::chrono::steady_clock::time_point spinnerStart;
+
     // Phase F.2.7.1 — captureScreenshot — produces FULL-resolution
     // source-frame images (NOT a viewport readback). Three-pass:
     //   1. compositor: videoA.srv 1:1 → captureSourceRgba16f
@@ -693,7 +699,11 @@ void D3D11PlayerRenderer::renderThreadProc()
         }
 
         const bool dirty = m_pendingDraw.exchange(false, std::memory_order_acq_rel);
-        if (dirty || gotNewFrame || ocioBumped) {
+        // While a load is in progress force a draw each tick so the
+        // loading spinner animates even though the main thread is
+        // blocked in the open call.
+        if (dirty || gotNewFrame || ocioBumped
+            || m_loadingActive.load(std::memory_order_acquire)) {
             drawFrame();
         }
 
@@ -1201,6 +1211,10 @@ void D3D11PlayerRenderer::drawFrame()
         serviceScreenshotRequest();
     }
 
+    // Loading spinner overlay — after the screenshot capture so it's
+    // not baked into screenshots, and last so it's on top of content.
+    drawLoadingSpinner(ctx, rtv);
+
     swapchain->Present(1 /*sync to vsync*/, 0);
 }
 
@@ -1547,6 +1561,9 @@ void D3D11PlayerRenderer::drawDualFrame()
         serviceScreenshotRequest();
     }
 
+    // Loading spinner overlay (dual path) — same as single flow.
+    drawLoadingSpinner(ctx, rtv);
+
     swapchain->Present(1 /*sync to vsync*/, 0);
 }
 
@@ -1855,6 +1872,41 @@ void D3D11PlayerRenderer::setCompositorMode(CompositorMode m) {
 }
 void D3D11PlayerRenderer::setSplitPos(float p)            { m_splitPos.store(p); requestUpdate(); }
 void D3D11PlayerRenderer::setSplitSeamHighlight(float h)  { m_splitSeamHighlight.store(h); requestUpdate(); }
+void D3D11PlayerRenderer::setLoadingActive(bool on)       { m_loadingActive.store(on); requestUpdate(); }
+
+namespace { constexpr double kLoadingSpinnerDelaySec = 0.18; }
+
+void D3D11PlayerRenderer::drawLoadingSpinner(void *ctxVoid, void *rtvVoid)
+{
+    if (!m_loadingActive.load(std::memory_order_acquire)) {
+        m_impl->spinnerWasActive = false;
+        return;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (!m_impl->spinnerWasActive) {
+        m_impl->spinnerWasActive = true;
+        m_impl->spinnerStart     = now;
+    }
+    const double elapsed =
+        std::chrono::duration<double>(now - m_impl->spinnerStart).count();
+    // Hold off briefly so a quick open doesn't flash the spinner.
+    if (elapsed < kLoadingSpinnerDelaySec) return;
+    const int W = m_impl->currentW;
+    const int H = m_impl->currentH;
+    if (W <= 0 || H <= 0) return;
+
+    auto *ctx = static_cast<ID3D11DeviceContext *>(ctxVoid);
+    auto *rtv = static_cast<ID3D11RenderTargetView *>(rtvVoid);
+    ID3D11RenderTargetView *rtvs[1] = { rtv };
+    ctx->OMSetRenderTargets(1, rtvs, nullptr);
+    D3D11_VIEWPORT vp{};
+    vp.Width    = static_cast<float>(W);
+    vp.Height   = static_cast<float>(H);
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    ctx->RSSetViewports(1, &vp);
+    m_impl->compositor.renderSpinner(ctx, W, H, static_cast<float>(elapsed));
+}
 void D3D11PlayerRenderer::setBackgroundMode(BackgroundMode m) {
     m_bgMode.store(static_cast<int>(m)); requestUpdate();
 }

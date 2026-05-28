@@ -333,6 +333,20 @@ public:
     // state, forwarded straight to the renderer (no persistence).
     Q_INVOKABLE void setSplitSeamActive(bool active);
 
+    // File-open wrappers that drive the loading spinner. Each flips the
+    // renderer's loadingActive flag, defers the (main-thread-blocking)
+    // work one event-loop turn so the menu closes + the spinner appears
+    // first, runs it, then clears the flag. ALL file-open entry points
+    // (menu, recent, transport, drops, dialogs) route through these.
+    //   openMediaPaths — add each path to the project AND load (the
+    //                    last one becomes the active item).
+    //   addMediaPaths  — add to the bin only (no auto-load).
+    //   openProjectPath— open a .qcvproj.
+    // QStringList args carry a single path too (pass [path]).
+    Q_INVOKABLE void openMediaPaths(const QStringList &paths);
+    Q_INVOKABLE void addMediaPaths(const QStringList &paths);
+    Q_INVOKABLE void openProjectPath(const QString &path);
+
     VideoDecoder *videoDecoder()  const { return m_videoDecoder;  }
     VideoDecoder *videoDecoderB() const { return m_videoDecoderB; }
     // Open a media file into Source B. Phase B minimum-viable —
@@ -1113,6 +1127,9 @@ private:
     // next draw. Called from requestHoverThumbnail / clearHover-
     // Thumbnail / the upload-drain re-poll.
     void pushHoverThumbToRenderer();
+
+    // Forward the loading-spinner flag to the active player renderer.
+    void setLoadingActive(bool on);
 
     // ---- Phase 3.H.6 annotation wiring (Stage A) ----
     // Annotations are gated to single video / single image-seq
