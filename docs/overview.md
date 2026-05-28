@@ -43,7 +43,7 @@ Higher precision modes use more memory per cached frame (8 bytes/pixel vs. 4 for
 
 ## Audio
 
-WASAPI on Windows and CoreAudio on macOS, float32 stereo at 48 kHz. The audio mixer and tempo-preserving time-stretch processing are shared cross-platform.
+WASAPI on Windows and CoreAudio on macOS, float32 stereo at 48 kHz. The audio mixer is shared cross-platform.
 
 Multi-stream broadcast deliveries (5.1, 7.1, multiple discrete language stems, etc.) are routed per channel — you pick which file's channel goes to which output from the Audio routing controls in the Inspector. Per-clip routing also applies inside a playlist.
 
