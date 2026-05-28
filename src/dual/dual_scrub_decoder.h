@@ -15,15 +15,11 @@
 //     zero-copy Metal branch is intentionally deferred — keeps the
 //     dual compositor's per-slot CvPixbufMetalBridge out of the
 //     scrub path for Phase 1.
-//   - Intra-only hwaccel gate per platform: D3D11VA on Windows
-//     (subject to performance/hardwareDecodeEnabled), VAAPI on Linux.
-//     macOS forces SOFTWARE — scrub reads every frame back to CPU
-//     anyway, so VideoToolbox buys it nothing, and a per-side scrub VT
-//     session would contend with the two streaming DualVideoDecoder VT
-//     sessions and stall the B-side scrub at startup. The Cpu-only
-//     publish also keeps scrub frames out of the dual Vulkan
-//     compositor's compute pipeline (sidesteps the NVIDIA device-lost
-//     crash on Win/Linux).
+//   - Keeps the SAME platform-conditional intra-only hwaccel gate
+//     (VT on macOS, D3D11VA on Windows, VAAPI on Linux). HW-decoded
+//     frames are still readback to CPU; the Cpu-only publish means
+//     scrub frames never enter the dual Vulkan compositor's compute
+//     pipeline (sidesteps the NVIDIA device-lost crash on Win/Linux).
 //
 // Lifecycle is owned by DualPlaybackController: scrub decoders open
 // alongside their paired DualVideoDecoder and close BEFORE the
