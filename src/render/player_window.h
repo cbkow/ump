@@ -109,6 +109,14 @@ private:
     // the bool to decide whether to also forward to the annotator.
     bool handleSeamMouse(float xLogical, bool isPress);
 
+    // Lights the split-wipe seam full-white while hovered or dragged
+    // (grey at rest), via the renderer's setSplitSeamHighlight. This is
+    // the macOS equivalent of Main.qml's setSplitSeamActive(containsMouse
+    // || pressed) — the QML MouseArea is occluded by this native window,
+    // so the highlight has to be driven here. No-ops unless the state
+    // actually changes so we don't re-push + requestUpdate every move.
+    void updateSeamHighlight(bool active);
+
     std::unique_ptr<IPlayerRenderer> m_renderer;
     ViewportAnnotator               *m_annotator      = nullptr;  // not owned
     bool                             m_rendererInited = false;
@@ -121,6 +129,7 @@ private:
     std::atomic<float> m_splitPos{0.5f};
     std::atomic<bool>  m_dualActive{false};
     bool               m_seamDragActive = false;
+    bool               m_seamHighlightOn = false;
 };
 
 } // namespace qcv

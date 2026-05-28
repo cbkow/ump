@@ -47,13 +47,12 @@ constexpr float kSeamGrabWidth = 14.0f;   // logical points, matches Main.qml
 void PlayerWindow::setCompositorMode(int mode)
 {
     m_compositorMode.store(mode, std::memory_order_release);
-    // If we leave Wipe mode mid-drag, clear seam state + restore the
-    // default cursor so we don't strand a SplitHCursor on screen.
-    if (mode != 2 && m_seamDragActive) {
+    // If we leave Wipe mode, clear seam drag/highlight state + restore
+    // the default cursor so we don't strand a SplitHCursor or a lit seam.
+    if (mode != 2) {
         m_seamDragActive = false;
         unsetCursor();
-    } else if (mode != 2) {
-        unsetCursor();
+        updateSeamHighlight(false);
     }
 }
 
@@ -68,10 +67,12 @@ void PlayerWindow::setDualActive(bool active)
 {
     m_dualActive.store(active, std::memory_order_release);
     // Leaving dual flow mid-drag — clear seam state + restore cursor
-    // so a stale SplitHCursor doesn't linger over a now-single viewport.
+    // so a stale SplitHCursor or lit seam doesn't linger over a
+    // now-single viewport.
     if (!active) {
-        if (m_seamDragActive) m_seamDragActive = false;
+        m_seamDragActive = false;
         unsetCursor();
+        updateSeamHighlight(false);
     }
 }
 
@@ -102,6 +103,19 @@ bool PlayerWindow::handleSeamMouse(float xLogical, bool isPress)
     const float clampedX = std::clamp(xLogical, 0.0f, w);
     emit splitWipeSeamDragged(clampedX / w);
     return true;
+}
+
+void PlayerWindow::updateSeamHighlight(bool active)
+{
+    if (active == m_seamHighlightOn) return;
+    m_seamHighlightOn = active;
+    if (m_renderer) {
+        m_renderer->setSplitSeamHighlight(active ? 1.0f : 0.0f);
+        // The player may be paused (dual warm-up / no playback), so the
+        // grey↔white change won't show until something repaints. Wake
+        // the render thread — same reason the annotator path does.
+        if (m_rendererInited) m_renderer->requestUpdate();
+    }
 }
 
 void PlayerWindow::exposeEvent(QExposeEvent *e)
@@ -146,6 +160,7 @@ void PlayerWindow::mousePressEvent(QMouseEvent *e)
                            /*isPress=*/true)) {
         m_seamDragActive = true;
         setCursor(QCursor(Qt::SplitHCursor));
+        updateSeamHighlight(true);
         return;
     }
 
@@ -174,14 +189,17 @@ void PlayerWindow::mouseMoveEvent(QMouseEvent *e)
         // Active drag — follow the cursor regardless of strip bounds.
         handleSeamMouse(static_cast<float>(e->position().x()),
                         /*isPress=*/false);
+        updateSeamHighlight(true);
         return;
     }
 
-    // Hover-cursor swap: in Wipe mode with a live dual session, give a
-    // SplitHCursor while the pointer hovers the seam strip so the user
-    // can see it's grabbable. Outside the strip / not in Wipe / no
-    // dual session, restore the default cursor. mouseMoveEvent fires
-    // on plain hover too (no button required).
+    // Hover-cursor swap + seam highlight: in Wipe mode with a live dual
+    // session, give a SplitHCursor and light the seam white while the
+    // pointer hovers the seam strip so the user can see it's grabbable.
+    // Outside the strip / not in Wipe / no dual session, restore the
+    // default cursor and grey seam. mouseMoveEvent fires on plain hover
+    // too (no button required).
+    bool overSeam = false;
     if (m_compositorMode.load(std::memory_order_acquire) == 2
         && m_dualActive.load(std::memory_order_acquire)) {
         const float w = static_cast<float>(width());
@@ -191,15 +209,12 @@ void PlayerWindow::mouseMoveEvent(QMouseEvent *e)
                            0.0f, 1.0f) * w;
             const float half  = kSeamGrabWidth * 0.5f;
             const float x     = static_cast<float>(e->position().x());
-            if (x >= seamX - half && x <= seamX + half) {
-                setCursor(QCursor(Qt::SplitHCursor));
-            } else {
-                unsetCursor();
-            }
+            overSeam = (x >= seamX - half && x <= seamX + half);
         }
-    } else {
-        unsetCursor();
     }
+    if (overSeam) setCursor(QCursor(Qt::SplitHCursor));
+    else          unsetCursor();
+    updateSeamHighlight(overSeam);
 
     if (m_annotator) {
         const qreal dpr = devicePixelRatio();
