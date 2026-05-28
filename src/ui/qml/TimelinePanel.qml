@@ -1931,9 +1931,15 @@ Pane {
                 height: parent.height
                 opacity: dimmed ? 0.35 : 1.0
                 // Above cacheIndicator (z:1) and its children
-                // (failed-frame ticks at z:5 inside it). Below the
-                // drop ghost (z:31) which only appears during DnD.
-                z: 10
+                // (failed-frame ticks at z:5 inside it). In edit mode
+                // the editing track's clips are raised to z:20 (z:18
+                // when selected) so their handles win clicks — the
+                // dashed playhead must clear that to stay visible over
+                // the foreground edit clips, so bump to z:21 while
+                // dimmed. Still below the drop ghost (z:31), insertion
+                // bar (z:26) and EditTrackMa (z:27), which only matter
+                // for DnD + mouse capture (the playhead has no MA).
+                z: playhead.dimmed ? 21 : 10
                 // While scrubbing, follow the cursor in viewport
                 // space (mouseX is trackArea-local). Otherwise place
                 // by absolute time, then offset to viewport coords.
