@@ -76,6 +76,11 @@ public:
     void seekTo(int frameNumber) override;
 
     std::shared_ptr<DualFrame> getBufferedFrame(int frameNumber) const override;
+    // Nearest cached frame to `frameNumber` (linear search). Used by
+    // the pull path so a sparse (cache-stride > 1) window still shows a
+    // frame when the exact target isn't on the cache grid. Returns the
+    // exact frame when it's cached; nullptr only when nothing is cached.
+    std::shared_ptr<DualFrame> getClosestFrame(int frameNumber) const override;
     bool hasFrame(int frameNumber) const override;
 
     int  bufferedAhead() const override;
@@ -127,6 +132,14 @@ public:
     void setLoopRange(int loIn, int hiOut);
     void clearLoopRange();
 
+    // Cache stride — 1 (default) caches every frame; N > 1 caches only
+    // frames where (frameNumber % N == 0), forward-only (no read-behind),
+    // for sparse prefetch during fast drags on huge sequences. Mirrors
+    // ImageSequenceCache::setCacheStride. Clamped to [1,4]. The pull path
+    // uses getClosestFrame so off-grid targets still display.
+    void setCacheStride(int stride);
+    int  cacheStride() const { return m_cacheStride.load(std::memory_order_acquire); }
+
     // Tunable fps used for downstream timecode display. Image
     // sequences don't carry an intrinsic fps — caller supplies it.
     void setFps(double fps);
@@ -173,6 +186,9 @@ private:
     // loIn, both use modular distances over the loop length.
     std::atomic<int>  m_loopIn{-1};
     std::atomic<int>  m_loopOut{-1};
+
+    // Cache stride — see setCacheStride(). 1 = every frame.
+    std::atomic<int>  m_cacheStride{1};
 
     // ---- Cache (LRU by frame count) ----
     mutable std::mutex m_cacheMutex;

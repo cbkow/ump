@@ -654,6 +654,15 @@ public:
     Q_INVOKABLE void setDualImageSeqLayer(const QString &side,
                                             const QString &layer);
 
+    // Per-side dual image-sequence cache stride. Mirrors
+    // setDualImageSeqLayer: side "A" → sourceA / activeItem, "B" →
+    // sourceB / bSource. Applies to that side's DualImageSeqSource and
+    // persists on its MediaItem, independent of the other side. The
+    // inspector's stride pill routes here when it represents a dual
+    // side; single mode uses setImageSeqCacheStride.
+    Q_INVOKABLE void setDualImageSeqStride(const QString &side, int stride);
+    Q_INVOKABLE int  dualImageSeqStride(const QString &side) const;
+
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
@@ -1130,6 +1139,12 @@ private:
 
     // Forward the loading-spinner flag to the active player renderer.
     void setLoadingActive(bool on);
+
+    // Apply each dual image-sequence side's stored per-item cache
+    // stride to its DualImageSeqSource. Called on dual entry so dual
+    // honors the same stride preference single flow does. No-op when
+    // not in dual mode or a side isn't an image sequence.
+    void applyDualImageSeqStride();
 
     // ---- Phase 3.H.6 annotation wiring (Stage A) ----
     // Annotations are gated to single video / single image-seq

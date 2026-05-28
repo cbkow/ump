@@ -625,7 +625,10 @@ DualPlaybackController::pullFrameA(int masterFrame) const
     }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'A');
     if (srcFrame < 0) return nullptr;
-    return m_sourceA->getBufferedFrame(srcFrame);
+    // getClosestFrame == exact for the video decoder; for image-seq it
+    // returns the nearest cached frame so a sparse cache-stride window
+    // still displays (no blank on off-grid targets).
+    return m_sourceA->getClosestFrame(srcFrame);
 }
 
 std::shared_ptr<DualFrame>
@@ -640,7 +643,7 @@ DualPlaybackController::pullFrameB(int masterFrame) const
     }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'B');
     if (srcFrame < 0) return nullptr;
-    return m_sourceB->getBufferedFrame(srcFrame);
+    return m_sourceB->getClosestFrame(srcFrame);
 }
 
 QString DualPlaybackController::formatTimecode(int masterFrame) const

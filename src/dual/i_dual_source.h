@@ -117,6 +117,14 @@ public:
     // Returns the buffered frame with exact match `frameNumber`, or
     // nullptr if not in the buffer.
     virtual std::shared_ptr<DualFrame> getBufferedFrame(int frameNumber) const = 0;
+    // Returns the nearest available frame to `frameNumber` (exact when
+    // present). Default = exact-only (correct for the video decoder,
+    // which produces exact frames). Image-seq sources override to
+    // return the closest cached frame, so a sparse cache-stride window
+    // still displays during fast drags instead of going blank.
+    virtual std::shared_ptr<DualFrame> getClosestFrame(int frameNumber) const {
+        return getBufferedFrame(frameNumber);
+    }
     virtual bool hasFrame(int frameNumber) const = 0;
 
     // ---- Diagnostics (Stage 1 verification surface) ----

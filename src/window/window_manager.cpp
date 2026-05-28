@@ -1760,6 +1760,11 @@ void WindowManager::setCompositorMode(int mode)
                     sb->setFrameAvailableCallback(wakeRenderer);
             }
 
+            // Honor each image-seq side's stored per-item cache stride
+            // (dual previously ignored it — single flow applies the
+            // same value in startImageSequence).
+            applyDualImageSeqStride();
+
             // Dual-mode image-seq buffer-status poll. DualImageSeqSource
             // doesn't emit Qt signals on cache state change (no QObject
             // inheritance), so we poll at ~30 Hz like the single-flow
@@ -2111,6 +2116,24 @@ void WindowManager::openProjectPath(const QString &path)
     });
 }
 
+void WindowManager::applyDualImageSeqStride()
+{
+    if (!m_dualController || !m_project) return;
+    // Side A's source item is the active item; B's is the b-source —
+    // same convention as setDualImageSeqLayer. Each side gets its own
+    // stored per-item stride (default 1 = every frame).
+    auto applySide = [this](char sideCh, const QString &itemId) {
+        auto *src = dualImageSeqSide(m_dualController.get(), sideCh);
+        if (!src) return;   // side isn't an image sequence
+        int stride = 1;
+        if (const MediaItem *it = m_project->findItem(itemId))
+            stride = std::clamp(it->imageSeq.cacheStride, 1, 4);
+        src->setCacheStride(stride);
+    };
+    applySide('A', m_project->activeItemId());
+    applySide('B', m_project->bSourceMediaId());
+}
+
 // ---------------------------------------------------------------------------
 // Phase 7.4.a — image-sequence playback
 // ---------------------------------------------------------------------------
@@ -2403,8 +2426,9 @@ int WindowManager::imageSeqFrameCount() const
 // imageSeqBuffered* getters above, but sourced from DualImageSeqSource via
 // the controller. 0 / false when the matching side isn't an image sequence
 // (or when dual mode isn't active). Polled at 33 ms via m_dualBufferPollTimer
-// → pollImageSeqBufferStatus(). DualImageSeqSource has no cache stride, so
-// raw bufferedAhead == coverage — no separate coverage accessors.
+// → pollImageSeqBufferStatus(). DualImageSeqSource::bufferedAhead/Behind
+// report COVERAGE (span to the farthest cached frame), so a cache-stride
+// window draws the full band — no separate coverage accessors needed.
 //
 // Helper `dualImageSeqSide` lives in the anonymous namespace at the top
 // of this file (next to fetchActiveRenderer) so both these getters and
@@ -2560,6 +2584,8 @@ void WindowManager::setImageSeqCacheStride(int stride)
         }
     }
 
+    // Dual mode routes through setDualImageSeqStride (per-side), so
+    // this single-flow setter is a no-op on the live source there.
     if (!m_imageSeqCache) {
         // No live cache to update; emit so the inspector pill rebinds
         // against the new stored value.
@@ -2624,6 +2650,47 @@ void WindowManager::setDualImageSeqLayer(const QString &side,
     // ring buffer fills again from the new layer (looks like the
     // layer pick had no effect for ~1s).
     m_dualController->bumpTimelineGeneration();
+}
+
+void WindowManager::setDualImageSeqStride(const QString &side, int stride)
+{
+    stride = std::clamp(stride, 1, 4);
+    if (!m_dualController) return;
+    const bool isA = (side == QLatin1String("A"));
+    auto *seq = dualImageSeqSide(m_dualController.get(), isA ? 'A' : 'B');
+    if (!seq) return;     // side isn't an image sequence — nothing to do
+
+    seq->setCacheStride(stride);
+
+    // Persist on the side's source MediaItem so a re-open / DualPair
+    // load restores the choice — independent of the other side.
+    if (m_project) {
+        const QString id = isA ? m_project->activeItemId()
+                               : m_project->bSourceMediaId();
+        if (MediaItem *it = m_project->findItem(id)) {
+            it->imageSeq.cacheStride = stride;
+        }
+    }
+    emit imageSeqCacheStrideChanged();
+    emit dualImageSeqStatusChanged();
+}
+
+int WindowManager::dualImageSeqStride(const QString &side) const
+{
+    const bool isA = (side == QLatin1String("A"));
+    if (m_dualController) {
+        if (auto *seq = dualImageSeqSide(m_dualController.get(), isA ? 'A' : 'B'))
+            return seq->cacheStride();
+    }
+    // Fall back to the side's stored item stride (e.g. before the
+    // source spins up) so the pill highlights correctly.
+    if (m_project) {
+        const QString id = isA ? m_project->activeItemId()
+                               : m_project->bSourceMediaId();
+        if (const MediaItem *it = m_project->findItem(id))
+            return std::clamp(it->imageSeq.cacheStride, 1, 4);
+    }
+    return 1;
 }
 
 void WindowManager::closeActiveMedia()

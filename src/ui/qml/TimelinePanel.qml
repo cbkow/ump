@@ -1520,9 +1520,10 @@ Pane {
                 readonly property int  fc:   dualA
                     ? WindowManager.dualImageSeqFrameCountA
                     : WindowManager.imageSeqFrameCount
-                // Coverage on single-flow accounts for cache stride
-                // (every Nth frame). Dual image-seq has no stride,
-                // so raw bufferedAhead/Behind == coverage there.
+                // Coverage (span to the farthest cached frame), not a
+                // raw count, on both paths — so a sparse cache-stride
+                // window draws the full band reach. Dual's
+                // bufferedAhead/Behind now report coverage directly.
                 readonly property int  ahCov: dualA
                     ? WindowManager.dualImageSeqBufferedAheadA
                     : WindowManager.imageSeqBufferedAheadCoverage

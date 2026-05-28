@@ -235,6 +235,28 @@ std::shared_ptr<DualFrame> DualImageSeqSource::getBufferedFrame(int frameNumber)
     return it->second;
 }
 
+std::shared_ptr<DualFrame> DualImageSeqSource::getClosestFrame(int frameNumber) const
+{
+    std::lock_guard<std::mutex> lk(m_cacheMutex);
+    // Exact hit first (the common case at stride 1).
+    auto exact = m_cache.find(frameNumber);
+    if (exact != m_cache.end()) return exact->second;
+    // Otherwise the nearest cached frame by absolute distance — lets a
+    // sparse stride > 1 window show an approximate frame during fast
+    // drags instead of going blank. Linear scan; resident count is
+    // small (<= kCacheCapacityFrames).
+    std::shared_ptr<DualFrame> best;
+    int bestDist = m_frameCount + 1;   // larger than any in-range distance
+    for (const auto &kv : m_cache) {
+        const int d = std::abs(kv.first - frameNumber);
+        if (d < bestDist) {
+            bestDist = d;
+            best     = kv.second;
+        }
+    }
+    return best;
+}
+
 bool DualImageSeqSource::hasFrame(int frameNumber) const
 {
     std::lock_guard<std::mutex> lk(m_cacheMutex);
@@ -243,24 +265,23 @@ bool DualImageSeqSource::hasFrame(int frameNumber) const
 
 int DualImageSeqSource::bufferedAhead() const
 {
+    // Returns COVERAGE — the forward distance to the FARTHEST cached
+    // frame, not a raw count. The timeline cache strip draws an ahead
+    // band this many frames wide; reporting coverage (span) instead of
+    // count means a sparse cache-stride > 1 window still draws the full
+    // reach instead of a band truncated to ~span/stride. At stride 1
+    // (contiguous fill) coverage equals the old count, so unchanged.
     const int target = m_decodeTarget.load(std::memory_order_acquire);
     const int loIn   = m_loopIn.load(std::memory_order_acquire);
     const int loOut  = m_loopOut.load(std::memory_order_acquire);
     const bool hasRange = (loIn >= 0 && loOut > loIn);
     std::lock_guard<std::mutex> lk(m_cacheMutex);
-    int count = 0;
+    int cov = 0;
     if (hasRange) {
-        // Loop-aware: count frames within kReadAheadFrames of target
-        // in MODULAR forward distance. This makes the cache strip's
-        // ahead band reflect the wrap-around prefetch correctly —
-        // at target=loOut the strip should show loop-start frames as
-        // "ahead via wrap", not as "behind" via linear distance.
-        //
-        // fwd > 0 — strictly ahead, excluding the current frame.
-        // The strip draws bands flanking the playhead; the current
-        // frame is AT the playhead and shouldn't extend either band.
-        // Without this exclusion the wrap-overflow band is 1 frame
-        // wider than the actual cached set.
+        // Loop-aware MODULAR forward distance so the strip's ahead band
+        // reflects wrap-around prefetch (loop-start frames read as
+        // "ahead via wrap" when target is near loOut). fwd > 0 excludes
+        // the current frame, which sits AT the playhead.
         const int loopSize = loOut - loIn + 1;
         const int curIn = std::max(loIn, std::min(loOut, target)) - loIn;
         for (const auto &kv : m_cache) {
@@ -268,24 +289,28 @@ int DualImageSeqSource::bufferedAhead() const
             if (k < loIn || k > loOut) continue;
             const int kIn = k - loIn;
             const int fwd = ((kIn - curIn) % loopSize + loopSize) % loopSize;
-            if (fwd > 0 && fwd <= kReadAheadFrames) ++count;
+            if (fwd > 0 && fwd <= kReadAheadFrames && fwd > cov) cov = fwd;
         }
-        return count;
+        return cov;
     }
     for (const auto &kv : m_cache) {
-        if (kv.first >= target) ++count;
+        const int d = kv.first - target;
+        if (d > 0 && d > cov) cov = d;   // farthest cached frame ahead
     }
-    return count;
+    return cov;
 }
 
 int DualImageSeqSource::bufferedBehind() const
 {
+    // COVERAGE (see bufferedAhead): backward distance to the FARTHEST
+    // cached frame. At stride > 1 the read-behind window is 0, so this
+    // is naturally 0 (forward-only sparse caching).
     const int target = m_decodeTarget.load(std::memory_order_acquire);
     const int loIn   = m_loopIn.load(std::memory_order_acquire);
     const int loOut  = m_loopOut.load(std::memory_order_acquire);
     const bool hasRange = (loIn >= 0 && loOut > loIn);
     std::lock_guard<std::mutex> lk(m_cacheMutex);
-    int count = 0;
+    int cov = 0;
     if (hasRange) {
         const int loopSize = loOut - loIn + 1;
         const int curIn = std::max(loIn, std::min(loOut, target)) - loIn;
@@ -294,16 +319,15 @@ int DualImageSeqSource::bufferedBehind() const
             if (k < loIn || k > loOut) continue;
             const int kIn = k - loIn;
             const int bwd = ((curIn - kIn) % loopSize + loopSize) % loopSize;
-            // bwd==0 is the current frame — count it as ahead only
-            // (above), not behind, so the two don't double-count.
-            if (bwd > 0 && bwd <= kReadBehindFrames) ++count;
+            if (bwd > 0 && bwd <= kReadBehindFrames && bwd > cov) cov = bwd;
         }
-        return count;
+        return cov;
     }
     for (const auto &kv : m_cache) {
-        if (kv.first < target) ++count;
+        const int d = target - kv.first;
+        if (d > 0 && d > cov) cov = d;   // farthest cached frame behind
     }
-    return count;
+    return cov;
 }
 
 int DualImageSeqSource::bufferCount() const
@@ -371,6 +395,16 @@ void DualImageSeqSource::clearLoopRange()
 {
     m_loopIn.store(-1, std::memory_order_release);
     m_loopOut.store(-1, std::memory_order_release);
+    m_cacheCv.notify_all();
+}
+
+void DualImageSeqSource::setCacheStride(int stride)
+{
+    stride = std::clamp(stride, 1, 4);
+    if (stride == m_cacheStride.load(std::memory_order_acquire)) return;
+    m_cacheStride.store(stride, std::memory_order_release);
+    // Wake the cache thread to rebuild the prefetch window with the
+    // new stride filter (and re-evict the now-off-grid frames).
     m_cacheCv.notify_all();
 }
 
@@ -602,6 +636,10 @@ void DualImageSeqSource::evictOutsideWindowLocked(int target)
     const int loOut = m_loopOut.load(std::memory_order_acquire);
     const bool hasRange = (loIn >= 0 && loOut >= loIn);
     const int  loopSize = hasRange ? (loOut - loIn + 1) : 0;
+    // Stride > 1 collapses the read-behind window to 0 (forward-only),
+    // matching ImageSequenceCache and the enqueue path above.
+    const int stride     = std::max(1, m_cacheStride.load(std::memory_order_acquire));
+    const int readBehind = (stride > 1) ? 0 : kReadBehindFrames;
 
     auto it = m_cache.begin();
     while (it != m_cache.end()) {
@@ -621,12 +659,12 @@ void DualImageSeqSource::evictOutsideWindowLocked(int target)
                                  + loopSize) % loopSize;
                 const int bwd = ((curIn - kIn) % loopSize
                                  + loopSize) % loopSize;
-                evict = (bwd > kReadBehindFrames
+                evict = (bwd > readBehind
                          && fwd > kReadAheadFrames);
             }
         } else {
             // Linear (no-loop) eviction — the original behavior.
-            const int loBound = target - kReadBehindFrames;
+            const int loBound = target - readBehind;
             const int hiBound = target + kReadAheadFrames;
             evict = (k < loBound || k > hiBound);
         }
@@ -678,17 +716,33 @@ void DualImageSeqSource::enqueueMissingFramesLocked(int target)
         return loIn + rel;
     };
 
-    // Current frame first.
-    considerFrame(target);
-    // Forward read-ahead — wraps to start when target is near end
-    // of loop range.
-    for (int d = 1; d <= kReadAheadFrames; ++d) {
-        considerFrame(wrapInLoop(target + d));
+    // Cache-stride filter — at stride N > 1 only frames on the grid
+    // (frameNumber % N == 0) are fetched, forward-only, for sparse
+    // prefetch during fast drags. Mirrors ImageSequenceCache.
+    const int stride = std::max(1, m_cacheStride.load(std::memory_order_acquire));
+    auto onGrid = [stride](int absFrame) {
+        return (stride <= 1) || (absFrame % stride == 0);
+    };
+
+    // Current frame first — only prime it at stride 1. At stride > 1
+    // the exact target is often off-grid; the pull path shows the
+    // nearest on-grid frame via getClosestFrame instead.
+    if (stride <= 1) {
+        considerFrame(target);
     }
-    // Backward read-behind — wraps to end when target is near
-    // start of loop range.
-    for (int d = 1; d <= kReadBehindFrames; ++d) {
-        considerFrame(wrapInLoop(target - d));
+    // Forward read-ahead — wraps to start when target is near end
+    // of loop range. Skip off-grid frames at stride > 1.
+    for (int d = 1; d <= kReadAheadFrames; ++d) {
+        const int f = wrapInLoop(target + d);
+        if (onGrid(f)) considerFrame(f);
+    }
+    // Backward read-behind — wraps to end when target is near start of
+    // loop range. ONLY at stride 1; stride > 1 is forward-only so the
+    // budget all goes to the sparse look-ahead.
+    if (stride <= 1) {
+        for (int d = 1; d <= kReadBehindFrames; ++d) {
+            considerFrame(wrapInLoop(target - d));
+        }
     }
 
     if (!m_workQueue.empty()) {

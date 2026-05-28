@@ -299,8 +299,20 @@ Rectangle {
         // only the cached grid is sparse. Behind-buffer collapses
         // to 0 when stride > 1 so all RAM goes forward.
         RowLayout {
+            id: strideRow
             Layout.fillWidth: true
             spacing: Theme.spacingLoose
+            // Current stride for the highlight — per-side in dual (routes
+            // to dualImageSeqStride for this panel's A/B side), single
+            // flow otherwise. The leading property read is a dependency
+            // tag so the binding re-evaluates on imageSeqCacheStrideChanged
+            // (dualImageSeqStride is a plain invokable, not a property).
+            readonly property int curStride: {
+                WindowManager.imageSeqCacheStride;   // dependency tag
+                return root.side !== ""
+                    ? WindowManager.dualImageSeqStride(root.side)
+                    : WindowManager.imageSeqCacheStride;
+            }
             Text {
                 text: qsTr("Cache stride")
                 color: Theme.textSecondary
@@ -322,7 +334,7 @@ Rectangle {
                     // leaving every chip un-highlighted.
                     readonly property int v: Number(modelData)
                     readonly property bool isCurrent:
-                        WindowManager.imageSeqCacheStride === v
+                        strideRow.curStride === v
                     color: isCurrent
                            ? Theme.accent
                            : (strideMa.containsMouse ? Theme.surfaceHover : "transparent")
@@ -338,8 +350,13 @@ Rectangle {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked:
-                            WindowManager.setImageSeqCacheStride(parent.v)
+                        onClicked: {
+                            if (root.side !== "")
+                                WindowManager.setDualImageSeqStride(
+                                    root.side, parent.v);
+                            else
+                                WindowManager.setImageSeqCacheStride(parent.v);
+                        }
                         FlatToolTip {
                             visible: strideMa.containsMouse
                             text: parent.parent.v === 1
