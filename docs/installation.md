@@ -44,6 +44,15 @@ Download the latest release [here](https://github.com/cbkow/QCView-Player/releas
 
 ## Version History
 
+What's new in 2.06
+- UI tweaks for better panel and selection legibility
+- UI tweaks to the playhead in dual-view and playlist edit modes
+- Better scrubbing in dual-view modes with video sources
+- Added grab handles to the timeline's zoom/pan tool
+- Fixed an edge-case crash in playlist mode with thumbnails
+- Added a height limit to the thumbnails so vertical videos don't occupy so much viewport space
+- Added a loading spinner--especially helpful for large projects that take a moment to load
+
 What's new in 2.04
 - Slight UI change to playhead when a timeline track is in edit mode.
 - Fixed a bug where thumbnails didn't respect clip edits in dual-view mode.
