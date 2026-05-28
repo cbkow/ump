@@ -1095,8 +1095,12 @@ void MetalPlayerRenderer::drawFrame()
     }
 
     // Phase 7.5 B.5: graveyard tick — release any deferred-delete
-    // pool textures whose 3-frame quarantine has expired.
+    // pool textures whose 3-frame quarantine has expired. Both the
+    // main pool (image-seq evictions) and the thumbnail pool (hover-
+    // thumbnail evictions) must be drained; the thumbnail drain was
+    // missing, leaking thumb textures until shutdown.
     MetalTexturePool::instance().processPendingDeletions();
+    MetalTexturePool::thumbnailInstance().processPendingDeletions();
 
     id<CAMetalDrawable> drawable = [m_impl->layer nextDrawable];
     if (!drawable) {

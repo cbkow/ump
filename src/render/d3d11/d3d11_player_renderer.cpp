@@ -942,9 +942,13 @@ void D3D11PlayerRenderer::drawFrame()
     if (!rtv || !swapchain) return;
 
     // Tick the graveyard each frame so textures evicted N frames ago
-    // (typically by the image-seq cache window sliding) actually get
-    // released. Cheap when nothing's pending.
+    // actually get released. The MAIN pool drains image-seq cache
+    // evictions; the THUMBNAIL pool drains hover-thumbnail evictions.
+    // Without the thumbnail drain, thumb textures queued for deletion
+    // piled up forever (handles leaked → VRAM exhaustion → render
+    // thread stalling on the pool mutex). Cheap when nothing's pending.
     D3D11TexturePool::instance().processPendingDeletions();
+    D3D11TexturePool::thumbnailInstance().processPendingDeletions();
     auto *ctx = static_cast<ID3D11DeviceContext *>(
         D3D11DeviceManager::instance().context());
     auto *device = static_cast<ID3D11Device *>(
@@ -1228,6 +1232,7 @@ void D3D11PlayerRenderer::drawDualFrame()
     if (!rtv || !swapchain) return;
 
     D3D11TexturePool::instance().processPendingDeletions();
+    D3D11TexturePool::thumbnailInstance().processPendingDeletions();
 
     auto *ctx = static_cast<ID3D11DeviceContext *>(
         D3D11DeviceManager::instance().context());
