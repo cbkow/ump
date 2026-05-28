@@ -4,6 +4,7 @@
 
 #include "dual/dual_playback_controller.h"
 #include "dual/i_dual_pixbuf_converter.h"
+#include "render/metal/metal_device_manager.h"
 
 #import <Metal/Metal.h>
 #include <QImage>
@@ -439,7 +440,9 @@ void encodeSpinner(DualCompositor::Impl &impl,
     }
     const double seconds = std::chrono::duration<double>(
         std::chrono::steady_clock::now() - impl.spinnerStart).count();
-    struct SpinUBO {
+    // alignas(8): MSL float2 dstSize forces 8-byte alignment (sizeof 16);
+    // a plain C++ struct is 12 → bound buffer too small for spin_fs.
+    struct alignas(8) SpinUBO {
         float dstSize[2];
         float time;
     };
@@ -712,7 +715,9 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
     if (!texB) texB = texA;
     m_impl->spinnerActive = false;
 
-    struct UBO {
+    // alignas(8): MSL float2 fields force 8-byte struct alignment (sizeof 48);
+    // a plain scalar-float C++ mirror is 44 → bound buffer too small for dual_fs.
+    struct alignas(8) UBO {
         float dstSize[2];
         float srcSizeA[2];
         float srcSizeB[2];

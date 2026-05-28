@@ -522,7 +522,9 @@ void MetalCompositor::renderSources(void *encoderPtr,
     if (srcAW <= 0 || srcAH <= 0) { srcAW = dstWidth; srcAH = dstHeight; }
     if (srcBW <= 0 || srcBH <= 0) { srcBW = dstWidth; srcBH = dstHeight; }
 
-    struct UBO {
+    // alignas(8): MSL float2 fields force 8-byte struct alignment (sizeof 64);
+    // a plain scalar-float C++ mirror is 60 → bound buffer too small for fs_main.
+    struct alignas(8) UBO {
         float dstSizeX, dstSizeY;
         float srcSizeAX, srcSizeAY;
         float srcSizeBX, srcSizeBY;
@@ -607,7 +609,8 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
     vp.zfar    = 1.0;
     [enc setViewport:vp];
 
-    struct UBO {
+    // alignas(8): match MSL float2 alignment (sizeof 64 vs scalar-float 60).
+    struct alignas(8) UBO {
         float dstSizeX, dstSizeY;
         float srcSizeAX, srcSizeAY;
         float srcSizeBX, srcSizeBY;
