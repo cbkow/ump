@@ -2040,6 +2040,19 @@ void WindowManager::setSplitPos(qreal pos)
     emit splitPosChanged();
 }
 
+void WindowManager::setSplitSeamActive(bool active)
+{
+#ifdef QCV_NATIVE_PLAYER
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        if (auto *r = pw->renderer()) {
+            r->setSplitSeamHighlight(active ? 1.0f : 0.0f);
+        }
+    }
+#else
+    Q_UNUSED(active);
+#endif
+}
+
 // ---------------------------------------------------------------------------
 // Phase 7.4.a — image-sequence playback
 // ---------------------------------------------------------------------------

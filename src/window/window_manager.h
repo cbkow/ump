@@ -327,6 +327,12 @@ public:
     qreal splitPos() const { return m_splitPos; }
     void setSplitPos(qreal pos);
 
+    // Split-wipe seam highlight — true while the seam handle is
+    // hovered or being dragged, so the compositor draws the seam in
+    // full white instead of its faint-grey rest color. Transient UI
+    // state, forwarded straight to the renderer (no persistence).
+    Q_INVOKABLE void setSplitSeamActive(bool active);
+
     VideoDecoder *videoDecoder()  const { return m_videoDecoder;  }
     VideoDecoder *videoDecoderB() const { return m_videoDecoderB; }
     // Open a media file into Source B. Phase B minimum-viable —

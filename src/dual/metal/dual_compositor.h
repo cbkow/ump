@@ -79,6 +79,7 @@ public:
     // user toggles. Cheap atomic-style stores.
     void setMode(Mode m)              { m_mode = m; }
     void setSplitPos(float p)         { m_splitPos = p; }
+    void setSeamHighlight(float h)    { m_seamHighlight = h; }
     Mode mode() const                 { return m_mode; }
     float splitPos() const            { return m_splitPos; }
 
@@ -104,6 +105,7 @@ private:
     IDualPixbufConverter   *m_pixbufConverter  = nullptr;
     Mode  m_mode      = Single;
     float m_splitPos  = 0.5f;
+    float m_seamHighlight = 0.0f;
 };
 
 } // namespace qcv::dual

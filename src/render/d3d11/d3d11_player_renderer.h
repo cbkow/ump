@@ -57,6 +57,7 @@ public:
     void setOcio(OCIOConfigManager *o) override;
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
+    void setSplitSeamHighlight(float h) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;
@@ -143,6 +144,7 @@ private:
     SafetyOverlay             *m_safety    = nullptr;
     std::atomic<int>           m_compMode  {static_cast<int>(CompositorMode::Single)};
     std::atomic<float>         m_splitPos  {0.5f};
+    std::atomic<float>         m_splitSeamHighlight {0.0f};
     std::atomic<int>           m_bgMode    {static_cast<int>(BackgroundMode::Black)};
     std::atomic<bool>          m_aActive   {true};
     std::atomic<bool>          m_bActive   {true};

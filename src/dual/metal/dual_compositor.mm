@@ -32,6 +32,7 @@ struct UBO {
     float  splitPos;
     int    aActive;
     int    bActive;
+    float  seamHighlight;  // split seam: 0 = faint grey, 1 = white
 };
 
 struct VsOut {
@@ -106,6 +107,10 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
                             float2(halfW, u.dstSize.y),
                             u.srcSizeB);
         }
+        // Faint grey divider between the two sides.
+        if (abs(uv.x - 0.5) * u.dstSize.x < 1.0) {
+            return float4(0.4, 0.4, 0.4, 1.0);
+        }
     } else if (u.mode == 2) {
         if (uv.x < u.splitPos) {
             color = (u.aActive == 0)
@@ -120,8 +125,11 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
                             float2(0.0, 0.0),
                             u.dstSize, u.srcSizeB);
         }
+        // Split seam — faint grey at rest, full white on hover/drag.
         if (abs(uv.x - u.splitPos) * u.dstSize.x < 1.0) {
-            return float4(1.0, 1.0, 1.0, 1.0);
+            float3 seam = mix(float3(0.4, 0.4, 0.4), float3(1.0, 1.0, 1.0),
+                              saturate(u.seamHighlight));
+            return float4(seam, 1.0);
         }
     } else {
         color = (u.aActive == 0)
@@ -712,6 +720,7 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
         float splitPos;
         int   aActive;
         int   bActive;
+        float seamHighlight;
     };
     UBO ubo;
     ubo.dstSize[0]  = static_cast<float>(dstWidth);
@@ -724,6 +733,7 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
     ubo.splitPos    = m_splitPos;
     ubo.aActive     = aActive ? 1 : 0;
     ubo.bActive     = bActive ? 1 : 0;
+    ubo.seamHighlight = m_seamHighlight;
 
     [enc setRenderPipelineState:m_impl->pipeline];
     [enc setFragmentTexture:texA atIndex:0];

@@ -59,6 +59,7 @@ public:
     void setOcio(OCIOConfigManager *o) override;
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
+    void setSplitSeamHighlight(float h) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;

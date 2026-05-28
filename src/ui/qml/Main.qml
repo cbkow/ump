@@ -998,6 +998,15 @@ ApplicationWindow {
                                     if (!pressed) return;
                                     updateFromMouse(mouse.x);
                                 }
+                                // Light the seam full-white while the
+                                // handle is hovered or dragged; it
+                                // returns to faint grey otherwise.
+                                onContainsMouseChanged:
+                                    WindowManager.setSplitSeamActive(
+                                        containsMouse || pressed)
+                                onPressedChanged:
+                                    WindowManager.setSplitSeamActive(
+                                        containsMouse || pressed)
                             }
                         }
 

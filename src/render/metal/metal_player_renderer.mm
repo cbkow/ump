@@ -617,6 +617,10 @@ void MetalPlayerRenderer::setSplitPos(float p)
     m_splitPos = p;
     if (m_impl) m_impl->dualCompositor.setSplitPos(p);
 }
+void MetalPlayerRenderer::setSplitSeamHighlight(float h)
+{
+    if (m_impl) m_impl->dualCompositor.setSeamHighlight(h);
+}
 void MetalPlayerRenderer::setBackgroundMode(BackgroundMode m)       { m_bgMode = m; }
 void MetalPlayerRenderer::setSourceActivity(bool aActive, bool bActive)
 {

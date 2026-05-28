@@ -118,6 +118,9 @@ public:
     virtual void setOcio(OCIOConfigManager *o)             = 0;
     virtual void setCompositorMode(CompositorMode mode)    = 0;
     virtual void setSplitPos(float pos)                    = 0;
+    // Wipe split-seam highlight (0 grey / 1 white on hover/drag).
+    // Default no-op so platforms that don't draw a seam can ignore it.
+    virtual void setSplitSeamHighlight(float /*h*/) {}
     virtual void setBackgroundMode(BackgroundMode mode)    = 0;
 
     // Phase 7.5 B.6.5: the renderer queries the active stroke each

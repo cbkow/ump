@@ -69,6 +69,7 @@ cbuffer Constants : register(b0) {
     float  splitPos;      // 40
     int    aActive;       // 44
     int    bActive;       // 48
+    float  seamHighlight; // 52 — split seam: 0 = faint grey, 1 = white
 };
 
 Texture2D    srcA : register(t0);
@@ -117,6 +118,10 @@ float4 PSMain(VsOut input) : SV_TARGET
                 : sampleFit(srcB, smp, dstPx, float2(halfW, 0),
                             float2(halfW, dstSize.y), srcSizeB);
         }
+        // Faint grey divider between the two sides.
+        if (abs(uv.x - 0.5) * dstSize.x < 1.0) {
+            return float4(0.4, 0.4, 0.4, 1.0);
+        }
     } else if (mode == 2) {
         if (uv.x < splitPos) {
             color = (aActive == 0)
@@ -129,8 +134,12 @@ float4 PSMain(VsOut input) : SV_TARGET
                 : sampleFit(srcB, smp, dstPx, float2(0, 0),
                             dstSize, srcSizeB);
         }
+        // Split seam — faint grey at rest, full white on hover/drag.
         if (abs(uv.x - splitPos) * dstSize.x < 1.0) {
-            return float4(1, 1, 1, 1);
+            float3 seam = lerp(float3(0.4, 0.4, 0.4),
+                               float3(1.0, 1.0, 1.0),
+                               saturate(seamHighlight));
+            return float4(seam, 1.0);
         }
     } else {
         color = (aActive == 0)
@@ -170,7 +179,8 @@ struct DualCB {
     float splitPos;       // 36 : 40
     int   aActive;        // 40 : 44
     int   bActive;        // 44 : 48
-    float pad1[4];        // 48 : 64
+    float seamHighlight;  // 48 : 52
+    float pad1[3];        // 52 : 64
 };
 static_assert(sizeof(DualCB) == 64,
               "DualCB must match HLSL packing exactly.");
@@ -291,6 +301,7 @@ struct D3D11DualCompositor::Impl {
 
     int   mode     = 0;     // Single by default
     float splitPos = 0.5f;
+    float seamHighlight = 0.0f;   // split seam: 0 grey at rest, 1 white on hover/drag
 
     // Prepare → render handoff state. Set in prepareFrames, consumed
     // (and cleared) in renderFrame.
@@ -444,6 +455,12 @@ void D3D11DualCompositor::setSplitPos(float pos)
 {
     if (!m_impl) return;
     m_impl->splitPos = std::clamp(pos, 0.0f, 1.0f);
+}
+
+void D3D11DualCompositor::setSeamHighlight(float h)
+{
+    if (!m_impl) return;
+    m_impl->seamHighlight = std::clamp(h, 0.0f, 1.0f);
 }
 
 void D3D11DualCompositor::prepareFrames(void *ctxVoid)
@@ -619,6 +636,7 @@ void D3D11DualCompositor::renderFrame(void *ctxVoid, int dstW, int dstH)
     cb.splitPos    = m_impl->splitPos;
     cb.aActive     = m_impl->aActive ? 1 : 0;
     cb.bActive     = m_impl->bActive ? 1 : 0;
+    cb.seamHighlight = m_impl->seamHighlight;
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     ctx->Unmap(m_impl->cbuf.Get(), 0);
 

@@ -1266,6 +1266,8 @@ void D3D11PlayerRenderer::drawDualFrame()
     m_impl->dualCompositor.setMode(
         static_cast<CompositorMode>(m_compMode.load(std::memory_order_acquire)));
     m_impl->dualCompositor.setSplitPos(m_splitPos.load(std::memory_order_acquire));
+    m_impl->dualCompositor.setSeamHighlight(
+        m_splitSeamHighlight.load(std::memory_order_acquire));
 
     const int W = m_impl->currentW;
     const int H = m_impl->currentH;
@@ -1852,6 +1854,7 @@ void D3D11PlayerRenderer::setCompositorMode(CompositorMode m) {
     m_compMode.store(static_cast<int>(m)); requestUpdate();
 }
 void D3D11PlayerRenderer::setSplitPos(float p)            { m_splitPos.store(p); requestUpdate(); }
+void D3D11PlayerRenderer::setSplitSeamHighlight(float h)  { m_splitSeamHighlight.store(h); requestUpdate(); }
 void D3D11PlayerRenderer::setBackgroundMode(BackgroundMode m) {
     m_bgMode.store(static_cast<int>(m)); requestUpdate();
 }

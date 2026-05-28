@@ -63,6 +63,9 @@ public:
     // mode == Wipe.
     void setMode(CompositorMode mode);
     void setSplitPos(float pos);
+    // Wipe split-seam highlight: 0 = faint grey (rest), 1 = white
+    // (hover/drag of the seam handle). Ignored unless mode == Wipe.
+    void setSeamHighlight(float h);
 
     // Pull both sides' frames at the current master frame, drop
     // cache on seek/gen/past-end, UpdateSubresource into per-slot
