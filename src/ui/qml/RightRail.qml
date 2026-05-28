@@ -350,7 +350,7 @@ Pane {
                                                      : modelData.keysMac)
                                             color: "#888"
                                             font.pixelSize: 11
-                                            font.family: "Menlo, Monospace"
+                                            font.family: Theme.monoFamily
                                             horizontalAlignment: Text.AlignRight
                                         }
                                     }

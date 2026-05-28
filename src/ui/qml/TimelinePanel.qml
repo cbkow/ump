@@ -2397,7 +2397,7 @@ Pane {
                           ? editState.badgeText : ""
                     color: "#ffe6b6"
                     font.pixelSize: 11
-                    font.family: "Menlo, monospace"
+                    font.family: Theme.monoFamily
                 }
             }
         }
