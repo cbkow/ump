@@ -20,6 +20,10 @@ QtObject {
     readonly property color surface:      "#1a1a1a"
     readonly property color surfaceAlt:   "#1d1d1d"
     readonly property color surfaceHover: "#252525"
+    // Recessed well — DARKER than surface/bg. Used for inset list /
+    // tile bodies (e.g. the color panel reels) so they read as
+    // recessed against the panel by tone alone, no border needed.
+    readonly property color surfaceRecess: "#141414"
     readonly property color toolbar:      "#1f1f1f"
     readonly property color toolbarAlt:   "#262626"
     readonly property color border:       "#2a2a2a"

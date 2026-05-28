@@ -345,41 +345,37 @@ Pane {
                     Layout.fillWidth: true
                     placeholderText: qsTr("Filter…")
                     onTextChanged: presetColumn.filterText = text
-                    // Subtle border so the filter slot reads as a
-                    // defined input within the column, matching the
-                    // bordered list body below. Hover + focus lift
-                    // the fill; border turns accent on focus.
+                    // Borderless recessed slot — recess tone at rest
+                    // (matches the list well below), hover/focus lift
+                    // it, accent bottom-rule on focus.
                     background: Rectangle {
                         color: presetFilterField.activeFocus
                                ? Theme.surfaceHover
                                : (presetFilterField.hovered
-                                  ? Theme.surfaceAlt : Theme.surface)
-                        radius: Theme.radiusSmall
-                        border.width: Theme.borderWidth
-                        border.color: presetFilterField.activeFocus
-                                      ? Theme.accent : Theme.border
+                                  ? Theme.surfaceAlt : Theme.surfaceRecess)
+                        Rectangle {
+                            anchors.left:   parent.left
+                            anchors.right:  parent.right
+                            anchors.bottom: parent.bottom
+                            height: 1
+                            color: presetFilterField.activeFocus
+                                   ? Theme.accent : "transparent"
+                        }
                     }
                 }
 
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
-                    // One shade lighter than the app bg so the list
-                    // surface visibly lifts off the panel — sells the
-                    // Preset column as the entry point.
-                    color: Theme.surface
+                    // Recessed well — darker than the panel so the
+                    // list reads as inset by tone alone (no border).
+                    color: Theme.surfaceRecess
                     radius: Theme.radiusSmall
-                    border.width: Theme.borderWidth
-                    border.color: Theme.border
                     clip: true
 
                     ListView {
                         id: presetList
                         anchors.fill: parent
-                        // Inset by the border width so the sticky
-                        // section headers (opaque Theme.surface bands)
-                        // don't paint over the panel's border.
-                        anchors.margins: Theme.borderWidth
                         clip: true
                         boundsBehavior: Flickable.StopAtBounds
                         model: WindowManager.presets
@@ -394,7 +390,7 @@ Pane {
                             // Match the list bg so the section header
                             // reads as a label on the same surface as
                             // the items, not a contrasting stripe.
-                            color: Theme.surface
+                            color: Theme.surfaceRecess
                             Text {
                                 anchors.fill: parent
                                 anchors.leftMargin: 6
@@ -910,16 +906,21 @@ Pane {
             visible: reel.showFilter && (!reel.expandable || reel.expanded)
             placeholderText: qsTr("Filter…")
             onTextChanged: reel.filterText = text
-            // Subtle border so the filter slot reads as a defined
-            // input within the column, matching the bordered list
-            // body below it. Border turns accent on focus.
+            // Recessed fill matching the column's list well below;
+            // borderless, hover/focus lift, accent bottom-rule on focus.
             background: Rectangle {
-                color: reelFilterField.activeFocus ? Theme.surface
-                       : (reelFilterField.hovered ? Theme.bgAlt : Theme.bg)
-                radius: Theme.radiusSmall
-                border.width: Theme.borderWidth
-                border.color: reelFilterField.activeFocus
-                              ? Theme.accent : Theme.border
+                color: reelFilterField.activeFocus
+                       ? Theme.surfaceHover
+                       : (reelFilterField.hovered
+                          ? Theme.surfaceAlt : Theme.surfaceRecess)
+                Rectangle {
+                    anchors.left:   parent.left
+                    anchors.right:  parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: reelFilterField.activeFocus
+                           ? Theme.accent : "transparent"
+                }
             }
         }
 
@@ -928,10 +929,8 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !reel.expandable || reel.expanded
-            color: reel.enabled ? Theme.bg : Theme.bgAlt
+            color: reel.enabled ? Theme.surfaceRecess : Theme.bgAlt
             radius: Theme.radiusSmall
-            border.width: Theme.borderWidth
-            border.color: Theme.border
             clip: true
             opacity: reel.enabled ? 1.0 : 0.55
 
@@ -999,9 +998,8 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: reel.expandable && !reel.expanded
-            color: reelExpandMa.containsMouse ? Theme.surfaceHover : Theme.bg
-            border.width: Theme.borderWidth
-            border.color: Theme.border
+            color: reelExpandMa.containsMouse ? Theme.surfaceHover : Theme.surfaceRecess
+            border.width: 0
             radius: Theme.radiusSmall
 
             MouseArea {
@@ -1147,12 +1145,10 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: tile.expanded
-            // Subtle border defines the tile against the panel.
-            // Hover lifts the fill; loaded-state cue lives on the
-            // identity icon (Theme.success) inside.
-            color: tileMa.containsMouse ? Theme.surfaceHover : Theme.bg
-            border.width: Theme.borderWidth
-            border.color: Theme.border
+            // Borderless recessed well. Hover lifts the fill; loaded-
+            // state cue lives on the identity icon (Theme.success).
+            color: tileMa.containsMouse ? Theme.surfaceHover : Theme.surfaceRecess
+            border.width: 0
             radius: Theme.radiusSmall
 
             // Body click target. Declared first so the corner ✕
@@ -1265,12 +1261,10 @@ Pane {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !tile.expanded
-            // Subtle border defines the strip against the panel.
-            // Hover lifts the fill; loaded-state cue lives on the
-            // identity icon (Theme.success).
-            color: collapsedMa.containsMouse ? Theme.surfaceHover : Theme.bg
-            border.width: Theme.borderWidth
-            border.color: Theme.border
+            // Borderless recessed well. Hover lifts the fill; loaded-
+            // state cue lives on the identity icon (Theme.success).
+            color: collapsedMa.containsMouse ? Theme.surfaceHover : Theme.surfaceRecess
+            border.width: 0
             radius: Theme.radiusSmall
 
             MouseArea {
