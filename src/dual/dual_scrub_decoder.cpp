@@ -184,6 +184,14 @@ bool DualScrubDecoder::initFFmpeg(const QString &path)
     const bool kHwDecodeEnabled = QSettings().value(
         QStringLiteral("performance/hardwareDecodeEnabled"), true).toBool();
     const bool kForceSoftwareDecode = !kHwDecodeEnabled;
+#elif defined(Q_OS_MACOS)
+    // Force software on macOS. Scrub always transfers HW frames back to
+    // CPU (av_hwframe_transfer_data + sws_scale below), so VideoToolbox
+    // buys it almost nothing — yet each scrub side opens its own VT
+    // session and competes with the two streaming DualVideoDecoder VT
+    // sessions, stalling the B-side scrub at startup. Keeping scrub on
+    // the CPU leaves every VT session for playback.
+    const bool kForceSoftwareDecode = true;
 #else
     const bool kForceSoftwareDecode = false;
 #endif
@@ -194,9 +202,14 @@ bool DualScrubDecoder::initFFmpeg(const QString &path)
             m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
             m_cctx->get_format = hwaccelGetFormat;
         }
-    } else if (kForceSoftwareDecode) {
+    } else if (kForceSoftwareDecode && intraOnly) {
+#if defined(Q_OS_MACOS)
+        qInfo("DualScrubDecoder: software decode (kept off the GPU so it "
+              "doesn't compete with playback VideoToolbox)");
+#else
         qInfo("DualScrubDecoder: software decode forced — "
               "performance/hardwareDecodeEnabled is off");
+#endif
     }
 
     if (avcodec_open2(m_cctx, codec, nullptr) < 0) return false;
