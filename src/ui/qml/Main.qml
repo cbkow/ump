@@ -458,14 +458,18 @@ ApplicationWindow {
                 enabled: false
             }
             ThemedMenuSeparator {}
-            // Sparkle auto-updater (macOS only — Windows uses the
-            // Microsoft Store). Shows Sparkle's standard update UI.
-            Action {
-                // Updater is macOS-only (Windows uses the Microsoft
-                // Store); greyed out elsewhere. Menu Actions don't
-                // support `visible`, so we gate on `enabled`.
+            // Sparkle auto-updater is macOS-only — Windows ships via the
+            // Microsoft Store / signed sideload, so there's no in-app
+            // update check (WindowManager.checkForUpdates() is a compiled
+            // no-op off macOS; see sparkle_updater_macos.h). Hide the item
+            // entirely rather than greying it out. A MenuItem (not Action)
+            // is used because only MenuItem exposes `visible`; ThemedMenu
+            // has no custom delegate, so Fusion styles it like the Actions
+            // here. height:0 when hidden so it leaves no gap.
+            MenuItem {
                 text: qsTr("Check for Updates…")
-                enabled: Qt.platform.os === "osx"
+                visible: Qt.platform.os === "osx"
+                height: visible ? implicitHeight : 0
                 onTriggered: WindowManager.checkForUpdates()
             }
             Action {
