@@ -41,6 +41,25 @@ if(NOT QCV_PWSH)
     return()
 endif()
 
+# Resolve windeployqt so build_msix.ps1 can deploy the Qt runtime before
+# packing. Nothing else in the build stages Qt (vcpkg's applocal POST_BUILD
+# only deploys vcpkg-managed DLLs; Qt comes from the Qt installer, not
+# vcpkg), so without this the MSIX ships no Qt6 DLLs/plugins and won't
+# launch. Prefer the imported tool target; fall back to a path search
+# rooted at the Qt package dir.
+if(TARGET Qt6::windeployqt)
+    set(_qcv_windeployqt "$<TARGET_FILE:Qt6::windeployqt>")
+else()
+    find_program(QCV_WINDEPLOYQT NAMES windeployqt
+        HINTS "${Qt6_DIR}/../../../bin" "${QT6_INSTALL_PREFIX}/bin")
+    if(NOT QCV_WINDEPLOYQT)
+        message(WARNING
+            "windeployqt not found — qcview_msix would produce a Qt-less, non-launching MSIX. "
+            "Ensure Qt6_DIR points at a full Qt install and re-run configure.")
+    endif()
+    set(_qcv_windeployqt "${QCV_WINDEPLOYQT}")
+endif()
+
 # ---- qcview_msix ----
 add_custom_target(qcview_msix
     COMMAND "${QCV_PWSH}" -NoProfile -ExecutionPolicy Bypass
@@ -50,6 +69,9 @@ add_custom_target(qcview_msix
         -ManifestPath "${_manifest_out}"
         -ImagesDir   "${CMAKE_CURRENT_SOURCE_DIR}/msix/images"
         -OutputDir   "${CMAKE_CURRENT_SOURCE_DIR}/msix/dist"
+        -WinDeployQt "${_qcv_windeployqt}"
+        -QmlDir      "${CMAKE_SOURCE_DIR}/src/ui/qml"
+        -Config      "$<IF:$<CONFIG:Debug>,debug,release>"
     DEPENDS qcview
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     COMMENT "Packaging QCView ${PROJECT_VERSION} as MSIX (output: installer/msix/dist/)"

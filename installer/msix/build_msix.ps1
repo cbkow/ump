@@ -28,7 +28,13 @@ param(
     [Parameter(Mandatory)] [string] $Version,
     [Parameter()]          [string] $OutputDir = (Join-Path $PSScriptRoot "dist"),
     [Parameter()]          [string] $ManifestPath = (Join-Path $PSScriptRoot "AppxManifest.xml"),
-    [Parameter()]          [string] $ImagesDir   = (Join-Path $PSScriptRoot "images")
+    [Parameter()]          [string] $ImagesDir   = (Join-Path $PSScriptRoot "images"),
+    # Qt runtime deployment. CMake passes the resolved windeployqt path and the
+    # QML source dir; without this the package would ship no Qt DLLs/plugins
+    # (vcpkg's applocal step never deploys Qt -- Qt is not a vcpkg package).
+    [Parameter()]          [string] $WinDeployQt = "",
+    [Parameter()]          [string] $QmlDir      = "",
+    [Parameter()]          [string] $Config      = "release"
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,6 +76,38 @@ if (-not (Test-Path $ManifestPath)) {
 }
 if (-not (Test-Path $ImagesDir)) {
     throw "Tile images dir not found at $ImagesDir."
+}
+
+# --- Deploy the Qt runtime ------------------------------------------------
+# windeployqt copies Qt6*.dll + the platform/imageformat/tls plugins + the
+# qml/ module tree next to qcview.exe. MUST run before staging: the stage
+# step below only copies whatever DLLs/plugin dirs already sit in $BuildDir,
+# and nothing else in the build deploys Qt (vcpkg applocal handles only
+# vcpkg-managed DLLs). Skipping it yields a ~60-DLL, Qt-less package that
+# won't launch.
+if ($WinDeployQt -and (Test-Path $WinDeployQt)) {
+    Write-Host "Deploying Qt runtime via $WinDeployQt ..."
+    $wdqArgs = @("--$Config", "--no-translations", "--compiler-runtime")
+    if ($QmlDir -and (Test-Path $QmlDir)) { $wdqArgs += @("--qmldir", $QmlDir) }
+    $wdqArgs += $exe
+    # Retry loop: windeployqt occasionally fails to overwrite a just-written
+    # redistributable (commonly d3dcompiler_47.dll) while Defender/SmartScreen
+    # is mid-scan -- "being used by another process". The lock is transient; a
+    # short wait clears it, and already-deployed DLLs are skipped as up-to-date
+    # on the retry.
+    $maxTries = 3
+    for ($i = 1; $i -le $maxTries; $i++) {
+        & $WinDeployQt @wdqArgs
+        if ($LASTEXITCODE -eq 0) { break }
+        if ($i -eq $maxTries) { throw "windeployqt failed after $maxTries attempts (exit $LASTEXITCODE)" }
+        Write-Warning "windeployqt attempt $i failed (exit $LASTEXITCODE) -- transient file lock? retrying in 3s ..."
+        Start-Sleep -Seconds 3
+    }
+    if (-not (Test-Path (Join-Path $BuildDir "Qt6Core.dll"))) {
+        throw "windeployqt ran but Qt6Core.dll is missing from $BuildDir -- aborting before packing an incomplete MSIX."
+    }
+} else {
+    throw "WinDeployQt not provided or not found ('$WinDeployQt'). Cannot produce a complete MSIX without the Qt runtime. Re-run CMake configure so the qcview_msix target resolves windeployqt."
 }
 
 # --- Stage payload --------------------------------------------------------
