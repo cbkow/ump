@@ -33,6 +33,7 @@ public:
     // ---- IDualFrameSource ----
     int  currentFrame() override;
     int  timelineGeneration() override;
+    bool isScrubbing() override;
     bool aPastEnd(int master) override;
     bool bPastEnd(int master) override;
     DualFramePayload pullA(int master) override;

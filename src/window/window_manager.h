@@ -1398,6 +1398,29 @@ public:
     // and `srcFrame = (timelinePos - clipStart + sourceIn) * srcFps`
     // is fed to ScrubDecoder. No-op outside playlist mode.
     Q_INVOKABLE void scrubToTimelineFrame(int frame);
+
+    // ---- Live viewport feedback during clip slip/trim edits ----
+    // The QML timeline edit gesture brackets a drag with these:
+    // beginEditScrub on drag-start, previewEditScrubFrame per delta
+    // (sourceFrame is the edited clip's target source frame — the
+    // playhead-translated frame for slip, the dragged edge for trim),
+    // endEditScrub on release/cancel to restore the playhead frame.
+    // Routes per mode: dual → DualPlaybackController per-side scrub
+    // (no master-clock move); playlist video → the shared ScrubDecoder.
+    // sourceFrame < 0 is a no-op (slip with playhead off the clip).
+    // Only active in dual or playlist mode; no plain-single path.
+    Q_INVOKABLE void beginEditScrub();
+    Q_INVOKABLE void previewEditScrubFrame(const QString &trackId,
+                                           const QString &clipId,
+                                           int sourceFrame);
+    Q_INVOKABLE void endEditScrub();
+
+private:
+    bool m_editScrubActive       = false;
+    int  m_editScrubRestoreMaster = 0;   // dual: pre-edit master frame
+    int  m_editScrubRestoreFrame  = -1;  // playlist: pre-edit source frame
+
+public:
 };
 
 } // namespace qcv

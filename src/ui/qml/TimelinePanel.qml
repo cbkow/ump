@@ -316,6 +316,11 @@ Pane {
             ghostW: ghostWidthPx,
             badgeText: "",
             cursorX: mouseXTrack,
+            // Source fps for sec→frame conversion when driving the
+            // live scrub-preview frame during slip/trim (see
+            // updateEditAtTrackX). Falls back to the master frameRate.
+            sourceFps: (c.sourceFps && c.sourceFps > 0)
+                       ? c.sourceFps : root.frameRate,
         };
         // Phase 3.H.4 Stage B — reorder needs a snapshot of EVERY
         // track-A clip so the live ripple preview can mutate them
@@ -364,6 +369,18 @@ Pane {
             if (editState.op === "reorder") {
                 root.reorderActive = true;
             }
+            // Begin a scrub session for slip/trim/slide so the viewport
+            // shows the edited frame live as the drag proceeds. slide
+            // moves the clip under a fixed playhead, so the content there
+            // changes too — and without the scrub bracket it would
+            // flicker (the gen-bump drops the compositor cache while the
+            // parked decoder can't supply the shifting source frame).
+            // reorder (playlist) is excluded. endEditScrub fires from
+            // commitCurrentEdit / Esc.
+            if (editState.op === "slip" || editState.op === "trimHead"
+                || editState.op === "trimTail" || editState.op === "slide") {
+                WindowManager.beginEditScrub();
+            }
         }
         if (editState.op === "reorder") {
             root.reorderCursorX = trackX;
@@ -388,6 +405,11 @@ Pane {
             ctl.previewTrimHead(editState.trackId, editState.clipId,
                                   newStartTime, actualSourceIn);
             badge = qsTr("head ") + tcLabel(actualSourceIn);
+            // Show the new in-edge frame in the viewport (transient;
+            // playhead unmoved).
+            WindowManager.previewEditScrubFrame(
+                editState.trackId, editState.clipId,
+                Math.round(actualSourceIn * editState.sourceFps));
         } else if (editState.op === "trimTail") {
             const minDur = 1.0 / Math.max(1.0, frameRate);
             const newSourceOut =
@@ -396,11 +418,29 @@ Pane {
             ctl.previewTrimTail(editState.trackId, editState.clipId,
                                   newSourceOut);
             badge = qsTr("tail ") + tcLabel(newSourceOut);
+            // Show the new out-edge frame in the viewport (transient;
+            // playhead unmoved).
+            WindowManager.previewEditScrubFrame(
+                editState.trackId, editState.clipId,
+                Math.round(newSourceOut * editState.sourceFps));
         } else if (editState.op === "slide") {
             const newStartTime = Math.max(0, orig.startTime + deltaSec);
             ctl.previewSlide(editState.trackId, editState.clipId,
                               newStartTime);
             badge = qsTr("start ") + tcLabel(newStartTime);
+            // Slide keeps sourceIn but moves the clip in time, so the
+            // content under the (fixed) playhead changes. Show it when
+            // the playhead is over the clip's new span; else -1 (hold).
+            const pheadSec = root.position;
+            let slideFrame = -1;
+            if (pheadSec >= newStartTime
+                && pheadSec < newStartTime + orig.duration) {
+                slideFrame = Math.round(
+                    ((pheadSec - newStartTime) + orig.sourceIn)
+                    * editState.sourceFps);
+            }
+            WindowManager.previewEditScrubFrame(
+                editState.trackId, editState.clipId, slideFrame);
         } else if (editState.op === "slip") {
             let dIn  = orig.sourceIn  + deltaSec;
             let dOut = orig.sourceOut + deltaSec;
@@ -411,6 +451,18 @@ Pane {
             ctl.previewSlip(editState.trackId, editState.clipId,
                              dIn, dOut);
             badge = qsTr("slip ") + tcLabel(dIn);
+            // Slip keeps startTime/duration; show the content now under
+            // the playhead (translated through the new sourceIn). Only
+            // when the playhead is over the clip — else -1 (no update).
+            const pheadSec = root.position;
+            let slipFrame = -1;
+            if (pheadSec >= orig.startTime
+                && pheadSec < orig.startTime + orig.duration) {
+                slipFrame = Math.round(
+                    ((pheadSec - orig.startTime) + dIn) * editState.sourceFps);
+            }
+            WindowManager.previewEditScrubFrame(
+                editState.trackId, editState.clipId, slipFrame);
         } else if (editState.op === "reorder") {
             // Slot-based reorder with live ripple preview. Walk the
             // "without dragged" arrangement (all other clips
@@ -499,6 +551,7 @@ Pane {
         const orig = editState.originalSnapshot;
         const cur  = clipById(editState.trackId, editState.clipId);
         if (!ctl || !cur) {
+            WindowManager.endEditScrub();   // no-op if none active
             editState = ({});
             return;
         }
@@ -541,6 +594,10 @@ Pane {
             ctl.slipClip(editState.trackId, editState.clipId,
                           finalState.sourceIn, finalState.sourceOut);
         }
+        // End the scrub session AFTER the edit commits so the dual
+        // warm-seek lands on the final timeline (no intermediate flash).
+        // No-op for slide/reorder (no scrub was begun).
+        WindowManager.endEditScrub();
         editState = ({});
     }
 
@@ -685,6 +742,9 @@ Pane {
                                               editState.clipId,
                                               editState.originalSnapshot);
                 }
+                // Restore the viewport to the playhead frame (no-op if
+                // no scrub session was begun, e.g. reorder/slide).
+                WindowManager.endEditScrub();
                 editState = ({});
             } else {
                 root.clearSelection();

@@ -1098,8 +1098,24 @@ void DualVideoDecoder::publishExternalFrame(int frameNumber,
     // single-flow's VideoDecoder::publishExternalFrame and so future
     // logging / drift detection can use it without an API change.
     (void)frameNumber;
-    std::lock_guard<std::mutex> lk(m_scrubMutex);
-    m_scrubFrame = std::move(frame);
+    {
+        std::lock_guard<std::mutex> lk(m_scrubMutex);
+        m_scrubFrame = std::move(frame);
+    }
+    // Wake the renderer — a freshly scrubbed frame is now pullable via
+    // getScrubFrame. Essential on Windows' render-on-demand loop: a clip
+    // slip/trim/slide edit drives the scrub decoder WITHOUT moving the
+    // master timer, so the currentFrameChanged → requestUpdate wake never
+    // fires; without this the published scrub frame would never be pulled
+    // and the edit feedback would appear frozen. (macOS redraws every
+    // vsync, so this is a cheap no-op there.) Fired outside m_scrubMutex,
+    // matching the streaming-decode wake pattern above.
+    FrameAvailableCallback cb;
+    {
+        std::lock_guard<std::mutex> lk(m_callbackMutex);
+        cb = m_onFrameAvailable;
+    }
+    if (cb) cb();
 }
 
 std::shared_ptr<DualFrame> DualVideoDecoder::getScrubFrame() const
