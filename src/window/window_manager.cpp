@@ -1223,6 +1223,7 @@ bool WindowManager::createPlayerWindow()
         r->setBackgroundMode(static_cast<qcv::BackgroundMode>(m_backgroundMode));
         r->setCompositorMode(static_cast<qcv::CompositorMode>(m_compositorMode));
         r->setSplitPos(static_cast<float>(m_splitPos));
+        r->setDiffGain(static_cast<float>(m_diffGain));
     }
     nativePlayer->setViewportAnnotator(m_annotator.get());
 
@@ -1897,8 +1898,8 @@ void WindowManager::setCompositorMode(int mode)
         }
         qInfo("WindowManager: Dual→Single transition complete");
     }
-    // else: dual ↔ dual (SBS ↔ Wipe) — already handled by the
-    // renderer.setCompositorMode push above.
+    // else: dual ↔ dual (SBS ↔ Wipe ↔ Difference) — already handled by
+    // the renderer.setCompositorMode push above.
 
     emit compositorModeChanged();
 }
@@ -2108,6 +2109,23 @@ void WindowManager::setSplitPos(qreal pos)
     }
 #endif
     emit splitPosChanged();
+}
+
+void WindowManager::setDiffGain(qreal gain)
+{
+    // Difference-mode amplification. 1.0 = raw Adobe-style abs(A-B).
+    if (gain < 1.0)  gain = 1.0;
+    if (gain > 16.0) gain = 16.0;
+    if (qFuzzyCompare(m_diffGain, gain)) return;
+    m_diffGain = gain;
+#ifdef QCV_NATIVE_PLAYER
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        if (auto *r = pw->renderer()) {
+            r->setDiffGain(static_cast<float>(gain));
+        }
+    }
+#endif
+    emit diffGainChanged();
 }
 
 void WindowManager::setSplitSeamActive(bool active)

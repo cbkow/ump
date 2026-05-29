@@ -66,6 +66,9 @@ public:
     // Wipe split-seam highlight: 0 = faint grey (rest), 1 = white
     // (hover/drag of the seam handle). Ignored unless mode == Wipe.
     void setSeamHighlight(float h);
+    // Difference-mode amplification (1.0 = raw abs(A-B)). Ignored unless
+    // mode == Difference.
+    void setDiffGain(float g);
 
     // Pull both sides' frames at the current master frame, drop
     // cache on seek/gen/past-end, UpdateSubresource into per-slot

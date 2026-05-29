@@ -38,6 +38,7 @@ public:
         Single     = 0,
         SideBySide = 1,
         SplitWipe  = 2,
+        Difference = 3,
     };
 
     DualCompositor();
@@ -80,6 +81,7 @@ public:
     void setMode(Mode m)              { m_mode = m; }
     void setSplitPos(float p)         { m_splitPos = p; }
     void setSeamHighlight(float h)    { m_seamHighlight = h; }
+    void setDiffGain(float g)         { m_diffGain = g; }   // Difference amplify
     Mode mode() const                 { return m_mode; }
     float splitPos() const            { return m_splitPos; }
 
@@ -116,6 +118,7 @@ private:
     Mode  m_mode      = Single;
     float m_splitPos  = 0.5f;
     float m_seamHighlight = 0.0f;
+    float m_diffGain  = 1.0f;
 };
 
 } // namespace qcv::dual

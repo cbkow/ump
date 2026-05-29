@@ -35,10 +35,12 @@ struct ActiveStroke;
 //   Single = one source, full frame
 //   SideBySide = two sources, split horizontally at splitPos
 //   Wipe       = two sources, hard split with draggable wipe
+//   Difference = two sources, per-channel abs(A-B) * diffGain (Adobe-style)
 enum class CompositorMode {
     Single = 0,
     SideBySide = 1,
     Wipe = 2,
+    Difference = 3,
 };
 
 // Mirror of WindowManager::HdrMode. Kept in sync at the seam — we
@@ -121,6 +123,9 @@ public:
     // Wipe split-seam highlight (0 grey / 1 white on hover/drag).
     // Default no-op so platforms that don't draw a seam can ignore it.
     virtual void setSplitSeamHighlight(float /*h*/) {}
+    // Difference-mode amplification gain (1.0 = raw abs(A-B)). Default
+    // no-op for platforms without the dual difference shader.
+    virtual void setDiffGain(float /*g*/) {}
     // Loading indicator — while true the render thread draws an
     // animated spinner over the viewport (the main thread is blocked
     // opening media/project, so only the independent render thread can

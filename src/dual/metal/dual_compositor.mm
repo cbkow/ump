@@ -29,11 +29,12 @@ struct UBO {
     float2 dstSize;
     float2 srcSizeA;
     float2 srcSizeB;
-    int    mode;       // 0=Single, 1=SBS, 2=Wipe
+    int    mode;       // 0=Single, 1=SBS, 2=Wipe, 3=Difference
     float  splitPos;
     int    aActive;
     int    bActive;
     float  seamHighlight;  // split seam: 0 = faint grey, 1 = white
+    float  diffGain;       // Difference mode: amplify abs(A-B)
 };
 
 struct VsOut {
@@ -132,6 +133,20 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
                               saturate(u.seamHighlight));
             return float4(seam, 1.0);
         }
+    } else if (u.mode == 3) {
+        // Difference (Adobe-style) — both sides fit the FULL canvas,
+        // output |A - B| per channel * gain. Perfectly aligned same-res
+        // pair → 0 → black; gain stays black at 0 (gain * 0 = 0).
+        float4 ca = (u.aActive == 0)
+            ? float4(0.0)
+            : sampleFit(srcA, smp, dstPx,
+                        float2(0.0, 0.0), u.dstSize, u.srcSizeA);
+        float4 cb = (u.bActive == 0)
+            ? float4(0.0)
+            : sampleFit(srcB, smp, dstPx,
+                        float2(0.0, 0.0), u.dstSize, u.srcSizeB);
+        color = float4(abs(ca.rgb - cb.rgb) * u.diffGain,
+                       max(ca.a, cb.a));
     } else {
         color = (u.aActive == 0)
             ? float4(0.0)
@@ -734,6 +749,7 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
         int   aActive;
         int   bActive;
         float seamHighlight;
+        float diffGain;
     };
     UBO ubo;
     ubo.dstSize[0]  = static_cast<float>(dstWidth);
@@ -747,6 +763,7 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
     ubo.aActive     = aActive ? 1 : 0;
     ubo.bActive     = bActive ? 1 : 0;
     ubo.seamHighlight = m_seamHighlight;
+    ubo.diffGain    = m_diffGain;
 
     [enc setRenderPipelineState:m_impl->pipeline];
     [enc setFragmentTexture:texA atIndex:0];
