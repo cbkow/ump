@@ -479,11 +479,17 @@ void D3D11DualCompositor::prepareFrames(void *ctxVoid)
     const int masterFrame = src->currentFrame();
 
     // Drop cache on timeline edit (timelineChanged → gen bump in
-    // DualPlaybackController::setTimeline).
+    // DualPlaybackController::setTimeline). EXCEPT during a live
+    // scrub/edit session: slip/trim bumps the generation every drag
+    // delta, and dropping the last-good cache each tick flickers black
+    // on any null pull (scrub frame not yet decoded / transient gap).
+    // Keep the cache as the fallback during scrub; just sync the marker.
     const int curGen = src->timelineGeneration();
     if (curGen != m_impl->cachedGeneration) {
-        m_impl->cachedA.reset();
-        m_impl->cachedB.reset();
+        if (!src->isScrubbing()) {
+            m_impl->cachedA.reset();
+            m_impl->cachedB.reset();
+        }
         m_impl->cachedGeneration = curGen;
     }
 

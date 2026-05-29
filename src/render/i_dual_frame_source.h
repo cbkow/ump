@@ -88,6 +88,14 @@ public:
     // stale pixels — see guide 23 §4.2.
     virtual int timelineGeneration() = 0;
 
+    // True during a live scrub/edit session (beginScrub..endScrub). The
+    // compositor reads this to KEEP its last-good per-side cache across
+    // the generation bumps that a slip/trim edit fires every drag delta
+    // — otherwise it drops the cache each tick and flickers black on a
+    // null pull. Fresh scrub frames stream in during a scrub, so holding
+    // the last good frame is correct.
+    virtual bool isScrubbing() = 0;
+
     // True when `master` is past the end of side A / B's natural
     // duration. Sides past their end render transparent (background
     // shows through) rather than holding a stale frame.

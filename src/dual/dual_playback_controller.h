@@ -123,6 +123,18 @@ public:
     Q_INVOKABLE void requestScrubFrame(int masterFrame);
     Q_INVOKABLE void endScrub(int finalMasterFrame);
 
+    // ---- Per-side scrub for clip-edit feedback (slip/trim) ----
+    // Unlike requestScrubFrame (which drives BOTH sides off a master
+    // frame AND moves the master timer), this displays a specific
+    // SOURCE frame on ONE side without touching the master clock — so
+    // a trim-edge preview can show without moving the playhead/CTI.
+    // Must be called inside a beginScrub / endScrub bracket. Video
+    // side → the side's scrub decoder (publishes the scrub slot read
+    // by pullFrame); image-seq side → setDecodeTarget plus an override
+    // so pullFrame returns getClosestFrame(override) decoupled from the
+    // (unchanged) master frame. side is 'A' or 'B'. Cleared by endScrub.
+    Q_INVOKABLE void requestScrubFrameForSide(char side, int sourceFrame);
+
     // ---- Q_PROPERTY accessors ----
     int    currentFrame() const;
     int    frameCount() const;
@@ -189,6 +201,18 @@ public:
     // source mapping for both decoders.
     int timelineGeneration() const {
         return m_timelineGeneration.load(std::memory_order_acquire);
+    }
+
+    // True between beginScrub and endScrub. The compositor reads this
+    // to KEEP its last-good per-side cache across the generation bumps
+    // that a live slip/trim edit fires every drag delta — otherwise it
+    // would drop the cache each tick and flicker black on any null pull
+    // (scrub frame not yet decoded / transient gap). Fresh scrub frames
+    // arrive continuously during a scrub, so holding the last good frame
+    // is correct; the drop-on-edit behavior is for paused committed
+    // edits where the decoder is catching up.
+    bool isScrubbing() const {
+        return m_scrubActive.load(std::memory_order_acquire);
     }
 
     // Force a generation bump. The compositor uses the gen counter
@@ -283,6 +307,13 @@ private:
     // route to the scrub publish slot, and in the pump's pump-tick
     // path (indirectly, via each video source's own m_scrubActive).
     std::atomic<bool>                   m_scrubActive{false};
+    // Per-side explicit scrub source frame for clip-edit feedback
+    // (requestScrubFrameForSide). -1 = no override → pullFrame uses
+    // the normal master-frame translation. >=0 decouples an image-seq
+    // side's displayed frame from the master clock (video sides use
+    // the scrub publish slot and ignore this). Reset to -1 in endScrub.
+    std::atomic<int>                    m_scrubOverrideA{-1};
+    std::atomic<int>                    m_scrubOverrideB{-1};
 
     int    m_masterFrameCount = 0;
     double m_masterFps        = 0.0;

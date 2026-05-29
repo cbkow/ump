@@ -3421,6 +3421,72 @@ void WindowManager::scrubToTimelineFrame(int frame)
     m_timeline->timer()->seek(pos);
 }
 
+void WindowManager::beginEditScrub()
+{
+    // Edits are a paused activity — stop playback so the streaming
+    // decoder doesn't overwrite the scrub-preview frame. pause() is a
+    // safe no-op when already paused.
+    pause();
+
+    if (m_dualController) {
+        // Capture the pre-edit playhead BEFORE beginScrub so endScrub
+        // can warm-seek both sides back to it (restores the displayed
+        // frame without the edit having moved the CTI).
+        m_editScrubRestoreMaster = m_dualController->currentFrame();
+        m_dualController->beginScrub();
+        m_editScrubActive = true;
+        return;
+    }
+    if (m_playlistActive && m_videoDecoder) {
+        // The shared ScrubDecoder is already open on the active clip;
+        // remember the displayed source frame to repaint on release.
+        m_editScrubRestoreFrame = m_videoDecoder->currentFrame();
+        m_editScrubActive = true;
+    }
+}
+
+void WindowManager::previewEditScrubFrame(const QString &trackId,
+                                          const QString &clipId,
+                                          int sourceFrame)
+{
+    if (!m_editScrubActive || sourceFrame < 0) return;
+
+    if (m_dualController) {
+        const char side = (trackId == QLatin1String("B")) ? 'B' : 'A';
+        m_dualController->requestScrubFrameForSide(side, sourceFrame);
+        return;
+    }
+    if (m_playlistActive && m_scrubDecoder) {
+        // Only drive feedback when the edited clip is the one the
+        // single, shared ScrubDecoder is currently open on — otherwise
+        // we'd decode a different clip's media. Editing a non-active
+        // clip simply shows no preview (the prior behavior).
+        const Clip *active = playlistActiveClip();
+        if (!active || active->id != clipId) return;
+        m_scrubDecoder->requestFrame(sourceFrame);
+    }
+}
+
+void WindowManager::endEditScrub()
+{
+    if (!m_editScrubActive) return;
+    m_editScrubActive = false;
+
+    if (m_dualController) {
+        // Wakes the streaming decoders, clears the per-side overrides,
+        // and warm-seeks both sides + the master timer back to the
+        // pre-edit playhead.
+        m_dualController->endScrub(m_editScrubRestoreMaster);
+        return;
+    }
+    if (m_playlistActive && m_scrubDecoder && m_editScrubRestoreFrame >= 0) {
+        // Latest-wins repaint of the pre-edit frame; the timer never
+        // moved during the edit.
+        m_scrubDecoder->requestFrame(m_editScrubRestoreFrame);
+    }
+    m_editScrubRestoreFrame = -1;
+}
+
 double WindowManager::activeClockFps() const
 {
     // Mirrors currentFrameUnified()'s fps basis so the legacy

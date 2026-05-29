@@ -78,6 +78,11 @@ int WindowManagerDualSourceAdapter::timelineGeneration()
     return m_controller ? m_controller->timelineGeneration() : 0;
 }
 
+bool WindowManagerDualSourceAdapter::isScrubbing()
+{
+    return m_controller ? m_controller->isScrubbing() : false;
+}
+
 bool WindowManagerDualSourceAdapter::aPastEnd(int master)
 {
     return m_controller ? m_controller->aPastEnd(master) : true;

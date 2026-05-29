@@ -582,6 +582,37 @@ void DualPlaybackController::requestScrubFrame(int masterFrame)
     dispatch('B', m_sourceB.get(), m_scrubB.get());
 }
 
+void DualPlaybackController::requestScrubFrameForSide(char side,
+                                                      int sourceFrame)
+{
+    if (!m_open.load(std::memory_order_acquire)) return;
+    if (!m_scrubActive.load(std::memory_order_acquire)) return;
+    if (sourceFrame < 0) return;
+
+    IDualSource       *src   = (side == 'B') ? m_sourceB.get()
+                                             : m_sourceA.get();
+    IDualScrubDecoder *scrub = (side == 'B') ? m_scrubB.get()
+                                             : m_scrubA.get();
+    if (!src) return;
+
+    // Record the explicit per-side target. Image-seq pullFrame reads
+    // this so the displayed frame is decoupled from the (unmoved)
+    // master clock; video pullFrame ignores it and uses the scrub slot.
+    std::atomic<int> &override =
+        (side == 'B') ? m_scrubOverrideB : m_scrubOverrideA;
+    override.store(sourceFrame, std::memory_order_release);
+
+    if (scrub) {
+        // Video side — decode into the per-side scrub publish slot.
+        scrub->requestFrame(sourceFrame);
+    } else {
+        // Image-seq side — point the cache prefetch window at the
+        // target; the override above makes pullFrame return it.
+        src->setDecodeTarget(sourceFrame);
+    }
+    // No m_timer move — the playhead/CTI stays put (NLE trim convention).
+}
+
 void DualPlaybackController::endScrub(int finalMasterFrame)
 {
     if (!m_open.load(std::memory_order_acquire)) return;
@@ -596,6 +627,11 @@ void DualPlaybackController::endScrub(int finalMasterFrame)
     if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
         vb->setScrubActive(false);
     }
+
+    // Clear per-side edit-feedback overrides so post-scrub pulls use
+    // the normal master-frame translation again.
+    m_scrubOverrideA.store(-1, std::memory_order_release);
+    m_scrubOverrideB.store(-1, std::memory_order_release);
 
     // Warm-seek both sources to the landing position. seekToFrame
     // routes through each IDualSource::seekTo, which the existing
@@ -644,6 +680,12 @@ DualPlaybackController::pullFrameA(int masterFrame) const
             if (f) return f;
             // No scrub frame yet — fall through; compositor's cachedA
             // (last good) keeps painting until the worker publishes.
+        } else {
+            // Image-seq side: a clip-edit override (requestScrubFrameForSide)
+            // displays an explicit source frame decoupled from the master
+            // clock (e.g. a trim edge while the playhead stays put).
+            const int ov = m_scrubOverrideA.load(std::memory_order_acquire);
+            if (ov >= 0) return m_sourceA->getClosestFrame(ov);
         }
     }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'A');
@@ -662,6 +704,9 @@ DualPlaybackController::pullFrameB(int masterFrame) const
         if (auto *vb = dynamic_cast<DualVideoDecoder *>(m_sourceB.get())) {
             auto f = vb->getScrubFrame();
             if (f) return f;
+        } else {
+            const int ov = m_scrubOverrideB.load(std::memory_order_acquire);
+            if (ov >= 0) return m_sourceB->getClosestFrame(ov);
         }
     }
     const int srcFrame = translateMasterToSourceFrame(masterFrame, 'B');

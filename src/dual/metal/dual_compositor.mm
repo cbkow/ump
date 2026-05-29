@@ -491,13 +491,21 @@ void DualCompositor::prepareFrames(void *cmdBufferPtr)
 
     const int masterFrame = m_controller->currentFrame();
 
-    // Phase 7.8 — drop cache on timeline edit (gen bump).
+    // Phase 7.8 — drop cache on timeline edit (gen bump). EXCEPT during
+    // a live scrub/edit session: slip/trim bumps the generation on every
+    // drag delta, and dropping the last-good cache each tick makes the
+    // viewport flicker black on any null pull (scrub frame not yet
+    // decoded / transient gap). Fresh scrub frames stream in continuously
+    // during a scrub, so we keep the cache as the fallback and only sync
+    // the marker. The non-scrub drop is for paused committed edits.
     const int curGen = m_controller->timelineGeneration();
     if (curGen != m_impl->cachedGeneration) {
-        m_impl->cachedA.texture = nil;
-        m_impl->cachedA.width = m_impl->cachedA.height = 0;
-        m_impl->cachedB.texture = nil;
-        m_impl->cachedB.width = m_impl->cachedB.height = 0;
+        if (!m_controller->isScrubbing()) {
+            m_impl->cachedA.texture = nil;
+            m_impl->cachedA.width = m_impl->cachedA.height = 0;
+            m_impl->cachedB.texture = nil;
+            m_impl->cachedB.width = m_impl->cachedB.height = 0;
+        }
         m_impl->cachedGeneration = curGen;
     }
 
