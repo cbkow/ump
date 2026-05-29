@@ -48,6 +48,12 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.08
+
+- Editing in dual-view and playlist modes has better viewport feedback with slips and trims.
+- Added a difference mode option for dual-views
+- MacOS now checks for and optionally installs updates
+
 What's new in 2.06
 - UI tweaks for better panel and selection legibility
 - UI tweaks to the playhead in dual-view and playlist edit modes
