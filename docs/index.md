@@ -35,7 +35,7 @@ nav_order: 1
 
 ### Review Tools
 - Annotations + notes with brush, line smoothing, screenshot illustrations, and Markdown / HTML / PDF / DOCX export
-- Dual-view comparison: side-by-side, split-wipe with mouse-drag seam, independent A / B controls
+- Dual-view comparison: side-by-side, split-wipe with mouse-drag seam, difference mode, independent A / B controls
 - Title-safety guides for broadcast and social-media deliverables
 - Live background switching for alpha-channel review
 
