@@ -34,6 +34,24 @@
     <string>public.app-category.video</string>
 
     <!-- ================================================================ -->
+    <!-- Sparkle auto-update (macOS). Appcast on the qcview.app Pages site;  -->
+    <!-- daily background checks; no anonymized system profiling.           -->
+    <!-- SUPublicEDKey MUST be replaced with the real Ed25519 public key     -->
+    <!-- printed by external/Sparkle/bin/generate_keys (private key lives    -->
+    <!-- in the login Keychain + a base64 backup in the maintainer's vault). -->
+    <!-- ================================================================ -->
+    <key>SUFeedURL</key>
+    <string>https://qcview.app/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>+Xlrad3WswxIRTyzBTp8KaTEjyfPO5Ap4llmPdZf3RQ=</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUScheduledCheckInterval</key>
+    <integer>86400</integer>
+    <key>SUEnableSystemProfiling</key>
+    <false/>
+
+    <!-- ================================================================ -->
     <!-- Document Types                                                    -->
     <!-- ================================================================ -->
     <key>CFBundleDocumentTypes</key>

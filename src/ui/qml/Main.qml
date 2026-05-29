@@ -458,6 +458,16 @@ ApplicationWindow {
                 enabled: false
             }
             ThemedMenuSeparator {}
+            // Sparkle auto-updater (macOS only — Windows uses the
+            // Microsoft Store). Shows Sparkle's standard update UI.
+            Action {
+                // Updater is macOS-only (Windows uses the Microsoft
+                // Store); greyed out elsewhere. Menu Actions don't
+                // support `visible`, so we gate on `enabled`.
+                text: qsTr("Check for Updates…")
+                enabled: Qt.platform.os === "osx"
+                onTriggered: WindowManager.checkForUpdates()
+            }
             Action {
                 text: qsTr("Docs")
                 onTriggered: Qt.openUrlExternally("https://qcview.app/")

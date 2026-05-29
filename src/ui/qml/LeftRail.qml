@@ -1636,6 +1636,40 @@ Rectangle {
                             }
                         }
 
+                        // Software updates (macOS / Sparkle only).
+                        GroupHeader {
+                            label: qsTr("Updates")
+                            visible: Qt.platform.os === "osx"
+                        }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            visible: Qt.platform.os === "osx"
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel {
+                                    text: qsTr("Automatically check for updates")
+                                }
+                                FlatSwitch {
+                                    Layout.rightMargin: Theme.padding
+                                    // Bound directly to Sparkle's own
+                                    // persisted setting (single source of
+                                    // truth — no separate QSettings copy).
+                                    checked: WindowManager.autoUpdateChecks
+                                    onToggled: {
+                                        WindowManager.autoUpdateChecks = checked;
+                                    }
+                                }
+                            }
+                            HelpText {
+                                text: qsTr("Checks qcview.app daily for a newer "
+                                    + "version. The check sends your IP and "
+                                    + "app/OS version — nothing else. You can "
+                                    + "always update manually from the About menu.")
+                            }
+                        }
+
                         GroupHeader { label: qsTr("Audio") }
 
                         // A/V sync offset — separate values for

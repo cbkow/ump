@@ -34,9 +34,17 @@ This data never leaves your device unless you explicitly choose to share it (for
 
 ## Network Activity
 
-QCView makes no automatic network connections.
+The only automatic network connection QCView makes is the software-update check described below. It does not send analytics, telemetry, usage data, or any of your media or project content.
 
 The Help menu contains links to documentation and license information. Selecting these opens your default web browser. QCView itself does not fetch or transmit any data through these links.
+
+## Software Updates (macOS)
+
+On macOS, QCView uses the [Sparkle](https://sparkle-project.org/) framework to check for new versions. By default it checks once per day, and you can also check manually from the **About** menu. You can turn automatic checks off in **Settings → Updates**.
+
+When a check runs, QCView requests the update feed at `https://qcview.app/appcast.xml` and, if an update is available, the installer from GitHub. As with any web request, the server receives your IP address and the request includes your current app version and macOS version so the correct update can be offered. QCView does **not** send an anonymized system profile, and no other information is transmitted. Updates are cryptographically verified (EdDSA signature + Apple code signature) before installation.
+
+The Windows version updates through the Microsoft Store.
 
 ## Third-Party Services
 
