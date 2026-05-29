@@ -86,8 +86,11 @@ TEMP/
 # subjects, Homebrew paths, vendored-deps layouts, etc. — not useful
 # to share via git, and the signing ones contain the developer identity
 # string (CN / Team ID) baked into the codesign default. Each build
-# machine keeps its own copies in scripts/ locally.
+# machine keeps its own copies in scripts/ locally. The release runbook
+# (scripts/RELEASE.md) lives with them — it documents the local scripts +
+# machine-specific paths/identity, so it's kept local too.
 scripts/*.sh
+scripts/*.md
 
 # Vendored deps tree produced by scripts/build_macos_deps.sh —
 # 70+ MB of FFmpeg / OCIO / OpenEXR / etc. built for deployment
