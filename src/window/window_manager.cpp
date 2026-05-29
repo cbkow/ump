@@ -4,6 +4,7 @@
 #include "window_manager_dual_source_adapter.h"
 #endif
 #include "native_fullscreen_macos.h"
+#include "sparkle_updater_macos.h"
 #include "native_fullscreen_win.h"
 #include "audio/audio_player.h"
 #include "color/ocio_config_manager.h"
@@ -2126,6 +2127,23 @@ void WindowManager::setDiffGain(qreal gain)
     }
 #endif
     emit diffGainChanged();
+}
+
+void WindowManager::checkForUpdates()
+{
+    qcv::checkForUpdatesNow();
+}
+
+bool WindowManager::autoUpdateChecks() const
+{
+    return qcv::automaticUpdateChecks();
+}
+
+void WindowManager::setAutoUpdateChecks(bool enabled)
+{
+    if (qcv::automaticUpdateChecks() == enabled) return;
+    qcv::setAutomaticUpdateChecks(enabled);
+    emit autoUpdateChecksChanged();
 }
 
 void WindowManager::setSplitSeamActive(bool active)

@@ -33,6 +33,7 @@
 #include <thread>
 
 #include "window/window_manager.h"
+#include "window/sparkle_updater_macos.h"
 
 #if defined(Q_OS_WIN)
 #  include "decode/vulkan/vulkan_device_manager.h"
@@ -418,6 +419,14 @@ int main(int argc, char *argv[])
     if (!windowManager.initialize()) {
         return -2;
     }
+
+    // Start the Sparkle auto-updater (macOS). Deferred one tick off the
+    // launch path; honors the Info.plist SU* keys (feed, EdDSA key, daily
+    // auto-check). No-op on other platforms. The About-menu "Check for
+    // Updates…" and the Settings toggle route through WindowManager.
+    QTimer::singleShot(0, &windowManager, [] {
+        qcv::startSparkleUpdater();
+    });
 
     // Phase 7.7 Stage 3 — developer test entry. If `--dual-test PATH_A
     // PATH_B` is on the command line, enter dual mode after the

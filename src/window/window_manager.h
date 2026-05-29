@@ -58,6 +58,8 @@ class WindowManager : public QObject
     Q_PROPERTY(int compositorMode READ compositorMode WRITE setCompositorMode NOTIFY compositorModeChanged)
     Q_PROPERTY(qreal splitPos READ splitPos WRITE setSplitPos NOTIFY splitPosChanged)
     Q_PROPERTY(qreal diffGain READ diffGain WRITE setDiffGain NOTIFY diffGainChanged)
+    Q_PROPERTY(bool autoUpdateChecks READ autoUpdateChecks
+               WRITE setAutoUpdateChecks NOTIFY autoUpdateChecksChanged)
     Q_PROPERTY(int backgroundMode READ backgroundMode WRITE setBackgroundMode NOTIFY backgroundModeChanged)
     Q_PROPERTY(bool loopEnabled READ loopEnabled WRITE setLoopEnabled NOTIFY loopEnabledChanged)
     Q_PROPERTY(bool timelineHoverThumbsEnabled
@@ -426,6 +428,13 @@ public:
     Q_INVOKABLE void addRecentProject(const QString &path);
     Q_INVOKABLE void clearRecentMedia();
     Q_INVOKABLE void clearRecentProjects();
+
+    // Sparkle auto-updater (macOS). checkForUpdates drives the About-menu
+    // "Check for Updates…" item; autoUpdateChecks ↔ the Settings toggle.
+    // No-ops / false on non-Apple (Windows updates via the Microsoft Store).
+    Q_INVOKABLE void checkForUpdates();
+    bool autoUpdateChecks() const;
+    void setAutoUpdateChecks(bool enabled);
 
     // Phase 7.6 — Settings-bound runtime toggle for the
     // timeline's hover-thumbnail preview. Read live (no
@@ -853,6 +862,7 @@ signals:
     void inOutPointsChanged();
     void splitPosChanged();
     void diffGainChanged();
+    void autoUpdateChecksChanged();
     void hdrModeChanged();
     void brightnessChanged();
     // Phase 3.H.6 — re-emitted from AnnotationManager.notesChanged

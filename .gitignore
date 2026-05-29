@@ -108,3 +108,5 @@ installer/msix/dist/
 # these in from secure storage. The build script reads QCV_SIGNING_PFX
 # pointing at this directory.
 installer/sideload/
+external/Sparkle/
+sparkle_private_key*.txt

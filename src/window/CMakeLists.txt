@@ -6,6 +6,7 @@ add_library(qcv_window STATIC
     window_manager.h
     native_fullscreen_macos.h
     native_fullscreen_win.h
+    sparkle_updater_macos.h
     # Phase F.2.11.b — adapter wiring qcv_render's pure-virtual
     # IDualFrameSource to qcv_dual's DualPlaybackController. Lives
     # here because qcv_window already links both libraries; qcv_render
@@ -22,6 +23,25 @@ add_library(qcv_window STATIC
 if(APPLE)
     target_sources(qcv_window PRIVATE native_fullscreen_macos.mm)
     target_link_libraries(qcv_window PUBLIC "-framework AppKit")
+
+    # Sparkle auto-updater shim (sparkle_updater_macos.mm wraps
+    # SPUStandardUpdaterController). Sparkle.framework is vendored under
+    # external/Sparkle by scripts/fetch_sparkle.sh — fail early with a
+    # clear message if it's missing rather than emit a cryptic link error.
+    # The app target embeds the framework into Contents/Frameworks and the
+    # @executable_path/../Frameworks rpath (set there) resolves it.
+    set(QCV_SPARKLE_DIR "${CMAKE_SOURCE_DIR}/external/Sparkle")
+    if(NOT EXISTS "${QCV_SPARKLE_DIR}/Sparkle.framework")
+        message(FATAL_ERROR
+            "Sparkle.framework not found at ${QCV_SPARKLE_DIR}/Sparkle.framework.\n"
+            "Run scripts/fetch_sparkle.sh once to vendor it before building.")
+    endif()
+    target_sources(qcv_window PRIVATE sparkle_updater_macos.mm)
+    # -F at compile time so `#import <Sparkle/Sparkle.h>` resolves, and at
+    # link time so `-framework Sparkle` finds it.
+    target_compile_options(qcv_window PRIVATE "-F${QCV_SPARKLE_DIR}")
+    target_link_libraries(qcv_window PUBLIC
+        "-F${QCV_SPARKLE_DIR}" "-framework Sparkle")
 endif()
 
 # Windows borderless-fullscreen helper — sidesteps Qt's

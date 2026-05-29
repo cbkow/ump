@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparkle appcast for QCView (macOS auto-update feed).
+  Served at https://qcview.app/appcast.xml (Pages site root = /docs).
+
+  DO NOT hand-edit items. Per release, after sign-and-notarize.sh produces
+  the notarized build/QCView-MacOS.dmg AND you've created the GitHub release
+  tag vX.Y.Z with that DMG uploaded as an asset, run:
+
+      scripts/update_appcast.sh            # version auto-read from CMakeLists
+      # or: scripts/update_appcast.sh 2.0.7 build/QCView-MacOS.dmg notes.html
+
+  It signs the DMG (EdDSA via the Keychain key), derives the per-tag enclosure
+  URL + byte length, and inserts a new <item> below the marker. Commit + push
+  → GitHub Pages republishes the feed. An empty channel = "everyone is up to
+  date" (Sparkle reports no update), which is correct until the first item.
+-->
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle"
+     xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>QCView</title>
+    <link>https://qcview.app/appcast.xml</link>
+    <description>Updates for QCView</description>
+    <language>en</language>
+    <!-- @@APPCAST_INSERT@@ -->
+  </channel>
+</rss>

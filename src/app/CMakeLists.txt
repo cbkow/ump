@@ -106,6 +106,25 @@ if(APPLE)
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
     )
     target_sources(qcview PRIVATE "${QCV_ICNS_FILE}")
+
+    # Embed the vendored Sparkle.framework into the bundle's Frameworks/
+    # so the @executable_path/../Frameworks rpath resolves it at runtime
+    # (dev builds included — macdeployqt only runs in the release script).
+    # ditto preserves the framework's symlink/Versions layout (cmake -E
+    # copy_directory would flatten the symlinks and break code-signing).
+    # sign-and-notarize.sh re-signs it + its nested XPC/Autoupdate/Updater
+    # helpers inside-out with our Developer ID.
+    set(QCV_SPARKLE_FRAMEWORK
+        "${CMAKE_SOURCE_DIR}/external/Sparkle/Sparkle.framework")
+    add_custom_command(TARGET qcview POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:qcview>/../Frameworks"
+        COMMAND ditto
+            "${QCV_SPARKLE_FRAMEWORK}"
+            "$<TARGET_FILE_DIR:qcview>/../Frameworks/Sparkle.framework"
+        COMMENT "Embedding Sparkle.framework into qcview.app/Contents/Frameworks"
+        VERBATIM
+    )
 endif()
 
 # Phase 2.5: bundle the shipped OCIO configs into the .app's Resources

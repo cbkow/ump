@@ -34,6 +34,10 @@ Download the latest release [here](https://github.com/cbkow/QCView-Player/releas
 2. Drag **QCView** to your **Applications** folder.
 3. Launch from Applications or Spotlight.
 
+### Updates
+
+Once installed in **Applications**, QCView keeps itself up to date — it checks once a day and offers to download and install new versions in place. You can also check any time from **About → Check for Updates…**, or turn automatic checks off in **Settings → Updates**. (In-place updates require running QCView from the Applications folder, not from the mounted disk image.)
+
 ### Requirements
 
 - macOS 13.0 (Ventura) or later.
