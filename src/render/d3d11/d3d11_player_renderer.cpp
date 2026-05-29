@@ -1288,6 +1288,7 @@ void D3D11PlayerRenderer::drawDualFrame()
     m_impl->dualCompositor.setSplitPos(m_splitPos.load(std::memory_order_acquire));
     m_impl->dualCompositor.setSeamHighlight(
         m_splitSeamHighlight.load(std::memory_order_acquire));
+    m_impl->dualCompositor.setDiffGain(m_diffGain.load(std::memory_order_acquire));
 
     const int W = m_impl->currentW;
     const int H = m_impl->currentH;
@@ -1878,6 +1879,7 @@ void D3D11PlayerRenderer::setCompositorMode(CompositorMode m) {
 }
 void D3D11PlayerRenderer::setSplitPos(float p)            { m_splitPos.store(p); requestUpdate(); }
 void D3D11PlayerRenderer::setSplitSeamHighlight(float h)  { m_splitSeamHighlight.store(h); requestUpdate(); }
+void D3D11PlayerRenderer::setDiffGain(float g)            { m_diffGain.store(g); requestUpdate(); }
 void D3D11PlayerRenderer::setLoadingActive(bool on)       { m_loadingActive.store(on); requestUpdate(); }
 
 namespace { constexpr double kLoadingSpinnerDelaySec = 0.18; }

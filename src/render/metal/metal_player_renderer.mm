@@ -623,6 +623,10 @@ void MetalPlayerRenderer::setSplitPos(float p)
     m_splitPos = p;
     if (m_impl) m_impl->dualCompositor.setSplitPos(p);
 }
+void MetalPlayerRenderer::setDiffGain(float g)
+{
+    if (m_impl) m_impl->dualCompositor.setDiffGain(g);
+}
 void MetalPlayerRenderer::setSplitSeamHighlight(float h)
 {
     if (m_impl) m_impl->dualCompositor.setSeamHighlight(h);

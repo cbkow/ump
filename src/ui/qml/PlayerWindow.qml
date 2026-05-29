@@ -115,6 +115,7 @@ Window {
             case PlayerRhiItem.Single:     return "Single";
             case PlayerRhiItem.SideBySide: return "Side-by-Side";
             case PlayerRhiItem.SplitWipe:  return "Split-Wipe";
+            case PlayerRhiItem.Difference: return "Difference";
             default:                       return "?";
         }
     }

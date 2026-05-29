@@ -57,6 +57,7 @@ class WindowManager : public QObject
     Q_PROPERTY(bool detached READ detached NOTIFY detachedChanged)
     Q_PROPERTY(int compositorMode READ compositorMode WRITE setCompositorMode NOTIFY compositorModeChanged)
     Q_PROPERTY(qreal splitPos READ splitPos WRITE setSplitPos NOTIFY splitPosChanged)
+    Q_PROPERTY(qreal diffGain READ diffGain WRITE setDiffGain NOTIFY diffGainChanged)
     Q_PROPERTY(int backgroundMode READ backgroundMode WRITE setBackgroundMode NOTIFY backgroundModeChanged)
     Q_PROPERTY(bool loopEnabled READ loopEnabled WRITE setLoopEnabled NOTIFY loopEnabledChanged)
     Q_PROPERTY(bool timelineHoverThumbsEnabled
@@ -326,6 +327,9 @@ public:
 
     qreal splitPos() const { return m_splitPos; }
     void setSplitPos(qreal pos);
+
+    qreal diffGain() const { return m_diffGain; }
+    void setDiffGain(qreal gain);
 
     // Split-wipe seam highlight — true while the seam handle is
     // hovered or being dragged, so the compositor draws the seam in
@@ -848,6 +852,7 @@ signals:
     void playlistCurrentItemIndexChanged();
     void inOutPointsChanged();
     void splitPosChanged();
+    void diffGainChanged();
     void hdrModeChanged();
     void brightnessChanged();
     // Phase 3.H.6 — re-emitted from AnnotationManager.notesChanged
@@ -1024,6 +1029,7 @@ private:
     int                    m_inPoint        = -1;
     int                    m_outPoint       = -1;
     qreal                  m_splitPos = 0.5;
+    qreal                  m_diffGain = 1.0;
     VideoDecoder          *m_videoDecoder = nullptr;   // owned via QObject parent
     VideoDecoder          *m_videoDecoderB = nullptr;  // owned via QObject parent — Source B
     // Phase 7.7 Stage 3 — dual playback island controller. Owned via

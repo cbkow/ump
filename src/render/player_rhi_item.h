@@ -37,6 +37,7 @@ public:
         Single      = 0,
         SideBySide  = 1,
         SplitWipe   = 2,
+        Difference  = 3,
     };
     Q_ENUM(CompositorMode)
 

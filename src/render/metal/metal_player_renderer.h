@@ -60,6 +60,7 @@ public:
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
     void setSplitSeamHighlight(float h) override;
+    void setDiffGain(float g) override;
     void setLoadingActive(bool on) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;

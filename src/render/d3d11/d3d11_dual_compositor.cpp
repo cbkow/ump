@@ -70,6 +70,7 @@ cbuffer Constants : register(b0) {
     int    aActive;       // 44
     int    bActive;       // 48
     float  seamHighlight; // 52 — split seam: 0 = faint grey, 1 = white
+    float  diffGain;      // 56 — Difference mode: amplify abs(A-B)
 };
 
 Texture2D    srcA : register(t0);
@@ -141,6 +142,16 @@ float4 PSMain(VsOut input) : SV_TARGET
                                saturate(seamHighlight));
             return float4(seam, 1.0);
         }
+    } else if (mode == 3) {
+        // Difference (Adobe-style) — both sides fit the FULL canvas,
+        // output |A - B| per channel * gain. Aligned same-res pair -> black.
+        float4 ca = (aActive == 0)
+            ? float4(0, 0, 0, 0)
+            : sampleFit(srcA, smp, dstPx, float2(0, 0), dstSize, srcSizeA);
+        float4 cb = (bActive == 0)
+            ? float4(0, 0, 0, 0)
+            : sampleFit(srcB, smp, dstPx, float2(0, 0), dstSize, srcSizeB);
+        color = float4(abs(ca.rgb - cb.rgb) * diffGain, max(ca.a, cb.a));
     } else {
         color = (aActive == 0)
             ? float4(0, 0, 0, 0)
@@ -180,7 +191,8 @@ struct DualCB {
     int   aActive;        // 40 : 44
     int   bActive;        // 44 : 48
     float seamHighlight;  // 48 : 52
-    float pad1[3];        // 52 : 64
+    float diffGain;       // 52 : 56
+    float pad1[2];        // 56 : 64
 };
 static_assert(sizeof(DualCB) == 64,
               "DualCB must match HLSL packing exactly.");
@@ -302,6 +314,7 @@ struct D3D11DualCompositor::Impl {
     int   mode     = 0;     // Single by default
     float splitPos = 0.5f;
     float seamHighlight = 0.0f;   // split seam: 0 grey at rest, 1 white on hover/drag
+    float diffGain = 1.0f;        // Difference mode: amplify abs(A-B)
 
     // Prepare → render handoff state. Set in prepareFrames, consumed
     // (and cleared) in renderFrame.
@@ -461,6 +474,12 @@ void D3D11DualCompositor::setSeamHighlight(float h)
 {
     if (!m_impl) return;
     m_impl->seamHighlight = std::clamp(h, 0.0f, 1.0f);
+}
+
+void D3D11DualCompositor::setDiffGain(float g)
+{
+    if (!m_impl) return;
+    m_impl->diffGain = g;
 }
 
 void D3D11DualCompositor::prepareFrames(void *ctxVoid)
@@ -643,6 +662,7 @@ void D3D11DualCompositor::renderFrame(void *ctxVoid, int dstW, int dstH)
     cb.aActive     = m_impl->aActive ? 1 : 0;
     cb.bActive     = m_impl->bActive ? 1 : 0;
     cb.seamHighlight = m_impl->seamHighlight;
+    cb.diffGain    = m_impl->diffGain;
     std::memcpy(mapped.pData, &cb, sizeof(cb));
     ctx->Unmap(m_impl->cbuf.Get(), 0);
 

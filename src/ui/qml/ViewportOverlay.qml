@@ -421,6 +421,14 @@ Pane {
             tooltipText: qsTr("Split-Wipe")
             onClicked: WindowManager.compositorMode = 2
         }
+        FlatButton {
+            visible: !root.saveMode && !root.playlistActive
+            iconName: "exclude"
+            checkable: true
+            checked: WindowManager.compositorMode === 3
+            tooltipText: qsTr("Difference (abs A−B)")
+            onClicked: WindowManager.compositorMode = 3
+        }
 
         // "Save as Dual View" — visible only when dual mode is
         // active AND we're not already in saveMode. Click swaps
@@ -443,24 +451,48 @@ Pane {
         // (ComboBox, etc.) on this overlay would be occluded by the
         // player surface.
 
-        // ---- Split slider (active only in Split-Wipe).
+        // ---- Split slider (Split-Wipe only).
         FlatSlider {
             visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode === 2
             Layout.preferredWidth: 160
             Layout.preferredHeight: 26
             from: 0
             to: 1
             value: WindowManager.splitPos
-            enabled: WindowManager.compositorMode === 2
             onValueChanged: WindowManager.splitPos = value
         }
         Text {
             visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode === 2
             text: WindowManager.splitPos.toFixed(2)
             color: Theme.textSecondary
             font.family: Theme.monoFamily
             font.pixelSize: Theme.fontSizeTiny
-            opacity: WindowManager.compositorMode === 2 ? 1.0 : 0.4
+            Layout.preferredWidth: 36
+        }
+
+        // ---- Gain slider (Difference only) — shares the slot with the
+        // split slider; the two modes are mutually exclusive. 1.0 = raw
+        // Adobe-style abs(A−B); higher amplifies subtle diffs (stays
+        // black where aligned).
+        FlatSlider {
+            visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode === 3
+            Layout.preferredWidth: 160
+            Layout.preferredHeight: 26
+            from: 1
+            to: 16
+            value: WindowManager.diffGain
+            onValueChanged: WindowManager.diffGain = value
+        }
+        Text {
+            visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode === 3
+            text: "×" + WindowManager.diffGain.toFixed(1)
+            color: Theme.textSecondary
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.fontSizeTiny
             Layout.preferredWidth: 36
         }
 
