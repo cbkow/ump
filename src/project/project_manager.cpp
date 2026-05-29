@@ -100,6 +100,9 @@ void ProjectManager::newProject()
     const bool wasDirty = m_projectDirty;
     m_projectDirty      = false;
 
+    // Drop dual view before the wiped state propagates — see the
+    // projectReplaced doc comment in the header.
+    emit projectReplaced();
     emit binsChanged();
     if (hadActive)  emit activeItemIdChanged();
     if (hadBSource) emit bSourceChanged();

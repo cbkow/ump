@@ -335,6 +335,14 @@ signals:
     void projectSaved(const QString &path);
     void projectOpened(const QString &path);
 
+    // Emitted whenever the entire project is replaced wholesale —
+    // newProject() and applyLoadedState(). WindowManager listens and
+    // tears down dual view (the old project's B-source is gone) BEFORE
+    // any restored-active-item loadRequested fires, so the dual-persist
+    // logic in the loadRequested handler doesn't try to re-pair the new
+    // project's A with the previous project's B.
+    void projectReplaced();
+
     // Emitted when setActiveItem successfully resolves to a pool
     // item. WindowManager listens and routes the path into
     // VideoDecoder + AudioPlayer. Decoupled from activeItemIdChanged
