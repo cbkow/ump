@@ -38,7 +38,7 @@ Signed and notarized `.dmg` available from [GitHub Releases](https://github.com/
 
 ### Review Tools
 - Annotation and notes system with brush, line smoothing, screenshot illustrations, and Markdown / HTML / PDF / DOCX export
-- Dual-view comparison (side-by-side, split-wipe, drag-the-seam) with independent A / B controls
+- Dual-view comparison (side-by-side, split-wipe, drag-the-seam), difference mode, with independent A / B controls
 - Title-safety guides for broadcast and social-media deliverables
 - Live background switching for alpha-channel review
 
