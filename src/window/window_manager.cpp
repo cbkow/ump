@@ -249,6 +249,20 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         connect(m_project, &ProjectManager::projectOpened,
                 this, &WindowManager::addRecentProject);
 
+        // New Project / Open Project replace the pool wholesale, so the
+        // old project's B-source no longer exists. Drop dual view here —
+        // BEFORE applyLoadedState's restored-active-item loadRequested
+        // fires — so the dual-persist branch in the loadRequested handler
+        // sees single mode and doesn't try to re-pair the new project's A
+        // with the previous project's B. Fired synchronously (same
+        // thread) ahead of loadRequested, so ordering holds.
+        connect(m_project, &ProjectManager::projectReplaced, this, [this] {
+            if (m_compositorMode != 0 || m_dualController) {
+                tearDownDualIslandToSingleState();
+                closeActiveMedia();
+            }
+        });
+
         // Per-clip audio routing changes — the inspector pill in
         // ImageSequenceInspector / InspectorPanel calls
         // setAudioRoutingMode on ProjectManager which mutates the
@@ -774,31 +788,53 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
               qPrintable(item.id), qPrintable(item.name),
               static_cast<int>(item.type), qPrintable(item.path));
 
-        // Phase 7.7 — clicking a bin item reverts to single view.
-        // We tear down dual mode WITHOUT calling rebuildSingleFlow
-        // (which would re-trigger this same handler); the open call
-        // below loads the new item into the single VideoDecoder /
-        // ImageSequenceCache directly.
+        // Dual view is a maintained state: loading a new A while in
+        // dual SWAPS A and KEEPS B (re-applying B's track edits),
+        // rather than reverting to single. We preserve dual only when
+        // the new A is itself dual-capable (Video / ImageSequence) and
+        // B is still a valid pool item; a Playlist or Audio A, or a
+        // missing B, falls back to single (the historical behavior).
+        //
+        // Either way we tear the dual island down here (so the new A
+        // loads cleanly into the single VideoDecoder / ImageSequenceCache
+        // below); when preserving we rebuild dual from scratch in
+        // finishLoad() once the new A is open. Rebuild-from-scratch reuses
+        // setCompositorMode's proven Single→Dual cold transition, so all
+        // cache eviction (dual scrub / video / image-seq / GPU pools) and
+        // the platform-specific renderer wiring are handled for us.
+        const int  prevMode = m_compositorMode;
+        bool         preserveDual = false;
+        QVariantList clipsB;
         if (m_compositorMode != 0) {
-#ifdef QCV_NATIVE_PLAYER
-            if (auto *pw = qobject_cast<qcv::PlayerWindow *>(
-                    m_playerWindow.data())) {
-                if (auto *r = pw->renderer()) {
-                    r->setRendererMode(qcv::RendererMode::SingleFlow);
-                    r->setDualController(nullptr);
-                    r->setCompositorMode(qcv::CompositorMode::Single);
-                }
-                pw->setDualActive(false);
+            const bool aDualCapable =
+                (item.type == MediaType::Video ||
+                 item.type == MediaType::ImageSequence);
+            const bool bValid = m_project &&
+                m_project->findItem(m_project->bSourceMediaId()) != nullptr;
+            preserveDual = aDualCapable && bValid;
+            if (preserveDual && m_timeline) {
+                // Capture B's track edits before teardown wipes the
+                // timeline — same one-liner as saveCurrentDualView().
+                clipsB = m_timeline->trackB()
+                             .value(QStringLiteral("clips")).toList();
             }
-#endif
-            if (m_dualController) {
-                m_dualController->close();
-                m_dualController.reset();
-                emit dualControllerChanged();
-            }
-            m_compositorMode = 0;
-            emit compositorModeChanged();
+            tearDownDualIslandToSingleState();
         }
+
+        // Re-enter dual once the new A is loaded into single flow.
+        // No-op unless we decided to preserve. Must run AFTER the A load
+        // (setCompositorMode snapshots pathA from the just-opened decoder
+        // / active image-seq item, and pathB from the project's still-set
+        // bSource), and replaceTrackClips must run AFTER setCompositorMode
+        // rebuilds the timeline — otherwise the cold transition's
+        // loadSecondarySource overwrites the restored B clips. Mirrors
+        // loadDualView's ordering.
+        auto finishLoad = [this, prevMode, preserveDual, &clipsB] {
+            if (!preserveDual) return;
+            setCompositorMode(prevMode);
+            if (m_timeline)
+                m_timeline->replaceTrackClips(QStringLiteral("B"), clipsB);
+        };
 
         // Always tear down whatever was loaded before. Cheap when
         // nothing's there; safe when there is. Removes the
@@ -817,9 +853,12 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
 
         if (item.type == MediaType::ImageSequence) {
             startImageSequence(item);
+            finishLoad();
             return;
         }
         if (item.type == MediaType::Playlist) {
+            // Playlists are never dual-capable A sources (preserveDual is
+            // false here), so this intentionally stays single.
             startPlaylist(item);
             return;
         }
@@ -834,6 +873,7 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // its decode loop blocked on play/seek; without this nudge
         // the viewport stays empty until the user hits Space.
         m_videoDecoder->seekToFrame(0);
+        finishLoad();
     });
 
     // Tie ScrubDecoder's + AudioPlayer's lifecycle to VideoDecoder's:
@@ -1518,6 +1558,52 @@ void WindowManager::rebuildSingleFlowFromActiveItem()
     }
 }
 
+void WindowManager::tearDownDualIslandToSingleState()
+{
+    if (m_compositorMode == 0 && !m_dualController) return;
+
+    // Stop the dual-mode image-seq poll timer BEFORE we tear down
+    // m_dualController — the timer's slot reads through m_dualController
+    // and would dereference nullptr otherwise.
+    if (m_dualBufferPollTimer) m_dualBufferPollTimer->stop();
+    // Reset cached dual-side stats so a future re-entry into dual starts
+    // from a clean delta-detection baseline.
+    m_lastDualAheadA = m_lastDualBehindA = m_lastDualFrameCountA = -1;
+    m_lastDualActiveA = false; m_lastDualFpsA = 0.0;
+    m_lastDualAheadB = m_lastDualBehindB = m_lastDualFrameCountB = -1;
+    m_lastDualActiveB = false; m_lastDualFpsB = 0.0;
+    emit dualImageSeqStatusChanged();   // QML strips clear
+
+    if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
+        r->setRendererMode(qcv::RendererMode::SingleFlow);
+        r->setDualController(nullptr);
+        r->setCompositorMode(qcv::CompositorMode::Single);
+#if !defined(Q_OS_MACOS) && !defined(__APPLE__)
+        // Detach the renderer's IDualFrameSource pointer BEFORE we drop
+        // the adapter that backs it — the render thread may still be
+        // mid-frame.
+        r->setDualFrameSource(nullptr);
+#endif
+    }
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(
+            m_playerWindow.data())) {
+        pw->setDualActive(false);
+    }
+    if (m_dualController) {
+        m_dualController->close();
+        m_dualController.reset();
+        emit dualControllerChanged();
+    }
+#if !defined(Q_OS_MACOS) && !defined(__APPLE__)
+    m_dualSourceAdapter.reset();
+#endif
+
+    if (m_compositorMode != 0) {
+        m_compositorMode = 0;
+        emit compositorModeChanged();
+    }
+}
+
 void WindowManager::setCompositorMode(int mode)
 {
     if (m_compositorMode == mode) return;
@@ -1797,41 +1883,14 @@ void WindowManager::setCompositorMode(int mode)
             return;
         }
     } else if (!wasSingle && nowSingle) {
-        // Dual → Single cold transition.
-        // Stop the dual-mode image-seq poll timer BEFORE we tear
-        // down m_dualController — the timer's slot reads through
-        // m_dualController and would dereference nullptr otherwise.
-        if (m_dualBufferPollTimer) m_dualBufferPollTimer->stop();
-        // Reset cached dual-side stats so a future re-entry into
-        // dual starts from a clean delta-detection baseline.
-        m_lastDualAheadA = m_lastDualBehindA = m_lastDualFrameCountA = -1;
-        m_lastDualActiveA = false; m_lastDualFpsA = 0.0;
-        m_lastDualAheadB = m_lastDualBehindB = m_lastDualFrameCountB = -1;
-        m_lastDualActiveB = false; m_lastDualFpsB = 0.0;
-        emit dualImageSeqStatusChanged();   // QML strips clear
-
-        if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
-            r->setRendererMode(qcv::RendererMode::SingleFlow);
-            r->setDualController(nullptr);
-#if !defined(Q_OS_MACOS) && !defined(__APPLE__)
-            // Detach the renderer's IDualFrameSource pointer BEFORE
-            // we drop the adapter that backs it — the render thread
-            // may still be mid-frame.
-            r->setDualFrameSource(nullptr);
-#endif
-        }
-        if (auto *pw = qobject_cast<qcv::PlayerWindow *>(
-                m_playerWindow.data())) {
-            pw->setDualActive(false);
-        }
-        if (m_dualController) {
-            m_dualController->close();
-            m_dualController.reset();
-            emit dualControllerChanged();
-        }
-#if !defined(Q_OS_MACOS) && !defined(__APPLE__)
-        m_dualSourceAdapter.reset();
-#endif
+        // Dual → Single cold transition. tearDownDualIslandToSingleState
+        // does the platform-complete teardown (poll timer, stat
+        // baselines, renderer detach + Windows adapter ordering,
+        // controller close/reset); m_compositorMode was already set to 0
+        // above, so its trailing compositorModeChanged emit is suppressed
+        // (this function emits it at the end). We then rebuild single
+        // flow from the active item.
+        tearDownDualIslandToSingleState();
         rebuildSingleFlowFromActiveItem();
         if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
             r->requestUpdate();

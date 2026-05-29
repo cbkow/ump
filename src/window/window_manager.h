@@ -951,6 +951,17 @@ private:
     void teardownSingleFlowForDual();
     void rebuildSingleFlowFromActiveItem();
 
+    // Platform-complete teardown of the dual island back to single-flow
+    // renderer state, WITHOUT rebuilding any single-flow media (no
+    // decoder reopen, no loadRequested re-emit). Sets m_compositorMode
+    // to 0. Shared by the loadRequested handler (which then loads the
+    // new A itself), setCompositorMode's Dual→Single branch (which then
+    // calls rebuildSingleFlowFromActiveItem), and the projectReplaced
+    // handler. Consolidating here also guarantees the Windows
+    // setDualFrameSource(nullptr)-before-adapter-reset ordering on every
+    // teardown path.
+    void tearDownDualIslandToSingleState();
+
     // Polls the image-seq cache's buffered counters and emits
     // imageSeqBufferStatusChanged on any change. Driven from the
     // 30 Hz pump and from positionChanged so the cache strip
