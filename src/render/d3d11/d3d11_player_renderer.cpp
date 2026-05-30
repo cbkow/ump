@@ -1879,7 +1879,27 @@ void D3D11PlayerRenderer::setImageSeqCache(ImageSequenceCache *c)
 }
 void D3D11PlayerRenderer::setVideoDecoder(VideoDecoder *d)       { m_decoder = d; requestUpdate(); }
 void D3D11PlayerRenderer::setVideoDecoderB(VideoDecoder *d)      { m_decoderB = d; requestUpdate(); }
-void D3D11PlayerRenderer::clearSourceAState()             {}
+// Drop the cached source-A texture so the next present shows the
+// background (not a stale previous clip) — e.g. behind the viewport
+// notice for ARRIRAW/unsupported media. Mirrors
+// MetalPlayerRenderer::clearSourceAState (which nils videoFrameRgba);
+// the D3D11 compositor's renderSingle already no-ops on a null SRV.
+// Direct GUI-thread reset matches the established pattern in
+// setImageSeqCache (the render thread only ever rebinds the slot from
+// a live decoder/cache, both of which the caller tears down first).
+void D3D11PlayerRenderer::clearSourceAState()
+{
+    m_impl->videoA.srv.Reset();
+    m_impl->videoA.texture.Reset();
+    m_impl->videoA.width  = 0;
+    m_impl->videoA.height = 0;
+    m_impl->videoA.owner  = Impl::SlotOwner::None;
+    requestUpdate();
+}
+// B-source (dual flow) lives in the dualCompositor, not a videoA-style
+// slot; its teardown is owned by setVideoDecoderB(nullptr) /
+// setImageSeqCache. The reported stale-texture bug is single-view (A)
+// only, so this stays a no-op (matches the pre-fix behavior).
 void D3D11PlayerRenderer::clearSourceBState()             {}
 void D3D11PlayerRenderer::setSourceActivity(bool a, bool b) {
     m_aActive.store(a); m_bActive.store(b);
