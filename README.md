@@ -1,6 +1,6 @@
 # QCView
 
-**QCView** is a professional media player and reviewer for Windows and macOS, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a media player and reviewer for Windows and macOS, built for artists and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 This is the Qt-based rebuild of the original QCView (Dear ImGui + GLFW + native graphics APIs). Architecture, decode path, color pipeline, and review tools are all carried forward; the UI shell is now Qt Quick / QML.
 

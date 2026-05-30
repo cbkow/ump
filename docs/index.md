@@ -9,7 +9,7 @@ nav_order: 1
 
 ![QCView player window](images/qcv001.jpg)
 
-**QCView** is a professional media player and reviewer for Windows and macOS, built for artists, colorists, and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
+**QCView** is a media player and reviewer for Windows and macOS, built for artists and post-production teams who need accurate, color-managed playback of video, EXR, and image sequences.
 
 ---
 
