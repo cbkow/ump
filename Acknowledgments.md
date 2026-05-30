@@ -17,9 +17,7 @@ For the licenses of code dependencies actually linked into the application, see 
 tlRender's architecture influenced several design decisions in QCView, including:
 
 - Frame caching strategies for image sequences
-- Background loading patterns for timeline playback
 - Approach to OpenEXR and multi-channel image handling
-- Thumbnail filmstrips
 
 ### mpv
 
