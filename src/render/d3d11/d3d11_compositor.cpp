@@ -429,6 +429,9 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
     float originY = static_cast<float>(dstH) - boxH - marginPx;
     if (corner == 1) {
         originX = static_cast<float>(dstW) - boxW - marginPx;
+    } else if (corner == 2) { // center (viewport notice card)
+        originX = (static_cast<float>(dstW) - boxW) * 0.5f;
+        originY = (static_cast<float>(dstH) - boxH) * 0.5f;
     }
     if (originX < 0.0f) originX = 0.0f;
     if (originY < 0.0f) originY = 0.0f;
@@ -459,7 +462,11 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
                  static_cast<int>(boxW), static_cast<int>(boxH),
                  srcW, srcH,
                  /*bgMode=*/0,
-                 /*borderPx=*/2.0f,
+                 // No compositor frame for the centered notice card
+                 // (corner==2): it carries its own rounded border in the
+                 // source image; a second rectangular frame reads as a
+                 // doubled border. Hover thumbs (0/1) keep the 2 px frame.
+                 /*borderPx=*/(corner == 2 ? 0.0f : 2.0f),
                  /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f);
 
     ctx->RSSetViewports(1, &prev);

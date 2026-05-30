@@ -25,6 +25,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -60,6 +61,7 @@ public:
     void setSplitSeamHighlight(float h) override;
     void setDiffGain(float g) override;
     void setLoadingActive(bool on) override;
+    void setViewportNotice(const QImage &card) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;
@@ -155,6 +157,21 @@ private:
     // don't flash). ctx/rtv passed as void* to keep d3d11 out of the
     // header; dims come from m_impl->currentW/H.
     void drawLoadingSpinner(void *ctxVoid, void *rtvVoid);
+
+    // Viewport notice (ARRIRAW / unsupported-media card). GUI thread
+    // stashes a pre-rendered RGBA8888 card here via setViewportNotice();
+    // the render thread uploads it to the thumbnail pool lazily
+    // (m_noticeDirty) and composites it centered over the background in
+    // the same present pass as the spinner. Mirrors MetalPlayerRenderer.
+    std::mutex                 m_noticeMutex;
+    std::vector<uint8_t>       m_noticePixels;       // RGBA8888; empty = none
+    int                        m_noticeW = 0;
+    int                        m_noticeH = 0;
+    bool                       m_noticeDirty = false; // re-upload pending
+    std::atomic<bool>          m_noticeActive {false};
+    unsigned long long         m_noticeHandle = 0;    // thumbnail-pool handle
+    void drawViewportNotice(void *ctxVoid, void *rtvVoid);
+
     std::atomic<int>           m_bgMode    {static_cast<int>(BackgroundMode::Black)};
     std::atomic<bool>          m_aActive   {true};
     std::atomic<bool>          m_bActive   {true};
