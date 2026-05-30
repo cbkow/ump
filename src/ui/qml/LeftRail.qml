@@ -897,17 +897,15 @@ Rectangle {
         Rectangle {
             id: listFrame
             Layout.fillWidth: true
-            // Grow with content. Modest 60 px floor so the empty-
-            // state hint stays readable (Phase 3.H.3 dropped the
-            // bigger 160 px floor — tightened up after the +Add
-            // Media button was removed). Cap at 240 px so a
-            // hundred-item bin doesn't push the inspector below the
-            // fold (the ListView has its own internal scroll past
-            // that point).
+            // Grow with content — no max cap. A tall bin extends the
+            // bodyColumn and the rail's own ScrollView (bodyScroll)
+            // scrolls it; the inner ListView is sized to its full
+            // content (interactive:false below) so there's a single
+            // scroller, not a list-inside-a-scroller. The 120 px floor
+            // keeps the empty-state hint readable.
             Layout.preferredHeight:
                 bodyColumn.binExpanded
-                ? Math.min(240,
-                    Math.max(120, mediaList.contentHeight + 4))
+                ? Math.max(120, mediaList.contentHeight + 4)
                 : 0
             visible: Layout.preferredHeight > 0
             Behavior on Layout.preferredHeight {
@@ -951,6 +949,12 @@ Rectangle {
                 anchors.margins: 1
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
+                // listFrame is sized to contentHeight, so the list
+                // never overflows itself — disable its own flicking
+                // so wheel/trackpad scrolling passes through to the
+                // rail's ScrollView (bodyScroll) instead of being
+                // swallowed here. Row drag-out (DnD) is unaffected.
+                interactive: false
                 // Playlists (type 4) and saved Dual Views (type 5)
                 // each have their own dedicated section below this
                 // listFrame, so the Media bin only shows Videos /
