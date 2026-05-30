@@ -749,6 +749,36 @@ void ProjectManager::setSequenceProbedDimensions(const QString &itemId,
     }
 }
 
+bool ProjectManager::setImageSeqFrameRate(const QString &itemId, double fps)
+{
+    if (fps <= 0.0) return false;
+    const int idx = findIndexInPool(itemId);
+    if (idx < 0) return false;
+    MediaItem &it = m_mediaPool[idx];
+    if (it.type != MediaType::ImageSequence) return false;
+    if (qFuzzyCompare(it.imageSeq.frameRate, fps)) return true;
+
+    it.imageSeq.frameRate = fps;
+    // Frame count is invariant under an fps re-tune — re-derive the
+    // durations from it so the stored item matches what
+    // TimelineController::setFrameRate computed for the live timeline.
+    if (it.imageSeq.frameCount > 0) {
+        const double dur =
+            static_cast<double>(it.imageSeq.frameCount) / fps;
+        it.imageSeq.duration = dur;
+        it.duration          = dur;
+    }
+    markDirty();
+    // Nudge the inspector to re-read on whichever side shows this item
+    // (mirrors setVideoRangeOverride / setAudioRoutingMode). Avoids
+    // binsChanged so we don't trip the playlist-timeline rebuild hook.
+    if (m_activeItemId == itemId || m_bSourceMediaId == itemId) {
+        emit activeItemIdChanged();
+        emit bSourceChanged();
+    }
+    return true;
+}
+
 bool ProjectManager::setVideoRangeOverride(const QString &itemId, int range)
 {
     const int idx = findIndexInPool(itemId);

@@ -188,6 +188,14 @@ Rectangle {
                         onClicked: {
                             if (WindowManager.timeline)
                                 WindowManager.timeline.setFrameRate(parent.presetFps);
+                            // Persist onto the media item so the choice
+                            // survives a media switch + project save/
+                            // reload (setFrameRate only retunes the live
+                            // timeline). Targets the displayed item, so
+                            // the dual A/B side picker persists per-side.
+                            if (WindowManager.project && root.item && root.item.id)
+                                WindowManager.project.setImageSeqFrameRate(
+                                    root.item.id, parent.presetFps);
                         }
                     }
                 }

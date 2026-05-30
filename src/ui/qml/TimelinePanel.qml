@@ -210,6 +210,28 @@ Pane {
         }
     }
 
+    // ---- Track signifiers (left gutter) -------------------------
+    // A single letter per track row identifying what the track
+    // carries: V (video), A (audio), I (image / image sequence —
+    // EXR, DPX, stills), P (playlist). In dual mode the two rows
+    // are labelled A and B to match the A/B source chips + track
+    // border colors. Blue/orange echo the per-track accent used by
+    // the clip delegates + the viewport A/B chips; single-source
+    // signifiers stay neutral.
+    readonly property color kSignifierColorA: "#446a90"
+    readonly property color kSignifierColorB: "#a0664a"
+    readonly property string trackASignifier: {
+        if (dualActive)     return "A";
+        if (playlistActive) return "P";
+        if (WindowManager.imageSeqActive) return "I";
+        const it = WindowManager.project
+                   ? WindowManager.project.activeItem : null;
+        const t = (it && it.type !== undefined) ? it.type : -1;
+        if (t === 1)            return "A";   // Audio
+        if (t === 2 || t === 3) return "I";   // Image / image sequence
+        return "V";                           // Video (and fallback)
+    }
+
     // Stage C edit constants.
     readonly property int kHandleW: 8
     readonly property int kDragThresholdPx: 5
@@ -1044,6 +1066,57 @@ Pane {
     RowLayout {
         anchors.fill: parent
         spacing: 0
+
+        // ---- Track-signifier gutter — left side
+        // Mirrors the edit-toggle gutter on the right. Shows a
+        // per-track letter (see trackASignifier) aligned to each
+        // track row using the same y/height the EditToggles use on
+        // the opposite side, so the labels line up across the
+        // timeline. Width is always reserved (even unloaded) so the
+        // timeline doesn't reflow when media loads.
+        Item {
+            id: trackSignifierGutter
+            Layout.preferredWidth: kGutterW
+            Layout.fillHeight: true
+
+            // Right-edge divider against the track area.
+            Rectangle {
+                anchors.right:  parent.right
+                anchors.top:    parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.divider
+            }
+
+            // Track A signifier — aligned to the A clip body.
+            Text {
+                visible: loaded
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 20 + 4 + 2
+                height: kRowHA - 8
+                verticalAlignment: Text.AlignVCenter
+                text: root.trackASignifier
+                color: root.dualActive ? root.kSignifierColorA
+                                       : Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBase
+                font.bold: true
+            }
+
+            // Track B signifier — dual only ("B").
+            Text {
+                visible: loaded && hasTrackB
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 20 + kRowHA + 3 + 2
+                height: kRowHB - 6
+                verticalAlignment: Text.AlignVCenter
+                text: "B"
+                color: root.kSignifierColorB
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeBase
+                font.bold: true
+            }
+        }
 
         ColumnLayout {
             Layout.fillWidth: true

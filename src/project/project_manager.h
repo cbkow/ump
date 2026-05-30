@@ -151,6 +151,18 @@ public:
     Q_INVOKABLE bool setSequenceLayer(const QString &itemId,
                                       const QString &layer);
 
+    // Persist a retuned playback fps onto an image-sequence MediaItem
+    // so the choice survives a media switch and project save/reload.
+    // TimelineController::setFrameRate only retunes the live timeline;
+    // without this, the inspector's fps chip reverts to the import
+    // value on the next load. Mutates imageSeq.frameRate + recomputes
+    // imageSeq.duration / item.duration (frame count is invariant),
+    // markDirty, and nudges the inspector rebind (activeItemIdChanged /
+    // bSourceChanged) when this id is the displayed A or B side. No-op
+    // (false) for unknown id, non-ImageSequence, or an unchanged fps.
+    Q_INVOKABLE bool setImageSeqFrameRate(const QString &itemId,
+                                          double fps);
+
     // Write probed dimensions back to an image-sequence MediaItem.
     // Called from WindowManager::startImageSequence once the cache
     // has the actual width / height from the first decoded frame.
