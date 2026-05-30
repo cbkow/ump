@@ -171,6 +171,15 @@ private:
     // Decode thread loop
     void decodeThreadFunc();
     bool needsMoreFrames() const;            // decode-ahead gate
+    // Deadlock backstop: true when the decode target is NOT buffered and
+    // the entire ring sits AHEAD of it (bufMin > target) — the decoder
+    // can't reach an earlier frame by decoding forward, and
+    // needsMoreFrames() is satisfied by the ahead-window, so without a
+    // forced backward seek the target frame is never produced (e.g. a
+    // warm-up read-ahead that evicted frame 0 → permanent getBufferedFrame
+    // miss → "readahead warm-up" spinner). The decode loop queues a seek
+    // to the target when this holds.
+    bool targetStrandedAhead() const;
     bool decodeOneFrame(AVFrame *frame, AVPacket *packet);
     void addCurrentFrameToBuffer(AVFrame *frame, int frameNumber);
     std::shared_ptr<DualFrame> convertFrameToRgba(AVFrame *frame, int frameNumber);

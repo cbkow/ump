@@ -752,6 +752,28 @@ bool DualVideoDecoder::needsMoreFrames() const
     return ahead < kRingSize / 2;
 }
 
+bool DualVideoDecoder::targetStrandedAhead() const
+{
+    const int target = m_decodeTarget.load(std::memory_order_acquire);
+    std::lock_guard<std::mutex> lk(m_bufferMutex);
+    if (m_ringCount == 0) return false;
+    // Target already buffered — nothing stranded.
+    if (m_frameMap.find(target) != m_frameMap.end()) return false;
+    int bufMin = std::numeric_limits<int>::max();
+    for (int i = 0; i < m_ringCount; ++i) {
+        const int idx = (m_ringHead + i) % kRingSize;
+        if (m_ring[idx].valid) {
+            bufMin = std::min(bufMin, m_ring[idx].frameNumber);
+        }
+    }
+    // Stranded only when the WHOLE ring is ahead of the target (a
+    // backward jump the decode loop can't satisfy by decoding forward).
+    // target > bufMax is normal forward read-ahead (needsMoreFrames /
+    // the setDecodeTarget seek handle it); a mid-ring gap shouldn't
+    // happen and isn't our concern here.
+    return bufMin != std::numeric_limits<int>::max() && target < bufMin;
+}
+
 #if defined(Q_OS_MACOS)
 std::shared_ptr<DualFrame>
 DualVideoDecoder::makeMetalScrubFrame(AVFrame *frame, int frameNumber)
@@ -1042,6 +1064,17 @@ void DualVideoDecoder::decodeThreadFunc()
         const int seekTarget = m_pendingSeekTarget.exchange(-1, std::memory_order_acq_rel);
         if (seekTarget >= 0) {
             performSeek(seekTarget, pkt, frame);
+            continue;
+        }
+
+        // ---- Deadlock backstop: if the ring has drifted entirely ahead
+        // of the target (target evicted / never decoded), force a seek
+        // back to it. Without this the loop idles below — needsMoreFrames
+        // is satisfied by the ahead-window — and the target frame is never
+        // produced (warm-up "readahead warm-up" spinner that never clears).
+        if (targetStrandedAhead()) {
+            performSeek(m_decodeTarget.load(std::memory_order_acquire),
+                        pkt, frame);
             continue;
         }
 
