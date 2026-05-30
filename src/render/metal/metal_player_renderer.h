@@ -62,6 +62,7 @@ public:
     void setSplitSeamHighlight(float h) override;
     void setDiffGain(float g) override;
     void setLoadingActive(bool on) override;
+    void setViewportNotice(const QImage &card) override;
     void setBackgroundMode(BackgroundMode mode) override;
     void setViewportAnnotator(ViewportAnnotator *a) override;
     void setSafetyOverlay(SafetyOverlay *s) override;
@@ -115,6 +116,19 @@ private:
     std::atomic<bool>   m_loadingActive{false};
     std::atomic<int>    m_rendererMode{static_cast<int>(RendererMode::SingleFlow)};
     std::atomic<void *> m_dualControllerPtr{nullptr};
+
+    // Viewport notice (ARRIRAW / unsupported-media message). The GUI
+    // thread stashes a pre-rendered RGBA8888 card here via
+    // setViewportNotice(); the render thread uploads it to a
+    // thumbnail-pool texture lazily (m_noticeDirty) and composites it
+    // centered over the background in the same overlay pass as the
+    // spinner. Empty pixels / m_noticeActive=false clears it.
+    std::mutex           m_noticeMutex;
+    std::vector<uint8_t> m_noticePixels;       // RGBA8888; empty = none
+    int                  m_noticeW = 0;
+    int                  m_noticeH = 0;
+    bool                 m_noticeDirty = false; // re-upload pending
+    std::atomic<bool>    m_noticeActive{false};
 
     // Phase 3.H.5 — hover-thumbnail handle. WindowManager pushes
     // the latest TimelineThumbnailCache handle here when the user

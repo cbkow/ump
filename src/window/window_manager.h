@@ -1193,6 +1193,19 @@ private:
     // Forward the loading-spinner flag to the active player renderer.
     void setLoadingActive(bool on);
 
+    // Viewport notice (ARRIRAW / unsupported media). setViewportNotice
+    // renders a centered message card and pushes it to the active
+    // renderer (drawn over the background, on top of the native
+    // surface — see IPlayerRenderer::setViewportNotice). clear hides
+    // it. Empty `text` clears. Evaluated on load-failure + reconciled
+    // when async metadata resolves; see the loadRequested handler.
+    void setViewportNotice(const QString &text);
+    void clearViewportNotice();
+    // Decide the notice (if any) for a media item and apply/clear it.
+    // Centralizes the "is this an undecodable raw?" check so both the
+    // load-failure path and the async-metadata reconciliation agree.
+    void evaluateViewportNoticeFor(const QString &mediaId);
+
     // Apply each dual image-sequence side's stored per-item cache
     // stride to its DualImageSeqSource. Called on dual entry so dual
     // honors the same stride preference single flow does. No-op when

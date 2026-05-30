@@ -288,6 +288,13 @@ void VideoDecoder::togglePlayback()
     else play();
 }
 
+void VideoDecoder::clearErrorState()
+{
+    if (state() == Errored) {
+        setState(Idle);
+    }
+}
+
 void VideoDecoder::close()
 {
     m_stopRequested.store(true, std::memory_order_release);

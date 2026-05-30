@@ -139,6 +139,15 @@ struct VideoMetadata {
     QString     pixelFormat;          // e.g. "yuv422p10le"
     int         bitDepth = 8;         // detected from pixelFormat
     bool        hasAlpha = false;
+    // True when the container has a video stream but FFmpeg has no
+    // decoder for it (videoCodec == "unknown") — e.g. ARRIRAW camera
+    // raw. Drives the in-viewport "can't play this" notice instead of
+    // a silent black frame. cameraVendor/cameraModel come from the
+    // container tags (company_name / product_name) so the notice can
+    // name the camera ("ALEXA 35 ARRIRAW").
+    bool        unsupportedCodec = false;
+    QString     cameraVendor;         // container company_name (e.g. "ARRI")
+    QString     cameraModel;          // container product_name (e.g. "ALEXA 35")
 
     // Color (Phase 3.E surfaces the auto-preset wiring)
     QString     colorspace;           // "bt709", "bt2020nc", …

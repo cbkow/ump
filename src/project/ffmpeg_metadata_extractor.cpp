@@ -199,6 +199,10 @@ void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
     const AVCodec *codec = avcodec_find_decoder(cp->codec_id);
     m.videoCodec = codec ? QString::fromUtf8(codec->name)
                          : QStringLiteral("unknown");
+    // No decoder for a present video stream = we can't play it (e.g.
+    // ARRIRAW camera raw). The viewport surfaces a notice instead of
+    // a black frame; see WindowManager load-failure handling.
+    m.unsupportedCodec = (codec == nullptr);
 
     const char *pixName = av_get_pix_fmt_name(static_cast<AVPixelFormat>(cp->format));
     m.pixelFormat = pixName ? QString::fromUtf8(pixName) : QString{};
@@ -328,6 +332,18 @@ VideoMetadata FFmpegMetadataExtractor::extract(const QString &filePath)
     // is at least diagnostically useful.
     m.loaded = true;
     extractAudioStream(ctx, m);
+
+    // Container vendor/model tags (ARRI MXFs carry company_name=ARRI,
+    // product_name="ALEXA 35"). Lets the unsupported-codec notice name
+    // the camera. Harmless empty for non-camera containers.
+    if (AVDictionaryEntry *e =
+            av_dict_get(ctx->metadata, "company_name", nullptr, 0)) {
+        m.cameraVendor = QString::fromUtf8(e->value);
+    }
+    if (AVDictionaryEntry *e =
+            av_dict_get(ctx->metadata, "product_name", nullptr, 0)) {
+        m.cameraModel = QString::fromUtf8(e->value);
+    }
 
     avformat_close_input(&ctx);
     qInfo("FFmpegMetadataExtractor: end '%s' (video=%dx%d audio=%dch/%dstr)",

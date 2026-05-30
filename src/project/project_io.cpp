@@ -107,6 +107,9 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("pixelFormat")]         = v.pixelFormat;
     o[QStringLiteral("bitDepth")]            = v.bitDepth;
     o[QStringLiteral("hasAlpha")]            = v.hasAlpha;
+    o[QStringLiteral("unsupportedCodec")]    = v.unsupportedCodec;
+    o[QStringLiteral("cameraVendor")]        = v.cameraVendor;
+    o[QStringLiteral("cameraModel")]         = v.cameraModel;
     o[QStringLiteral("colorspace")]          = v.colorspace;
     o[QStringLiteral("colorPrimaries")]      = v.colorPrimaries;
     o[QStringLiteral("colorTransfer")]       = v.colorTransfer;
@@ -137,6 +140,9 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     v.pixelFormat         = o.value(QStringLiteral("pixelFormat")).toString();
     v.bitDepth            = o.value(QStringLiteral("bitDepth")).toInt(8);
     v.hasAlpha            = o.value(QStringLiteral("hasAlpha")).toBool();
+    v.unsupportedCodec    = o.value(QStringLiteral("unsupportedCodec")).toBool();
+    v.cameraVendor        = o.value(QStringLiteral("cameraVendor")).toString();
+    v.cameraModel         = o.value(QStringLiteral("cameraModel")).toString();
     v.colorspace          = o.value(QStringLiteral("colorspace")).toString();
     v.colorPrimaries      = o.value(QStringLiteral("colorPrimaries")).toString();
     v.colorTransfer       = o.value(QStringLiteral("colorTransfer")).toString();

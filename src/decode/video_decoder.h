@@ -79,6 +79,14 @@ public:
     Q_INVOKABLE bool open(const QString &path);
     Q_INVOKABLE void close();
 
+    // Clear a sticky Errored state back to Idle. close() deliberately
+    // preserves Errored (so genuine decode failures stay visible in the
+    // status strip); callers that handle the failure gracefully — e.g.
+    // the ARRIRAW viewport notice — use this so the toolbar doesn't keep
+    // reading "ERROR" for an intentionally-unsupported file. No-op when
+    // not in Errored.
+    void clearErrorState();
+
     // QML-callable. Requests a seek to the given frame number. The
     // request is delivered to the decode thread via an atomic slot;
     // calls during an in-flight seek win and the older one is

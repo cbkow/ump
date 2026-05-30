@@ -592,6 +592,9 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
     float originY = static_cast<float>(dstHeight) - boxH - marginPx;
     if (corner == 1) {       // BR
         originX = static_cast<float>(dstWidth) - boxW - marginPx;
+    } else if (corner == 2) { // center (viewport notice card)
+        originX = (static_cast<float>(dstWidth)  - boxW) * 0.5f;
+        originY = (static_cast<float>(dstHeight) - boxH) * 0.5f;
     }
     if (originX < 0) originX = 0;
     if (originY < 0) originY = 0;
@@ -630,7 +633,11 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
         /*aActive=*/1,
         /*bActive=*/0,
         m_impl->brightness,
-        /*borderPx=*/2.0f,
+        // No compositor frame for the centered notice card (corner==2):
+        // it carries its own rounded border in the source image, so a
+        // second rectangular frame here reads as a doubled border. Hover
+        // thumbnails (corners 0/1) keep the 2 px frame.
+        /*borderPx=*/(corner == 2 ? 0.0f : 2.0f),
         /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f,
     };
 

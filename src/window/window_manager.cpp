@@ -51,6 +51,9 @@
 #include <QProcess>
 #include <QGuiApplication>
 #include <QImage>
+#include <QPainter>
+#include <QFont>
+#include <QColor>
 #include <QKeyEvent>
 #include <QPointer>
 #include <QtConcurrent>
@@ -78,6 +81,10 @@
 #endif
 
 namespace qcv {
+
+// Forward decl — defined in an anonymous namespace lower in this TU,
+// but used by the loadRequested handler in the constructor below.
+namespace { QString buildViewportNoticeText(const MediaItem &item); }
 
 WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
     : QObject(parent)
@@ -265,6 +272,17 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
                 tearDownDualIslandToSingleState();
                 closeActiveMedia();
             }
+        });
+
+        // Viewport-notice reconciliation. onVideoMetadataReady re-fires
+        // activeItemIdChanged when async metadata lands for the active
+        // item; if it resolves to an undecodable raw, (re)show / upgrade
+        // the notice. Handles the "viewport loaded before metadata"
+        // race — the load-failure path shows a generic notice first,
+        // this upgrades it to the camera-named one. Set-only (never
+        // clears) so it can't race the load path.
+        connect(m_project, &ProjectManager::activeItemIdChanged, this, [this] {
+            evaluateViewportNoticeFor(m_project->activeItemId());
         });
 
         // Per-clip audio routing changes — the inspector pill in
@@ -853,6 +871,12 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // the new timeline build.
         closeActiveMedia();
 
+        // Any new load clears a prior unsupported-media notice up front
+        // (covers image-seq / playlist / decodable-video branches, all
+        // of which can return before the video path). The undecodable
+        // path below re-sets it.
+        clearViewportNotice();
+
         // Bring the single-flow audio device back online if dual
         // mode shut it down on entry. Idempotent — short-circuits
         // when already initialized. Pairs with the shutdown() in
@@ -873,11 +897,29 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             return;
         }
         if (!m_videoDecoder) return;
-        if (!m_videoDecoder->open(item.path)) {
-            qWarning("WindowManager: failed to open '%s' from bin",
+        // ARRIRAW / undecodable raw handling. Two convergent triggers,
+        // neither gating the other (see the load-notice design):
+        //   • proactive — if async metadata already knows there's no
+        //     decoder, skip the decode attempt (no spinner→fail flicker);
+        //   • fallback — otherwise attempt open(); a failure here is the
+        //     race-free trigger when the viewport loads before metadata.
+        // Either way we tear down the previous source and show a centered
+        // viewport notice instead of a black/stale frame.
+        const bool knownUnsupported =
+            item.video.loaded && item.video.unsupportedCodec;
+        if (knownUnsupported || !m_videoDecoder->open(item.path)) {
+            qWarning("WindowManager: '%s' has no decoder "
+                     "(unsupported/raw) — showing viewport notice",
                      qPrintable(item.path));
+            m_videoDecoder->close();   // drop any prior source → bg shows
+            // close() preserves the Errored state by design; clear it so
+            // the status strip doesn't read "ERROR" for a file we're
+            // handling gracefully with the viewport notice.
+            m_videoDecoder->clearErrorState();
+            setViewportNotice(buildViewportNoticeText(item));
             return;
         }
+        // (Notice already cleared after closeActiveMedia above.)
         // Kick a seek to frame 0 so the decoder publishes the first
         // frame immediately. open() leaves the decoder paused with
         // its decode loop blocked on play/seek; without this nudge
@@ -2186,6 +2228,102 @@ void WindowManager::setLoadingActive(bool on)
 #else
     Q_UNUSED(on);
 #endif
+}
+
+namespace {
+
+// Notice copy for an undecodable item. ARRI containers get a camera-
+// named, action-oriented message; anything else gets a generic line.
+// Called only once we've decided the item can't be decoded.
+QString buildViewportNoticeText(const MediaItem &item)
+{
+    const VideoMetadata &v = item.video;
+    const bool isArri =
+        v.cameraVendor.compare(QStringLiteral("ARRI"), Qt::CaseInsensitive) == 0
+        || v.cameraModel.startsWith(QStringLiteral("ALEXA"), Qt::CaseInsensitive)
+        || v.cameraModel.startsWith(QStringLiteral("AMIRA"), Qt::CaseInsensitive);
+    if (isArri) {
+        const QString cam = v.cameraModel.isEmpty()
+            ? QStringLiteral("ARRIRAW")
+            : (v.cameraModel + QStringLiteral(" ARRIRAW"));
+        return QStringLiteral(
+            "%1\n\nUn-debayered camera raw can’t be displayed here.\n"
+            "Review the ProRes / dailies, or convert in\n"
+            "DaVinci Resolve or the ARRI Reference Tool.").arg(cam);
+    }
+    return QStringLiteral(
+        "Unsupported format\n\nThis file can’t be played here.");
+}
+
+// Render the notice into a translucent rounded card (RGBA8888) the
+// renderer composites centered over the viewport background.
+QImage renderViewportNoticeCard(const QString &text)
+{
+    constexpr int kW = 760;
+    constexpr int kH = 240;
+    QImage img(kW, kH, QImage::Format_RGBA8888);
+    img.fill(Qt::transparent);
+
+    QPainter p(&img);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::TextAntialiasing, true);
+
+    const QRectF card(10, 10, kW - 20, kH - 20);
+    p.setPen(QPen(QColor(70, 70, 70), 1.0));
+    p.setBrush(QColor(18, 18, 18, 235));
+    p.drawRoundedRect(card, 12.0, 12.0);
+
+    QFont f = p.font();
+    f.setPixelSize(22);
+    f.setBold(true);
+    p.setFont(f);
+    p.setPen(QColor(232, 232, 232));
+    p.drawText(card.adjusted(28, 24, -28, -24),
+               Qt::AlignCenter | Qt::TextWordWrap, text);
+    p.end();
+    return img;
+}
+
+} // namespace
+
+void WindowManager::setViewportNotice(const QString &text)
+{
+    const QImage card = text.isEmpty() ? QImage()
+                                       : renderViewportNoticeCard(text);
+#ifdef QCV_NATIVE_PLAYER
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        if (auto *r = pw->renderer()) {
+            // Flush the cached source texture when showing a notice so
+            // the background (not a stale previous frame) sits behind
+            // the card.
+            if (!text.isEmpty()) r->clearSourceAState();
+            r->setViewportNotice(card);
+        }
+    }
+#else
+    Q_UNUSED(text);
+#endif
+}
+
+void WindowManager::clearViewportNotice()
+{
+    setViewportNotice(QString());
+}
+
+void WindowManager::evaluateViewportNoticeFor(const QString &mediaId)
+{
+    if (!m_project || mediaId.isEmpty()) return;
+    // Only the active (currently-shown) source drives the viewport
+    // notice; metadata arriving for a background item must not change
+    // what's on screen.
+    if (m_project->activeItemId() != mediaId) return;
+    const MediaItem *item = m_project->findItem(mediaId);
+    if (item && item->video.loaded && item->video.unsupportedCodec) {
+        setViewportNotice(buildViewportNoticeText(*item));
+    }
+    // NOTE: never clear here — clearing is owned by a successful load,
+    // so this reconciliation pass can't race the load-failure path
+    // that may have just set the notice before metadata arrived.
 }
 
 // Brief defer so the menu popup closes and the render thread starts
