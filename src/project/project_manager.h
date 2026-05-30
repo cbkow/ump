@@ -231,6 +231,14 @@ public:
     QString addDualPairItem(const QString &name,
                               const DualPairData &data);
 
+    // Overwrite an existing DualPair's saved state in place (the
+    // "Update" path from the viewport Save bar). Replaces the
+    // item's `dualPair` payload, keeping its id + name + bin slot.
+    // Emits binsChanged + marks the project dirty. No-op (returns
+    // false) if `id` is unknown or not a DualPair.
+    bool updateDualPairItem(const QString &id,
+                            const DualPairData &data);
+
     // ---- Phase 7.7 Stage 5 — Source B accessors ----
     QString bSourceMediaId() const { return m_bSourceMediaId; }
     QString bSourcePath() const;

@@ -56,6 +56,14 @@ class WindowManager : public QObject
     Q_OBJECT
     Q_PROPERTY(bool detached READ detached NOTIFY detachedChanged)
     Q_PROPERTY(int compositorMode READ compositorMode WRITE setCompositorMode NOTIFY compositorModeChanged)
+    // Id of the saved DualPair the current dual session was loaded
+    // from (empty when the dual session is unsaved or we're not in
+    // dual mode). Drives the viewport bar's "Update" affordance —
+    // when set, the user can overwrite that saved view in place
+    // rather than only saving a new copy. Stays bound across source
+    // swaps / edits; cleared on genuine dual exit or project replace.
+    Q_PROPERTY(QString activeDualViewId READ activeDualViewId
+               NOTIFY activeDualViewIdChanged)
     Q_PROPERTY(qreal splitPos READ splitPos WRITE setSplitPos NOTIFY splitPosChanged)
     Q_PROPERTY(qreal diffGain READ diffGain WRITE setDiffGain NOTIFY diffGainChanged)
     Q_PROPERTY(bool autoUpdateChecks READ autoUpdateChecks
@@ -408,6 +416,15 @@ public:
     // clip layouts replace the auto-built tracks. Returns true
     // if the item exists + load proceeded.
     Q_INVOKABLE bool    loadDualView(const QString &dualPairId);
+    // Overwrite the currently-bound saved DualView (activeDualViewId)
+    // with the live dual session's state — the "Update" path. Re-uses
+    // the same snapshot logic as saveCurrentDualView but writes back
+    // into the existing item (id + name preserved) instead of adding
+    // a new one. Returns true on success; no-op (false) if there is
+    // no bound saved view or we're not in dual mode.
+    Q_INVOKABLE bool    updateDualView(const QString &dualPairId);
+
+    QString activeDualViewId() const { return m_activeDualViewId; }
 
     // Delete a MediaItem from the project pool. If the item is the
     // active source, tears down playback first (closeActiveMedia /
@@ -846,6 +863,7 @@ signals:
     void recentProjectsChanged();
     void detachedChanged();
     void compositorModeChanged();
+    void activeDualViewIdChanged();
     void dualControllerChanged();
     void backgroundModeChanged();
     void loopEnabledChanged();
@@ -977,6 +995,10 @@ private:
     // teardown path.
     void tearDownDualIslandToSingleState();
 
+    // Set the saved-DualView binding + fire activeDualViewIdChanged
+    // when it actually changes. Pass empty to clear (detach).
+    void setActiveDualViewId(const QString &id);
+
     // Polls the image-seq cache's buffered counters and emits
     // imageSeqBufferStatusChanged on any change. Driven from the
     // 30 Hz pump and from positionChanged so the cache strip
@@ -1027,6 +1049,10 @@ private:
     QRect                  m_lastDetachedGeometry;
     bool                   m_detached = false;
     int                    m_compositorMode = 0;   // PlayerRhiItem::Single
+    // Saved DualPair the live dual session is bound to (see the
+    // activeDualViewId Q_PROPERTY). Mutate only via
+    // setActiveDualViewId() so the change signal fires.
+    QString                m_activeDualViewId;
     int                    m_backgroundMode = 0;   // BackgroundMode::Black
     bool                   m_loopEnabled    = false;
     // User-intent flag for the loop EOS handler. The video decoder's

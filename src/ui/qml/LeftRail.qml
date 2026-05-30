@@ -352,6 +352,17 @@ Rectangle {
         return flat.filter(function(it){ return (it.type || 0) === 4; });
     }
 
+    // Saved dual views (MediaType::DualPair === 5). Drives their
+    // dedicated section above Playlists. Same flatItems source as
+    // playlistItems, so it repopulates automatically on project
+    // load. The section only renders when this is non-empty.
+    readonly property var dualViewItems: {
+        if (!WindowManager.project) return [];
+        const flat = WindowManager.project.flatItems;
+        if (!flat) return [];
+        return flat.filter(function(it){ return (it.type || 0) === 5; });
+    }
+
     // ---- Row delegate (Phase 3.H.3) ----
     // Used by both the Media bin's ListView and the Playlists
     // section's Repeater. Renders a clickable row with inline
@@ -811,6 +822,10 @@ Rectangle {
                 // Playlists section (now a top-level peer to Media).
                 property bool playlistsExpanded: true
 
+                // Independent collapse state for the saved Dual Views
+                // section (shown only when at least one exists).
+                property bool dualViewsExpanded: true
+
                 // ---- Bin section header (caret + title + add).
                 // Clicking the strip (excluding the + button)
                 // toggles binExpanded; the + opens the file dialog.
@@ -936,13 +951,16 @@ Rectangle {
                 anchors.margins: 1
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
-                // Phase 3.H.3 — Playlists moved to their own
-                // dedicated section below this listFrame. Filter
-                // them out so the Media bin only shows Videos /
-                // Audio / Images / Image Sequences / Dual Views.
+                // Playlists (type 4) and saved Dual Views (type 5)
+                // each have their own dedicated section below this
+                // listFrame, so the Media bin only shows Videos /
+                // Audio / Images / Image Sequences.
                 model: WindowManager.project
                        ? WindowManager.project.flatItems
-                            .filter(function(it){ return (it.type || 0) !== 4; })
+                            .filter(function(it){
+                                const t = (it.type || 0);
+                                return t !== 4 && t !== 5;
+                            })
                        : []
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 // Don't take active focus. The transport keys
@@ -1006,6 +1024,96 @@ Rectangle {
                 border.width: 2
                 visible: dropZone.containsDrag
                 z: 10
+            }
+        }
+
+        // ---- Dual Views section ----
+        // Saved A/B comparisons (MediaType::DualPair === 5), moved
+        // out of the Media bin into their own top-level section that
+        // sits ABOVE Playlists. Unlike Playlists this section only
+        // exists when at least one saved dual view is present — the
+        // header + list are gated on dualViewItems.length. New views
+        // are created from the viewport's Save bar, so there's no "+"
+        // button here. Double-click a row to load it (handled by the
+        // shared itemRowComponent's isDualPair branch).
+        Rectangle {
+            id: dualViewsHeader
+            visible: root.dualViewItems.length > 0
+            Layout.fillWidth: true
+            Layout.preferredHeight: Theme.headerHeight
+            color: dualViewsHeadMa.containsMouse
+                   ? Theme.surfaceHover
+                   : (bodyColumn.dualViewsExpanded
+                        ? Theme.sectionOpenBg : "transparent")
+
+            MouseArea {
+                id: dualViewsHeadMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: bodyColumn.dualViewsExpanded =
+                           !bodyColumn.dualViewsExpanded
+            }
+
+            RowLayout {
+                anchors.fill: parent
+                spacing: 0
+                Item {
+                    Layout.preferredWidth: Theme.gutterWidth
+                    Layout.fillHeight: true
+                    Icon {
+                        anchors.centerIn: parent
+                        name: bodyColumn.dualViewsExpanded
+                              ? "caret-down" : "caret-right"
+                        size: Theme.iconSizeSmall
+                        color: Theme.textSecondary
+                    }
+                }
+                Icon {
+                    Layout.preferredWidth: Theme.iconSizeToolbar
+                    Layout.preferredHeight: Theme.iconSizeToolbar
+                    Layout.rightMargin: Theme.spacing
+                    // Matches the per-row DualPair glyph (frame-corners)
+                    // used by itemRowComponent's _typeIconName(5).
+                    name: "frame-corners"
+                    size: Theme.iconSizeToolbar
+                    color: Theme.textSecondary
+                }
+                Text {
+                    Layout.fillWidth: true
+                    text: qsTr("Dual Views")
+                    color: Theme.textPrimary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeBase
+                    font.bold: true
+                }
+                Text {
+                    text: "(" + root.dualViewItems.length + ")"
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeTiny
+                    Layout.rightMargin: Theme.padding
+                }
+            }
+            Rectangle {
+                visible: bodyColumn.dualViewsExpanded
+                anchors.left:   parent.left
+                anchors.right:  parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.dividerWidth
+                color:  Theme.divider
+            }
+        }
+
+        // Dual Views items list. Same shared row delegate as Media /
+        // Playlists; hidden when collapsed or empty.
+        Column {
+            Layout.fillWidth: true
+            visible: bodyColumn.dualViewsExpanded
+                     && root.dualViewItems.length > 0
+            Repeater {
+                model: root.dualViewItems
+                delegate: itemRowComponent
             }
         }
 

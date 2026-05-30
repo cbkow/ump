@@ -258,6 +258,9 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // with the previous project's B. Fired synchronously (same
         // thread) ahead of loadRequested, so ordering holds.
         connect(m_project, &ProjectManager::projectReplaced, this, [this] {
+            // A new project's saved views are unrelated to the old
+            // one — drop any binding so we don't "Update" a stale id.
+            setActiveDualViewId({});
             if (m_compositorMode != 0 || m_dualController) {
                 tearDownDualIslandToSingleState();
                 closeActiveMedia();
@@ -818,6 +821,12 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
                 // timeline — same one-liner as saveCurrentDualView().
                 clipsB = m_timeline->trackB()
                              .value(QStringLiteral("clips")).toList();
+            } else {
+                // Collapsing to single (non-dual-capable A, or B gone):
+                // the user has left the dual session, so any bound
+                // saved view detaches. The preserve branch keeps the
+                // binding so an A swap stays bound.
+                setActiveDualViewId({});
             }
             tearDownDualIslandToSingleState();
         }
@@ -1612,6 +1621,13 @@ void WindowManager::setCompositorMode(int mode)
     const bool wasSingle = (m_compositorMode == 0);
     const bool nowSingle = (mode == 0);
     m_compositorMode = mode;
+
+    // Leaving dual entirely detaches any bound saved view. This path
+    // is only hit on a genuine user dual-off (the QML compositorMode
+    // setter passes 0); the internal source-swap teardown goes
+    // through tearDownDualIslandToSingleState() directly and keeps
+    // the binding so an A/B swap stays bound to the saved view.
+    if (nowSingle) setActiveDualViewId({});
 
     // Always push the new mode value to the renderer first. The
     // single-flow compositor reads it directly; the dual-flow
@@ -4357,9 +4373,60 @@ QString WindowManager::saveCurrentDualView(const QString &name)
     }
 
     const QString id = m_project->addDualPairItem(resolvedName, data);
+    // Bind the live session to the just-created item so a subsequent
+    // save offers "Update" (overwrite this copy) rather than spawning
+    // yet another duplicate.
+    setActiveDualViewId(id);
     qInfo("WindowManager: saved DualPair '%s' (id=%s)",
           qPrintable(resolvedName), qPrintable(id));
     return id;
+}
+
+// Phase 7.8 Stage F — overwrite an existing saved DualView in place.
+// Snapshots the live dual session exactly like saveCurrentDualView,
+// then writes it back into the bound item (id + name preserved).
+bool WindowManager::updateDualView(const QString &dualPairId)
+{
+    if (!m_dualController || !m_project || !m_timeline) {
+        qWarning("updateDualView: not in dual mode");
+        return false;
+    }
+    if (dualPairId.isEmpty()) return false;
+    const MediaItem *existing = m_project->findItem(dualPairId);
+    if (!existing || existing->type != MediaType::DualPair) {
+        qWarning("updateDualView: id '%s' not a DualPair",
+                 qPrintable(dualPairId));
+        return false;
+    }
+
+    DualPairData data;
+    data.mediaIdA = m_project->activeItemId();
+    data.mediaIdB = m_project->bSourceMediaId();
+    data.masterFps      = m_dualController->fps();
+    data.masterDuration = m_timeline->timeline().duration;
+    data.clipsA = m_timeline->trackA().value(
+                      QStringLiteral("clips")).toList();
+    data.clipsB = m_timeline->trackB().value(
+                      QStringLiteral("clips")).toList();
+    data.inPoint  = m_inPoint;
+    data.outPoint = m_outPoint;
+
+    const bool ok = m_project->updateDualPairItem(dualPairId, data);
+    if (ok) {
+        // Keep the binding pointed at this item (it already is, but be
+        // explicit so the Update affordance stays live).
+        setActiveDualViewId(dualPairId);
+        qInfo("WindowManager: updated DualPair '%s' (id=%s)",
+              qPrintable(existing->name), qPrintable(dualPairId));
+    }
+    return ok;
+}
+
+void WindowManager::setActiveDualViewId(const QString &id)
+{
+    if (m_activeDualViewId == id) return;
+    m_activeDualViewId = id;
+    emit activeDualViewIdChanged();
 }
 
 bool WindowManager::loadDualView(const QString &dualPairId)
@@ -4408,6 +4475,10 @@ bool WindowManager::loadDualView(const QString &dualPairId)
         m_outPoint = data.outPoint;
         emit inOutPointsChanged();
     }
+    // Bind the session to this saved view. Set LAST so the
+    // intermediate single-revert from setActiveItem (step 1), which
+    // clears the binding via setCompositorMode(0), doesn't wipe it.
+    setActiveDualViewId(dualPairId);
     qInfo("WindowManager: loaded DualPair '%s'", qPrintable(item->name));
     return true;
 }

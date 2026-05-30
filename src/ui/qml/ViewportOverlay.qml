@@ -76,6 +76,23 @@ Pane {
         }
     }
 
+    // True when the live dual session was loaded from (or already
+    // saved to) a DualPair item — drives the "Update" affordance.
+    readonly property bool isSavedDualView:
+        WindowManager.activeDualViewId
+        && WindowManager.activeDualViewId.length > 0
+
+    // Overwrite the bound saved view in place (keeps its name). No
+    // name prompt — that's the whole point of Update vs Save As New.
+    function commitUpdate() {
+        if (!root.isSavedDualView) return;
+        if (WindowManager.updateDualView(WindowManager.activeDualViewId))
+            console.log("DualView updated:",
+                        WindowManager.activeDualViewId);
+        else
+            console.warn("DualView update failed");
+    }
+
     // A/B side-marker color — matches Track A / B accentBorder
     // colors in TimelinePanel so the chip identifier reads as the
     // same source-color across the inspector, the dual-view bar,
@@ -402,7 +419,6 @@ Pane {
             iconName: "square"
             checkable: true
             checked: WindowManager.compositorMode === 0
-            tooltipText: qsTr("Single")
             onClicked: WindowManager.compositorMode = 0
         }
         FlatButton {
@@ -410,7 +426,6 @@ Pane {
             iconName: "square-split-horizontal"
             checkable: true
             checked: WindowManager.compositorMode === 1
-            tooltipText: qsTr("Side-by-Side")
             onClicked: WindowManager.compositorMode = 1
         }
         FlatButton {
@@ -418,7 +433,6 @@ Pane {
             iconName: "split-horizontal"
             checkable: true
             checked: WindowManager.compositorMode === 2
-            tooltipText: qsTr("Split-Wipe")
             onClicked: WindowManager.compositorMode = 2
         }
         FlatButton {
@@ -426,22 +440,40 @@ Pane {
             iconName: "exclude"
             checkable: true
             checked: WindowManager.compositorMode === 3
-            tooltipText: qsTr("Difference (abs A−B)")
             onClicked: WindowManager.compositorMode = 3
         }
 
-        // "Save as Dual View" — visible only when dual mode is
-        // active AND we're not already in saveMode. Click swaps
-        // the bar contents to the inline name-field + Save /
-        // Cancel form below.
+        // "Update" — overwrite the saved Dual View the session is
+        // bound to, in place (keeps its name). Only shown when we're
+        // actually in a saved view; otherwise the single Save button
+        // below is the entry point. Primary variant so it reads as
+        // the main action while editing an existing saved view.
+        FlatButton {
+            id: updateDualBtn
+            visible: !root.saveMode && !root.playlistActive
+                     && WindowManager.compositorMode !== 0
+                     && WindowManager.dualController
+                     && root.isSavedDualView
+            iconName: "floppy-disk"
+            // Subtle grey fill rather than accent-blue: in this row
+            // blue is reserved for dual-view state (the active mode
+            // toggle). Update is an action, not a state.
+            variant: "subtle"
+            onClicked: root.commitUpdate()
+        }
+
+        // "Save as Dual View" / "Save As New" — visible whenever dual
+        // mode is active AND we're not already in saveMode. Click
+        // swaps the bar contents to the inline name-field + Save /
+        // Cancel form below. When the session is already a saved
+        // view, this becomes the "save a separate copy" action (and
+        // the Update button to its left handles overwrite).
         FlatButton {
             id: saveDualBtn
             visible: !root.saveMode && !root.playlistActive
                      && WindowManager.compositorMode !== 0
                      && WindowManager.dualController
-            iconName: "floppy-disk"
-            tooltipText: qsTr("Save the current A/B + edits as a "
-                              + "reusable item in the Dual Views bin")
+            iconName: root.isSavedDualView ? "file-plus" : "floppy-disk"
             onClicked: root.enterSaveMode()
         }
 
@@ -520,14 +552,12 @@ Pane {
             iconName: "check"
             variant: "primary"
             enabled: saveNameField.text.trim().length > 0
-            tooltipText: qsTr("Save")
             onClicked: root.commitSave()
         }
         FlatButton {
             visible: root.saveMode
             iconName: "x"
             variant: "danger"
-            tooltipText: qsTr("Cancel")
             onClicked: root.saveMode = false
         }
     }

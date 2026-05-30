@@ -308,6 +308,18 @@ QString ProjectManager::addDualPairItem(const QString &name,
     return item.id;
 }
 
+bool ProjectManager::updateDualPairItem(const QString &id,
+                                        const DualPairData &data)
+{
+    const int idx = findIndexInPool(id);
+    if (idx < 0) return false;
+    if (m_mediaPool[idx].type != MediaType::DualPair) return false;
+    m_mediaPool[idx].dualPair = data;
+    markDirty();
+    emit binsChanged();
+    return true;
+}
+
 // ---- Phase 3.H.1 — Playlist creation ---------------------------
 
 QString ProjectManager::createPlaylist(const QStringList &paths,

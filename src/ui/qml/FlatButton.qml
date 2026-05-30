@@ -4,10 +4,14 @@ import QtQuick.Layouts
 import Qcv
 
 // Flat squared-corner button matching the sister app's visual
-// vocabulary. Three variants:
+// vocabulary. Variants:
 //   - "default": transparent idle, surfaceHover on hover
 //   - "primary": accent-blue fill
 //   - "danger":  error-red fill (stays red even when disabled)
+//   - "subtle":  persistent grey fill (surfaceHover idle, borderStrong
+//                on hover) — marks an actionable button without
+//                spending the accent-blue, which some toolstrips
+//                reserve for state (e.g. the dual-view mode row).
 //
 // Use:
 //   FlatButton { text: "Save"; variant: "primary"; onClicked: ... }
@@ -25,7 +29,7 @@ import Qcv
 Button {
     id: root
 
-    property string variant: "default"        // "default" | "primary" | "danger"
+    property string variant: "default"        // "default" | "primary" | "danger" | "subtle"
     property string iconName: ""              // Phosphor icon slug
     property int    iconSize: Theme.iconSizeToolbar
     property color  iconColor: "transparent"  // transparent => track text color
@@ -52,12 +56,14 @@ Button {
         readonly property color bgIdle: {
             if (root.variant === "primary") return Theme.accent
             if (root.variant === "danger")  return Theme.error
+            if (root.variant === "subtle")  return Theme.surfaceHover
             if (root.checked && !root.subtleChecked) return Theme.accent
             return "transparent"
         }
         readonly property color bgHover: {
             if (root.variant === "primary") return Theme.accentHover
             if (root.variant === "danger")  return Qt.lighter(Theme.error, 1.15)
+            if (root.variant === "subtle")  return Theme.borderStrong
             if (root.checked && !root.subtleChecked) return Theme.accentHover
             return Theme.surfaceHover
         }
