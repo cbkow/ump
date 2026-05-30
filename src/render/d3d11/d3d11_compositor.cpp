@@ -50,7 +50,12 @@ cbuffer Constants : register(b0) {
     float  _pad0;
     int    hasSrc;
     int    bgMode;
-    int2   _pad1;
+    int    overlayMode;    // 0 = composite over bg fill (opaque output);
+                           // 1 = straight src for hardware src-over blend,
+                           //     transparent outside the source rect (the
+                           //     viewport notice card; mirrors Metal's
+                           //     present-compositor src-over + discard).
+    int    _pad1;
     float  brightness;     // post-composite multiplier; 1.0 = identity
     float3 borderColor;    // RGB of the edge frame (used when borderPx > 0)
 };
@@ -83,6 +88,26 @@ float4 backgroundColor(float2 fragPx)
 float4 PSMain(VsOut input) : SV_TARGET
 {
     float2 fragPx = input.uv * dstSize;
+
+    // Overlay mode (viewport notice card): blend the source STRAIGHT over
+    // whatever is already in the RTV via the hardware src-over blend
+    // state, and emit fully-transparent outside the source rect so the
+    // existing viewport background shows through the card's rounded
+    // corners / margin. Mirrors MetalCompositor's present pass
+    // (enableSrcOverBlending + discard on alpha==0). No bg fill, no
+    // border here — the card carries its own rounded border.
+    if (overlayMode != 0) {
+        if (hasSrc != 0 &&
+            fragPx.x >= fitRectMin.x && fragPx.x < fitRectMin.x + fitRectSize.x &&
+            fragPx.y >= fitRectMin.y && fragPx.y < fitRectMin.y + fitRectSize.y)
+        {
+            float2 srcUv = (fragPx - fitRectMin) / fitRectSize;
+            float4 v = src.Sample(srcSamp, srcUv);
+            return float4(v.rgb * brightness, v.a);
+        }
+        return float4(0.0, 0.0, 0.0, 0.0);   // leave RTV untouched
+    }
+
     // Edge frame — painted over everything when borderPx > 0 (corner-
     // overlay thumbnails). The main video pass leaves borderPx at 0,
     // so this is a no-op there.
@@ -186,7 +211,8 @@ struct CompositorCB {
     float pad0;           // 32
     int   hasSrc;         // 36
     int   bgMode;         // 40
-    int   pad1[2];        // 48
+    int   overlayMode;    // 44  (0 = bg-fill composite; 1 = src-over the RTV)
+    int   pad1;           // 48
     float brightness;     // 52
     float borderColor[3]; // 64
 };
@@ -205,7 +231,8 @@ struct D3D11Compositor::Impl {
     ComPtr<ID3D11Buffer>         cbuf;
     ComPtr<ID3D11Buffer>         spinnerCbuf;
     ComPtr<ID3D11RasterizerState> rasterState;
-    ComPtr<ID3D11BlendState>     blendState;
+    ComPtr<ID3D11BlendState>     blendState;       // opaque (BlendEnable=FALSE)
+    ComPtr<ID3D11BlendState>     blendStateAlpha;  // non-premult src-over
     float                        brightness = 1.0f;
     bool initialized = false;
 };
@@ -303,6 +330,26 @@ bool D3D11Compositor::initialize()
         return false;
     }
 
+    // Non-premultiplied source-over for the overlay (viewport notice
+    // card) path — exact match for MetalCompositor's present blend
+    // (metal_compositor.mm:419-425): RGB = src.a·src + (1-src.a)·dst;
+    // alpha = src.a + (1-src.a)·dst.a (stays 1 over the opaque bg, so
+    // the swapchain remains fully opaque and DComp doesn't composite
+    // the desktop/blue tint through).
+    D3D11_BLEND_DESC bda{};
+    bda.RenderTarget[0].BlendEnable           = TRUE;
+    bda.RenderTarget[0].SrcBlend              = D3D11_BLEND_SRC_ALPHA;
+    bda.RenderTarget[0].DestBlend             = D3D11_BLEND_INV_SRC_ALPHA;
+    bda.RenderTarget[0].BlendOp               = D3D11_BLEND_OP_ADD;
+    bda.RenderTarget[0].SrcBlendAlpha         = D3D11_BLEND_ONE;
+    bda.RenderTarget[0].DestBlendAlpha        = D3D11_BLEND_INV_SRC_ALPHA;
+    bda.RenderTarget[0].BlendOpAlpha          = D3D11_BLEND_OP_ADD;
+    bda.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    if (FAILED(device->CreateBlendState(&bda, m_impl->blendStateAlpha.GetAddressOf()))) {
+        qCritical("D3D11Compositor: CreateBlendState (alpha) failed");
+        return false;
+    }
+
     m_impl->initialized = true;
     qInfo("D3D11Compositor: initialized");
     return true;
@@ -312,6 +359,7 @@ void D3D11Compositor::shutdown()
 {
     if (!m_impl) return;
     m_impl->blendState.Reset();
+    m_impl->blendStateAlpha.Reset();
     m_impl->rasterState.Reset();
     m_impl->cbuf.Reset();
     m_impl->spinnerCbuf.Reset();
@@ -327,7 +375,8 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
                                      int srcW, int srcH,
                                      int bgMode,
                                      float borderPx,
-                                     float borderR, float borderG, float borderB)
+                                     float borderR, float borderG, float borderB,
+                                     bool overlayBlend)
 {
     if (!m_impl || !m_impl->initialized) return;
     if (dstW <= 0 || dstH <= 0) return;
@@ -367,6 +416,7 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
     cb.fitSize[1] = fitH;
     cb.hasSrc     = srcSrv ? 1 : 0;
     cb.bgMode     = bgMode;
+    cb.overlayMode = overlayBlend ? 1 : 0;
     cb.brightness = m_impl->brightness;
     cb.borderPx       = borderPx;
     cb.borderColor[0] = borderR;
@@ -388,7 +438,9 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
     ctx->PSSetShaderResources(0, 1, srvs);
     ctx->RSSetState(m_impl->rasterState.Get());
     const float blendFactor[4] = {0, 0, 0, 0};
-    ctx->OMSetBlendState(m_impl->blendState.Get(), blendFactor, 0xFFFFFFFF);
+    ctx->OMSetBlendState(
+        overlayBlend ? m_impl->blendStateAlpha.Get() : m_impl->blendState.Get(),
+        blendFactor, 0xFFFFFFFF);
 
     ctx->Draw(3, 0);
 
@@ -467,7 +519,11 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
                  // source image; a second rectangular frame reads as a
                  // doubled border. Hover thumbs (0/1) keep the 2 px frame.
                  /*borderPx=*/(corner == 2 ? 0.0f : 2.0f),
-                 /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f);
+                 /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f,
+                 // Notice card (corner==2): src-over the live viewport
+                 // background so its rounded corners stay transparent —
+                 // matches macOS. Hover thumbs stay opaque tiles.
+                 /*overlayBlend=*/(corner == 2));
 
     ctx->RSSetViewports(1, &prev);
 }

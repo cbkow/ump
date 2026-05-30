@@ -50,6 +50,13 @@ public:
     //                      frame. Used by renderCornerOverlay so the
     //                      thumbnail doesn't blend into the viewport.
     // `borderR/G/B`     — frame color (only when borderPx > 0).
+    // `overlayBlend` — when true, the source is blended STRAIGHT over the
+    //                  existing RTV contents (non-premult src-over) and
+    //                  fragments outside the source rect are transparent,
+    //                  instead of compositing over an opaque bg fill. Used
+    //                  for the centered viewport-notice card so its rounded
+    //                  corners reveal the viewport background (parity with
+    //                  the macOS present compositor). Default false.
     void renderSingle(void *ctx,
                        void *srcSrv,
                        int   dstW, int dstH,
@@ -58,7 +65,8 @@ public:
                        float borderPx = 0.0f,
                        float borderR = 0.0f,
                        float borderG = 0.0f,
-                       float borderB = 0.0f);
+                       float borderB = 0.0f,
+                       bool  overlayBlend = false);
 
     // Phase F.2.8 follow-up — uniform output multiplier applied to
     // the final pixel before write. 1.0 = identity. Stored as state;
