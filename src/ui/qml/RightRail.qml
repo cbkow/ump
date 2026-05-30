@@ -141,11 +141,35 @@ Pane {
         // Spacer keeps the header pinned to the top when the
         // body ScrollView is hidden. (Without it, the
         // ColumnLayout drifts the lone header item toward the
-        // rail's vertical center.)
+        // rail's vertical center.) It also doubles as a giant
+        // re-expand target: transparent at rest, on hover it
+        // brightens and reveals an open-direction caret so the
+        // whole slim strip reads as "click to open" (not just
+        // the header chevron). Right rail opens leftward.
         Item {
             visible: root.collapsed
             Layout.fillWidth:  true
             Layout.fillHeight: true
+
+            Rectangle {
+                anchors.fill: parent
+                color: collapsedOpenMa.containsMouse
+                       ? Theme.surfaceHover : "transparent"
+            }
+            Icon {
+                anchors.centerIn: parent
+                visible: collapsedOpenMa.containsMouse
+                name: "arrow-left"
+                size: Theme.iconSizeToolbar
+                color: Theme.textPrimary
+            }
+            MouseArea {
+                id: collapsedOpenMa
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                hoverEnabled: true
+                onClicked: root.toggleCollapsed()
+            }
         }
 
         // ---- Inspector + Image Sequence -------------------------

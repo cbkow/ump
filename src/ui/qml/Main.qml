@@ -687,7 +687,7 @@ ApplicationWindow {
         root.rightRailCollapsed = true;
         root.timelineVisible    = true;
         root.transportVisible   = true;
-        root.statusStripVisible = false;
+        root.statusStripVisible = true;
         root.colorPanelVisible  = false;
     }
     function viewAllPanels() {

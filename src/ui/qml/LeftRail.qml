@@ -744,12 +744,34 @@ Rectangle {
         // — without an explicit fillHeight sibling, the
         // ColumnLayout would distribute the unused space and
         // visually drift the header toward the rail's vertical
-        // center. The spacer claims that space so the header
-        // stays pinned to the top of the slim strip.
+        // center. This claimed space doubles as a giant re-expand
+        // target: transparent at rest, on hover it brightens and
+        // reveals an open-direction caret so the whole slim strip
+        // reads as "click to open" (not just the header chevron).
         Item {
             visible: root.collapsed
             Layout.fillWidth:  true
             Layout.fillHeight: true
+
+            Rectangle {
+                anchors.fill: parent
+                color: collapsedOpenMa.containsMouse
+                       ? Theme.surfaceHover : "transparent"
+            }
+            Icon {
+                anchors.centerIn: parent
+                visible: collapsedOpenMa.containsMouse
+                name: "arrow-right"
+                size: Theme.iconSizeToolbar
+                color: Theme.textPrimary
+            }
+            MouseArea {
+                id: collapsedOpenMa
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                hoverEnabled: true
+                onClicked: root.toggleCollapsed()
+            }
         }
 
         ScrollView {

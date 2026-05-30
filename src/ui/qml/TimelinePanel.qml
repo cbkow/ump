@@ -1984,13 +1984,21 @@ Pane {
                 // MouseArea on it) — EditTrackMa at z:27 already
                 // wins clicks regardless of whether we draw the
                 // playhead or not.
-                readonly property bool dimmed:
-                    root.editableMode
-                    && (root.editingA || root.editingB)
+                // Per-track edit state. The playhead is only dimmed +
+                // dashed over a track that is ACTUALLY in edit mode —
+                // where the edit handles own the gesture. Over a track
+                // that isn't editing, the playhead is still grab-to-
+                // scrub, so it stays solid + full strength there. So
+                // editing A in a dual view dashes only the A row; the
+                // B row's playhead reads as draggable.
+                readonly property bool editA:
+                    root.editableMode && root.editingA
+                readonly property bool editB:
+                    root.editableMode && root.editingB
+                readonly property bool dimmed: editA || editB
                 visible: loaded
                 width: 1
                 height: parent.height
-                opacity: dimmed ? 0.35 : 1.0
                 // Above cacheIndicator (z:1) and its children
                 // (failed-frame ticks at z:5 inside it). In edit mode
                 // the editing track's clips are raised to z:20 (z:18
@@ -2010,26 +2018,58 @@ Pane {
                       ? Math.max(0, Math.min(parent.width - 1, rulerScrubArea.mouseX))
                       : (timeToX(position) - root.scrollX))
 
-                // Solid line in normal mode.
-                Rectangle {
-                    visible: !playhead.dimmed
-                    anchors.fill: parent
-                    color: Theme.success
+                // Track A row segment. Solid (full strength) unless
+                // track A is in edit mode, then dim + dashed.
+                Item {
+                    y: 0
+                    width: 1
+                    height: kRowHA
+                    opacity: playhead.editA ? 0.35 : 1.0
+                    // Solid line when not editing this track.
+                    Rectangle {
+                        visible: !playhead.editA
+                        anchors.fill: parent
+                        color: Theme.success
+                    }
+                    // Dashed when editing — 3 px dash / 3 px gap so the
+                    // playhead reads as "don't grab me" without losing
+                    // its value as a position indicator.
+                    Repeater {
+                        model: playhead.editA
+                               ? Math.max(1, Math.ceil(kRowHA / 6)) : 0
+                        Rectangle {
+                            x: 0
+                            y: index * 6
+                            width: 1
+                            height: 3
+                            color: Theme.success
+                        }
+                    }
                 }
 
-                // Dashed in edit mode — 3 px dash / 3 px gap so the
-                // playhead reads as "don't grab me" without losing
-                // its value as a position indicator.
-                Repeater {
-                    model: playhead.dimmed
-                           ? Math.max(1, Math.ceil(playhead.height / 6))
-                           : 0
+                // Track B row segment (dual only). Independently solid
+                // or dashed based on track B's own edit state.
+                Item {
+                    visible: hasTrackB
+                    y: kRowHA
+                    width: 1
+                    height: kRowHB
+                    opacity: playhead.editB ? 0.35 : 1.0
                     Rectangle {
-                        x: 0
-                        y: index * 6
-                        width: 1
-                        height: 3
+                        visible: !playhead.editB
+                        anchors.fill: parent
                         color: Theme.success
+                    }
+                    Repeater {
+                        model: playhead.editB
+                               ? Math.max(1, Math.ceil(kRowHB / 6)) : 0
+                        Rectangle {
+                            x: 0
+                            y: index * 6
+                            width: 1
+                            height: 3
+                            color: Theme.success
+                        }
                     }
                 }
             }
