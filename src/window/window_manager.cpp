@@ -1943,6 +1943,13 @@ void WindowManager::setCompositorMode(int mode)
                   mode, qPrintable(pathA), qPrintable(pathB));
         } else {
             qWarning("WindowManager: Single→Dual failed; reverting to single");
+            // Clear the suppress flag the dual-entry set at the top — the
+            // success branch resets it (line ~1839), but this failure path
+            // returns early and would otherwise leave it stuck TRUE,
+            // wedging the metadataChanged timeline rebuild for EVERY
+            // subsequent load (timeline never returns). Must clear before
+            // rebuildSingleFlowFromActiveItem so its rebuild takes effect.
+            m_suppressTimelineRebuild = false;
             m_dualController.reset();
             m_compositorMode = 0;
             rebuildSingleFlowFromActiveItem();
