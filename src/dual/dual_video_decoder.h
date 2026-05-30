@@ -86,6 +86,14 @@ public:
     int    frameCount() const override { return m_frameCount; }
     QString path() const override { return m_path; }
     void setRangeOverride(int v) override;
+    // Current per-side YUV range override (qcv::VideoRange int). The
+    // paired scrub decoder reads this so its sws_setColorspaceDetails
+    // matches playback levels (the controller keeps both in sync via
+    // setRangeOverrideA/B → m_sourceA/B). Metal scrub frames already
+    // pick it up through makeMetalScrubFrame.
+    int rangeOverride() const {
+        return m_rangeOverride.load(std::memory_order_acquire);
+    }
 
     QString hwAccelName() const override {
         // Reports the backend that actually attached, not the one we

@@ -97,6 +97,7 @@ private:
     int              m_swsSrcWidth  = 0;
     int              m_swsSrcHeight = 0;
     int              m_swsSrcFormat = -1;
+    int              m_swsAppliedRange = -1;  // last range override baked into m_sws
 
     std::atomic<int> m_pendingTarget{-1};
     int              m_lastDecodedFrame = -1;
@@ -219,18 +220,30 @@ void MacDualScrubDecoder::teardownFFmpeg()
 
 bool MacDualScrubDecoder::initSwsContext(AVFrame *frame)
 {
-    if (m_sws &&
+    // Range override is owned by the paired streaming decoder (the
+    // controller keeps both sides in sync). Re-apply colorspace details
+    // when it changes even if dims/format are unchanged, so the CPU
+    // fallback's scrubbed levels match playback. (The Metal fast path
+    // picks the override up via makeMetalScrubFrame and never reaches
+    // here.)
+    const int rangeOv = m_streaming ? m_streaming->rangeOverride() : 0;
+    const bool dimsSame =
+        m_sws &&
         m_swsSrcWidth  == frame->width &&
         m_swsSrcHeight == frame->height &&
-        m_swsSrcFormat == frame->format) {
+        m_swsSrcFormat == frame->format;
+    if (dimsSame && rangeOv == m_swsAppliedRange) {
         return true;
     }
-    if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
-    m_sws = sws_getContext(
-        frame->width, frame->height, static_cast<AVPixelFormat>(frame->format),
-        frame->width, frame->height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!m_sws) return false;
+    if (!dimsSame) {
+        if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
+        m_sws = sws_getContext(
+            frame->width, frame->height,
+            static_cast<AVPixelFormat>(frame->format),
+            frame->width, frame->height, AV_PIX_FMT_RGBA,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!m_sws) return false;
+    }
 
     int srcCsp;
     switch (frame->colorspace) {
@@ -246,16 +259,19 @@ bool MacDualScrubDecoder::initSwsContext(AVFrame *frame)
                      ? SWS_CS_ITU709 : SWS_CS_SMPTE170M;
             break;
     }
-    const int srcFullRange = (frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
+    int srcFullRange = (frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
+    if (rangeOv == 1)      srcFullRange = 1;   // Full
+    else if (rangeOv == 2) srcFullRange = 0;   // Limited
     sws_setColorspaceDetails(
         m_sws,
         sws_getCoefficients(srcCsp), srcFullRange,
         sws_getCoefficients(SWS_CS_ITU709), 1,
         0, 1 << 16, 1 << 16);
 
-    m_swsSrcWidth  = frame->width;
-    m_swsSrcHeight = frame->height;
-    m_swsSrcFormat = frame->format;
+    m_swsSrcWidth     = frame->width;
+    m_swsSrcHeight    = frame->height;
+    m_swsSrcFormat    = frame->format;
+    m_swsAppliedRange = rangeOv;
     return true;
 }
 

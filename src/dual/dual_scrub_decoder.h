@@ -88,6 +88,7 @@ private:
     int              m_swsSrcWidth = 0;
     int              m_swsSrcHeight = 0;
     int              m_swsSrcFormat = -1;
+    int              m_swsAppliedRange = -1;  // last range override baked into m_sws
 
     std::atomic<int> m_pendingTarget{-1};
     int              m_lastDecodedFrame = -1;
