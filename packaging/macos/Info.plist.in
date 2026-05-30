@@ -22,8 +22,14 @@
     <string>${MACOSX_BUNDLE_SHORT_VERSION_STRING}</string>
     <key>CFBundleVersion</key>
     <string>${MACOSX_BUNDLE_BUNDLE_VERSION}</string>
+    <!-- Legacy raster icon (macOS 13–25). On macOS 26+ the layered
+         .icon (CFBundleIconName → Assets.car) takes over; the
+         CFBundleIconName line below is injected by CMake ONLY when
+         assets/icons/QCView.icon is present, so we never point at a
+         missing Assets.car entry. -->
     <key>CFBundleIconFile</key>
     <string>qcview.icns</string>
+@QCV_ICON_NAME_BLOCK@
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>NSHighResolutionCapable</key>

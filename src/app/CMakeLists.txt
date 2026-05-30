@@ -48,11 +48,11 @@ target_compile_definitions(qcview
 # load.
 set_target_properties(qcview PROPERTIES
     MACOSX_BUNDLE TRUE
-    MACOSX_BUNDLE_INFO_PLIST
-        "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
-    MACOSX_BUNDLE_EXECUTABLE_NAME "qcview"
-    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+    # NOTE: MACOSX_BUNDLE_INFO_PLIST + the exec/version vars are set in
+    # the APPLE block below — we generate Contents/Info.plist via
+    # configure_file (to conditionally inject CFBundleIconName for the
+    # Tahoe .icon), so we must NOT also point at the raw .in here or
+    # CMake emits that instead and the icon-name key is lost.
     # Tell dyld to look for vendored dylibs in the bundle's
     # Frameworks/ dir. scripts/bundle_dylibs.sh copies the
     # Homebrew-linked deps there + rewrites their install names
@@ -106,6 +106,73 @@ if(APPLE)
         PROPERTIES MACOSX_PACKAGE_LOCATION "Resources"
     )
     target_sources(qcview PRIVATE "${QCV_ICNS_FILE}")
+
+    # ---- Tahoe layered app icon (.icon → Assets.car, macOS 26+) -------
+    # Author assets/icons/QCView.icon in Icon Composer (a background-fill
+    # layer + the foreground Q layer). actool compiles it to Assets.car;
+    # macOS 26 reads CFBundleIconName + Assets.car and applies the system
+    # squircle + Liquid Glass, so the background fill shows WITHOUT us
+    # baking our own corners. The icon's asset name is the .icon filename
+    # stem ("QCView") and MUST match --app-icon and CFBundleIconName.
+    # Guarded on the asset existing so the build stays green until it's
+    # added; older macOS keeps the .icns above. Requires full Xcode
+    # (actool) — Command Line Tools alone won't provide it.
+    set(QCV_APPICON_ICON "${CMAKE_SOURCE_DIR}/assets/icons/qcviewMac.icon")
+    set(QCV_APPICON_NAME "qcviewMac")
+    set(QCV_ICON_NAME_BLOCK "")
+    if(EXISTS "${QCV_APPICON_ICON}")
+        set(QCV_ASSETS_DIR "${CMAKE_BINARY_DIR}/AppIconAssets")
+        set(QCV_ASSETS_CAR "${QCV_ASSETS_DIR}/Assets.car")
+        add_custom_command(
+            OUTPUT  "${QCV_ASSETS_CAR}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${QCV_ASSETS_DIR}"
+            COMMAND xcrun actool "${QCV_APPICON_ICON}"
+                    --compile "${QCV_ASSETS_DIR}"
+                    --output-format human-readable-text
+                    --notices --warnings --errors
+                    --output-partial-info-plist "${QCV_ASSETS_DIR}/partial.plist"
+                    --app-icon "${QCV_APPICON_NAME}" --include-all-app-icons
+                    --enable-on-demand-resources NO
+                    --development-region en
+                    --target-device mac
+                    --minimum-deployment-target 26.0
+                    --platform macosx
+            DEPENDS "${QCV_APPICON_ICON}"
+            COMMENT "Compiling ${QCV_APPICON_NAME}.icon → Assets.car (actool)"
+            VERBATIM
+        )
+        set_source_files_properties("${QCV_ASSETS_CAR}"
+            PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+        target_sources(qcview PRIVATE "${QCV_ASSETS_CAR}")
+        # Real newline inside the string so configure_file emits two
+        # plist lines (CFBundleIconName + its value).
+        set(QCV_ICON_NAME_BLOCK
+"    <key>CFBundleIconName</key>
+    <string>${QCV_APPICON_NAME}</string>")
+        message(STATUS
+            "QCView: Tahoe layered icon ${QCV_APPICON_NAME}.icon → Assets.car")
+    else()
+        message(STATUS
+            "QCView: assets/icons/${QCV_APPICON_NAME}.icon not found — "
+            "macOS 26 layered icon skipped (legacy .icns only)")
+    endif()
+
+    # ---- Info.plist (conditional CFBundleIconName) --------------------
+    # Generate via configure_file rather than CMake's MACOSX_BUNDLE_*
+    # auto-substitution, so CFBundleIconName is injected ONLY when
+    # Assets.car ships (otherwise macOS 26 would point at a missing
+    # asset and show a blank icon). The template still references the
+    # bundle vars in ${...} form, so set them as CMake vars here; @VAR@
+    # injects @QCV_ICON_NAME_BLOCK@. (No @ONLY — we need both forms.)
+    set(MACOSX_BUNDLE_EXECUTABLE_NAME "qcview")
+    set(MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}")
+    set(MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}")
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/packaging/macos/Info.plist.in"
+        "${CMAKE_BINARY_DIR}/Info.plist"
+    )
+    set_target_properties(qcview PROPERTIES
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_BINARY_DIR}/Info.plist")
 
     # Embed the vendored Sparkle.framework into the bundle's Frameworks/
     # so the @executable_path/../Frameworks rpath resolves it at runtime
