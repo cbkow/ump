@@ -343,6 +343,9 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             if (m_videoDecoder && m_project
                 && audioRoutingScopeMediaItemId() == itemId) {
                 m_videoDecoder->setRangeOverride(range);
+                // Mirror to the scrub decoder so scrubbed frames match
+                // playback levels (it shares the same source/clip).
+                if (m_scrubDecoder) m_scrubDecoder->setRangeOverride(range);
             }
         });
     }
@@ -989,6 +992,10 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
                         audioRoutingScopeMediaItemId())) {
                     m_videoDecoder->setRangeOverride(
                         static_cast<int>(it->videoRangeOverride));
+                    if (m_scrubDecoder) {
+                        m_scrubDecoder->setRangeOverride(
+                            static_cast<int>(it->videoRangeOverride));
+                    }
                 }
             }
         }
@@ -3210,6 +3217,10 @@ int WindowManager::playlistAdvanceToClip(int trackClipIndex, bool autoplay,
         if (const MediaItem *src = m_project->findItem(clip.mediaItemId)) {
             m_videoDecoder->setRangeOverride(
                 static_cast<int>(src->videoRangeOverride));
+            if (m_scrubDecoder) {
+                m_scrubDecoder->setRangeOverride(
+                    static_cast<int>(src->videoRangeOverride));
+            }
         }
     }
 

@@ -235,20 +235,43 @@ void ScrubDecoder::teardownFFmpeg()
     m_swsSrcFormat = -1;
 }
 
+void ScrubDecoder::setRangeOverride(int range)
+{
+    const int clamped = (range < 0) ? 0 : (range > 2 ? 0 : range);
+    const int prev = m_rangeOverride.exchange(clamped, std::memory_order_acq_rel);
+    if (prev != clamped) {
+        // Force initSwsContext to re-apply sws_setColorspaceDetails on the
+        // next decode even if dims/format are unchanged. Also nudge a
+        // re-decode of the held frame so a paused scrub updates live.
+        m_swsColorspaceDirty.store(true, std::memory_order_release);
+        const int held = m_lastDecodedFrame;
+        if (held >= 0) requestFrame(held);
+    }
+}
+
 bool ScrubDecoder::initSwsContext(AVFrame *frame)
 {
-    if (m_sws &&
+    const bool dimsSame =
+        m_sws &&
         m_swsSrcWidth  == frame->width &&
         m_swsSrcHeight == frame->height &&
-        m_swsSrcFormat == frame->format) {
+        m_swsSrcFormat == frame->format;
+    // Fast path: nothing changed (dims/format AND range), reuse as-is.
+    if (dimsSame &&
+        !m_swsColorspaceDirty.exchange(false, std::memory_order_acq_rel)) {
         return true;
     }
-    if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
-    m_sws = sws_getContext(
-        frame->width, frame->height, static_cast<AVPixelFormat>(frame->format),
-        frame->width, frame->height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-    if (!m_sws) return false;
+    if (!dimsSame) {
+        if (m_sws) { sws_freeContext(m_sws); m_sws = nullptr; }
+        m_sws = sws_getContext(
+            frame->width, frame->height,
+            static_cast<AVPixelFormat>(frame->format),
+            frame->width, frame->height, AV_PIX_FMT_RGBA,
+            SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!m_sws) return false;
+    }
+    // Either we (re)created the context, or the range override changed —
+    // (re)apply the colorspace details below in both cases.
 
     int srcCsp;
     switch (frame->colorspace) {
@@ -264,7 +287,13 @@ bool ScrubDecoder::initSwsContext(AVFrame *frame)
                      ? SWS_CS_ITU709 : SWS_CS_SMPTE170M;
             break;
     }
-    const int srcFullRange = (frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
+    // Apply the user's per-clip range override (Phase 3.G parity with
+    // VideoDecoder) so scrubbed levels match playback. Auto (0) uses the
+    // stream's detected color_range.
+    int srcFullRange = (frame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
+    const int rangeOv = m_rangeOverride.load(std::memory_order_acquire);
+    if (rangeOv == 1)      srcFullRange = 1;   // Full
+    else if (rangeOv == 2) srcFullRange = 0;   // Limited
     sws_setColorspaceDetails(
         m_sws,
         sws_getCoefficients(srcCsp), srcFullRange,

@@ -59,6 +59,18 @@ public:
     // mid-decode. Cheap to call at slider-drag rate (60+ Hz).
     Q_INVOKABLE void requestFrame(int frameNo);
 
+    // Phase 3.G parity — per-clip YUV range override, mirroring
+    // VideoDecoder::setRangeOverride so scrubbed frames match playback
+    // levels (0 = Auto / use stream color_range, 1 = Full, 2 = Limited).
+    // Folded into the sws srcFullRange in initSwsContext; setting it
+    // marks the cached sws colorspace dirty so the next decode re-applies
+    // even when dimensions/format are unchanged. WindowManager pushes the
+    // active item's override here alongside the streaming decoder.
+    void setRangeOverride(int range);
+    int  rangeOverride() const {
+        return m_rangeOverride.load(std::memory_order_acquire);
+    }
+
 private:
     void workerLoop();
     bool initFFmpeg(const QString &path);
@@ -78,6 +90,12 @@ private:
     int              m_swsSrcWidth = 0;
     int              m_swsSrcHeight = 0;
     int              m_swsSrcFormat = -1;
+
+    // Per-clip YUV range override (qcv::VideoRange int). m_swsColorspaceDirty
+    // forces initSwsContext to re-apply sws_setColorspaceDetails when the
+    // override changes without a dims/format change.
+    std::atomic<int>  m_rangeOverride{0};
+    std::atomic<bool> m_swsColorspaceDirty{false};
 
     std::atomic<int> m_pendingTarget{-1};
     int              m_lastDecodedFrame = -1;
