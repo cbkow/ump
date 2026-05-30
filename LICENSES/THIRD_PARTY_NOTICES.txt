@@ -8,6 +8,11 @@ QCView itself is licensed under the GNU General Public License version 3
 (see ../LICENSE). The third-party components below ship with the binary
 distribution and are subject to their respective licenses listed here.
 
+QCView ships on Windows and macOS, and the two builds source several
+components differently (e.g. FFmpeg). Entries or sections tagged [Windows]
+or [macOS] apply only to that platform's distribution; untagged entries
+apply to both.
+
 ================================================================================
 APPLICATION FRAMEWORK
 ================================================================================
@@ -38,10 +43,7 @@ MEDIA / DECODE
 
 2. FFmpeg
    Copyright (c) 2000-2025 FFmpeg developers.
-   License: GNU General Public License version 3 (GPL v3)
-            (QCView's Windows build links the BtbN "GPL Shared" build,
-             which uses --enable-gpl; on macOS, the Homebrew / system
-             FFmpeg may be LGPL v2.1+ depending on how it was configured.)
+   License: GNU General Public License version 3 (GPL v3) on both platforms.
    Website: https://ffmpeg.org/
    Source: https://github.com/FFmpeg/FFmpeg
    Files: FFmpeg-LICENSE.txt
@@ -49,18 +51,36 @@ MEDIA / DECODE
    Modules linked dynamically: libavcodec, libavformat, libavutil,
    libavfilter, libavdevice, libswscale, libswresample.
 
-   The Windows build (BtbN's FFmpeg.GPL.Shared.8.1) statically links
-   libplacebo and libshaderc into the avutil / avcodec DLLs. See entries
-   below.
+   [Windows] QCView links the BtbN "GPL Shared" build
+   (FFmpeg.GPL.Shared.8.1), configured with --enable-gpl. It statically
+   links libplacebo and libshaderc into the avutil / avcodec DLLs (see
+   entries 3-4), and ships transitive codec libraries as separate DLLs
+   (see entry 7).
 
-3. libplacebo
+   [macOS] QCView ships a self-built FFmpeg (arm64), configured with
+   --enable-gpl --enable-version3, which makes the resulting binary
+   GPL v3. It statically links the following codec libraries into the
+   FFmpeg dylibs:
+     - libx264 (H.264 encode)  — GPL v2+        https://www.videolan.org/developers/x264.html
+     - libx265 (HEVC encode)   — GPL v2+        https://www.x265.org/
+     - libdav1d (AV1 decode)   — BSD-2-Clause   https://code.videolan.org/videolan/dav1d
+     - libvpx (VP8 / VP9)      — BSD-3-Clause   https://www.webmproject.org/code/
+     - SVT-AV1 (AV1 encode)    — BSD-3-Clause + Alliance for Open Media
+                                 patent grant   https://gitlab.com/AOMediaCodec/SVT-AV1
+     - libmp3lame (MP3 encode) — LGPL v2        https://lame.sourceforge.io/
+     - libopus (Opus)          — BSD-3-Clause   https://opus-codec.org/
+   AAC is handled by FFmpeg's native LGPL decoder/encoder and Apple's
+   AudioToolbox (--enable-audiotoolbox); no nonfree codec (e.g. FDK-AAC)
+   is linked. Hardware decode uses Apple VideoToolbox (system framework).
+
+3. libplacebo [Windows]
    Copyright (c) 2017-present Niklas Haas
    License: LGPL v2.1+
    Website: https://code.videolan.org/videolan/libplacebo
    Files: libplacebo-LICENSE.txt
    Note: statically linked into BtbN FFmpeg on Windows.
 
-4. shaderc / glslang / SPIRV-Tools
+4. shaderc / glslang / SPIRV-Tools [Windows]
    Copyright (c) 2015-present Google LLC, The Khronos Group, LunarG, Inc.
    License: Apache License 2.0 (shaderc) / BSD-3-Clause (glslang)
             / Apache License 2.0 + Khronos source-license (SPIRV-Tools)
@@ -68,15 +88,16 @@ MEDIA / DECODE
             https://github.com/KhronosGroup/glslang
    Files: Apache-2.0.txt, BSD-3-Clause.txt
 
-5. x264 (Windows GPL Shared build only)
+5. x264
    Copyright (c) 2003-2023 x264 project
    License: GPL v2+ (also available under a commercial license; QCView
-            uses the GPL variant via BtbN FFmpeg.)
+            uses the GPL variant.)
    Website: https://www.videolan.org/developers/x264.html
    Files: GPL-v2.txt
-   Note: statically linked into BtbN FFmpeg on Windows.
+   Note: statically linked into BtbN FFmpeg on Windows and into the
+   self-built FFmpeg on macOS (see entry 2).
 
-6. Vulkan loader and headers
+6. Vulkan loader and headers [Windows]
    Copyright (c) 2014-present The Khronos Group Inc.
    License: Apache License 2.0
    Website: https://www.lunarg.com/vulkan-sdk/ /
@@ -191,18 +212,20 @@ METADATA
     License: GPL v1+ / Artistic License (dual)
     Website: https://exiftool.org/
     Files: ExifTool-LICENSE.txt
-    Note: QCView bundles a Windows distribution of ExifTool (assets/exiftool/)
-    that includes a Strawberry Perl runtime plus XS native modules. The Perl
-    runtime is GPL v1+ / Artistic dual; individual XS modules retain their
-    own per-file licenses, included with the Perl distribution.
+    Note: The ExifTool program (the `exiftool` Perl script plus its .pm
+    library modules under assets/exiftool/) ships on both platforms. On
+    Windows it is bundled together with a Strawberry Perl runtime plus XS
+    native modules (see entry 18); on macOS the same modules run under the
+    system Perl, so no Perl runtime is bundled. Individual modules retain
+    their own per-file licenses, included with the distribution.
 
-18. Strawberry Perl runtime + XS modules (Windows only)
+18. Strawberry Perl runtime + XS modules [Windows]
     Copyright Larry Wall and the Perl 5 Porters / individual module authors.
     License: GPL v1+ / Artistic License (Perl) plus per-module licenses.
     Website: https://strawberryperl.com/
 
 ================================================================================
-NETWORKING / SECURITY (vcpkg transitive)
+NETWORKING / SECURITY (vcpkg transitive) [Windows]
 ================================================================================
 
 19. OpenSSL 3 (libcrypto)
@@ -214,8 +237,12 @@ NETWORKING / SECURITY (vcpkg transitive)
     networking-capable Qt and FFmpeg components.
 
 ================================================================================
-COMPRESSION / GENERAL UTILITY (vcpkg transitive)
+COMPRESSION / GENERAL UTILITY
 ================================================================================
+
+[Windows] All of the below ship via vcpkg. [macOS] zstd and libdeflate are
+statically linked into the self-built FFmpeg / image-library stack; zlib is
+provided by the system. bzip2, liblzma, and snappy are Windows-only.
 
 20. zlib                — zlib license       https://www.zlib.net/
 21. zstd                — BSD-3-Clause (also dual-licensed under GPL v2)
@@ -226,7 +253,7 @@ COMPRESSION / GENERAL UTILITY (vcpkg transitive)
 25. snappy              — BSD-3-Clause       https://github.com/google/snappy
 
 ================================================================================
-TEXT / LOCALE (vcpkg transitive)
+TEXT / LOCALE (vcpkg transitive) [Windows]
 ================================================================================
 
 26. libxml2             — MIT                https://gitlab.gnome.org/GNOME/libxml2
@@ -271,6 +298,27 @@ MICROSOFT / KHRONOS REDISTRIBUTABLES (Windows)
     Copyright (c) The Khronos Group Inc.
     License: Apache License 2.0
     Website: https://github.com/KhronosGroup/OpenCL-ICD-Loader
+
+================================================================================
+AUTO-UPDATE (macOS)
+================================================================================
+
+35. Sparkle 2.9.2
+    Copyright (c) 2006-2013 Andy Matuschak and the Sparkle contributors.
+    License: MIT License (with bundled components under BSD-2-Clause,
+             zlib, and MIT — see Sparkle-LICENSE.txt for the full text).
+    Website: https://sparkle-project.org/
+    Source: https://github.com/sparkle-project/Sparkle
+    Files: Sparkle-LICENSE.txt
+    Note: macOS only. QCView vendors the official notarized Sparkle.framework
+    (downloaded by scripts/fetch_sparkle.sh) and embeds it in the .app
+    bundle's Frameworks/ directory; it is linked dynamically. Sparkle bundles
+    the following components, each retaining its own license (all reproduced
+    in Sparkle-LICENSE.txt):
+      - bspatch.c / bsdiff.c (bsdiff 4.3)  — BSD-2-Clause, Colin Percival
+      - sais.c / sais.h (sais-lite)        — MIT, Yuta Mori
+      - ed25519 (portable C impl)          — zlib, Orson Peters
+      - SUSignatureVerifier.m              — BSD-2-Clause, Mark Hamlin
 
 ================================================================================
 SOURCE AND OFFER
