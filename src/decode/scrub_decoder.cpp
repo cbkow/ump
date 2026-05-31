@@ -230,6 +230,14 @@ bool ScrubDecoder::initFFmpeg(const QString &path)
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
     const bool hwEligible = intraOnly || m_hwInterScrub;
 
+    // Windows-only: intra codecs revert to the legacy direct-seek scrub path
+    // (see m_intraDirectScrub). macOS/Linux keep the GOP-cache rework.
+#if defined(Q_OS_WIN)
+    m_intraDirectScrub = intraOnly;
+#else
+    m_intraDirectScrub = false;
+#endif
+
     // performance/hardwareDecodeEnabled — Windows user-facing toggle
     // (defaults ON). When the user turns it OFF — escape hatch for
     // mini-PCs with broken GPU drivers (see [[intel-arc-vulkan-
@@ -425,7 +433,11 @@ bool ScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
     constexpr int kForwardReach = 90;   // ~1–2 GOPs; past this, seeking to
                                         // the nearest keyframe is cheaper
                                         // than decoding the whole gap.
+    // m_intraDirectScrub (Windows + intra) forces the seek+flush path: intra
+    // seek lands on the exact frame, so forward-fill would decode every
+    // intermediate frame for nothing. Inter codecs keep the fast path.
     const bool canForward =
+        !m_intraDirectScrub &&
         m_decoderPositioned &&
         target > m_decoderPos &&
         (target - m_decoderPos) <= kForwardReach;
@@ -502,7 +514,10 @@ bool ScrubDecoder::decodeForwardCaching(int target, int64_t targetPts,
             m_decoderPositioned = true;
 
             if (entry) {
-                m_gopCache.add(frameNo, entry, entry->bytes());
+                // Intra-direct (Windows intra) publishes the target straight
+                // away and keeps nothing — the legacy O(1) random-access path.
+                if (!m_intraDirectScrub)
+                    m_gopCache.add(frameNo, entry, entry->bytes());
                 if (isTarget) {
                     publishEntry(entry);
                     m_lastShown = target;

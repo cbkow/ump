@@ -107,6 +107,13 @@ private:
     bool m_decoderPositioned = false; // can continue forward without re-seek
     int  m_cachedRangeOv = -1;        // range override the cache was filled at
 
+    // Windows + intra-only codec → legacy direct-seek scrub (no GOP cache, no
+    // forward-fill). Mirrors single-flow ScrubDecoder::m_intraDirectScrub:
+    // intra (ProRes/DNxHD/MJPEG) is software-decoded + random-access on
+    // Windows, so the GOP-cache rework only adds per-step decode cost there.
+    // false on macOS/Linux and for inter codecs.
+    bool m_intraDirectScrub = false;
+
     std::thread             m_thread;
     std::atomic<bool>       m_stopRequested{false};
     std::mutex              m_condMutex;

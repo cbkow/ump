@@ -206,10 +206,14 @@ bool DualScrubDecoder::initFFmpeg(const QString &path)
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
 
 #if defined(Q_OS_WIN)
+    // Windows-only: intra codecs revert to the legacy direct-seek scrub path
+    // (see m_intraDirectScrub). macOS/Linux keep the GOP-cache rework.
+    m_intraDirectScrub = intraOnly;
     const bool kHwDecodeEnabled = QSettings().value(
         QStringLiteral("performance/hardwareDecodeEnabled"), true).toBool();
     const bool kForceSoftwareDecode = !kHwDecodeEnabled;
 #else
+    m_intraDirectScrub = false;
     const bool kForceSoftwareDecode = false;
 #endif
 
@@ -358,8 +362,11 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
     const int64_t targetPts = m_streaming->ptsForFrameNumber(target);
 
     // 2. Forward-no-reseek (see single-flow ScrubDecoder for the why).
+    //    m_intraDirectScrub (Windows + intra) forces seek+flush — intra seek
+    //    lands exact, so forward-fill would decode intermediates for nothing.
     constexpr int kForwardReach = 90;
     const bool canForward =
+        !m_intraDirectScrub &&
         m_decoderPositioned &&
         target > m_decoderPos &&
         (target - m_decoderPos) <= kForwardReach;
@@ -421,7 +428,10 @@ bool DualScrubDecoder::decodeForwardCaching(int target, int64_t targetPts,
             m_decoderPositioned = true;
 
             if (entry) {
-                m_gopCache.add(frameNo, entry, entry->bytes);
+                // Intra-direct (Windows intra) publishes the target and keeps
+                // nothing — the legacy O(1) random-access path.
+                if (!m_intraDirectScrub)
+                    m_gopCache.add(frameNo, entry, entry->bytes);
                 if (isTarget) {
                     publishEntry(entry);
                     m_lastShown = target;
