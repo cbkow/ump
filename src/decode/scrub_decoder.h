@@ -141,14 +141,14 @@ private:
     // the intra-only hwaccel gate for inter (b-frame) codecs during scrub.
     bool m_hwInterScrub = false;
 
-    // Windows + intra-only codec → use the legacy direct-seek scrub path
-    // (decode exactly the target frame, no GOP cache, no forward-fill).
-    // Intra codecs (ProRes/DNxHD/MJPEG/raw) are software-decoded on Windows
-    // and already random-access, so the decode-once-per-GOP + forward-fill
-    // rework is a pessimization for them (it would decode every intermediate
-    // frame on a forward drag). macOS keeps the new path — Apple Silicon HW
-    // ProRes via VideoToolbox makes the kept GOP a genuine win there. Set at
-    // open(); false on macOS/Linux and for inter codecs.
+    // Intra-only codec → use the legacy direct-seek scrub path (decode
+    // exactly the target frame, no GOP cache, no forward-fill). Intra codecs
+    // (ProRes/DNxHD/MJPEG/raw) are random-access — every frame is a keyframe,
+    // so seek-exact + decode-1 is already optimal. The decode-once-per-GOP +
+    // forward-fill rework targets inter (b-frame) codecs; for intra it only
+    // adds memory + forward over-decode. ALL platforms take this path for
+    // intra (zero-copy publish is preserved — only the caching is skipped).
+    // Set at open(); false for inter codecs.
     bool m_intraDirectScrub = false;
 
     std::thread             m_thread;

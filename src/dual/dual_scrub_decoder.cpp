@@ -205,15 +205,17 @@ bool DualScrubDecoder::initFFmpeg(const QString &path)
     const AVCodecDescriptor *desc = avcodec_descriptor_get(codecpar->codec_id);
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
 
-#if defined(Q_OS_WIN)
-    // Windows-only: intra codecs revert to the legacy direct-seek scrub path
-    // (see m_intraDirectScrub). macOS/Linux keep the GOP-cache rework.
+    // Intra codecs are random-access — direct-seek + decode-1 is already
+    // optimal; the GOP cache + forward-fill targets inter (b-frame) only. So
+    // intra takes the legacy path on all platforms (this decoder is Win/Linux;
+    // macOS has its own MacDualScrubDecoder with the same rule).
     m_intraDirectScrub = intraOnly;
+
+#if defined(Q_OS_WIN)
     const bool kHwDecodeEnabled = QSettings().value(
         QStringLiteral("performance/hardwareDecodeEnabled"), true).toBool();
     const bool kForceSoftwareDecode = !kHwDecodeEnabled;
 #else
-    m_intraDirectScrub = false;
     const bool kForceSoftwareDecode = false;
 #endif
 

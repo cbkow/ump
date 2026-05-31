@@ -120,6 +120,13 @@ private:
     int  m_cachedRangeOv = -1;
     bool m_hwInterScrub = false;      // performance/hwScrubInterCodecs
 
+    // Intra-only codec → legacy direct-seek scrub (no GOP cache, no
+    // forward-fill). Intra (ProRes/DNxHD/MJPEG) is random-access — every
+    // frame is a keyframe, so seek-exact + decode-1 is already optimal and
+    // the GOP-cache rework (which targets inter/b-frame) only adds memory +
+    // forward over-decode for no benefit. Set at open(); false for inter.
+    bool m_intraDirectScrub = false;
+
     std::thread             m_thread;
     std::atomic<bool>       m_stopRequested{false};
     std::mutex              m_condMutex;
@@ -231,6 +238,9 @@ bool MacDualScrubDecoder::initFFmpeg(const QString &path)
         QStringLiteral("performance/hwScrubInterCodecs"), false).toBool();
     const AVCodecDescriptor *desc = avcodec_descriptor_get(codecpar->codec_id);
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
+    // Intra → legacy direct-seek (the GOP cache targets inter/b-frame; intra
+    // is already random-access). Still HW-decoded zero-copy, just not cached.
+    m_intraDirectScrub = intraOnly;
     if ((intraOnly || m_hwInterScrub) &&
         av_hwdevice_ctx_create(&m_hwDeviceCtx, AV_HWDEVICE_TYPE_VIDEOTOOLBOX,
                                nullptr, nullptr, 0) >= 0) {
@@ -373,8 +383,11 @@ bool MacDualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
     const int64_t targetPts = m_streaming->ptsForFrameNumber(target);
 
     // 2. Forward-no-reseek (see single-flow ScrubDecoder for the why).
+    //    m_intraDirectScrub (intra codecs) forces seek+flush — intra seek
+    //    lands exact, so forward-fill would decode intermediates for nothing.
     constexpr int kForwardReach = 90;
     const bool canForward =
+        !m_intraDirectScrub &&
         m_decoderPositioned &&
         target > m_decoderPos &&
         (target - m_decoderPos) <= kForwardReach;
@@ -431,7 +444,9 @@ bool MacDualScrubDecoder::decodeForwardCaching(int target, int64_t targetPts,
             m_decoderPositioned = true;
 
             if (entry) {
-                m_gopCache.add(frameNo, entry, entry->bytes);
+                // Intra-direct keeps nothing — legacy O(1) random-access path.
+                if (!m_intraDirectScrub)
+                    m_gopCache.add(frameNo, entry, entry->bytes);
                 if (isTarget) {
                     publishEntry(entry);
                     m_lastShown = target;

@@ -230,13 +230,13 @@ bool ScrubDecoder::initFFmpeg(const QString &path)
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
     const bool hwEligible = intraOnly || m_hwInterScrub;
 
-    // Windows-only: intra codecs revert to the legacy direct-seek scrub path
-    // (see m_intraDirectScrub). macOS/Linux keep the GOP-cache rework.
-#if defined(Q_OS_WIN)
+    // Intra codecs (ProRes/DNxHD/MJPEG/raw) are random-access — every frame
+    // is a keyframe, so seek-exact + decode-1 is already optimal. The GOP
+    // cache + forward-fill targets inter (b-frame) codecs; for intra it only
+    // adds memory + forward over-decode for no real benefit (backward is
+    // already cheap). So intra takes the legacy direct-seek path on ALL
+    // platforms — the b-frame rework never touches the working ProRes flow.
     m_intraDirectScrub = intraOnly;
-#else
-    m_intraDirectScrub = false;
-#endif
 
     // performance/hardwareDecodeEnabled — Windows user-facing toggle
     // (defaults ON). When the user turns it OFF — escape hatch for
