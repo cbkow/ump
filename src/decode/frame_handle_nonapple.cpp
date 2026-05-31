@@ -34,9 +34,19 @@ extern "C" void cvPixelBufferRetainRaw(void * /*cvPix*/)
     // No-op — non-Apple FrameHandle never holds a CVPixelBuffer.
 }
 
+extern "C" void cvPixelBufferReleaseRaw(void * /*cvPix*/)
+{
+    // No-op — non-Apple never holds a CVPixelBuffer in the scrub cache.
+}
+
 extern "C" unsigned int cvPixelBufferFormatTypeRaw(void * /*cvPix*/)
 {
     return 0;
+}
+
+extern "C" unsigned long cvPixelBufferByteSizeRaw(void * /*cvPix*/)
+{
+    return 0;   // never holds a CVPixelBuffer on non-Apple
 }
 
 namespace qcv {

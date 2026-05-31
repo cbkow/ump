@@ -18,6 +18,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
@@ -93,9 +94,19 @@ bool DualScrubDecoder::open(const QString &path)
         return false;
     }
 
+    // Per-side GOP-cache byte budget (same knob as single-flow). Note each
+    // dual side has its own cache, so A+B is 2x this value.
+    const std::size_t budgetMB = static_cast<std::size_t>(
+        QSettings().value(QStringLiteral("performance/scrubCacheMB"), 512).toInt());
+    m_gopCache.clear();
+    m_gopCache.setMaxBytes(budgetMB * 1024ull * 1024ull);
+
     m_stopRequested.store(false, std::memory_order_release);
     m_pendingTarget.store(-1, std::memory_order_release);
-    m_lastDecodedFrame = -1;
+    m_lastShown = -1;
+    m_decoderPos = -1;
+    m_decoderPositioned = false;
+    m_cachedRangeOv = m_streaming ? m_streaming->rangeOverride() : 0;
     m_thread = std::thread([this] { workerLoop(); });
     return true;
 }
@@ -109,6 +120,9 @@ void DualScrubDecoder::close()
     m_cond.notify_one();
 
     if (m_thread.joinable()) m_thread.join();
+
+    // Drop cached frames before freeing the contexts (worker is joined).
+    m_gopCache.clear();
 
 #if defined(Q_OS_WIN)
     // See VideoDecoder::close for rationale (mirrored from ScrubDecoder).
@@ -124,7 +138,9 @@ void DualScrubDecoder::close()
     m_swsSrcWidth = m_swsSrcHeight = 0;
     m_swsSrcFormat = -1;
     m_pendingTarget.store(-1, std::memory_order_release);
-    m_lastDecodedFrame = -1;
+    m_lastShown = -1;
+    m_decoderPos = -1;
+    m_decoderPositioned = false;
 }
 
 void DualScrubDecoder::requestFrame(int frameNo)
@@ -302,7 +318,7 @@ void DualScrubDecoder::workerLoop()
             });
             continue;
         }
-        if (target == m_lastDecodedFrame) {
+        if (target == m_lastShown) {
             // Already showing this frame — skip (cache hit).
             continue;
         }
@@ -319,24 +335,64 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
 {
     if (!m_streaming) return false;
 
+    // Range override changed (controller pushed it onto the streaming
+    // decoder) → cached CPU levels are stale; drop and refill.
+    const int rangeOv = m_streaming->rangeOverride();
+    if (rangeOv != m_cachedRangeOv) {
+        m_gopCache.clear();
+        m_decoderPositioned = false;
+        m_decoderPos = -1;
+        m_cachedRangeOv = rangeOv;
+    }
+
+    // 1. Cache hit — serve without touching the decoder.
+    {
+        std::shared_ptr<DualScrubEntry> hit;
+        if (m_gopCache.get(target, hit) && hit) {
+            publishEntry(hit);
+            m_lastShown = target;
+            return true;
+        }
+    }
+
     const int64_t targetPts = m_streaming->ptsForFrameNumber(target);
 
-    if (av_seek_frame(m_fmt, m_videoStreamIdx, targetPts,
-                      AVSEEK_FLAG_BACKWARD) < 0) {
-        return false;
-    }
-    avcodec_flush_buffers(m_cctx);
+    // 2. Forward-no-reseek (see single-flow ScrubDecoder for the why).
+    constexpr int kForwardReach = 90;
+    const bool canForward =
+        m_decoderPositioned &&
+        target > m_decoderPos &&
+        (target - m_decoderPos) <= kForwardReach;
 
+    if (!canForward) {
+        // 3. Cold / backward / long-jump: seek to the keyframe at-or-before.
+        if (av_seek_frame(m_fmt, m_videoStreamIdx, targetPts,
+                          AVSEEK_FLAG_BACKWARD) < 0) {
+            return false;
+        }
+        avcodec_flush_buffers(m_cctx);
+        m_decoderPositioned = false;
+        m_decoderPos = -1;
+    }
+
+    return decodeForwardCaching(target, targetPts, pkt, frame, swFrame);
+}
+
+bool DualScrubDecoder::decodeForwardCaching(int target, int64_t targetPts,
+                                            AVPacket *pkt, AVFrame *frame,
+                                            AVFrame *swFrame)
+{
     while (!m_stopRequested.load(std::memory_order_acquire)) {
         // No mid-decode preemption check — see ScrubDecoder::decodeAndPublish
-        // for the rationale. The worker-loop's exchange(-1) at the top
-        // of each iteration takes the LATEST pending target, naturally
-        // skipping intermediate drag values during fast drags.
+        // for the rationale. The worker-loop's exchange(-1) at the top of
+        // each iteration takes the LATEST pending target, naturally skipping
+        // intermediate drag values during fast drags.
 
         const int rc = av_read_frame(m_fmt, pkt);
         if (rc == AVERROR_EOF) {
             avcodec_send_packet(m_cctx, nullptr);
         } else if (rc < 0) {
+            m_decoderPositioned = false;
             return false;
         } else {
             if (pkt->stream_index == m_videoStreamIdx) {
@@ -348,57 +404,91 @@ bool DualScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
         while (true) {
             const int recvErr = avcodec_receive_frame(m_cctx, frame);
             if (recvErr == AVERROR(EAGAIN)) break;
-            if (recvErr < 0) return false;
+            if (recvErr < 0) { m_decoderPositioned = false; return false; }
 
             const int64_t framePts = (frame->best_effort_timestamp != AV_NOPTS_VALUE)
                                      ? frame->best_effort_timestamp
                                      : frame->pts;
+            // Key the landed frame exactly by `target` (immune to PTS
+            // rounding); prefix frames by their decoded PTS.
+            const bool isTarget = (framePts >= targetPts);
+            const int  frameNo  = isTarget
+                ? target : m_streaming->frameNumberForPts(framePts);
 
-            if (framePts >= targetPts) {
-                // HW-decoded frames need av_hwframe_transfer_data to
-                // copy to a CPU AVFrame before sws_scale; SW frames
-                // go straight through. Both paths land at the same
-                // sws_scale → QImage → DualFrame::Cpu publish below.
-                AVFrame *src = frame;
-                if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX ||
-                    frame->format == AV_PIX_FMT_D3D11 ||
-                    frame->format == AV_PIX_FMT_VAAPI) {
-                    if (av_hwframe_transfer_data(swFrame, frame, 0) < 0) {
-                        av_frame_unref(frame);
-                        continue;
-                    }
-                    swFrame->pts                   = frame->pts;
-                    swFrame->best_effort_timestamp = frame->best_effort_timestamp;
-                    swFrame->colorspace            = frame->colorspace;
-                    swFrame->color_range           = frame->color_range;
-                    src = swFrame;
+            std::shared_ptr<DualScrubEntry> entry =
+                makeEntry(frame, swFrame, frameNo);
+            m_decoderPos = frameNo;
+            m_decoderPositioned = true;
+
+            if (entry) {
+                m_gopCache.add(frameNo, entry, entry->bytes);
+                if (isTarget) {
+                    publishEntry(entry);
+                    m_lastShown = target;
+                    av_frame_unref(frame);
+                    return true;
                 }
-
-                if (initSwsContext(src)) {
-                    QImage rgba(src->width, src->height,
-                                QImage::Format_RGBA8888);
-                    uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-                    int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()),
-                                         0, 0, 0 };
-                    sws_scale(m_sws, src->data, src->linesize, 0,
-                              src->height, dst, dstStride);
-                    m_streaming->publishExternalFrame(
-                        target, makeCpuFrame(std::move(rgba), target,
-                                              /*rangeOverride=*/0));
-                }
-                if (src == swFrame) av_frame_unref(swFrame);
-
-                m_lastDecodedFrame = target;
-                av_frame_unref(frame);
-                return true;
             }
-            // Pre-target frame in inter-frame chain — drop silently.
             av_frame_unref(frame);
         }
 
-        if (rc == AVERROR_EOF) return false;
+        if (rc == AVERROR_EOF) { m_decoderPositioned = false; return false; }
     }
     return false;
+}
+
+std::shared_ptr<DualScrubEntry>
+DualScrubDecoder::makeEntry(AVFrame *frame, AVFrame *swFrame, int frameNumber)
+{
+    // Win/Linux dual always reads HW frames back to a planar CPU frame and
+    // caches that lazily (no zero-copy GPU surface — deliberately stays off
+    // the dual Vulkan compositor for NVIDIA stability). Clone is a cheap
+    // refcount bump; the YUV->RGBA convert is deferred to publishEntry.
+    AVFrame *src = frame;
+    if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX ||
+        frame->format == AV_PIX_FMT_D3D11 ||
+        frame->format == AV_PIX_FMT_VAAPI) {
+        if (av_hwframe_transfer_data(swFrame, frame, 0) < 0) return nullptr;
+        swFrame->colorspace  = frame->colorspace;
+        swFrame->color_range = frame->color_range;
+        src = swFrame;
+    }
+
+    AVFrame *clone = av_frame_clone(src);
+    if (src == swFrame) av_frame_unref(swFrame);
+    if (!clone) return nullptr;
+
+    const int sz = av_image_get_buffer_size(
+        static_cast<AVPixelFormat>(clone->format), clone->width, clone->height, 1);
+
+    auto e = std::make_shared<DualScrubEntry>();
+    e->frameNumber = frameNumber;
+    e->bytes = sz > 0 ? static_cast<std::size_t>(sz)
+                      : static_cast<std::size_t>(clone->width) * clone->height * 2;
+    e->yuv = std::shared_ptr<AVFrame>(clone, [](AVFrame *f) { av_frame_free(&f); });
+    return e;
+}
+
+void DualScrubDecoder::publishEntry(const std::shared_ptr<DualScrubEntry> &entry)
+{
+    if (!entry || !m_streaming) return;
+
+    if (entry->ready) {     // pre-made DualFrame (unused on this arm)
+        m_streaming->publishExternalFrame(entry->frameNumber, entry->ready);
+        return;
+    }
+
+    AVFrame *yf = entry->yuv.get();
+    if (!yf || !initSwsContext(yf)) return;
+    QImage rgba(yf->width, yf->height, QImage::Format_RGBA8888);
+    uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
+    int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()), 0, 0, 0 };
+    sws_scale(m_sws, yf->data, yf->linesize, 0, yf->height, dst, dstStride);
+    // rangeOverride baked into the QImage by sws (initSwsContext applied the
+    // current override), so the DualFrame carries 0.
+    m_streaming->publishExternalFrame(
+        entry->frameNumber, makeCpuFrame(std::move(rgba), entry->frameNumber,
+                                         /*rangeOverride=*/0));
 }
 
 } // namespace qcv::dual

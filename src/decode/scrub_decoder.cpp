@@ -19,6 +19,7 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/avutil.h>
 #include <libavutil/hwcontext.h>
+#include <libavutil/imgutils.h>
 #include <libavutil/pixdesc.h>
 #include <libswscale/swscale.h>
 }
@@ -79,9 +80,21 @@ bool ScrubDecoder::open(const QString &path)
         return false;
     }
 
+    // GOP-cache byte budget. Default 512 MB — comfortably holds a typical
+    // mp4 GOP at 4K whether the entries are cheap planar YUV refs or
+    // zero-copy GPU surfaces. User-tunable (performance/scrubCacheMB) for
+    // RAM/VRAM-constrained machines.
+    const std::size_t budgetMB = static_cast<std::size_t>(
+        QSettings().value(QStringLiteral("performance/scrubCacheMB"), 512).toInt());
+    m_gopCache.clear();
+    m_gopCache.setMaxBytes(budgetMB * 1024ull * 1024ull);
+
     m_stopRequested.store(false, std::memory_order_release);
     m_pendingTarget.store(-1, std::memory_order_release);
-    m_lastDecodedFrame = -1;
+    m_cacheInvalidate.store(false, std::memory_order_release);
+    m_lastShown = -1;
+    m_decoderPos = -1;
+    m_decoderPositioned = false;
     m_thread = std::thread([this] { workerLoop(); });
     return true;
 }
@@ -98,6 +111,14 @@ void ScrubDecoder::close()
     // m_cctx / m_fmt as members each iteration. Wakes fast on the
     // stop flag.
     if (m_thread.joinable()) m_thread.join();
+
+    // Drop cached frames BEFORE freeing the codec/hwframes contexts.
+    // Cached Vulkan entries hold AVFrame refs into hw_frames_ctx and
+    // Metal entries hold CVPixelBuffer retains; clearing now (the worker
+    // is already joined) runs their destructors while the contexts are
+    // still alive, avoiding a dangling free order. The worker is the only
+    // other toucher and it's gone.
+    m_gopCache.clear();
 
 #if defined(Q_OS_WIN)
     // See VideoDecoder::close for rationale.
@@ -117,7 +138,9 @@ void ScrubDecoder::close()
     m_swsSrcWidth = m_swsSrcHeight = 0;
     m_swsSrcFormat = -1;
     m_pendingTarget.store(-1, std::memory_order_release);
-    m_lastDecodedFrame = -1;
+    m_lastShown = -1;
+    m_decoderPos = -1;
+    m_decoderPositioned = false;
 }
 
 void ScrubDecoder::requestFrame(int frameNo)
@@ -192,8 +215,20 @@ bool ScrubDecoder::initFFmpeg(const QString &path)
     // software decode of one keyframe + a short P/B chain on Apple
     // Silicon is dramatically faster. Intra codecs (ProRes, DNxHD,
     // MJPEG, raw) have no reorder dependency so VT works cleanly.
+    //
+    // The GOP cache changes that calculus: with decode-once-per-GOP +
+    // forward-no-reseek, the flush is rare (only at GOP boundaries) and
+    // is always immediately followed by feeding an IDR (the backward
+    // seek lands on a keyframe), which is exactly what VT needs to
+    // recover. So performance/hwScrubInterCodecs lifts the gate for
+    // inter codecs too — behind a flag so it's trivially revertible if
+    // VT async-reorder misbehaves. Default OFF.
+    m_hwInterScrub = QSettings().value(
+        QStringLiteral("performance/hwScrubInterCodecs"), false).toBool();
+
     const AVCodecDescriptor *desc = avcodec_descriptor_get(codecpar->codec_id);
     const bool intraOnly = desc && (desc->props & AV_CODEC_PROP_INTRA_ONLY);
+    const bool hwEligible = intraOnly || m_hwInterScrub;
 
     // performance/hardwareDecodeEnabled — Windows user-facing toggle
     // (defaults ON). When the user turns it OFF — escape hatch for
@@ -209,11 +244,15 @@ bool ScrubDecoder::initFFmpeg(const QString &path)
     const bool kForceSoftwareDecode = false;
 #endif
 
-    if (intraOnly && kHwType != AV_HWDEVICE_TYPE_NONE
+    if (hwEligible && kHwType != AV_HWDEVICE_TYPE_NONE
         && !kForceSoftwareDecode) {
         if (av_hwdevice_ctx_create(&m_hwDeviceCtx, kHwType, nullptr, nullptr, 0) >= 0) {
             m_cctx->hw_device_ctx = av_buffer_ref(m_hwDeviceCtx);
             m_cctx->get_format = hwaccelGetFormat;
+            if (!intraOnly) {
+                qInfo("ScrubDecoder: hardware scrub enabled for inter codec "
+                      "(performance/hwScrubInterCodecs)");
+            }
         }
     } else if (kForceSoftwareDecode) {
         qInfo("ScrubDecoder: software decode forced — "
@@ -244,7 +283,12 @@ void ScrubDecoder::setRangeOverride(int range)
         // next decode even if dims/format are unchanged. Also nudge a
         // re-decode of the held frame so a paused scrub updates live.
         m_swsColorspaceDirty.store(true, std::memory_order_release);
-        const int held = m_lastDecodedFrame;
+        // Invalidate the GOP cache: CPU entries baked the old range into
+        // their pixels and GPU entries snapshotted it. The worker clears
+        // the cache before its next decode (clearing here would race the
+        // worker thread, which is the cache's only other toucher).
+        m_cacheInvalidate.store(true, std::memory_order_release);
+        const int held = m_lastShown;
         if (held >= 0) requestFrame(held);
     }
 }
@@ -328,9 +372,17 @@ void ScrubDecoder::workerLoop()
             });
             continue;
         }
-        if (target == m_lastDecodedFrame) {
+        if (target == m_lastShown) {
             // Already showing this frame — skip (cache hit per Guide 13 §I.7).
             continue;
+        }
+        // Range override changed under us — drop stale cached frames before
+        // the next decode. Doing it here (worker thread) avoids racing the
+        // UI thread that set the flag.
+        if (m_cacheInvalidate.exchange(false, std::memory_order_acq_rel)) {
+            m_gopCache.clear();
+            m_decoderPositioned = false;
+            m_decoderPos = -1;
         }
         decodeAndPublish(target, pkt, frame, swFrame);
     }
@@ -347,29 +399,74 @@ bool ScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
     const FrameIndex &fi = m_streaming->frameIndex();
     if (!fi.isValid()) return false;
 
+    // 1. Cache hit — the GOP this frame belongs to was already decoded.
+    //    Serve it without touching the decoder. This is what makes
+    //    backward scrub and forward revisits free (the QuickTime/MPV
+    //    "keep the decoded GOP" trick). get() touches LRU so the frames
+    //    around the playhead stay hot.
+    {
+        std::shared_ptr<ScrubCacheEntry> hit;
+        if (m_gopCache.get(target, hit) && hit) {
+            publishEntry(hit);
+            m_lastShown = target;
+            return true;
+        }
+    }
+
     const int64_t targetPts = fi.ptsForFrame(target);
 
-    if (av_seek_frame(m_fmt, m_videoStreamIdx, targetPts,
-                      AVSEEK_FLAG_BACKWARD) < 0) {
-        return false;
+    // 2. Forward-no-reseek: if the decoder is already positioned just
+    //    behind the target (a small forward step within reach), keep
+    //    decoding forward from where it is — no seek, no flush. This
+    //    turns a forward drag from O(N^2) (re-decode the GOP prefix every
+    //    step) into O(N) (decode each frame once). Inter video can only be
+    //    decoded forward, so this is the only way to avoid the redundant
+    //    prefix re-decode.
+    constexpr int kForwardReach = 90;   // ~1–2 GOPs; past this, seeking to
+                                        // the nearest keyframe is cheaper
+                                        // than decoding the whole gap.
+    const bool canForward =
+        m_decoderPositioned &&
+        target > m_decoderPos &&
+        (target - m_decoderPos) <= kForwardReach;
+
+    if (!canForward) {
+        // 3. Cold / backward / long-jump: seek to the keyframe at-or-before
+        //    the target and flush. AVSEEK_FLAG_BACKWARD lands on a keyframe
+        //    (an IDR for inter codecs — exactly what VideoToolbox needs to
+        //    recover after a flush); for intra codecs it's the exact frame.
+        if (av_seek_frame(m_fmt, m_videoStreamIdx, targetPts,
+                          AVSEEK_FLAG_BACKWARD) < 0) {
+            return false;
+        }
+        avcodec_flush_buffers(m_cctx);
+        m_decoderPositioned = false;
+        m_decoderPos = -1;
     }
-    avcodec_flush_buffers(m_cctx);
+
+    return decodeForwardCaching(target, targetPts, pkt, frame, swFrame);
+}
+
+bool ScrubDecoder::decodeForwardCaching(int target, int64_t targetPts,
+                                        AVPacket *pkt, AVFrame *frame,
+                                        AVFrame *swFrame)
+{
+    const FrameIndex &fi = m_streaming->frameIndex();
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
-        // Note: NO mid-decode preemption check here. A continuous
-        // drag at 60 Hz fires a new requestFrame every ~16 ms; if we
-        // abandoned each time pendingTarget was set, we'd never
-        // complete a decode mid-drag and the player would freeze
-        // until release. Instead, let each decode finish and rely on
-        // the worker loop's exchange(-1) to take the LATEST pending
-        // target on next iteration, naturally skipping intermediate
-        // drag values. Lag during fast drag = "decoder can't keep
-        // up" rather than "decoder gives up".
+        // Note: NO mid-decode preemption check here. A continuous drag at
+        // 60 Hz fires a new requestFrame every ~16 ms; if we abandoned each
+        // time pendingTarget was set, we'd never complete a decode mid-drag
+        // and the player would freeze until release. Let each decode finish
+        // and rely on the worker loop's exchange(-1) to take the LATEST
+        // pending target next iteration. Lag during fast drag = "decoder
+        // can't keep up" rather than "decoder gives up".
 
         const int rc = av_read_frame(m_fmt, pkt);
         if (rc == AVERROR_EOF) {
             avcodec_send_packet(m_cctx, nullptr);
         } else if (rc < 0) {
+            m_decoderPositioned = false;
             return false;
         } else {
             if (pkt->stream_index == m_videoStreamIdx) {
@@ -381,88 +478,131 @@ bool ScrubDecoder::decodeAndPublish(int target, AVPacket *pkt,
         while (true) {
             const int recvErr = avcodec_receive_frame(m_cctx, frame);
             if (recvErr == AVERROR(EAGAIN)) break;
-            if (recvErr < 0) return false;
+            if (recvErr < 0) { m_decoderPositioned = false; return false; }
 
             const int64_t framePts = (frame->best_effort_timestamp != AV_NOPTS_VALUE)
                                      ? frame->best_effort_timestamp
                                      : frame->pts;
+            // The frame we sought/decoded forward TO is `target` by
+            // construction — key it exactly, immune to any ptsForFrame/
+            // frameForPts rounding mismatch (the off-by-one the intra-seek
+            // bug memory warns about; for intra codecs this is the ONLY
+            // frame produced). Prefix frames (inter codecs only) are keyed
+            // by their decoded PTS, which the frame index maps exactly once
+            // its packet scan is ready.
+            const bool isTarget = (framePts >= targetPts);
+            const int  frameNo  = isTarget ? target : fi.frameForPts(framePts);
 
-            if (framePts >= targetPts) {
-                if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
-#if defined(Q_OS_MACOS)
-                    void *pix = frame->data[3];
-                    if (pix && cvPixelBufferIsZeroCopySupportedRaw(pix)) {
-                        cvPixelBufferRetainRaw(pix);
-                        m_streaming->publishExternalFrame(
-                            FrameHandle::metal(pix, frame->width, frame->height,
-                                               framePts),
-                            framePts);
-                    } else if (av_hwframe_transfer_data(swFrame, frame, 0) >= 0) {
-                        // Format isn't biplanar — fall back to CPU
-                        // readback + swscale path below.
-                        swFrame->pts                   = frame->pts;
-                        swFrame->best_effort_timestamp = frame->best_effort_timestamp;
-                        swFrame->colorspace            = frame->colorspace;
-                        swFrame->color_range           = frame->color_range;
-                        if (initSwsContext(swFrame)) {
-                            QImage rgba(swFrame->width, swFrame->height,
-                                        QImage::Format_RGBA8888);
-                            uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-                            int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()),
-                                                 0, 0, 0 };
-                            sws_scale(m_sws, swFrame->data, swFrame->linesize, 0,
-                                      swFrame->height, dst, dstStride);
-                            m_streaming->publishExternalFrame(
-                                FrameHandle::cpu(std::move(rgba), framePts), framePts);
-                        }
-                        av_frame_unref(swFrame);
-                    }
-#endif
-                } else if (frame->format == AV_PIX_FMT_D3D11 ||
-                           frame->format == AV_PIX_FMT_VAAPI) {
-                    if (av_hwframe_transfer_data(swFrame, frame, 0) >= 0) {
-                        swFrame->pts                   = frame->pts;
-                        swFrame->best_effort_timestamp = frame->best_effort_timestamp;
-                        swFrame->colorspace            = frame->colorspace;
-                        swFrame->color_range           = frame->color_range;
-                        if (initSwsContext(swFrame)) {
-                            QImage rgba(swFrame->width, swFrame->height,
-                                        QImage::Format_RGBA8888);
-                            uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-                            int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()),
-                                                 0, 0, 0 };
-                            sws_scale(m_sws, swFrame->data, swFrame->linesize, 0,
-                                      swFrame->height, dst, dstStride);
-                            m_streaming->publishExternalFrame(
-                                FrameHandle::cpu(std::move(rgba), framePts), framePts);
-                        }
-                        av_frame_unref(swFrame);
-                    }
-                } else {
-                    if (initSwsContext(frame)) {
-                        QImage rgba(frame->width, frame->height,
-                                    QImage::Format_RGBA8888);
-                        uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-                        int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()),
-                                             0, 0, 0 };
-                        sws_scale(m_sws, frame->data, frame->linesize, 0,
-                                  frame->height, dst, dstStride);
-                        m_streaming->publishExternalFrame(
-                            FrameHandle::cpu(std::move(rgba), framePts), framePts);
-                    }
+            // Cache EVERY decoded frame — the GOP prefix we used to drop is
+            // exactly what makes backward scrub and revisits free. The
+            // decoder is now positioned right after this frame.
+            std::shared_ptr<ScrubCacheEntry> entry =
+                makeCacheEntry(frame, swFrame, framePts);
+            m_decoderPos = frameNo;
+            m_decoderPositioned = true;
+
+            if (entry) {
+                m_gopCache.add(frameNo, entry, entry->bytes());
+                if (isTarget) {
+                    publishEntry(entry);
+                    m_lastShown = target;
+                    av_frame_unref(frame);
+                    return true;
                 }
-
-                m_lastDecodedFrame = target;
-                av_frame_unref(frame);
-                return true;
             }
-            // Pre-target frame in inter-frame chain — drop silently.
             av_frame_unref(frame);
         }
 
-        if (rc == AVERROR_EOF) return false;
+        if (rc == AVERROR_EOF) { m_decoderPositioned = false; return false; }
     }
     return false;
+}
+
+std::shared_ptr<ScrubCacheEntry>
+ScrubDecoder::makeCacheEntry(AVFrame *frame, AVFrame *swFrame, int64_t framePts)
+{
+    // Wrap a planar frame as a cheap Yuv entry: clone (a refcount bump, no
+    // pixel copy, no convert) and record its decoded byte size. The
+    // YUV->RGBA swscale is deferred to publishEntry so the cold GOP fill
+    // stays as cheap as the old drop-everything path.
+    auto yuvEntry = [&](AVFrame *src) -> std::shared_ptr<ScrubCacheEntry> {
+        AVFrame *clone = av_frame_clone(src);
+        if (!clone) return nullptr;
+        const int sz = av_image_get_buffer_size(
+            static_cast<AVPixelFormat>(src->format), src->width, src->height, 1);
+        const std::size_t bytes = sz > 0
+            ? static_cast<std::size_t>(sz)
+            : static_cast<std::size_t>(src->width) * src->height * 2;
+        return ScrubCacheEntry::yuv(clone, framePts, bytes);
+    };
+
+    // Read a HW surface back into swFrame (a planar SW frame), then cache
+    // that. Required for the fixed-pool HW backends — see below.
+    auto yuvFromHw = [&]() -> std::shared_ptr<ScrubCacheEntry> {
+        if (av_hwframe_transfer_data(swFrame, frame, 0) < 0) return nullptr;
+        swFrame->colorspace  = frame->colorspace;
+        swFrame->color_range = frame->color_range;
+        auto e = yuvEntry(swFrame);
+        av_frame_unref(swFrame);
+        return e;
+    };
+
+    if (frame->format == AV_PIX_FMT_VIDEOTOOLBOX) {
+#if defined(Q_OS_MACOS)
+        // Zero-copy: hold the CVPixelBuffer. CoreVideo pools grow on
+        // demand, so holding a GOP's worth of surfaces is safe (unlike the
+        // fixed-size Vulkan/VAAPI decode pools below). Bounded by the
+        // cache's byte budget.
+        void *pix = frame->data[3];
+        if (pix && cvPixelBufferIsZeroCopySupportedRaw(pix)) {
+            cvPixelBufferRetainRaw(pix);    // entry takes this retain
+            return ScrubCacheEntry::metal(pix, frame->width, frame->height,
+                                          framePts);
+        }
+        // Non-biplanar VT surface — read back to a planar frame.
+        return yuvFromHw();
+#else
+        return nullptr;
+#endif
+    }
+
+    if (frame->format == AV_PIX_FMT_VULKAN ||
+        frame->format == AV_PIX_FMT_D3D11 ||
+        frame->format == AV_PIX_FMT_VAAPI) {
+        // Deliberately read back, NOT zero-copy-held. FFmpeg's Vulkan /
+        // D3D11VA / VAAPI decoders draw output frames from a fixed-size
+        // hw_frames_ctx pool; holding a GOP's worth of pool frames in the
+        // cache would starve the decoder and deadlock. Reading back to a
+        // planar CPU frame sidesteps that. (Metal above is exempt —
+        // CoreVideo pools grow.)
+        return yuvFromHw();
+    }
+
+    // Software frame — already planar, clone it directly.
+    return yuvEntry(frame);
+}
+
+void ScrubDecoder::publishEntry(const std::shared_ptr<ScrubCacheEntry> &entry)
+{
+    if (!entry || !m_streaming) return;
+
+    // Zero-copy Metal — re-retain and publish; the compositor does YUV->RGB.
+    if (entry->kind() == ScrubCacheEntry::Kind::Metal) {
+        m_streaming->publishExternalFrame(entry->makeMetalHandle(),
+                                          entry->pts());
+        return;
+    }
+
+    // Yuv — swscale to RGBA on demand (the convert we deferred at cache
+    // fill). One frame's worth, only when actually shown.
+    AVFrame *yf = entry->yuvFrame();
+    if (!yf || !initSwsContext(yf)) return;
+    QImage rgba(yf->width, yf->height, QImage::Format_RGBA8888);
+    uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
+    int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()), 0, 0, 0 };
+    sws_scale(m_sws, yf->data, yf->linesize, 0, yf->height, dst, dstStride);
+    m_streaming->publishExternalFrame(
+        FrameHandle::cpu(std::move(rgba), entry->pts()), entry->pts());
 }
 
 } // namespace qcv

@@ -30,6 +30,8 @@
 
 #include "i_dual_source.h"          // DualFrame
 #include "i_dual_scrub_decoder.h"   // IDualScrubDecoder
+#include "dual_scrub_cache.h"       // DualScrubEntry
+#include "decode/simple_lru.h"      // SimpleLRU
 
 #include <QObject>
 #include <QString>
@@ -76,6 +78,11 @@ private:
     bool initSwsContext(AVFrame *frame);
     bool decodeAndPublish(int target, AVPacket *pkt,
                           AVFrame *frame, AVFrame *swFrame);
+    bool decodeForwardCaching(int target, int64_t targetPts, AVPacket *pkt,
+                              AVFrame *frame, AVFrame *swFrame);
+    std::shared_ptr<DualScrubEntry> makeEntry(AVFrame *frame, AVFrame *swFrame,
+                                              int frameNumber);
+    void publishEntry(const std::shared_ptr<DualScrubEntry> &entry);
 
     DualVideoDecoder *m_streaming = nullptr;   // not owned
 
@@ -91,7 +98,14 @@ private:
     int              m_swsAppliedRange = -1;  // last range override baked into m_sws
 
     std::atomic<int> m_pendingTarget{-1};
-    int              m_lastDecodedFrame = -1;
+
+    // Decoded-GOP cache (mirrors single-flow ScrubDecoder). Worker-thread
+    // only; keyed by frame number, byte-bounded.
+    SimpleLRU<int, std::shared_ptr<DualScrubEntry>> m_gopCache;
+    int  m_lastShown = -1;            // published frame (exact-repeat skip)
+    int  m_decoderPos = -1;           // last frame the decoder produced
+    bool m_decoderPositioned = false; // can continue forward without re-seek
+    int  m_cachedRangeOv = -1;        // range override the cache was filled at
 
     std::thread             m_thread;
     std::atomic<bool>       m_stopRequested{false};

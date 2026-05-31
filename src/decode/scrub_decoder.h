@@ -25,11 +25,14 @@
 #pragma once
 
 #include "frame_handle.h"
+#include "scrub_frame_cache.h"
+#include "simple_lru.h"
 
 #include <QObject>
 #include <QString>
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include <mutex>
 #include <thread>
 
@@ -78,6 +81,23 @@ private:
     bool initSwsContext(AVFrame *frame);
     bool decodeAndPublish(int target, AVPacket *pkt,
                           AVFrame *frame, AVFrame *swFrame);
+    // Decode forward from the decoder's current position until the frame
+    // at/after `targetPts` is produced, caching EVERY frame en route
+    // (forward fill + the QuickTime/MPV "keep the GOP" trick). Publishes
+    // the target frame. Assumes the decoder is already positioned (caller
+    // seeks + flushes for the cold/backward case).
+    bool decodeForwardCaching(int target, int64_t targetPts, AVPacket *pkt,
+                              AVFrame *frame, AVFrame *swFrame);
+    // Turn one decoded AVFrame into a cacheable entry: zero-copy Metal
+    // retain where available, else a cheap planar-YUV ref (cloned, NOT
+    // converted — the convert is deferred to publishEntry so the cold GOP
+    // fill doesn't pay a swscale + RGBA malloc per prefix frame).
+    std::shared_ptr<ScrubCacheEntry> makeCacheEntry(AVFrame *frame,
+                                                    AVFrame *swFrame,
+                                                    int64_t framePts);
+    // Publish a cached entry to the renderer: re-retain for Metal, or
+    // swscale the planar YUV frame to RGBA on demand for Yuv entries.
+    void publishEntry(const std::shared_ptr<ScrubCacheEntry> &entry);
 
     VideoDecoder    *m_streaming = nullptr;     // not owned
 
@@ -98,7 +118,28 @@ private:
     std::atomic<bool> m_swsColorspaceDirty{false};
 
     std::atomic<int> m_pendingTarget{-1};
-    int              m_lastDecodedFrame = -1;
+
+    // Decoded-GOP cache (the QuickTime/MPV "decode the GOP once, keep the
+    // frames" strategy). Keyed by display-frame-number, byte-bounded. Only
+    // touched by the worker thread; SimpleLRU's locking is incidental.
+    SimpleLRU<int, std::shared_ptr<ScrubCacheEntry>> m_gopCache;
+
+    // Frame currently published to the renderer (exact-repeat skip).
+    int  m_lastShown = -1;
+    // Display-frame-number of the last frame the decoder produced, and
+    // whether the decoder is positioned to continue forward from it
+    // without a re-seek/flush. Drives the forward-no-reseek fast path.
+    int  m_decoderPos = -1;
+    bool m_decoderPositioned = false;
+
+    // Set by setRangeOverride (UI thread); the worker clears the cache
+    // before its next decode because CPU entries bake the range in and
+    // GPU entries carry a now-stale range snapshot.
+    std::atomic<bool> m_cacheInvalidate{false};
+
+    // performance/hwScrubInterCodecs snapshot, read once at open(). Lifts
+    // the intra-only hwaccel gate for inter (b-frame) codecs during scrub.
+    bool m_hwInterScrub = false;
 
     std::thread             m_thread;
     std::atomic<bool>       m_stopRequested{false};

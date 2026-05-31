@@ -14,6 +14,8 @@ qt_add_library(qcv_decode STATIC
     frame_index.h
     scrub_decoder.cpp
     scrub_decoder.h
+    scrub_frame_cache.cpp
+    scrub_frame_cache.h
     decoder_cleanup_queue.cpp
     decoder_cleanup_queue.h
     timecode_formatter.cpp

@@ -19,6 +19,16 @@ extern "C" void cvPixelBufferRetainRaw(void *cvPix)
     }
 }
 
+// Counterpart to cvPixelBufferRetainRaw. The scrub GOP cache holds its
+// own retain on a cached CVPixelBuffer and must drop it on eviction
+// without dragging CoreVideo into the cross-platform cache .cpp.
+extern "C" void cvPixelBufferReleaseRaw(void *cvPix)
+{
+    if (cvPix) {
+        CVPixelBufferRelease(static_cast<CVPixelBufferRef>(cvPix));
+    }
+}
+
 // Returns true if the CVPixelBuffer's format type is one our render-
 // thread bridge can sample as plane MTLTextures. Decoder uses this
 // to decide between the zero-copy publish path and the CPU readback
@@ -32,6 +42,16 @@ extern "C" unsigned int cvPixelBufferFormatTypeRaw(void *cvPix)
     return static_cast<unsigned int>(
         CVPixelBufferGetPixelFormatType(
             static_cast<CVPixelBufferRef>(cvPix)));
+}
+
+// Total backing-store bytes of a CVPixelBuffer (sum of all planes),
+// used by the scrub GOP cache to budget held GPU surfaces accurately
+// instead of guessing from width*height*bpp.
+extern "C" unsigned long cvPixelBufferByteSizeRaw(void *cvPix)
+{
+    if (!cvPix) return 0;
+    return static_cast<unsigned long>(
+        CVPixelBufferGetDataSize(static_cast<CVPixelBufferRef>(cvPix)));
 }
 
 extern "C" bool cvPixelBufferIsZeroCopySupportedRaw(void *cvPix)

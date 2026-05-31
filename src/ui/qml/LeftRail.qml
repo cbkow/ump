@@ -1497,6 +1497,8 @@ Rectangle {
                     readonly property int  kFFmpegThreadsDefault:    0
                     readonly property bool kHoverThumbsDefault:   true
                     readonly property bool kHwDecodeEnabledDefault: true
+                    readonly property bool kHwScrubInterDefault:  false
+                    readonly property int  kScrubCacheMBDefault:    512
 
                     Settings {
                         id: perfSettings
@@ -1516,6 +1518,17 @@ Rectangle {
                         // picked up on next file load.
                         property bool hardwareDecodeEnabled:
                             settingsSection.kHwDecodeEnabledDefault
+                        // Experimental: lift the intra-only hwaccel gate so
+                        // h264/h265 (b-frame) scrub uses GPU decode too. The
+                        // GOP cache makes this viable; default OFF until the
+                        // VideoToolbox async-reorder path is proven. Reads
+                        // picked up on next file load.
+                        property bool hwScrubInterCodecs:
+                            settingsSection.kHwScrubInterDefault
+                        // Per-decoder scrub GOP-cache budget in MB (each dual
+                        // side has its own). Applies on next file load.
+                        property int scrubCacheMB:
+                            settingsSection.kScrubCacheMBDefault
                     }
                     Settings {
                         id: uiSettings
@@ -1550,6 +1563,10 @@ Rectangle {
                                 settingsSection.kFFmpegThreadsDefault;
                             perfSettings.hardwareDecodeEnabled =
                                 settingsSection.kHwDecodeEnabledDefault;
+                            perfSettings.hwScrubInterCodecs =
+                                settingsSection.kHwScrubInterDefault;
+                            perfSettings.scrubCacheMB =
+                                settingsSection.kScrubCacheMBDefault;
                             WindowManager.timelineHoverThumbsEnabled =
                                 settingsSection.kHoverThumbsDefault;
                             Qt.quit();
@@ -1739,6 +1756,57 @@ Rectangle {
                                 }
                             }
                             HelpText { text: qsTr("Use GPU hardware decode (Vulkan for ProRes, D3D11VA for everything else) when available. Turn off if playback misbehaves — forces software decode for every video path (single, dual, scrub, playlist). Slower but maximally compatible. Takes effect on next file load.") }
+                        }
+
+                        // Scrub GOP-cache budget (MB per decoder).
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel { text: qsTr("Scrub cache size (MB)") }
+                                FlatSpinBox {
+                                    from: 128
+                                    to: 4096
+                                    stepSize: 128
+                                    value: perfSettings.scrubCacheMB
+                                    onValueModified: perfSettings.scrubCacheMB = value
+                                    Layout.preferredWidth: 80
+                                    font.family: Theme.monoFamily
+                                    font.pixelSize: Theme.fontSizeSmall
+                                }
+                                RevertBtn {
+                                    onClicked: perfSettings.scrubCacheMB =
+                                                  settingsSection.kScrubCacheMBDefault
+                                }
+                            }
+                            HelpText { text: qsTr("Decoded frames kept around the playhead so backward scrub and revisits are instant. Per decoder — dual A/B uses 2x. Higher = smoother scrub, more RAM/VRAM. Applies on next file load.") }
+                        }
+
+                        // Experimental: hardware scrub for h264/h265.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel { text: qsTr("Hardware scrub for h264/h265 (experimental)") }
+                                FlatSwitch {
+                                    Layout.rightMargin: Theme.padding
+                                    checked: perfSettings.hwScrubInterCodecs
+                                    onToggled: {
+                                        perfSettings.hwScrubInterCodecs = checked;
+                                    }
+                                }
+                                RevertBtn {
+                                    onClicked: {
+                                        perfSettings.hwScrubInterCodecs =
+                                            settingsSection.kHwScrubInterDefault;
+                                    }
+                                }
+                            }
+                            HelpText { text: qsTr("Use GPU decode while scrubbing inter-frame video (h264/h265), not just all-intra codecs like ProRes. On macOS this keeps scrub zero-copy. Experimental — turn off if scrubbed frames look wrong at GOP boundaries. Takes effect on next file load.") }
                         }
 
                         GroupHeader { label: qsTr("Interface") }
