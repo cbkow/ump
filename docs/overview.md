@@ -37,7 +37,7 @@ Higher precision modes use more memory per cached frame (8 bytes/pixel vs. 4 for
 
 ## HDR
 
-**Windows**: HDR10 output is automatic when Windows HDR mode is enabled. The player surface is its own DirectComposition visual so the HDR swapchain can use PQ/ST.2084 + BT.2020 without dragging the Qt UI's sRGB swapchain along with it.
+**Windows**: HDR10 output can be used when Windows HDR mode is enabled. The player surface is its own DirectComposition visual so the HDR swapchain can use PQ/ST.2084 + BT.2020 without dragging the Qt UI's sRGB swapchain along with it. scRGB (sRGB linear) is always available, but not reccomended since HDR mode on monitors is HDR10 and this forces Windows to translate. 
 
 **macOS**: EDR (Extended Dynamic Range) is a linear-light system where `1.0 = SDR white` and values above 1.0 are brighter, up to the display's headroom. The ACES 2.0 and Blender 5.1 OCIO configs include Linear sRGB EDR and Linear P3 EDR display outputs for this workflow.
 
