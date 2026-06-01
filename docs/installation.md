@@ -48,6 +48,24 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.1/2.10
+
+- Improved scrubbing for MP4s and other B-frame media
+- This release is v2.1.1 on MacOS and v2.1.0 for Windows. Windows didn't need the last-minute regression fix. We will get back in sync for the next release.
+
+What’s new in 2.0.9
+
+- Added track identifiers to the left of the timeline; this is mainly to keep the playhead and grab handles of the zoom/pan tool away from the app’s edges.
+- Fixed persistence on image sequence FPS when switching to other media and back.
+- Added a dual-view panel for saving dual-view sessions and moved dual-views out of the media panel
+- Made the entire surface of collapsed sidebars a trigger to open the rails.
+- Removed the max size from the media bin—-eliminating dual scroller contention
+- Fixed a glitch where the minimal mode menu option hid the frame counter row
+- Added detection for ARRI RAW mxfs and a message to guide users to Resolve or other apps
+- Added video range overrides to the scrub decoders (single and dual media flows)
+- Added a dark background behind the MacOS icon for light-mode users.
+
+
 What’s new in 2.08
 
 - Editing in dual-view and playlist modes has better viewport feedback with slips and trims.
