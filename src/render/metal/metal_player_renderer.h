@@ -56,6 +56,8 @@ public:
     void clearSourceAState() override;
     void clearSourceBState() override;
     void setSourceActivity(bool aActive, bool bActive) override;
+    void setPixelAspectA(int num, int den) override;
+    void setPixelAspectB(int num, int den) override;
     void setOcio(OCIOConfigManager *o) override;
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
@@ -93,6 +95,14 @@ private:
     // the render thread reads them in drawFrame.
     std::atomic<bool>   m_aActive{true};
     std::atomic<bool>   m_bActive{true};
+    // Per-side pixel aspect (anamorphic un-squeeze). Packed num/den as
+    // two atomics each; GUI thread sets them via setPixelAspect*, the
+    // render thread reads them in drawFrame to widen the effective
+    // source dimensions. Default 1/1 = square (unchanged behavior).
+    std::atomic<int>    m_parNumA{1};
+    std::atomic<int>    m_parDenA{1};
+    std::atomic<int>    m_parNumB{1};
+    std::atomic<int>    m_parDenB{1};
     ImageSequenceCache *m_cache     = nullptr;
     VideoDecoder       *m_decoderB  = nullptr;
     // Tracks the cache the upload thread is bound to + its last-seen

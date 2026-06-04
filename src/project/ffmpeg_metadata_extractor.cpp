@@ -181,6 +181,17 @@ void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
     m.width  = cp->width;
     m.height = cp->height;
 
+    // Sample aspect ratio — reconciles the stream SAR with the codec
+    // SAR (av_guess_* prefers the stream's). SAR ≠ 1:1 ⇒ anamorphic /
+    // non-square pixels. Detection only; the applied ratio is the
+    // per-clip MediaItem::pixelAspectMode (defaults Square).
+    AVRational sar = av_guess_sample_aspect_ratio(ctx, stream, nullptr);
+    if (sar.num > 0 && sar.den > 0) {
+        m.sarNum = sar.num;
+        m.sarDen = sar.den;
+    }
+    m.isAnamorphic = (m.sarNum != m.sarDen);
+
     AVRational fr = stream->r_frame_rate;
     if (fr.num == 0 || fr.den == 0) fr = stream->avg_frame_rate;
     m.frameRate = (fr.num > 0 && fr.den > 0) ? av_q2d(fr) : 24.0;

@@ -803,6 +803,42 @@ bool ProjectManager::setVideoRangeOverride(const QString &itemId, int range)
     return true;
 }
 
+bool ProjectManager::setPixelAspect(const QString &itemId, int mode,
+                                    int parNum, int parDen)
+{
+    const int idx = findIndexInPool(itemId);
+    if (idx < 0) return false;
+    MediaItem &it = m_mediaPool[idx];
+    if (it.type != MediaType::Video) return false;
+    const PixelAspectMode nextMode =
+        (mode == 1) ? PixelAspectMode::Detected
+      : (mode == 2) ? PixelAspectMode::Custom
+      :               PixelAspectMode::Square;
+    // Custom ratio is only meaningful for Custom mode; clamp to a sane
+    // positive rational so a stray 0 from the UI can't produce a NaN
+    // aspect downstream.
+    int nNum = (parNum > 0) ? parNum : 1;
+    int nDen = (parDen > 0) ? parDen : 1;
+    if (nextMode != PixelAspectMode::Custom) { nNum = it.customParNum;
+                                               nDen = it.customParDen; }
+    if (it.pixelAspectMode == nextMode
+        && it.customParNum == nNum && it.customParDen == nDen) return true;
+    it.pixelAspectMode = nextMode;
+    it.customParNum    = nNum;
+    it.customParDen    = nDen;
+    markDirty();
+    // Dedicated change signal — WindowManager hooks it to push the
+    // resulting effective ratio into the live renderer (single-flow A
+    // OR DualPlaybackController per-side) without a reopen. Mirrors
+    // videoRangeOverrideChanged.
+    emit pixelAspectChanged(itemId, static_cast<int>(nextMode), nNum, nDen);
+    if (m_activeItemId == itemId || m_bSourceMediaId == itemId) {
+        emit activeItemIdChanged();
+        emit bSourceChanged();
+    }
+    return true;
+}
+
 bool ProjectManager::setAudioRoutingMode(const QString &itemId, int mode)
 {
     const int idx = findIndexInPool(itemId);
@@ -1046,6 +1082,15 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
     out[QStringLiteral("videoRangeOverride")] =
         static_cast<int>(it.videoRangeOverride);
 
+    // Per-clip pixel-aspect override (0 = Square, 1 = Detected,
+    // 2 = Custom) + the custom rational. Top-level (not under `video`)
+    // so the Inspector pill highlights correctly even before metadata
+    // loads. The detected SAR lives in the `video` sub-map below.
+    out[QStringLiteral("pixelAspectMode")] =
+        static_cast<int>(it.pixelAspectMode);
+    out[QStringLiteral("customParNum")] = it.customParNum;
+    out[QStringLiteral("customParDen")] = it.customParDen;
+
     // Per-clip audio routing mode (0 = Auto, 1 = 5.1 Downmix,
     // 2 = Stereo 7-8). Inspector pill row binds to this for the
     // active-pill highlight; setAudioRoutingMode mutates and emits.
@@ -1067,6 +1112,17 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("pixelFormat")]      = it.video.pixelFormat;
         v[QStringLiteral("bitDepth")]         = it.video.bitDepth;
         v[QStringLiteral("hasAlpha")]         = it.video.hasAlpha;
+        // Detected sample aspect ratio + derived display aspect. The
+        // Inspector shows these read-only and pre-fills the Custom
+        // fields from them; displayAspect = (W/H)·(sarNum/sarDen).
+        v[QStringLiteral("sarNum")]           = it.video.sarNum;
+        v[QStringLiteral("sarDen")]           = it.video.sarDen;
+        v[QStringLiteral("isAnamorphic")]     = it.video.isAnamorphic;
+        if (it.video.height > 0 && it.video.sarDen > 0) {
+            v[QStringLiteral("displayAspect")] =
+                (static_cast<double>(it.video.width) * it.video.sarNum)
+                / (static_cast<double>(it.video.height) * it.video.sarDen);
+        }
         v[QStringLiteral("colorspace")]       = it.video.colorspace;
         v[QStringLiteral("colorPrimaries")]   = it.video.colorPrimaries;
         v[QStringLiteral("colorTransfer")]    = it.video.colorTransfer;

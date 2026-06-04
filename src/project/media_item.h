@@ -57,6 +57,22 @@ enum class AudioRoutingMode {
     Stereo7_8  = 2,   // Channels 7-8 (zero-indexed 6-7) as L/R
 };
 
+// Per-clip pixel-aspect (anamorphic) handling. The viewport otherwise
+// assumes square pixels and maps raw decoded width×height to the
+// drawable, so SAR ≠ 1:1 content renders squeezed. Default Square
+// shows the stored pixels untouched (QC-safe); Detected applies the
+// SAR FFmpeg probed (VideoMetadata::sarNum/sarDen); Custom applies a
+// user-entered pixel aspect (customParNum/customParDen). Mutated via
+// `ProjectManager::setPixelAspect`; the WindowManager pushes the
+// resulting effective ratio to the renderer live (no re-decode) and
+// re-applies it on every clip load. Mirrors the videoRangeOverride
+// rails.
+enum class PixelAspectMode {
+    Square   = 0,   // force 1:1 (default, QC-safe)
+    Detected = 1,   // apply the file's probed SAR
+    Custom   = 2,   // apply customParNum/customParDen
+};
+
 inline VideoRange videoRangeFromString(const QString &s) {
     if (s == QStringLiteral("full"))    return VideoRange::Full;
     if (s == QStringLiteral("limited")) return VideoRange::Limited;
@@ -139,6 +155,15 @@ struct VideoMetadata {
     QString     pixelFormat;          // e.g. "yuv422p10le"
     int         bitDepth = 8;         // detected from pixelFormat
     bool        hasAlpha = false;
+
+    // Sample aspect ratio probed via av_guess_sample_aspect_ratio
+    // (reconciles stream + codec SAR). 1:1 for square-pixel content.
+    // isAnamorphic == (sarNum != sarDen). Read-only — drives the
+    // Inspector's "Detected" pixel-aspect chip; the applied ratio is
+    // MediaItem::pixelAspectMode, which defaults to Square regardless.
+    int         sarNum = 1;
+    int         sarDen = 1;
+    bool        isAnamorphic = false;
     // True when the container has a video stream but FFmpeg has no
     // decoder for it (videoCodec == "unknown") — e.g. ARRIRAW camera
     // raw. Drives the in-viewport "can't play this" notice instead of
@@ -305,6 +330,17 @@ struct MediaItem {
     // `ProjectManager::setVideoRangeOverride` so the inspector can
     // edit it without re-extracting metadata.
     VideoRange              videoRangeOverride = VideoRange::Auto;
+
+    // Per-clip pixel-aspect override. Default Square renders the stored
+    // (square-pixel) frame untouched. Detected applies video.sar*;
+    // Custom applies customParNum/customParDen. Mutated via
+    // `ProjectManager::setPixelAspect`; WindowManager pushes the
+    // effective ratio to the renderer live and re-applies on load.
+    // Persisted with the project — same expectation as
+    // videoRangeOverride. customPar* are ignored unless mode == Custom.
+    PixelAspectMode         pixelAspectMode = PixelAspectMode::Square;
+    int                     customParNum = 1;
+    int                     customParDen = 1;
 
     // Per-clip audio channel routing for broadcast deliverables.
     // Mutated via `ProjectManager::setAudioRoutingMode`; the

@@ -83,6 +83,7 @@ Rectangle {
         target: WindowManager.project
         function onAudioRoutingModeChanged(itemId, mode) { root.inspectorPillRev++ }
         function onVideoRangeOverrideChanged(itemId, range) { root.inspectorPillRev++ }
+        function onPixelAspectChanged(itemId, mode, num, den) { root.inspectorPillRev++ }
     }
 
     // Hide entirely when nothing is selected — the bin's empty-state
@@ -484,6 +485,279 @@ Rectangle {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeSmall
                     visible: content.vmeta && content.vmeta.isHdrContent
+                }
+            }
+        }
+
+        // ---- PIXEL ASPECT ----
+        // Per-clip anamorphic / non-square-pixel override. Default
+        // Square renders the stored pixels untouched (QC-safe); the
+        // probed SAR pre-fills the read-out and Detected applies it;
+        // Custom takes a pixel-aspect scalar (AE term) or a display
+        // aspect W:H. Mirrors the Range pill's target-resolution +
+        // pickable rules; setPixelAspect persists + pushes live.
+        ColumnLayout {
+            id: parSection
+            Layout.fillWidth: true
+            spacing: 4
+            visible: content.videoLoaded && content.vmeta
+                     && content.vmeta.width > 0
+                     && root.itemType === 0   // Video only
+
+            // The MediaItem the pills edit + read (same resolution as
+            // the Range pill: dual → displayedItem, else the routing
+            // scope id — the active clip's source, playlist-aware).
+            readonly property string parTargetItemId: {
+                if (root.dualActive)
+                    return root.displayedItem ? root.displayedItem.id : "";
+                return WindowManager
+                    ? WindowManager.audioRoutingScopeMediaItemId : "";
+            }
+            readonly property var parTargetItem: {
+                root.inspectorPillRev;   // dependency tag — see root
+                if (!parTargetItemId || !WindowManager.project) return null;
+                return WindowManager.project.mediaItemMap(parTargetItemId);
+            }
+            readonly property bool parPickable:
+                root.itemType === 0 && WindowManager.videoDecoder
+                && root.activeItem && root.displayedItem
+                && root.activeItem.id === root.displayedItem.id
+
+            readonly property int parMode:
+                parTargetItem && parTargetItem.pixelAspectMode !== undefined
+                ? parTargetItem.pixelAspectMode : 0
+            readonly property int storageW: content.vmeta ? content.vmeta.width : 0
+            readonly property int storageH: content.vmeta ? content.vmeta.height : 0
+            readonly property int detSarNum:
+                content.vmeta && content.vmeta.sarNum ? content.vmeta.sarNum : 1
+            readonly property int detSarDen:
+                content.vmeta && content.vmeta.sarDen ? content.vmeta.sarDen : 1
+            readonly property bool isAnamorphic:
+                content.vmeta ? (content.vmeta.isAnamorphic === true) : false
+
+            // Currently-applied PAR (num/den) resolved from the mode.
+            readonly property int curParNum:
+                parMode === 1 ? detSarNum
+              : (parMode === 2 && parTargetItem && parTargetItem.customParNum
+                 ? parTargetItem.customParNum : 1)
+            readonly property int curParDen:
+                parMode === 1 ? detSarDen
+              : (parMode === 2 && parTargetItem && parTargetItem.customParDen
+                 ? parTargetItem.customParDen : 1)
+            readonly property real curPar:
+                curParDen > 0 ? (curParNum / curParDen) : 1.0
+            readonly property real curDar:
+                (storageH > 0 && curParDen > 0)
+                ? (storageW * curParNum) / (storageH * curParDen) : 0.0
+            readonly property int effW:
+                Math.round(storageW * (curParDen > 0 ? curParNum / curParDen : 1))
+
+            SectionHeader { label: qsTr("PIXEL ASPECT") }
+
+            // Mode pill row — Square / Detected (R:R) / Custom.
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 4
+                Text {
+                    text: qsTr("Aspect")
+                    color: Theme.textSecondary
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeTiny
+                    Layout.preferredWidth: 80
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Repeater {
+                        model: [
+                            { key: 0, label: qsTr("Square") },
+                            { key: 1, label: qsTr("Detected") },
+                            { key: 2, label: qsTr("Custom") },
+                        ]
+                        Rectangle {
+                            id: parChip
+                            required property var modelData
+                            // Detected is meaningless on square-pixel
+                            // content — disable it there.
+                            readonly property bool chipDisabled:
+                                modelData.key === 1 && !parSection.isAnamorphic
+                            readonly property bool isActive:
+                                modelData.key === parSection.parMode
+                            readonly property string buttonLabel:
+                                modelData.key === 1 && parSection.isAnamorphic
+                                ? qsTr("Detected ") + parSection.detSarNum
+                                  + ":" + parSection.detSarDen
+                                : modelData.label
+                            width: parChipLabel.implicitWidth + 14
+                            height: 18
+                            radius: Theme.radius
+                            color: isActive
+                                   ? Theme.accent
+                                   : (parChipMa.containsMouse
+                                      ? Theme.surfaceHover : "transparent")
+                            opacity: (parSection.parPickable && !chipDisabled)
+                                     ? 1.0 : 0.55
+                            Text {
+                                id: parChipLabel
+                                anchors.centerIn: parent
+                                text: parent.buttonLabel
+                                color: parent.isActive
+                                       ? Theme.textBright : Theme.textPrimary
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.fontSizeTiny
+                            }
+                            MouseArea {
+                                id: parChipMa
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                enabled: parSection.parPickable
+                                         && !parChip.chipDisabled
+                                cursorShape: (parSection.parPickable
+                                              && !parChip.chipDisabled)
+                                    ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                onClicked: {
+                                    if (!parSection.parTargetItemId
+                                        || !WindowManager.project) return;
+                                    // Seed Custom from the detected ratio
+                                    // (or 1:1) so its fields start sensible.
+                                    var n = parSection.curParNum;
+                                    var d = parSection.curParDen;
+                                    if (parChip.modelData.key === 2
+                                        && parSection.parMode !== 2) {
+                                        n = parSection.isAnamorphic
+                                            ? parSection.detSarNum : 1;
+                                        d = parSection.isAnamorphic
+                                            ? parSection.detSarDen : 1;
+                                    }
+                                    WindowManager.project.setPixelAspect(
+                                        parSection.parTargetItemId,
+                                        parChip.modelData.key, n, d);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Read-out — detected SAR + resulting display aspect / dims.
+            GridLayout {
+                Layout.fillWidth: true
+                columns: 2
+                columnSpacing: Theme.paddingLoose
+                rowSpacing: 2
+
+                Text { text: qsTr("Detected"); color: Theme.textSecondary;
+                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
+                Text {
+                    Layout.fillWidth: true
+                    text: parSection.isAnamorphic
+                        ? parSection.detSarNum + ":" + parSection.detSarDen
+                          + qsTr(" (non-square)")
+                        : qsTr("1:1 (square)")
+                    color: Theme.textPrimary
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+
+                Text { text: qsTr("Display"); color: Theme.textSecondary;
+                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
+                Text {
+                    Layout.fillWidth: true
+                    text: parSection.curDar > 0
+                        ? parSection.curDar.toFixed(3) + ":1   ("
+                          + parSection.effW + " × " + parSection.storageH + ")"
+                        : ""
+                    color: Theme.textPrimary
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontSizeSmall
+                }
+            }
+
+            // Custom entry — pixel-aspect scalar (AE term) and a
+            // display-aspect W:H pair. Either commits the same stored
+            // PAR rational on Enter / focus-loss; the other reflects it.
+            ColumnLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 2
+                spacing: 4
+                visible: parSection.parMode === 2
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text {
+                        text: qsTr("Pixel aspect")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        Layout.preferredWidth: 80
+                    }
+                    TextField {
+                        id: parScalarField
+                        Layout.preferredWidth: 90
+                        text: parSection.curPar.toFixed(4)
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                        selectByMouse: true
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onEditingFinished: {
+                            var p = parseFloat(text);
+                            if (p > 0 && WindowManager.project
+                                && parSection.parTargetItemId) {
+                                // Clamp to a sane range so a typo can't
+                                // band the image; rationalize at 1e4 —
+                                // exact enough for any real PAR.
+                                p = Math.min(20.0, Math.max(0.05, p));
+                                WindowManager.project.setPixelAspect(
+                                    parSection.parTargetItemId, 2,
+                                    Math.round(p * 10000), 10000);
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 4
+                    Text {
+                        text: qsTr("Display aspect")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        Layout.preferredWidth: 80
+                    }
+                    // Display aspect as a single decimal (e.g. 2.390 for
+                    // a 32:9 frame). A single scalar round-trips to a
+                    // fixed point — PAR = DAR*(storageH/storageW), then
+                    // DAR re-derives to the same value — so a focus-steal
+                    // commit (e.g. clicking the Safety Guides dropdown) is
+                    // a harmless no-op. The old W:H pair fed one live-bound
+                    // field back into the other and ran the PAR away.
+                    TextField {
+                        id: darField
+                        Layout.preferredWidth: 90
+                        text: parSection.curDar > 0
+                              ? parSection.curDar.toFixed(4) : ""
+                        font.family: Theme.monoFamily
+                        font.pixelSize: Theme.fontSizeSmall
+                        selectByMouse: true
+                        inputMethodHints: Qt.ImhFormattedNumbersOnly
+                        onEditingFinished: {
+                            var d = parseFloat(text);
+                            if (!(d > 0) || parSection.storageW <= 0
+                                || parSection.storageH <= 0
+                                || !WindowManager.project
+                                || !parSection.parTargetItemId) return;
+                            d = Math.min(20.0, Math.max(0.05, d));
+                            // 1e3 scale keeps PAR an exact rational.
+                            WindowManager.project.setPixelAspect(
+                                parSection.parTargetItemId, 2,
+                                Math.round(d * parSection.storageH * 1000),
+                                Math.round(parSection.storageW * 1000));
+                        }
+                    }
+                    Text { text: ": 1"; color: Theme.textSecondary
+                           font.family: Theme.monoFamily; font.pixelSize: Theme.fontSizeSmall }
                 }
             }
         }

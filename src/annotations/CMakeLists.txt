@@ -25,6 +25,8 @@ qt_add_library(qcv_annotations STATIC
     annotation_manager.cpp
     annotation_exporter.h
     annotation_exporter.cpp
+    annotation_thumbnail.h
+    annotation_thumbnail.cpp
     viewport_annotator.h
     viewport_annotator.cpp
 )

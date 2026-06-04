@@ -25,6 +25,7 @@ struct AVFrame;
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 namespace qcv {
 
@@ -315,6 +316,10 @@ struct D3D11DualCompositor::Impl {
     float splitPos = 0.5f;
     float seamHighlight = 0.0f;   // split seam: 0 grey at rest, 1 white on hover/drag
     float diffGain = 1.0f;        // Difference mode: amplify abs(A-B)
+    // Per-side pixel aspect (anamorphic un-squeeze). Widens the
+    // effective srcSize fed to the shader; 1/1 = square (default).
+    int   parNumA = 1, parDenA = 1;
+    int   parNumB = 1, parDenB = 1;
 
     // Prepare → render handoff state. Set in prepareFrames, consumed
     // (and cleared) in renderFrame.
@@ -480,6 +485,20 @@ void D3D11DualCompositor::setDiffGain(float g)
 {
     if (!m_impl) return;
     m_impl->diffGain = g;
+}
+
+void D3D11DualCompositor::setPixelAspectA(int num, int den)
+{
+    if (!m_impl) return;
+    m_impl->parNumA = num > 0 ? num : 1;
+    m_impl->parDenA = den > 0 ? den : 1;
+}
+
+void D3D11DualCompositor::setPixelAspectB(int num, int den)
+{
+    if (!m_impl) return;
+    m_impl->parNumB = num > 0 ? num : 1;
+    m_impl->parDenB = den > 0 ? den : 1;
 }
 
 void D3D11DualCompositor::prepareFrames(void *ctxVoid)
@@ -653,10 +672,24 @@ void D3D11DualCompositor::renderFrame(void *ctxVoid, int dstW, int dstH)
     DualCB cb{};
     cb.dstSize[0]  = static_cast<float>(dstW);
     cb.dstSize[1]  = static_cast<float>(dstH);
-    cb.srcSizeA[0] = static_cast<float>(m_impl->srcAW);
-    cb.srcSizeA[1] = static_cast<float>(m_impl->srcAH);
-    cb.srcSizeB[0] = static_cast<float>(m_impl->srcBW);
-    cb.srcSizeB[1] = static_cast<float>(m_impl->srcBH);
+    // Pixel-aspect un-squeeze — widen the effective srcSize so the
+    // shader's per-side sampleFit lands on the corrected display
+    // aspect (it normalizes the sample by srcSize, so this stretches
+    // the real texture with no shader change). 1/1 = unchanged.
+    auto effDim = [](int w, int h, int n, int d) -> std::pair<int, int> {
+        if (w <= 0 || h <= 0 || n <= 0 || d <= 0 || n == d) return { w, h };
+        if (n > d)
+            return { static_cast<int>(std::lround(double(w) * n / d)), h };
+        return { w, static_cast<int>(std::lround(double(h) * d / n)) };
+    };
+    const auto [effAW, effAH] = effDim(m_impl->srcAW, m_impl->srcAH,
+                                       m_impl->parNumA, m_impl->parDenA);
+    const auto [effBW, effBH] = effDim(m_impl->srcBW, m_impl->srcBH,
+                                       m_impl->parNumB, m_impl->parDenB);
+    cb.srcSizeA[0] = static_cast<float>(effAW);
+    cb.srcSizeA[1] = static_cast<float>(effAH);
+    cb.srcSizeB[0] = static_cast<float>(effBW);
+    cb.srcSizeB[1] = static_cast<float>(effBH);
     cb.mode        = m_impl->mode;
     cb.splitPos    = m_impl->splitPos;
     cb.aActive     = m_impl->aActive ? 1 : 0;

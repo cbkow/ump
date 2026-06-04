@@ -186,6 +186,17 @@ public:
     // source so the override takes effect immediately.
     Q_INVOKABLE bool setVideoRangeOverride(const QString &itemId, int range);
 
+    // Per-clip pixel-aspect override. `mode` is PixelAspectMode cast to
+    // int (0 = Square, 1 = Detected, 2 = Custom); parNum/parDen are the
+    // custom pixel aspect (honored only when mode == Custom, clamped to
+    // a positive rational). Mirrors setVideoRangeOverride: mutates the
+    // pool entry, emits pixelAspectChanged + activeItemIdChanged /
+    // bSourceChanged when the id matches A or B. The render-side apply
+    // is WindowManager's job (hooks pixelAspectChanged + re-applies on
+    // load). Returns true on a real change. Video items only.
+    Q_INVOKABLE bool setPixelAspect(const QString &itemId, int mode,
+                                    int parNum, int parDen);
+
     // Set the per-clip audio routing mode. `mode` is a
     // `qcv::AudioRoutingMode` cast to int (0 = Auto, 1 = Downmix5_1,
     // 2 = Stereo7_8). Mirrors setVideoRangeOverride: mutates the
@@ -338,6 +349,14 @@ signals:
     // updates the persisted MediaItem field; the live render-side
     // YUV→RGB compute stays on its old setting until next reopen.
     void videoRangeOverrideChanged(const QString &itemId, int range);
+
+    // Per-clip pixel-aspect override changed. WindowManager hooks this
+    // to push the resulting effective ratio into the live renderer
+    // (source A, or DualPlaybackController's per-side) without a
+    // reopen. `mode` is PixelAspectMode as int; parNum/parDen are the
+    // custom rational (meaningful only when mode == Custom).
+    void pixelAspectChanged(const QString &itemId, int mode,
+                            int parNum, int parDen);
 
     // Phase 7.6 — `.qcvproj` save/load + dirty tracking.
     void projectFileChanged();

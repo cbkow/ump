@@ -82,6 +82,16 @@ public:
     void setSplitPos(float p)         { m_splitPos = p; }
     void setSeamHighlight(float h)    { m_seamHighlight = h; }
     void setDiffGain(float g)         { m_diffGain = g; }   // Difference amplify
+    // Per-side pixel aspect (anamorphic un-squeeze). Applied display-
+    // only: the effective source width fed to the compositor UBO
+    // becomes round(width * num/den), so the per-side aspect-fit
+    // widens to the corrected display aspect. 1/1 (default) = square,
+    // identical to prior behavior. Same set-from-GUI / read-on-render
+    // contract as setSplitPos.
+    void setPixelAspectA(int num, int den) { m_parNumA = num > 0 ? num : 1;
+                                             m_parDenA = den > 0 ? den : 1; }
+    void setPixelAspectB(int num, int den) { m_parNumB = num > 0 ? num : 1;
+                                             m_parDenB = den > 0 ? den : 1; }
     Mode mode() const                 { return m_mode; }
     float splitPos() const            { return m_splitPos; }
 
@@ -119,6 +129,10 @@ private:
     float m_splitPos  = 0.5f;
     float m_seamHighlight = 0.0f;
     float m_diffGain  = 1.0f;
+    int   m_parNumA   = 1;
+    int   m_parDenA   = 1;
+    int   m_parNumB   = 1;
+    int   m_parDenB   = 1;
 };
 
 } // namespace qcv::dual

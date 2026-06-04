@@ -107,6 +107,9 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("pixelFormat")]         = v.pixelFormat;
     o[QStringLiteral("bitDepth")]            = v.bitDepth;
     o[QStringLiteral("hasAlpha")]            = v.hasAlpha;
+    o[QStringLiteral("sarNum")]              = v.sarNum;
+    o[QStringLiteral("sarDen")]              = v.sarDen;
+    o[QStringLiteral("isAnamorphic")]        = v.isAnamorphic;
     o[QStringLiteral("unsupportedCodec")]    = v.unsupportedCodec;
     o[QStringLiteral("cameraVendor")]        = v.cameraVendor;
     o[QStringLiteral("cameraModel")]         = v.cameraModel;
@@ -140,6 +143,13 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     v.pixelFormat         = o.value(QStringLiteral("pixelFormat")).toString();
     v.bitDepth            = o.value(QStringLiteral("bitDepth")).toInt(8);
     v.hasAlpha            = o.value(QStringLiteral("hasAlpha")).toBool();
+    // Default 1/1 (square) when missing — old projects and the struct
+    // default agree; isAnamorphic recomputed from the ratio so a stale
+    // false can't desync.
+    v.sarNum              = o.value(QStringLiteral("sarNum")).toInt(1);
+    v.sarDen              = o.value(QStringLiteral("sarDen")).toInt(1);
+    if (v.sarNum <= 0 || v.sarDen <= 0) { v.sarNum = 1; v.sarDen = 1; }
+    v.isAnamorphic        = (v.sarNum != v.sarDen);
     v.unsupportedCodec    = o.value(QStringLiteral("unsupportedCodec")).toBool();
     v.cameraVendor        = o.value(QStringLiteral("cameraVendor")).toString();
     v.cameraModel         = o.value(QStringLiteral("cameraModel")).toString();
@@ -358,6 +368,10 @@ QJsonObject mediaItemToJson(const MediaItem &it, const QString &projectDir)
     o[QStringLiteral("adobe")]         = adobeMetadataToJson(it.adobe);
     o[QStringLiteral("videoRangeOverride")] =
         videoRangeToString(it.videoRangeOverride);
+    o[QStringLiteral("pixelAspectMode")] =
+        static_cast<int>(it.pixelAspectMode);
+    o[QStringLiteral("customParNum")]  = it.customParNum;
+    o[QStringLiteral("customParDen")]  = it.customParDen;
     o[QStringLiteral("audioRoutingMode")] =
         static_cast<int>(it.audioRoutingMode);
     o[QStringLiteral("dualPair")]      = dualPairToJson(it.dualPair);
@@ -384,6 +398,15 @@ MediaItem mediaItemFromJson(const QJsonObject &o, const QString &projectDir)
     it.adobe         = adobeMetadataFromJson(o.value(QStringLiteral("adobe")).toObject());
     it.videoRangeOverride = videoRangeFromString(
         o.value(QStringLiteral("videoRangeOverride")).toString());
+    // Default Square (0) when missing — matches the struct default;
+    // custom PAR defaults 1/1 and is only honored when mode == Custom.
+    it.pixelAspectMode = static_cast<PixelAspectMode>(
+        o.value(QStringLiteral("pixelAspectMode")).toInt(0));
+    it.customParNum = o.value(QStringLiteral("customParNum")).toInt(1);
+    it.customParDen = o.value(QStringLiteral("customParDen")).toInt(1);
+    if (it.customParNum <= 0 || it.customParDen <= 0) {
+        it.customParNum = 1; it.customParDen = 1;
+    }
     // Default Auto (0) when missing — matches the struct's default
     // and what the FFmpeg-extractor would have set on a new add.
     it.audioRoutingMode = static_cast<AudioRoutingMode>(

@@ -11,6 +11,7 @@
 #include <QtLogging>
 #include <chrono>
 #include <cmath>
+#include <utility>
 
 namespace qcv::dual {
 
@@ -754,10 +755,27 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
     UBO ubo;
     ubo.dstSize[0]  = static_cast<float>(dstWidth);
     ubo.dstSize[1]  = static_cast<float>(dstHeight);
-    ubo.srcSizeA[0] = static_cast<float>(m_impl->srcAW);
-    ubo.srcSizeA[1] = static_cast<float>(m_impl->srcAH);
-    ubo.srcSizeB[0] = static_cast<float>(m_impl->srcBW);
-    ubo.srcSizeB[1] = static_cast<float>(m_impl->srcBH);
+    // Pixel-aspect un-squeeze: widen the effective source dims so the
+    // per-side aspect-fit lands on the corrected display aspect. The
+    // dual_fs shader normalizes its sample by srcSize, so feeding
+    // effective dims stretches the real texture — no shader change.
+    // Widen the larger-pixel axis up (never downscale) to keep
+    // resolution. 1/1 leaves dims untouched.
+    auto effDim = [](int w, int h, int num, int den) -> std::pair<int,int> {
+        if (w <= 0 || h <= 0 || num <= 0 || den <= 0 || num == den)
+            return { std::max(1, w), std::max(1, h) };
+        if (num > den)
+            return { static_cast<int>(std::lround(double(w) * num / den)), h };
+        return { w, static_cast<int>(std::lround(double(h) * den / num)) };
+    };
+    const auto [effAW, effAH] = effDim(m_impl->srcAW, m_impl->srcAH,
+                                       m_parNumA, m_parDenA);
+    const auto [effBW, effBH] = effDim(m_impl->srcBW, m_impl->srcBH,
+                                       m_parNumB, m_parDenB);
+    ubo.srcSizeA[0] = static_cast<float>(effAW);
+    ubo.srcSizeA[1] = static_cast<float>(effAH);
+    ubo.srcSizeB[0] = static_cast<float>(effBW);
+    ubo.srcSizeB[1] = static_cast<float>(effBH);
     ubo.mode        = static_cast<int>(m_mode);
     ubo.splitPos    = m_splitPos;
     ubo.aActive     = aActive ? 1 : 0;

@@ -32,6 +32,7 @@
 #include "annotations/annotation_exporter.h"
 #include "annotations/annotation_manager.h"
 #include "annotations/annotation_serializer.h"
+#include "annotations/annotation_thumbnail.h"
 #include "annotations/stroke_tessellator.h"
 #include "annotations/viewport_annotator.h"
 
@@ -283,6 +284,26 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         // clears) so it can't race the load path.
         connect(m_project, &ProjectManager::activeItemIdChanged, this, [this] {
             evaluateViewportNoticeFor(m_project->activeItemId());
+            // Per-clip pixel-aspect (anamorphic un-squeeze). This signal
+            // fires on load, clip switch, async-metadata-ready (Detected
+            // SAR lands), and setPixelAspect edits — so re-pushing the
+            // effective ratio here keeps the A side correct in every
+            // case. Cheap (atomic stores); no decoder involvement.
+            applyPixelAspectToRenderer();
+        });
+        // B side tracks the dual B source the same way.
+        connect(m_project, &ProjectManager::bSourceChanged, this, [this] {
+            applyPixelAspectToRenderer();
+        });
+        // A real per-clip PAR edit (pill / custom field) — re-derive the
+        // active clip's note thumbnails so the NotesPanel cards + exports
+        // track the new aspect. Dedicated signal (not activeItemIdChanged)
+        // so this only fires on actual aspect changes, not every rebind.
+        connect(m_project, &ProjectManager::pixelAspectChanged, this,
+                [this](const QString &itemId, int, int, int) {
+            if (m_project && itemId == audioRoutingScopeMediaItemId()) {
+                regenerateNoteThumbnailsForActiveClip();
+            }
         });
 
         // Per-clip audio routing changes — the inspector pill in
@@ -1544,6 +1565,27 @@ qcv::IPlayerRenderer *fetchActiveRenderer(QWindow *playerWindow)
     return nullptr;
 }
 
+// Resolve a MediaItem's applied pixel aspect to a positive rational.
+// Square → 1:1; Detected → the probed SAR (1:1 if unprobed / square);
+// Custom → the stored custom rational. Used to drive the renderer's
+// per-side un-squeeze.
+std::pair<int, int> effectivePixelAspectFor(const qcv::MediaItem &it)
+{
+    switch (it.pixelAspectMode) {
+    case qcv::PixelAspectMode::Detected:
+        if (it.video.sarNum > 0 && it.video.sarDen > 0)
+            return { it.video.sarNum, it.video.sarDen };
+        return { 1, 1 };
+    case qcv::PixelAspectMode::Custom:
+        if (it.customParNum > 0 && it.customParDen > 0)
+            return { it.customParNum, it.customParDen };
+        return { 1, 1 };
+    case qcv::PixelAspectMode::Square:
+    default:
+        return { 1, 1 };
+    }
+}
+
 // Cast the controller's side to DualImageSeqSource, or nullptr if
 // the side isn't an image sequence (or the controller is null).
 // Used by both the dualImageSeq* Q_PROPERTY getters and the
@@ -2322,6 +2364,25 @@ void WindowManager::setViewportNotice(const QString &text)
 void WindowManager::clearViewportNotice()
 {
     setViewportNotice(QString());
+}
+
+void WindowManager::applyPixelAspectToRenderer()
+{
+    auto *r = fetchActiveRenderer(m_playerWindow.data());
+    if (!r || !m_project) return;
+    // A side = the active/scope clip (resolves to the underlying clip
+    // in playlist mode, the active item otherwise — and the A clip in
+    // dual mode). B side = the dual B source (empty in single mode →
+    // 1:1, a harmless no-op).
+    const MediaItem *a = m_project->findItem(audioRoutingScopeMediaItemId());
+    const std::pair<int, int> pa =
+        a ? effectivePixelAspectFor(*a) : std::pair<int, int>{ 1, 1 };
+    r->setPixelAspectA(pa.first, pa.second);
+    const MediaItem *b = m_project->findItem(m_project->bSourceMediaId());
+    const std::pair<int, int> pb =
+        b ? effectivePixelAspectFor(*b) : std::pair<int, int>{ 1, 1 };
+    r->setPixelAspectB(pb.first, pb.second);
+    r->requestUpdate();
 }
 
 void WindowManager::evaluateViewportNoticeFor(const QString &mediaId)
@@ -5961,6 +6022,16 @@ void WindowManager::syncAnnotationManagerToActiveMedia()
     m_annotationManager->loadNotesForMedia(mediaPath);
     // notesChanged → rebuildStoredAnnotationMesh fires from the
     // signal hookup in the ctor.
+
+    // Self-heal stale `_annotated` thumbnails: older projects (and any
+    // notes captured before the pixel-aspect feature) have square
+    // `_annotated` PNGs. If this clip is anamorphic, re-derive them from
+    // the clean frames at the current aspect. Square clips (PAR 1:1)
+    // already have correct square thumbnails, so skip the churn.
+    {
+        const auto par = effectivePixelAspectFor(*it);
+        if (par.first != par.second) regenerateNoteThumbnailsForActiveClip();
+    }
 }
 
 void WindowManager::onStrokeFinalized(std::unique_ptr<ActiveStroke> stroke)
@@ -6320,6 +6391,13 @@ void WindowManager::saveNoteCleanThumbnail(const QString &timecode)
     qInfo("saveNoteCleanThumbnail: %dx%d → %s", img.width(), img.height(),
           qPrintable(abs));
 
+    // Keep the just-captured clean frame in memory so the annotated
+    // recomposite (fired ~400 ms later) can proceed even if the async PNG
+    // write below hasn't reached disk yet. Captured only on a NEW clean
+    // (this function is idempotent), which is exactly the racy first-stroke.
+    m_lastCleanThumbImage = img;
+    m_lastCleanThumbTc    = timecode;
+
     QDir().mkpath(imagesDir);
     // Offload PNG encode + write to a worker thread so the GUI
     // thread isn't blocked between strokes (HD encode runs ~100 ms).
@@ -6355,29 +6433,53 @@ void WindowManager::saveNoteAnnotatedThumbnail(const QString &timecode)
     const QString imagesDir = m_annotationManager->imagesFolder();
     if (imagesDir.isEmpty()) return;
 
-    auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data());
-    if (!pw || !pw->renderer()) {
-        qWarning("saveNoteAnnotatedThumbnail: no player/renderer");
-        return;
+    const QString stem     = timecodeFileStem(timecode);
+    const QString cleanAbs = imagesDir + QLatin1Char('/')
+                           + QStringLiteral("note_%1.png").arg(stem);
+    const QString abs      = imagesDir + QLatin1Char('/')
+                           + QStringLiteral("note_%1_annotated.png").arg(stem);
+
+    // Recomposite from the durable square clean frame — NOT a fresh GPU
+    // capture. This makes the annotated thumbnail match the un-squeezed
+    // viewport (pixel aspect applied) with uniform stroke thickness, and
+    // lets it be regenerated later (e.g. on a PAR change) without a decode.
+    QImage clean(cleanAbs);
+    if (clean.isNull() && m_lastCleanThumbTc == timecode
+        && !m_lastCleanThumbImage.isNull()) {
+        // Clean write may still be in flight right after the first stroke.
+        clean = m_lastCleanThumbImage;
     }
-    const QImage img = pw->renderer()->captureScreenshot();
-    if (img.isNull()) {
-        qWarning("saveNoteAnnotatedThumbnail: captureScreenshot returned empty QImage");
-        return;
+    if (clean.isNull()) {
+        qWarning("saveNoteAnnotatedThumbnail: clean frame not ready for %s",
+                 qPrintable(timecode));
+        return;   // retry on the next stroke / regen trigger
     }
 
-    QDir().mkpath(imagesDir);
-    const QString stem = timecodeFileStem(timecode);
-    const QString abs  = imagesDir + QLatin1Char('/')
-                       + QStringLiteral("note_%1_annotated.png").arg(stem);
+    std::vector<ActiveStroke> strokes;
+    if (const AnnotationNote *n = m_annotationManager->noteAtTimecode(timecode)) {
+        strokes = AnnotationSerializer::jsonStringToStrokes(n->annotation_data);
+    }
+
+    int parNum = 1, parDen = 1;
+    if (m_project) {
+        if (const MediaItem *it =
+                m_project->findItem(audioRoutingScopeMediaItemId())) {
+            const auto par = effectivePixelAspectFor(*it);
+            parNum = par.first;
+            parDen = par.second;
+        }
+    }
+
+    const QImage img = renderNoteThumbnail(clean, strokes, parNum, parDen);
+    if (img.isNull()) return;
     qInfo("saveNoteAnnotatedThumbnail: %dx%d → %s", img.width(), img.height(),
           qPrintable(abs));
+
+    QDir().mkpath(imagesDir);
     // Offload PNG encode + write to a worker thread. annotatedThumbReady
     // fires on the GUI thread once the file is on disk so NotesPanel's
     // refresh sees the just-saved PNG, not the prior one. Also emit
-    // notesChanged so notesList re-resolves imagePath to annotatedAbs
-    // (it checks QFileInfo::exists — without the re-emit it'd stay
-    // pointed at cleanAbs and the strokes never show on the card).
+    // notesChanged so notesList re-resolves imagePath to annotatedAbs.
     const QString tc = timecode;
     QtConcurrent::run([this, img, abs, tc]() {
         if (!img.save(abs, "PNG")) {
@@ -6391,10 +6493,52 @@ void WindowManager::saveNoteAnnotatedThumbnail(const QString &timecode)
         }, Qt::QueuedConnection);
     });
     // image_path stays pointed at the clean PNG; the annotated
-    // sibling is discovered by NotesPanel via filename
-    // convention (notesList resolves the display path).
+    // sibling is discovered by NotesPanel via filename convention.
 #else
     Q_UNUSED(timecode);
+#endif
+}
+
+void WindowManager::regenerateNoteThumbnailsForActiveClip()
+{
+#ifdef QCV_NATIVE_PLAYER
+    if (!m_annotationManager) return;
+    const QString imagesDir = m_annotationManager->imagesFolder();
+    if (imagesDir.isEmpty()) return;
+
+    int parNum = 1, parDen = 1;
+    if (m_project) {
+        if (const MediaItem *it =
+                m_project->findItem(audioRoutingScopeMediaItemId())) {
+            const auto par = effectivePixelAspectFor(*it);
+            parNum = par.first;
+            parDen = par.second;
+        }
+    }
+
+    const std::vector<AnnotationNote> notes = m_annotationManager->notes();
+    if (notes.empty()) return;
+
+    // All image work off the GUI thread. Each note recomposites from its own
+    // durable square clean PNG, so this needs no decoder and no current
+    // frame — every note on the clip re-derives to the new aspect at once.
+    QtConcurrent::run([this, notes, imagesDir, parNum, parDen]() {
+        for (const AnnotationNote &n : notes) {
+            const QString stem = timecodeFileStem(n.timecode);
+            const QImage clean(imagesDir + QLatin1Char('/')
+                               + QStringLiteral("note_%1.png").arg(stem));
+            if (clean.isNull()) continue;   // legacy note with no clean source
+            const std::vector<ActiveStroke> strokes =
+                AnnotationSerializer::jsonStringToStrokes(n.annotation_data);
+            const QImage img = renderNoteThumbnail(clean, strokes, parNum, parDen);
+            if (img.isNull()) continue;
+            img.save(imagesDir + QLatin1Char('/')
+                     + QStringLiteral("note_%1_annotated.png").arg(stem), "PNG");
+        }
+        QMetaObject::invokeMethod(this, [this] {
+            emit notesChanged();
+        }, Qt::QueuedConnection);
+    });
 #endif
 }
 

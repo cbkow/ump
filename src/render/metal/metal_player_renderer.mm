@@ -34,12 +34,24 @@
 #include <QWindow>
 
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <mutex>
+#include <utility>
 
 namespace qcv {
 
 namespace {
+
+// Pixel-aspect-corrected width for a hover/corner thumbnail. renderCornerOverlay
+// derives both the corner-box aspect and the fit-shader srcSize from thumbW, so
+// scaling it by the clip's pixel aspect un-squeezes the preview to match the
+// main image. 1:1 (or invalid) → unchanged.
+inline int parThumbW(int w, int num, int den)
+{
+    if (w <= 0 || num <= 0 || den <= 0 || num == den) return w;
+    return static_cast<int>(std::lround(double(w) * num / den));
+}
 
 // Upload a CPU-decoded RGBA8 QImage into a cached MTLTexture.
 // Used when the decoder fell back to software (no zero-copy
@@ -680,6 +692,22 @@ void MetalPlayerRenderer::setSourceActivity(bool aActive, bool bActive)
     m_bActive.store(bActive, std::memory_order_relaxed);
 }
 
+void MetalPlayerRenderer::setPixelAspectA(int num, int den)
+{
+    m_parNumA.store(num > 0 ? num : 1, std::memory_order_relaxed);
+    m_parDenA.store(den > 0 ? den : 1, std::memory_order_relaxed);
+    // Mirror into the dual compositor so dual flow tracks the same
+    // per-side ratio (single flow reads the atomics directly).
+    if (m_impl) m_impl->dualCompositor.setPixelAspectA(num, den);
+}
+
+void MetalPlayerRenderer::setPixelAspectB(int num, int den)
+{
+    m_parNumB.store(num > 0 ? num : 1, std::memory_order_relaxed);
+    m_parDenB.store(den > 0 ? den : 1, std::memory_order_relaxed);
+    if (m_impl) m_impl->dualCompositor.setPixelAspectB(num, den);
+}
+
 void MetalPlayerRenderer::setRendererMode(RendererMode m)
 {
     m_rendererMode.store(static_cast<int>(m), std::memory_order_release);
@@ -875,7 +903,10 @@ void MetalPlayerRenderer::drawFrame()
                         m_impl->compositor.renderCornerOverlay(
                             (__bridge void *)enc,
                             meta->texture,
-                            meta->width, meta->height,
+                            parThumbW(meta->width,
+                                      m_parNumA.load(std::memory_order_relaxed),
+                                      m_parDenA.load(std::memory_order_relaxed)),
+                            meta->height,
                             canvasW, canvasH,
                             /*corner=*/0, 0.18f, 12.0f);
                     }
@@ -889,7 +920,10 @@ void MetalPlayerRenderer::drawFrame()
                         m_impl->compositor.renderCornerOverlay(
                             (__bridge void *)enc,
                             meta->texture,
-                            meta->width, meta->height,
+                            parThumbW(meta->width,
+                                      m_parNumB.load(std::memory_order_relaxed),
+                                      m_parDenB.load(std::memory_order_relaxed)),
+                            meta->height,
                             canvasW, canvasH,
                             /*corner=*/1, 0.18f, 12.0f);
                     }
@@ -978,19 +1012,42 @@ void MetalPlayerRenderer::drawFrame()
                                   y + (h - fh) * 0.5, fw, fh);
                 };
 
-                auto draw = [&](const QRectF &r) {
+                // r is the side's displayed (pixel-aspect-corrected)
+                // image rect; rawW/rawH are the side's square source
+                // dims. meshForImage stretches the guide with the
+                // picture exactly as the image un-squeezes.
+                auto draw = [&](const QRectF &r, qreal rawW, qreal rawH) {
                     if (r.width() < 2 || r.height() < 2) return;
                     const TessellatedMesh m =
-                        m_safety->mesh(r.topLeft(), r.size());
+                        m_safety->meshForImage(r.topLeft(), r.size(),
+                                               rawW, rawH);
                     if (m.vertices.empty()) return;
                     m_impl->annotations.drawMesh(
                         (__bridge void *)enc, m, dstW, dstH);
                 };
 
-                const qreal sAW = srcA ? srcA->width() : 0.0;
-                const qreal sAH = srcA ? srcA->height() : 0.0;
-                const qreal sBW = srcB ? srcB->width() : 0.0;
-                const qreal sBH = srcB ? srcB->height() : 0.0;
+                // Pixel-aspect-corrected per-side dims drive the FIT
+                // rect (so the guide sits on the un-squeezed image);
+                // the raw square dims drive meshForImage's source fit.
+                auto effD = [](qreal w, qreal h, int n, int d)
+                    -> std::pair<qreal, qreal> {
+                    if (w <= 0 || h <= 0 || n <= 0 || d <= 0 || n == d)
+                        return { w, h };
+                    if (n > d) return { w * n / d, h };
+                    return { w, h * d / n };
+                };
+                const qreal rawAW = srcA ? srcA->width()  : 0.0;
+                const qreal rawAH = srcA ? srcA->height() : 0.0;
+                const qreal rawBW = srcB ? srcB->width()  : 0.0;
+                const qreal rawBH = srcB ? srcB->height() : 0.0;
+                const auto [sAW, sAH] = effD(
+                    rawAW, rawAH,
+                    m_parNumA.load(std::memory_order_relaxed),
+                    m_parDenA.load(std::memory_order_relaxed));
+                const auto [sBW, sBH] = effD(
+                    rawBW, rawBH,
+                    m_parNumB.load(std::memory_order_relaxed),
+                    m_parDenB.load(std::memory_order_relaxed));
 
                 // Mode 1 = SBS: A in left half, B in right half.
                 // Mode 2 = Wipe: both at full drawable; v1 draws
@@ -1000,11 +1057,14 @@ void MetalPlayerRenderer::drawFrame()
                 // branch only runs in dual mode, so Single ≡ A
                 // alone via the dual single-source codepath).
                 if (m_compMode == CompositorMode::SideBySide) {
-                    if (srcA) draw(fit(0, 0, dstW * 0.5, dstH, sAW, sAH));
+                    if (srcA) draw(fit(0, 0, dstW * 0.5, dstH, sAW, sAH),
+                                   rawAW, rawAH);
                     if (srcB) draw(fit(dstW * 0.5, 0,
-                                        dstW * 0.5, dstH, sBW, sBH));
+                                        dstW * 0.5, dstH, sBW, sBH),
+                                   rawBW, rawBH);
                 } else {
-                    if (srcA) draw(fit(0, 0, dstW, dstH, sAW, sAH));
+                    if (srcA) draw(fit(0, 0, dstW, dstH, sAW, sAH),
+                                   rawAW, rawAH);
                 }
             }
 
@@ -1393,6 +1453,24 @@ void MetalPlayerRenderer::drawFrame()
 
     const bool haveSourceTexture = sourceTexture != nullptr;
 
+    // Pixel-aspect un-squeeze for source A. The compositor + every
+    // overlay rect derive the source aspect from these effective dims;
+    // sampleFit normalizes its sample by srcSize so feeding widened
+    // dims stretches the real texture (no shader change). 1/1 (square,
+    // the default) leaves dims untouched — identical prior behavior.
+    // Widen the larger-pixel axis up to preserve resolution.
+    auto effDim = [](int w, int h, int num, int den) -> std::pair<int,int> {
+        if (w <= 0 || h <= 0 || num <= 0 || den <= 0 || num == den)
+            return { w, h };
+        if (num > den)
+            return { static_cast<int>(std::lround(double(w) * num / den)), h };
+        return { w, static_cast<int>(std::lround(double(h) * den / num)) };
+    };
+    const auto [effSourceW, effSourceH] = effDim(
+        sourceW, sourceH,
+        m_parNumA.load(std::memory_order_relaxed),
+        m_parDenA.load(std::memory_order_relaxed));
+
     // (cb was created right after nextDrawable; YUV uploads above
     //  already encoded their compute passes into it.)
 
@@ -1438,11 +1516,16 @@ void MetalPlayerRenderer::drawFrame()
         void *srcBTex = sourceTexture;
         int   srcBW   = sourceW;
         int   srcBH   = sourceH;
+        int   parNumB = m_parNumA.load(std::memory_order_relaxed);
+        int   parDenB = m_parDenA.load(std::memory_order_relaxed);
         if (m_decoderB && m_impl->videoFrameRgbaB) {
             srcBTex = (__bridge void *)m_impl->videoFrameRgbaB;
             srcBW   = m_impl->videoFrameWB;
             srcBH   = m_impl->videoFrameHB;
+            parNumB = m_parNumB.load(std::memory_order_relaxed);
+            parDenB = m_parDenB.load(std::memory_order_relaxed);
         }
+        const auto [effBW, effBH] = effDim(srcBW, srcBH, parNumB, parDenB);
 
         MTLRenderPassDescriptor *rawRpd =
             [MTLRenderPassDescriptor renderPassDescriptor];
@@ -1462,8 +1545,8 @@ void MetalPlayerRenderer::drawFrame()
         const bool bAct = m_bActive.load(std::memory_order_relaxed);
         m_impl->compositor.renderSources(
             (__bridge void *)rawEnc,
-            sourceTexture, sourceW, sourceH,
-            srcBTex,        srcBW,    srcBH,
+            sourceTexture, effSourceW, effSourceH,
+            srcBTex,        effBW,      effBH,
             m_impl->compositeW, m_impl->compositeH,
             static_cast<int>(m_compMode), m_splitPos,
             aAct, bAct);
@@ -1483,7 +1566,10 @@ void MetalPlayerRenderer::drawFrame()
                 m_impl->compositor.renderCornerOverlay(
                     (__bridge void *)rawEnc,
                     meta->texture,
-                    meta->width, meta->height,
+                    parThumbW(meta->width,
+                              m_parNumA.load(std::memory_order_relaxed),
+                              m_parDenA.load(std::memory_order_relaxed)),
+                    meta->height,
                     m_impl->compositeW, m_impl->compositeH,
                     /*corner=*/0,
                     /*overlayFrac=*/0.18f,
@@ -1499,7 +1585,10 @@ void MetalPlayerRenderer::drawFrame()
                 m_impl->compositor.renderCornerOverlay(
                     (__bridge void *)rawEnc,
                     meta->texture,
-                    meta->width, meta->height,
+                    parThumbW(meta->width,
+                              m_parNumB.load(std::memory_order_relaxed),
+                              m_parDenB.load(std::memory_order_relaxed)),
+                    meta->height,
                     m_impl->compositeW, m_impl->compositeH,
                     /*corner=*/1,
                     /*overlayFrac=*/0.18f,
@@ -1572,34 +1661,42 @@ void MetalPlayerRenderer::drawFrame()
         }
     }
 
+    // Image-content rect within the drawable — the single source of
+    // truth for every overlay (annotator strokes + safety guides) so
+    // they all frame the actual picture, not the letterboxed window.
+    //
+    // Uses the PIXEL-ASPECT-CORRECTED effective dims (effSourceW/H),
+    // NOT compositeW/H — the composite intermediate is sized to the
+    // drawable aspect with the source letterboxed inside, so its
+    // aspect doesn't tell us where the image sits; and NOT the raw
+    // sourceW/H, so anamorphic clips' overlays track the un-squeezed
+    // image.
+    const bool haveImgRect = (effSourceW > 0 && effSourceH > 0 && dstH > 0);
+    float imgFitW = float(dstW), imgFitH = float(dstH);
+    float imgFitX = 0.0f, imgFitY = 0.0f;
+    if (haveImgRect) {
+        const float srcAspect = float(effSourceW) / float(effSourceH);
+        const float dstAspect = float(dstW) / float(dstH);
+        if (srcAspect > dstAspect) {
+            imgFitW = float(dstW);
+            imgFitH = float(dstW) / srcAspect;
+            imgFitX = 0.0f;
+            imgFitY = (float(dstH) - imgFitH) * 0.5f;
+        } else {
+            imgFitH = float(dstH);
+            imgFitW = float(dstH) * srcAspect;
+            imgFitY = 0.0f;
+            imgFitX = (float(dstW) - imgFitW) * 0.5f;
+        }
+    }
+
     // Phase 7.5 B.6.5: stroke pass — runs after the compositor in
     // the same render encoder. Pulls the active stroke from the
-    // annotator (if set + drawing); tessellates against the
-    // image-content rect within the drawable so strokes align to
-    // the actual image (not the letterboxed window).
-    //
-    // Use sourceW/sourceH (actual decoded frame dims), NOT
-    // compositeW/H — the composite intermediate is sized to the
-    // drawable aspect with the source letterboxed inside. So the
-    // composite's aspect doesn't tell us where the image actually
-    // sits.
-    if (m_annotator && m_impl->annotations.isInitialized()
-        && sourceW > 0 && sourceH > 0) {
-        const float srcAspect = float(sourceW) / float(sourceH);
-        const float dstAspect = (dstH > 0) ? float(dstW) / float(dstH) : 1.0f;
-        float fitW, fitH, fitX, fitY;
-        if (srcAspect > dstAspect) {
-            fitW = float(dstW);
-            fitH = float(dstW) / srcAspect;
-            fitX = 0.0f;
-            fitY = (float(dstH) - fitH) * 0.5f;
-        } else {
-            fitH = float(dstH);
-            fitW = float(dstH) * srcAspect;
-            fitY = 0.0f;
-            fitX = (float(dstW) - fitW) * 0.5f;
-        }
-
+    // annotator (if set + drawing); tessellates against the image-
+    // content rect so strokes align to the actual (un-squeezed) image.
+    if (m_annotator && m_impl->annotations.isInitialized() && haveImgRect) {
+        const float fitW = imgFitW, fitH = imgFitH;
+        const float fitX = imgFitX, fitY = imgFitY;
         m_annotator->setViewportRect(QPointF(fitX, fitY),
                                        QSizeF(fitW, fitH));
         // Stroke widths are stored in SOURCE-pixel units (so
@@ -1607,7 +1704,8 @@ void MetalPlayerRenderer::drawFrame()
         // the source-resolution capture / export). Scale by the
         // current fit-to-source ratio so a 6-source-pixel stroke
         // grows / shrinks proportionally as the window resizes.
-        const float lineScale = float(fitW) / float(sourceW);
+        // effSourceW (not raw) keeps the ratio stable under un-squeeze.
+        const float lineScale = float(fitW) / float(effSourceW);
         if (const ActiveStroke *stroke = m_annotator->activeStroke()) {
             const TessellatedMesh mesh = StrokeTessellator::tessellate(
                 *stroke, fitX, fitY, fitW, fitH, lineScale);
@@ -1636,12 +1734,22 @@ void MetalPlayerRenderer::drawFrame()
         }
     }
 
-    // Phase 7.5 B.6.6: safety overlay — same pipeline as stroke
-    // pass (alpha-blended triangles), mesh comes from
-    // SafetyOverlay::mesh aspect-fit into the drawable.
+    // Phase 7.5 B.6.6: safety overlay — same pipeline as stroke pass
+    // (alpha-blended triangles). The SVG aspect-fits into the IMAGE-
+    // content rect (haveImgRect) so the guides frame the actual
+    // picture, matching annotations — including under anamorphic
+    // un-squeeze. Falls back to the full drawable only when no source
+    // is loaded (so a guide preview still shows on an empty viewport).
     if (m_safety && m_safety->isLoaded() && m_impl->annotations.isInitialized()) {
-        const TessellatedMesh safetyMesh =
-            m_safety->mesh(QPointF(0, 0), QSizeF(dstW, dstH));
+        // Map the guide through the displayed image rect using the RAW
+        // (square) source dims, so it stretches with the picture under
+        // pixel-aspect un-squeeze. Falls back to a uniform drawable fit
+        // when no source is loaded (guide preview on an empty viewport).
+        const TessellatedMesh safetyMesh = haveImgRect
+            ? m_safety->meshForImage(QPointF(imgFitX, imgFitY),
+                                     QSizeF(imgFitW, imgFitH),
+                                     double(sourceW), double(sourceH))
+            : m_safety->mesh(QPointF(0, 0), QSizeF(dstW, dstH));
         if (!safetyMesh.vertices.empty()) {
             m_impl->annotations.drawMesh(
                 (__bridge void *)enc, safetyMesh, dstW, dstH);

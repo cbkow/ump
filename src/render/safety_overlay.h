@@ -55,6 +55,17 @@ public:
     // into the viewport rect. Returns an empty mesh if not loaded.
     TessellatedMesh mesh(QPointF displayPos, QSizeF displaySize) const;
 
+    // Render-thread call for the on-image overlay. Aspect-fits the SVG
+    // into the SOURCE pixel frame (srcW × srcH, square pixels), then
+    // maps that through the displayed image rect (imgPos/imgSize, which
+    // is pixel-aspect-corrected) — so the guide stretches with the
+    // picture under anamorphic un-squeeze exactly as the image does.
+    // Reduces to mesh()'s uniform fit when imgSize matches the source
+    // aspect (i.e. pixel aspect 1:1). Returns empty if not loaded or
+    // dims are non-positive.
+    TessellatedMesh meshForImage(QPointF imgPos, QSizeF imgSize,
+                                 double srcW, double srcH) const;
+
 private:
     // SVG-parse output is small (~hundreds of segments per file); a
     // mutex on read is fine.

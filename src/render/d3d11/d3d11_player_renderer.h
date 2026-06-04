@@ -55,6 +55,8 @@ public:
     void clearSourceAState() override;
     void clearSourceBState() override;
     void setSourceActivity(bool aActive, bool bActive) override;
+    void setPixelAspectA(int num, int den) override;
+    void setPixelAspectB(int num, int den) override;
     void setOcio(OCIOConfigManager *o) override;
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
@@ -151,6 +153,13 @@ private:
     std::atomic<float>         m_splitSeamHighlight {0.0f};
     std::atomic<float>         m_diffGain  {1.0f};
     std::atomic<bool>          m_loadingActive {false};
+    // Per-side pixel aspect (anamorphic un-squeeze). Widens the
+    // effective source width fed to the compositor + overlay fit;
+    // 1/1 (default) = square. GUI thread sets, render thread reads.
+    std::atomic<int>           m_parNumA {1};
+    std::atomic<int>           m_parDenA {1};
+    std::atomic<int>           m_parNumB {1};
+    std::atomic<int>           m_parDenB {1};
 
     // Draws the loading spinner over the swapchain when m_loadingActive
     // (render-thread side; gates on an elapsed delay so fast loads

@@ -167,6 +167,17 @@ public:
     // can ignore.
     virtual void setSourceActivity(bool /*aActive*/, bool /*bActive*/) {}
 
+    // Per-clip pixel-aspect (anamorphic un-squeeze) for each source.
+    // The ratio is applied display-only: the effective source width
+    // becomes round(width * num/den), widening the letterbox fit and
+    // every overlay rect (annotator, safety) so they track the
+    // corrected image. 1:1 (the default) = square pixels, identical
+    // to prior behavior. WindowManager pushes these on clip load and
+    // on live Inspector edits. Default no-op so stub / not-yet-wired
+    // platforms still link.
+    virtual void setPixelAspectA(int /*num*/, int /*den*/) {}
+    virtual void setPixelAspectB(int /*num*/, int /*den*/) {}
+
     // Phase 7.7 — top-level flow selector. Default SingleFlow keeps
     // existing behavior unchanged; DualFlow routes drawFrame to the
     // dual-island compositor. Default no-op for stub renderers.

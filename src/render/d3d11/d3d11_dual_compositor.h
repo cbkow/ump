@@ -69,6 +69,11 @@ public:
     // Difference-mode amplification (1.0 = raw abs(A-B)). Ignored unless
     // mode == Difference.
     void setDiffGain(float g);
+    // Per-side pixel aspect (anamorphic un-squeeze). Widens the
+    // effective srcSize fed to the shader so each side's aspect-fit
+    // lands on the corrected display aspect. 1/1 (default) = square.
+    void setPixelAspectA(int num, int den);
+    void setPixelAspectB(int num, int den);
 
     // Pull both sides' frames at the current master frame, drop
     // cache on seek/gen/past-end, UpdateSubresource into per-slot

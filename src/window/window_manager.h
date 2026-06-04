@@ -1122,6 +1122,11 @@ private:
     // includes all strokes drawn in this burst.
     QTimer                              *m_annotatedSaveTimer = nullptr;
     QString                              m_pendingAnnotatedTimecode;
+    // The clean frame from the most recent clean-thumbnail capture, kept in
+    // memory so the annotated recomposite (fired ~400 ms later) can proceed
+    // even before the async clean-PNG write hits disk. Keyed by timecode.
+    QImage                               m_lastCleanThumbImage;
+    QString                              m_lastCleanThumbTc;
     QList<AnnotationUndoEntry>           m_annotationUndoStack;
     QList<AnnotationUndoEntry>           m_annotationRedoStack;
     bool                                 m_notesPanelVisible = false;
@@ -1205,6 +1210,22 @@ private:
     // Centralizes the "is this an undecodable raw?" check so both the
     // load-failure path and the async-metadata reconciliation agree.
     void evaluateViewportNoticeFor(const QString &mediaId);
+
+    // Push the per-clip effective pixel aspect (anamorphic un-squeeze)
+    // to the renderer for both sides — A from the active/scope clip,
+    // B from the dual B source. Resolves the effective ratio from each
+    // MediaItem's pixelAspectMode (Square → 1:1, Detected → probed
+    // SAR, Custom → custom rational). Cheap (two atomic stores) so it
+    // rides activeItemIdChanged / bSourceChanged, which fire on load,
+    // clip switch, async-metadata-ready, and Inspector edits alike.
+    void applyPixelAspectToRenderer();
+
+    // Regenerate every loaded note's `_annotated` display thumbnail for the
+    // active clip by recompositing from each note's durable square clean PNG
+    // at the clip's current pixel aspect (annotation_thumbnail). Runs the
+    // image work on a worker thread. Called when the clip's PAR changes and
+    // on note load (so old / pre-PAR projects self-heal). No-op if no notes.
+    void regenerateNoteThumbnailsForActiveClip();
 
     // Apply each dual image-sequence side's stored per-item cache
     // stride to its DualImageSeqSource. Called on dual entry so dual

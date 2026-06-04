@@ -40,12 +40,24 @@
 #include <QtLogging>
 
 #include <chrono>
+#include <cmath>
+#include <utility>
 
 namespace qcv {
 
 using Microsoft::WRL::ComPtr;
 
 namespace {
+
+// Pixel-aspect-corrected width for a hover/corner thumbnail. renderCornerOverlay
+// derives both the corner-box aspect and the fit-shader srcSize from srcW, so
+// scaling it by the clip's pixel aspect un-squeezes the preview to match the
+// main image. 1:1 (or invalid) → unchanged.
+inline int parThumbW(int w, int num, int den)
+{
+    if (w <= 0 || num <= 0 || den <= 0 || num == den) return w;
+    return static_cast<int>(std::lround(double(w) * num / den));
+}
 
 // Pre-content clear color — matches Theme.bg (#161616 = 22/255) so
 // the brief flash before the first frame renders blends with the UI
@@ -991,6 +1003,24 @@ void D3D11PlayerRenderer::drawFrame()
     const int  W = m_impl->currentW;
     const int  H = m_impl->currentH;
 
+    // Pixel-aspect un-squeeze for source A. The compositor's renderSingle
+    // and the overlay (annotator + safety) fit derive the source aspect
+    // from these effective dims; D3D11Compositor normalizes its sample by
+    // srcSize so feeding widened dims stretches the real texture (no
+    // shader change). 1/1 (the default) leaves dims untouched. Widen the
+    // larger-pixel axis up to preserve resolution.
+    auto d3dEffDim = [](int w, int h, int num, int den) -> std::pair<int, int> {
+        if (w <= 0 || h <= 0 || num <= 0 || den <= 0 || num == den)
+            return { w, h };
+        if (num > den)
+            return { static_cast<int>(std::lround(double(w) * num / den)), h };
+        return { w, static_cast<int>(std::lround(double(h) * den / num)) };
+    };
+    const auto [effAW, effAH] = d3dEffDim(
+        m_impl->videoA.width, m_impl->videoA.height,
+        m_parNumA.load(std::memory_order_relaxed),
+        m_parDenA.load(std::memory_order_relaxed));
+
     if (useOcio) {
         // Lazy (re)create the RGBA16F intermediate at swapchain size.
         if (!m_impl->compositeTex ||
@@ -1044,7 +1074,8 @@ void D3D11PlayerRenderer::drawFrame()
             if (t && t->srv) {
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    t->width, t->height,
+                    parThumbW(t->width, m_parNumA.load(), m_parDenA.load()),
+                    t->height,
                     dstW, dstH,
                     /*corner=*/0, /*overlayFrac=*/0.18f, /*marginPx=*/12.0f);
             }
@@ -1055,7 +1086,8 @@ void D3D11PlayerRenderer::drawFrame()
             if (t && t->srv) {
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    t->width, t->height,
+                    parThumbW(t->width, m_parNumB.load(), m_parDenB.load()),
+                    t->height,
                     dstW, dstH,
                     /*corner=*/1, 0.18f, 12.0f);
             }
@@ -1076,7 +1108,7 @@ void D3D11PlayerRenderer::drawFrame()
             ctx,
             m_impl->videoA.srv.Get(),
             W, H,
-            m_impl->videoA.width, m_impl->videoA.height,
+            effAW, effAH,
             m_bgMode.load());
 
         // Thumbs into intermediate so OCIO processes them too.
@@ -1102,7 +1134,7 @@ void D3D11PlayerRenderer::drawFrame()
             ctx,
             m_impl->videoA.srv.Get(),
             W, H,
-            m_impl->videoA.width, m_impl->videoA.height,
+            effAW, effAH,
             m_bgMode.load());
 
         // No OCIO either way — thumbs into swapchain at the same
@@ -1129,8 +1161,10 @@ void D3D11PlayerRenderer::drawFrame()
         const float dstWf = static_cast<float>(W);
         const float dstHf = static_cast<float>(H);
         float fitW = dstWf, fitH = dstHf;
-        const int srcW = m_impl->videoA.width;
-        const int srcH = m_impl->videoA.height;
+        // Pixel-aspect-corrected dims so strokes + safety guides frame
+        // the un-squeezed image (matches the compositor's effective fit).
+        const int srcW = effAW;
+        const int srcH = effAH;
         if (m_impl->videoA.srv && srcW > 0 && srcH > 0) {
             const float srcAspect = static_cast<float>(srcW) / srcH;
             const float dstAspect = dstWf / dstHf;
@@ -1197,13 +1231,15 @@ void D3D11PlayerRenderer::drawFrame()
         // per the Phase F rule; we can unify post-Phase F if needed.
         if (m_safety && m_safety->isLoaded()) {
             const bool haveSource = m_impl->videoA.srv && srcW > 0 && srcH > 0;
-            const QPointF origin = haveSource
-                                   ? QPointF(fitX, fitY)
-                                   : QPointF(0, 0);
-            const QSizeF  size   = haveSource
-                                   ? QSizeF(fitW, fitH)
-                                   : QSizeF(dstWf, dstHf);
-            TessellatedMesh mesh = m_safety->mesh(origin, size);
+            // fitW/fitH is the displayed (pixel-aspect-corrected) image
+            // rect; the RAW square dims drive meshForImage's source fit
+            // so the guide stretches with the picture under un-squeeze.
+            TessellatedMesh mesh = haveSource
+                ? m_safety->meshForImage(QPointF(fitX, fitY),
+                                         QSizeF(fitW, fitH),
+                                         double(m_impl->videoA.width),
+                                         double(m_impl->videoA.height))
+                : m_safety->mesh(QPointF(0, 0), QSizeF(dstWf, dstHf));
             if (!mesh.vertices.empty()) {
                 m_impl->annotations.drawMesh(ctx, mesh, W, H);
             }
@@ -1366,7 +1402,8 @@ void D3D11PlayerRenderer::drawDualFrame()
             if (t && t->srv) {
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    t->width, t->height,
+                    parThumbW(t->width, m_parNumA.load(), m_parDenA.load()),
+                    t->height,
                     canvasW, canvasH,
                     /*corner=*/0, /*overlayFrac=*/0.18f, /*marginPx=*/12.0f);
             }
@@ -1377,7 +1414,8 @@ void D3D11PlayerRenderer::drawDualFrame()
             if (t && t->srv) {
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    t->width, t->height,
+                    parThumbW(t->width, m_parNumB.load(), m_parDenB.load()),
+                    t->height,
                     canvasW, canvasH,
                     /*corner=*/1, 0.18f, 12.0f);
             }
@@ -1540,19 +1578,33 @@ void D3D11PlayerRenderer::drawDualFrame()
                 return QRectF(x + (w - fw) * 0.5f,
                               y + (h - fh) * 0.5f, fw, fh);
             };
-            auto drawSide = [&](const QRectF &r) {
+            // r is the side's displayed (pixel-aspect-corrected) rect;
+            // rawW/rawH are the side's square source dims — meshForImage
+            // stretches the guide with the picture under un-squeeze.
+            auto drawSide = [&](const QRectF &r, float rawW, float rawH) {
                 if (r.width() < 2.0 || r.height() < 2.0) return;
                 const TessellatedMesh m =
-                    m_safety->mesh(r.topLeft(), r.size());
+                    m_safety->meshForImage(r.topLeft(), r.size(),
+                                           rawW, rawH);
                 if (!m.vertices.empty()) {
                     m_impl->annotations.drawMesh(ctx, m, W, H);
                 }
             };
 
-            const float sAW = src ? static_cast<float>(src->sourceWidth('A'))  : 0.0f;
-            const float sAH = src ? static_cast<float>(src->sourceHeight('A')) : 0.0f;
-            const float sBW = src ? static_cast<float>(src->sourceWidth('B'))  : 0.0f;
-            const float sBH = src ? static_cast<float>(src->sourceHeight('B')) : 0.0f;
+            // Effective (pixel-aspect-corrected) per-side dims drive the
+            // FIT rect; the raw square dims drive meshForImage's source
+            // fit (matches the dual compositor's own effective fit).
+            auto effF = [](float w, float h, int n, int d) -> std::pair<float, float> {
+                if (w <= 0 || h <= 0 || n <= 0 || d <= 0 || n == d) return { w, h };
+                if (n > d) return { w * n / d, h };
+                return { w, h * float(d) / n };
+            };
+            const float rawAW = src ? static_cast<float>(src->sourceWidth('A'))  : 0.0f;
+            const float rawAH = src ? static_cast<float>(src->sourceHeight('A')) : 0.0f;
+            const float rawBW = src ? static_cast<float>(src->sourceWidth('B'))  : 0.0f;
+            const float rawBH = src ? static_cast<float>(src->sourceHeight('B')) : 0.0f;
+            const auto [sAW, sAH] = effF(rawAW, rawAH, m_parNumA.load(), m_parDenA.load());
+            const auto [sBW, sBH] = effF(rawBW, rawBH, m_parNumB.load(), m_parDenB.load());
 
             // The canvas (where the compositor draws) is the fitW x fitH
             // rect inside the swapchain RTV; safety must fit inside THAT,
@@ -1561,14 +1613,14 @@ void D3D11PlayerRenderer::drawDualFrame()
             if (compMode == static_cast<int>(CompositorMode::SideBySide)) {
                 const float halfW = fitW * 0.5f;
                 if (sAW > 0.0f)
-                    drawSide(fitInto(fitX, fitY, halfW, fitH, sAW, sAH));
+                    drawSide(fitInto(fitX, fitY, halfW, fitH, sAW, sAH), rawAW, rawAH);
                 if (sBW > 0.0f)
-                    drawSide(fitInto(fitX + halfW, fitY, halfW, fitH, sBW, sBH));
+                    drawSide(fitInto(fitX + halfW, fitY, halfW, fitH, sBW, sBH), rawBW, rawBH);
             } else {
                 // Wipe / Single-in-dual: A only at full canvas (matches
                 // macOS v1 behavior at metal_player_renderer.mm:928-930).
                 if (sAW > 0.0f)
-                    drawSide(fitInto(fitX, fitY, fitW, fitH, sAW, sAH));
+                    drawSide(fitInto(fitX, fitY, fitW, fitH, sAW, sAH), rawAW, rawAH);
             }
         }
     }
@@ -1903,6 +1955,16 @@ void D3D11PlayerRenderer::clearSourceAState()
 void D3D11PlayerRenderer::clearSourceBState()             {}
 void D3D11PlayerRenderer::setSourceActivity(bool a, bool b) {
     m_aActive.store(a); m_bActive.store(b);
+}
+void D3D11PlayerRenderer::setPixelAspectA(int num, int den) {
+    m_parNumA.store(num > 0 ? num : 1); m_parDenA.store(den > 0 ? den : 1);
+    if (m_impl) m_impl->dualCompositor.setPixelAspectA(num, den);
+    requestUpdate();
+}
+void D3D11PlayerRenderer::setPixelAspectB(int num, int den) {
+    m_parNumB.store(num > 0 ? num : 1); m_parDenB.store(den > 0 ? den : 1);
+    if (m_impl) m_impl->dualCompositor.setPixelAspectB(num, den);
+    requestUpdate();
 }
 void D3D11PlayerRenderer::setOcio(OCIOConfigManager *o)   { m_ocio = o; requestUpdate(); }
 void D3D11PlayerRenderer::setCompositorMode(CompositorMode m) {
