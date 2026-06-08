@@ -48,6 +48,12 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.3
+
+- Moved screenshot exporting to its own thread.
+- Added options for screenshot exports in settings: PNG, TIFF, and JPEG
+- Added messaging on the bottom toolbar for screenshot progress
+
 What’s new in 2.1.1/2.10
 
 - Improved scrubbing for MP4s and other B-frame media
@@ -64,7 +70,6 @@ What’s new in 2.0.9
 - Added detection for ARRI RAW mxfs and a message to guide users to Resolve or other apps
 - Added video range overrides to the scrub decoders (single and dual media flows)
 - Added a dark background behind the MacOS icon for light-mode users.
-
 
 What’s new in 2.08
 
