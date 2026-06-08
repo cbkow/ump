@@ -74,6 +74,15 @@ class WindowManager : public QObject
                READ timelineHoverThumbsEnabled
                WRITE setTimelineHoverThumbsEnabled
                NOTIFY timelineHoverThumbsEnabledChanged)
+    // Output format for the "save screenshot to Desktop" export —
+    // "png" | "jpeg" | "tiff". User-facing export ONLY: note
+    // thumbnails and annotation baselines stay PNG (lossless,
+    // filename-convention-bound, re-composited on edit). Persisted
+    // to QSettings under export/screenshotFormat.
+    Q_PROPERTY(QString screenshotFormat
+               READ screenshotFormat
+               WRITE setScreenshotFormat
+               NOTIFY screenshotFormatChanged)
     // Global A/V-sync compensation, milliseconds. Positive = audio
     // DELAYED (plays later) — compensates for video pipeline +
     // display lag, the most common case. Persisted to QSettings;
@@ -459,6 +468,11 @@ public:
     // every throttled hover request.
     bool timelineHoverThumbsEnabled() const;
     void setTimelineHoverThumbsEnabled(bool on);
+
+    // Screenshot export format (see Q_PROPERTY above). Lower-case
+    // token: "png" | "jpeg" | "tiff". Read live by screenshotToFile().
+    QString screenshotFormat() const;
+    void setScreenshotFormat(const QString &fmt);
 
     // A/V sync compensation for SINGLE-flow audio. Persisted under
     // audio/syncOffsetMs in QSettings; first launch seeds with
@@ -868,6 +882,14 @@ signals:
     void backgroundModeChanged();
     void loopEnabledChanged();
     void timelineHoverThumbsEnabledChanged();
+    void screenshotFormatChanged();
+    // User-facing export feedback, surfaced by the StatusStrip.
+    // exportStarted fires when an async export (screenshot save) is
+    // dispatched to a worker; exportFinished fires from the GUI
+    // thread once it completes. message is a short human string;
+    // ok == false on failure. General enough for future exports.
+    void exportStarted(const QString &label);
+    void exportFinished(bool ok, const QString &message);
     void audioSyncOffsetMsChanged();
     void dualAudioSyncOffsetMsChanged();
     // Fires when audioRoutingScopeMediaItemId() may return a

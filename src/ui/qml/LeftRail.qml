@@ -1499,6 +1499,9 @@ Rectangle {
                     readonly property bool kHwDecodeEnabledDefault: true
                     readonly property bool kHwScrubInterDefault:  false
                     readonly property int  kScrubCacheMBDefault:    512
+                    // Screenshot export format tokens, dropdown-aligned.
+                    readonly property var    kScreenshotFormats: ["png", "jpeg", "tiff"]
+                    readonly property string kScreenshotFormatDefault: "png"
 
                     Settings {
                         id: perfSettings
@@ -1835,6 +1838,41 @@ Rectangle {
                                             settingsSection.kHoverThumbsDefault;
                                     }
                                 }
+                            }
+                        }
+
+                        // Screenshot export format. Affects the
+                        // "save screenshot to Desktop" export only;
+                        // note thumbnails stay PNG.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel { text: qsTr("Screenshot format") }
+                                FlatComboBox {
+                                    id: screenshotFormatPicker
+                                    Layout.preferredWidth: 110
+                                    Layout.rightMargin: Theme.padding
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    model: ["PNG", "JPEG", "TIFF"]
+                                    currentIndex: Math.max(0,
+                                        settingsSection.kScreenshotFormats.indexOf(
+                                            WindowManager.screenshotFormat))
+                                    onActivated: WindowManager.screenshotFormat =
+                                        settingsSection.kScreenshotFormats[currentIndex]
+                                }
+                                RevertBtn {
+                                    onClicked: WindowManager.screenshotFormat =
+                                        settingsSection.kScreenshotFormatDefault
+                                }
+                            }
+                            HelpText {
+                                text: qsTr("Format for screenshots saved to the "
+                                    + "Desktop. JPEG is smaller and lossy; PNG "
+                                    + "and TIFF are lossless. Notes always use PNG.")
                             }
                         }
 

@@ -52,6 +52,7 @@
 #include <QProcess>
 #include <QGuiApplication>
 #include <QImage>
+#include <QImageWriter>
 #include <QPainter>
 #include <QFont>
 #include <QColor>
@@ -4843,6 +4844,8 @@ bool WindowManager::screenshotToClipboard()
     QGuiApplication::clipboard()->setImage(img);
     qInfo("WindowManager: screenshot %dx%d copied to clipboard",
           img.width(), img.height());
+    // Instant (in-memory) — no worker needed; just flash the result.
+    emit exportFinished(true, tr("Screenshot copied to clipboard"));
     return true;
 #else
     return false;
@@ -4865,16 +4868,66 @@ bool WindowManager::screenshotToFile()
         qWarning("WindowManager: no DesktopLocation");
         return false;
     }
+    // Resolve the user-chosen export format. This affects ONLY this
+    // desktop export — note thumbnails / annotation baselines stay
+    // PNG. JPEG is lossy + alpha-less (fine: captures clear opaque)
+    // and takes a quality; PNG/TIFF are lossless. The Qt token below
+    // is the writer format ("JPEG"/"PNG"/"TIFF"); the file extension
+    // and probe key are lower-case.
+    QString token = screenshotFormat();            // "png"|"jpeg"|"tiff"
+    QByteArray qtFormat = token.toUpper().toLatin1();
+    QString ext = (token == QLatin1String("jpeg"))
+                      ? QStringLiteral("jpg") : token;
+    int quality = (token == QLatin1String("jpeg")) ? 95 : -1;
+
+    // Runtime guard: the JPEG/TIFF writers live in Qt image-format
+    // plugins that must be present in the deployed bundle. If the
+    // chosen format isn't writable on this build, fall back to PNG
+    // (always built into QtGui) so we never emit a silent empty file.
+    if (!QImageWriter::supportedImageFormats().contains(token.toLatin1())) {
+        qWarning("WindowManager: '%s' writer unavailable — falling back "
+                 "to PNG (is the Qt Image Formats plugin bundled?)",
+                 qPrintable(token));
+        token = QStringLiteral("png");
+        qtFormat = "PNG";
+        ext = QStringLiteral("png");
+        quality = -1;
+    }
+
     const QString stamp = QDateTime::currentDateTime().toString(
         QStringLiteral("yyyy-MM-dd_HH-mm-ss"));
-    const QString path = QStringLiteral("%1/qcview-screenshot-%2.png")
-        .arg(desktop, stamp);
-    if (!img.save(path, "PNG")) {
-        qWarning("WindowManager: screenshot save failed: %s",
-                 qPrintable(path));
-        return false;
-    }
-    qInfo("WindowManager: screenshot saved to %s", qPrintable(path));
+    const QString fileName =
+        QStringLiteral("qcview-screenshot-%1.%2").arg(stamp, ext);
+    const QString path =
+        desktop + QLatin1Char('/') + fileName;
+
+    // Offload the encode + disk write to a worker thread so the GUI
+    // never stalls on the (~100 ms HD) encode — same pattern as the
+    // note thumbnails. The capture above already deep-copied the
+    // frame, so `img` is safe to hand to the worker by value (QImage
+    // is copy-on-write). exportStarted/Finished drive the StatusStrip
+    // chip; Finished is marshalled back to the GUI thread.
+    emit exportStarted(tr("Saving screenshot…"));
+    const QString fmtName = QString::fromLatin1(qtFormat);   // "PNG"|"JPEG"|"TIFF"
+    (void)QtConcurrent::run(
+        [this, img, path, fmtName, qtFormat, quality]() {
+            const bool ok = img.save(path, qtFormat.constData(), quality);
+            if (ok)
+                qInfo("WindowManager: screenshot saved to %s",
+                      qPrintable(path));
+            else
+                qWarning("WindowManager: screenshot save failed: %s",
+                         qPrintable(path));
+            // Keep the toast SHORT — no filename — so it can't overflow
+            // the StatusStrip row and eat the right margin. The format
+            // confirms TIFF/JPEG actually took (vs the PNG fallback).
+            QMetaObject::invokeMethod(this, [this, ok, fmtName]() {
+                emit exportFinished(
+                    ok,
+                    ok ? tr("Screenshot saved (%1)").arg(fmtName)
+                       : tr("Screenshot export failed"));
+            }, Qt::QueuedConnection);
+        });
     return true;
 #else
     return false;
@@ -6800,6 +6853,31 @@ void WindowManager::setTimelineHoverThumbsEnabled(bool on)
     s.setValue(QStringLiteral("ui/timelineHoverThumbs"), on);
     if (!on) clearHoverThumbnail();
     emit timelineHoverThumbsEnabledChanged();
+}
+
+QString WindowManager::screenshotFormat() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("export/screenshotFormat"),
+                   QStringLiteral("png")).toString();
+}
+
+void WindowManager::setScreenshotFormat(const QString &fmt)
+{
+    // Normalize to a known lower-case token; ignore anything else so
+    // a stray value can never reach QImageWriter.
+    const QString f = fmt.trimmed().toLower();
+    if (f != QLatin1String("png") && f != QLatin1String("jpeg")
+        && f != QLatin1String("tiff")) {
+        return;
+    }
+    QSettings s;
+    const QString prev =
+        s.value(QStringLiteral("export/screenshotFormat"),
+                QStringLiteral("png")).toString();
+    if (prev == f) return;
+    s.setValue(QStringLiteral("export/screenshotFormat"), f);
+    emit screenshotFormatChanged();
 }
 
 int WindowManager::audioSyncOffsetMsDefault() const

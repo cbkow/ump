@@ -225,5 +225,85 @@ Pane {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.fontSizeTiny
         }
+
+        // ---- Transient export status (right-aligned chip) -----
+        // Driven by WindowManager.exportStarted / exportFinished.
+        // Shows a spinner while a screenshot save is in flight, then
+        // a colored result that auto-clears. It lives here rather than
+        // over the viewport because on macOS the native Metal surface
+        // covers the viewport — StatusStrip chrome is always visible.
+        RowLayout {
+            id: exportChip
+            visible: false
+            spacing: Theme.spacing
+            // Right margin so the result text clears the rounded
+            // bottom-right window corner (macOS Tahoe curvature).
+            Layout.rightMargin: Theme.gutterWidth
+            property bool busy: false
+
+            // Tiny self-contained spinner — the stock BusyIndicator
+            // doesn't render at this size under the app's QQC2 style,
+            // so draw a rotating arc directly. Only animates/paints
+            // while an export is in flight.
+            Item {
+                Layout.preferredWidth: 12
+                Layout.preferredHeight: 12
+                visible: exportChip.busy
+                Canvas {
+                    id: spinnerCanvas
+                    anchors.fill: parent
+                    property real phase: 0
+                    onPaint: {
+                        const ctx = getContext("2d");
+                        ctx.reset();
+                        const cx = width / 2, cy = height / 2;
+                        const r  = width / 2 - 1.5;
+                        ctx.lineWidth   = 1.5;
+                        ctx.lineCap     = "round";
+                        ctx.strokeStyle = Theme.accent;
+                        ctx.beginPath();
+                        ctx.arc(cx, cy, r, phase, phase + Math.PI * 1.4);
+                        ctx.stroke();
+                    }
+                    onPhaseChanged: requestPaint()
+                    NumberAnimation on phase {
+                        running: exportChip.busy
+                        loops: Animation.Infinite
+                        from: 0
+                        to: 2 * Math.PI
+                        duration: 750
+                    }
+                }
+            }
+            Text {
+                id: exportStatusText
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeTiny
+                font.bold: true
+                color: Theme.textSecondary
+            }
+        }
+        Connections {
+            target: WindowManager
+            function onExportStarted(label) {
+                exportStatusText.text  = label;
+                exportStatusText.color = Theme.textSecondary;
+                exportChip.busy        = true;
+                exportChip.visible     = true;
+                exportHideTimer.stop();
+            }
+            function onExportFinished(ok, message) {
+                exportStatusText.text  = message;
+                exportStatusText.color = ok ? Theme.success : Theme.error;
+                exportChip.busy        = false;
+                exportChip.visible     = true;
+                exportHideTimer.restart();
+            }
+        }
+        Timer {
+            id: exportHideTimer
+            interval: 3500
+            onTriggered: exportChip.visible = false
+        }
     }
 }
