@@ -1784,7 +1784,7 @@ Rectangle {
                                                   settingsSection.kScrubCacheMBDefault
                                 }
                             }
-                            HelpText { text: qsTr("Decoded frames kept near the playhead for instant backward scrub. Higher = smoother, more RAM/VRAM. Applies on next file load.") }
+                            HelpText { text: qsTr("Decoded frames kept near the playhead for instant backward scrub. Higher = smoother, more RAM/VRAM. Per decoder — dual uses 2x. Applies on next file load.") }
                         }
 
                         // Experimental: hardware scrub for h264/h265.
