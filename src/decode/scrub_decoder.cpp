@@ -1,4 +1,5 @@
 #include "scrub_decoder.h"
+#include "decode/sws_rgba_image.h"
 #include "decoder_cleanup_queue.h"
 #include "video_decoder.h"
 
@@ -609,13 +610,12 @@ void ScrubDecoder::publishEntry(const std::shared_ptr<ScrubCacheEntry> &entry)
     }
 
     // Yuv — swscale to RGBA on demand (the convert we deferred at cache
-    // fill). One frame's worth, only when actually shown.
+    // fill). One frame's worth, only when actually shown. Padded-destination
+    // helper — a bare QImage overflows on odd widths (see sws_rgba_image.h).
     AVFrame *yf = entry->yuvFrame();
     if (!yf || !initSwsContext(yf)) return;
-    QImage rgba(yf->width, yf->height, QImage::Format_RGBA8888);
-    uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-    int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()), 0, 0, 0 };
-    sws_scale(m_sws, yf->data, yf->linesize, 0, yf->height, dst, dstStride);
+    QImage rgba = swsFrameToRgbaImage(m_sws, yf);
+    if (rgba.isNull()) return;
     m_streaming->publishExternalFrame(
         FrameHandle::cpu(std::move(rgba), entry->pts()), entry->pts());
 }

@@ -21,6 +21,7 @@
 #include "dual_video_decoder.h"
 #include "dual_scrub_cache.h"       // DualScrubEntry
 #include "decode/simple_lru.h"      // SimpleLRU
+#include "decode/sws_rgba_image.h"  // swsFrameToRgbaImage
 
 #include <QFileInfo>
 #include <QImage>
@@ -511,10 +512,10 @@ void MacDualScrubDecoder::publishEntry(const std::shared_ptr<DualScrubEntry> &en
 
     AVFrame *yf = entry->yuv.get();
     if (!yf || !initSwsContext(yf)) return;
-    QImage rgba(yf->width, yf->height, QImage::Format_RGBA8888);
-    uint8_t *dst[4] = { rgba.bits(), nullptr, nullptr, nullptr };
-    int dstStride[4] = { static_cast<int>(rgba.bytesPerLine()), 0, 0, 0 };
-    sws_scale(m_sws, yf->data, yf->linesize, 0, yf->height, dst, dstStride);
+    // Padded-destination helper — a bare QImage overflows on odd widths
+    // (see decode/sws_rgba_image.h).
+    QImage rgba = swsFrameToRgbaImage(m_sws, yf);
+    if (rgba.isNull()) return;
     m_streaming->publishExternalFrame(
         entry->frameNumber, makeCpuFrame(std::move(rgba), entry->frameNumber));
 }
