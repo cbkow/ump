@@ -64,6 +64,9 @@ QtObject {
     readonly property color warn:           "#f5a623"
     readonly property color error:          "#c04040"
     readonly property color info:           "#9cc9ff"
+    // Annotation note pins on the timeline — a violet that stays clear of
+    // the green in-point, amber out-point, and blue accent already on the track.
+    readonly property color noteMarker:     "#b48ef0"
 
     // --- Fonts ---
     // Family names resolved by main.cpp at startup and exposed

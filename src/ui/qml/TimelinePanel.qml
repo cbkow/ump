@@ -2035,6 +2035,106 @@ Pane {
                 }
             }
 
+            // Annotation note pins — a small pennant on the bottom rail at
+            // each note's frame. Mirrors inOutMarkers' coordinate handling:
+            // children live in absolute content-space and the parent's
+            // x:-scrollX shifts them into the viewport. WindowManager.notesList
+            // is empty unless the active media is a single video / image
+            // sequence (annotations are off in dual + playlist), so nothing
+            // renders in those modes.
+            Item {
+                id: noteMarkers
+                visible: !(WindowManager.timeline
+                           && WindowManager.timeline.sourceMode === 1)
+                x: -root.scrollX
+                y: 0
+                width: Math.max(parent.width, duration * pps)
+                height: parent.height
+                z: 2   // above clips/cache/in-out (z:1), below playhead (z:10)
+
+                Repeater {
+                    model: WindowManager.notesList
+                    delegate: Item {
+                        id: noteMarker
+                        required property var modelData
+                        readonly property real noteX:
+                            timeToX(modelData.timestampSeconds)
+                        readonly property bool addressed:
+                            modelData.addressed === true
+
+                        x: noteX
+                        y: 0
+                        width: 1
+                        height: parent.height
+
+                        // Faint stem so the pin reads as anchored to a frame.
+                        Rectangle {
+                            x: 0
+                            width: 1
+                            height: 7
+                            anchors.bottom: parent.bottom
+                            color: Theme.noteMarker
+                            opacity: noteMarker.addressed ? 0.25 : 0.55
+                        }
+
+                        // Pennant flag. Solid violet for open notes; hollow
+                        // grey for addressed ones (dim = already reviewed).
+                        Canvas {
+                            id: noteFlag
+                            x: -4
+                            width: 9; height: 8
+                            anchors.bottom: parent.bottom
+                            onPaint: {
+                                const ctx = getContext("2d");
+                                ctx.reset();
+                                ctx.beginPath();
+                                ctx.moveTo(0, 8);
+                                ctx.lineTo(9, 8);
+                                ctx.lineTo(4.5, 0);
+                                ctx.closePath();
+                                if (noteMarker.addressed) {
+                                    ctx.strokeStyle = Theme.textMuted;
+                                    ctx.lineWidth = 1;
+                                    ctx.stroke();
+                                } else {
+                                    ctx.fillStyle = Theme.noteMarker;
+                                    ctx.fill();
+                                }
+                            }
+                            // Repaint if the addressed state flips in place.
+                            Connections {
+                                target: noteMarker
+                                function onAddressedChanged() {
+                                    noteFlag.requestPaint();
+                                }
+                            }
+                        }
+
+                        // Click/hover target — wider than the flag for easy
+                        // hits. Above scrubArea so a click seeks to the note
+                        // instead of scrubbing.
+                        MouseArea {
+                            id: noteMa
+                            x: -6
+                            width: 13
+                            height: 14
+                            anchors.bottom: parent.bottom
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: WindowManager.seekToAnnotationNote(
+                                           modelData.timecode)
+                            FlatToolTip {
+                                visible: noteMa.containsMouse
+                                text: modelData.timecode
+                                      + (modelData.text
+                                         && modelData.text.length > 0
+                                         ? "  —  " + modelData.text : "")
+                            }
+                        }
+                    }
+                }
+            }
+
             // Playhead — a vertical line tracking timer.position.
             // Drawn on top of the clip. While scrubArea is pressed,
             // the playhead follows the cursor directly: the frame
