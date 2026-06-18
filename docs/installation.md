@@ -48,6 +48,11 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.4
+
+- fixed an issue with odd-width videos with the software scrubbing path on Windows
+- added triangle markers on the timeline for notes
+
 What’s new in 2.1.3
 
 - Moved screenshot exporting to its own thread.
