@@ -1692,7 +1692,7 @@ Rectangle {
                                                   settingsSection.kImageSeqAheadDefault
                                 }
                             }
-                            HelpText { text: qsTr("Frames cached ahead of playhead. Lower = less RAM. Applies on next sequence load.") }
+                            HelpText { text: qsTr("Frames cached ahead of the playhead. Lower = less RAM.") }
                         }
 
                         // Video (FFmpeg) decode threads.
@@ -1727,7 +1727,7 @@ Rectangle {
                                                   settingsSection.kFFmpegThreadsDefault
                                 }
                             }
-                            HelpText { text: qsTr("0 = Auto (FFmpeg picks). Applies to single-video playback. Dual SBS and scrub stay on Auto so two concurrent decoders don't double-spend threads. Takes effect on next video load.") }
+                            HelpText { text: qsTr("0 = Auto. Single-video playback only; dual and scrub stay on Auto. Applies on next video load.") }
                         }
 
                         // Windows-only toggle (defaults ON). Turning
@@ -1758,7 +1758,7 @@ Rectangle {
                                     }
                                 }
                             }
-                            HelpText { text: qsTr("Use GPU hardware decode (Vulkan for ProRes, D3D11VA for everything else) when available. Turn off if playback misbehaves — forces software decode for every video path (single, dual, scrub, playlist). Slower but maximally compatible. Takes effect on next file load.") }
+                            HelpText { text: qsTr("GPU decode (Vulkan/D3D11VA) when available. Turn off if playback misbehaves — forces software decode everywhere. Applies on next file load.") }
                         }
 
                         // Scrub GOP-cache budget (MB per decoder).
@@ -1784,7 +1784,7 @@ Rectangle {
                                                   settingsSection.kScrubCacheMBDefault
                                 }
                             }
-                            HelpText { text: qsTr("Decoded frames kept around the playhead so backward scrub and revisits are instant. Per decoder — dual A/B uses 2x. Higher = smoother scrub, more RAM/VRAM. Applies on next file load.") }
+                            HelpText { text: qsTr("Decoded frames kept near the playhead for instant backward scrub. Higher = smoother, more RAM/VRAM. Applies on next file load.") }
                         }
 
                         // Experimental: hardware scrub for h264/h265.
@@ -1809,7 +1809,7 @@ Rectangle {
                                     }
                                 }
                             }
-                            HelpText { text: qsTr("Use GPU decode while scrubbing inter-frame video (h264/h265), not just all-intra codecs like ProRes. On macOS this keeps scrub zero-copy. Experimental — turn off if scrubbed frames look wrong at GOP boundaries. Takes effect on next file load.") }
+                            HelpText { text: qsTr("GPU decode while scrubbing h264/h265, not just all-intra (ProRes). Experimental — turn off if scrubbed frames look wrong. Applies on next file load.") }
                         }
 
                         GroupHeader { label: qsTr("Interface") }
@@ -1870,9 +1870,8 @@ Rectangle {
                                 }
                             }
                             HelpText {
-                                text: qsTr("Format for screenshots saved to the "
-                                    + "Desktop. JPEG is smaller and lossy; PNG "
-                                    + "and TIFF are lossless. Notes always use PNG.")
+                                text: qsTr("Format for Desktop screenshots. JPEG is "
+                                    + "lossy; PNG/TIFF lossless. Notes always use PNG.")
                             }
                         }
 
@@ -1903,10 +1902,9 @@ Rectangle {
                                 }
                             }
                             HelpText {
-                                text: qsTr("Checks qcview.app daily for a newer "
-                                    + "version. The check sends your IP and "
-                                    + "app/OS version — nothing else. You can "
-                                    + "always update manually from the About menu.")
+                                text: qsTr("Checks daily for updates, sending only your "
+                                    + "IP and app/OS version. Update manually anytime "
+                                    + "from the About menu.")
                             }
                         }
 
@@ -1978,10 +1976,8 @@ Rectangle {
                                 }
                             }
                             HelpText {
-                                text: qsTr("Positive values delay audio (plays later) — "
-                                         + "compensates for video pipeline + display "
-                                         + "lag. Tune by ear with a clapper or "
-                                         + "lip-sync test. Applies live; takes effect "
+                                text: qsTr("Positive values delay audio to offset "
+                                         + "pipeline/display lag. Tune by ear; applies "
                                          + "on the next seek or play.")
                             }
                         }
