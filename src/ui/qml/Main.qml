@@ -424,13 +424,27 @@ ApplicationWindow {
             title: qsTr("&View")
             Action {
                 text: qsTr("Minimal Mode")
-                shortcut: "Ctrl+-"
+                shortcut: "Ctrl+0"
                 onTriggered: root.viewMinimal()
             }
             Action {
                 text: qsTr("Show All Panels")
                 shortcut: "Ctrl+9"
                 onTriggered: root.viewAllPanels()
+            }
+            // Timeline step-zoom. Menu Actions (not standalone Shortcuts)
+            // so they fire regardless of whether the QML scene or the
+            // native player window holds focus — the overview zoom bar
+            // updates with each step. Cmd on macOS, Ctrl elsewhere.
+            Action {
+                text: qsTr("Zoom In Timeline")
+                shortcut: "Ctrl+="
+                onTriggered: timelinePanel.zoomStep(true)
+            }
+            Action {
+                text: qsTr("Zoom Out Timeline")
+                shortcut: "Ctrl+-"
+                onTriggered: timelinePanel.zoomStep(false)
             }
             Action {
                 // F (no modifier) is handled by WindowManager's C++
@@ -646,12 +660,16 @@ ApplicationWindow {
     }
 
     // Effective widths fed to the layout: clamped + collapsed.
+    // Collapsed rails close ALL the way (0 width) — the re-open
+    // affordance lives in the ViewportOverlay top bar, not a slim
+    // in-rail strip. The Behavior on Layout.preferredWidth animates
+    // the slide, so the rail visibly retracts to the edge.
     readonly property int effLeftRailWidth:
-        leftRailCollapsed ? kSlimWidth
+        leftRailCollapsed ? 0
                           : Math.max(kMinRailWidth,
                                      Math.min(kMaxRailWidth, leftRailWidth))
     readonly property int effRightRailWidth:
-        rightRailCollapsed ? kSlimWidth
+        rightRailCollapsed ? 0
                            : Math.max(kMinRailWidth,
                                       Math.min(kMaxRailWidth, rightRailWidth))
 
@@ -850,7 +868,6 @@ ApplicationWindow {
     // Menu items' `shortcut` properties handle the file/view
     // accelerators (Cmd+O, Cmd+S, Cmd+1..4, etc.). Standalone
     // Shortcut elements only remain for keys NOT in the menu.
-    Shortcut { sequence: "Ctrl+0"; context: Qt.ApplicationShortcut; onActivated: viewDefault() }
     Shortcut { sequence: "Ctrl+R"; context: Qt.ApplicationShortcut; onActivated: viewDefault() }
 
     // Auto-reveal of the left rail on EXR load was removed —
@@ -913,7 +930,7 @@ ApplicationWindow {
                     root.fxLeftRail ? root.effLeftRailWidth : 0
                 Layout.minimumWidth:
                     root.fxLeftRail
-                        ? (root.leftRailCollapsed ? root.kSlimWidth
+                        ? (root.leftRailCollapsed ? 0
                                                   : root.kMinRailWidth)
                         : 0
                 Layout.fillHeight: true
@@ -945,6 +962,13 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.preferredHeight: root.inFullscreen ? 0 : 36
                         visible: !root.inFullscreen
+                        // Rail open buttons live here (in the top bar)
+                        // when a rail is fully closed; the rail header
+                        // owns the close button while open.
+                        leftRailClosed:  root.leftRailCollapsed
+                        rightRailClosed: root.rightRailCollapsed
+                        onOpenLeftRail:  root.leftRailCollapsed  = false
+                        onOpenRightRail: root.rightRailCollapsed = false
                     }
 
                     // The player child window is reparented onto this
@@ -1148,7 +1172,7 @@ ApplicationWindow {
                     root.fxRightRail ? root.effRightRailWidth : 0
                 Layout.minimumWidth:
                     root.fxRightRail
-                        ? (root.rightRailCollapsed ? root.kSlimWidth
+                        ? (root.rightRailCollapsed ? 0
                                                    : root.kMinRailWidth)
                         : 0
                 Layout.fillHeight: true

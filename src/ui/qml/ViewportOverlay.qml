@@ -40,6 +40,16 @@ Pane {
     // QWindow region and get occluded).
     property bool saveMode: false
 
+    // Rail open buttons — shown in this bar's left/right gutters ONLY
+    // when the corresponding rail is fully closed (rails close to 0
+    // width; the rail header owns the close button while open). Main.qml
+    // binds the closed state and handles the open signals. Placing the
+    // open affordance here keeps it where the rail edge used to be.
+    property bool leftRailClosed:  false
+    property bool rightRailClosed: false
+    signal openLeftRail()
+    signal openRightRail()
+
     // Phase 3.H.4 — playlist mode hides everything except the A chip.
     // Side-by-side / Split-Wipe / Save Dual View / B-source aren't
     // meaningful for a sequential playlist.
@@ -102,8 +112,15 @@ Pane {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin:  Theme.gutterWidth
-        anchors.rightMargin: Theme.padding
+        // The open buttons sit in the gutterWidth gutters; when one is
+        // showing, add a little breathing room so its inner divider
+        // isn't flush against the neighbour (A chip / mode toggles).
+        anchors.leftMargin:  root.leftRailClosed
+            ? Theme.gutterWidth + Theme.spacing
+            : Theme.gutterWidth
+        anchors.rightMargin: root.rightRailClosed
+            ? Theme.gutterWidth + Theme.spacing
+            : Theme.padding
         // Toolstrip flow — chips and buttons butt up. Tiny gap so
         // filled buttons (danger / primary save form) don't visually
         // merge with their neighbors.
@@ -568,6 +585,88 @@ Pane {
             tooltipText: qsTr("Cancel")
             variant: "danger"
             onClicked: root.saveMode = false
+        }
+    }
+
+    // ---- Rail open buttons, in the bar's gutters ----------------------
+    // Visible only when the matching rail is closed. The arrow points
+    // in the direction the rail expands (left rail opens rightward, right
+    // rail opens leftward) — single arrows, mirroring the rail header's
+    // close arrows. They sit exactly where the rail edge was, so opening
+    // reads as the rail sliding back into the same position.
+    // Rail open buttons sit in the bar's gutters; the divider on the
+    // inner edge matches the border the rail used to show against the
+    // viewport.
+    Item {
+        visible: root.leftRailClosed
+        z: 5
+        anchors.left:   parent.left
+        anchors.top:    parent.top
+        anchors.bottom: parent.bottom
+        width: Theme.gutterWidth
+        Rectangle {
+            anchors.fill: parent
+            color: leftOpenMa.containsMouse ? Theme.surfaceHover : "transparent"
+        }
+        Rectangle {
+            anchors.right:  parent.right
+            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
+            width: Theme.dividerWidth
+            color: Theme.divider
+        }
+        Icon {
+            anchors.centerIn: parent
+            name: "arrow-right"
+            size: Theme.iconSizeSmall
+            color: leftOpenMa.containsMouse ? Theme.textPrimary : Theme.textSecondary
+        }
+        MouseArea {
+            id: leftOpenMa
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            hoverEnabled: true
+            onClicked: root.openLeftRail()
+            FlatToolTip {
+                visible: leftOpenMa.containsMouse
+                text: qsTr("Show project panel")
+            }
+        }
+    }
+    Item {
+        visible: root.rightRailClosed
+        z: 5
+        anchors.right:  parent.right
+        anchors.top:    parent.top
+        anchors.bottom: parent.bottom
+        width: Theme.gutterWidth
+        Rectangle {
+            anchors.fill: parent
+            color: rightOpenMa.containsMouse ? Theme.surfaceHover : "transparent"
+        }
+        Rectangle {
+            anchors.left:   parent.left
+            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
+            width: Theme.dividerWidth
+            color: Theme.divider
+        }
+        Icon {
+            anchors.centerIn: parent
+            name: "arrow-left"
+            size: Theme.iconSizeSmall
+            color: rightOpenMa.containsMouse ? Theme.textPrimary : Theme.textSecondary
+        }
+        MouseArea {
+            id: rightOpenMa
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            hoverEnabled: true
+            onClicked: root.openRightRail()
+            FlatToolTip {
+                visible: rightOpenMa.containsMouse
+                text: qsTr("Show inspector panel")
+            }
         }
     }
 

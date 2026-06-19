@@ -121,6 +121,18 @@ Pane {
                               cursorTime * newPps - viewportX));
     }
 
+    // Stepped zoom for the keyboard shortcuts (Cmd/Ctrl +/-). Reuses
+    // applyWheel so the overview "zoom bar" + scroll update exactly the
+    // way a wheel zoom does. Centers on the playhead when it's in view,
+    // otherwise on the viewport center.
+    function zoomStep(zoomIn) {
+        if (!loaded || duration <= 0 || trackWidth <= 0) return;
+        const kStep = 120;   // ~one wheel notch
+        let cx = timeToX(position) - scrollX;
+        if (cx < 0 || cx > trackWidth) cx = trackWidth / 2;
+        applyWheel(cx, zoomIn ? kStep : -kStep, false);
+    }
+
     // Two-track view. Reactive on timelineChanged via the
     // controller's QVariantMap properties. Single-source case
     // collapses to track A only — trackB is empty + hidden.
