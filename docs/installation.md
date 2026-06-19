@@ -48,6 +48,12 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.5
+- tighted up the UI in the timeline, tracks and other elements are less tall
+- sidebar rails now fully close
+- there is a new setting to always load the app in minimal mode
+- a new tooltip and modal system is added, and more tooltips are included
+
 What’s new in 2.1.4
 
 - fixed an issue with odd-width videos with the software scrubbing path on Windows
