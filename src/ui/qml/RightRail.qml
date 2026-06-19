@@ -100,6 +100,11 @@ Pane {
                 // to the right gutter.
                 Item { visible: root.collapsed; Layout.fillWidth: true }
                 Item {
+                    // Shown only while open — the re-open affordance is
+                    // in the ViewportOverlay top bar when closed. Hiding
+                    // it on collapse stops the arrow flashing through the
+                    // gutter width during the close animation.
+                    visible: !root.collapsed
                     Layout.preferredWidth: Theme.gutterWidth
                     Layout.fillHeight: true
                     // No idle background — the chevron icon alone
@@ -217,8 +222,8 @@ Pane {
                         {
                             heading: "View",
                             items: [
-                                { label: "Minimal Mode",        keysWin: "Ctrl+−",       keysMac: "⌘−"     },
-                                { label: "Default View",        keysWin: "Ctrl+0, Ctrl+R", keysMac: "⌘0, ⌘R" },
+                                { label: "Minimal Mode",        keysWin: "Ctrl+0",       keysMac: "⌘0"     },
+                                { label: "Default View",        keysWin: "Ctrl+R",       keysMac: "⌘R"     },
                                 { label: "Show All Panels",     keysWin: "Ctrl+9",       keysMac: "⌘9"     },
                                 { label: "Left Rail",           keysWin: "Ctrl+1",       keysMac: "⌘1"     },
                                 { label: "Right Rail",          keysWin: "Ctrl+2",       keysMac: "⌘2"     },
@@ -285,6 +290,8 @@ Pane {
                         {
                             heading: "Timeline (zoom + pan)",
                             items: [
+                                { label: "Zoom In",                  keysWin: "Ctrl+=", keysMac: "⌘=" },
+                                { label: "Zoom Out",                 keysWin: "Ctrl+−", keysMac: "⌘−" },
                                 { label: "Zoom (cursor anchored)",   keys: "Scroll" },
                                 { label: "Pan horizontally",         keysWin: "Alt+Scroll", keysMac: "⌥Scroll" },
                                 { label: "Drag viewport (overview)", keys: "Drag middle" },

@@ -45,8 +45,19 @@ void setAutomaticUpdateChecks(bool enabled)
 
 bool automaticUpdateChecks()
 {
-    if (!g_updaterController) return false;
-    return g_updaterController.updater.automaticallyChecksForUpdates;
+    if (g_updaterController)
+        return g_updaterController.updater.automaticallyChecksForUpdates;
+    // The controller starts AFTER QML loads (main.cpp), so the settings
+    // switch can bind before it exists. Returning false here made the
+    // toggle read OFF on every launch even though the choice persisted —
+    // read the persisted value directly (Sparkle stores it under
+    // SUEnableAutomaticChecks), falling back to the Info.plist default.
+    NSUserDefaults *def = [NSUserDefaults standardUserDefaults];
+    id stored = [def objectForKey:@"SUEnableAutomaticChecks"];
+    if (stored != nil) return [stored boolValue];
+    id plistVal = [[NSBundle mainBundle]
+                       objectForInfoDictionaryKey:@"SUEnableAutomaticChecks"];
+    return plistVal != nil ? [plistVal boolValue] : false;
 }
 
 } // namespace qcv

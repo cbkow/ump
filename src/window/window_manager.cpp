@@ -1594,10 +1594,16 @@ void WindowManager::captureBackdrop()
 void WindowManager::beginModal()
 {
     if (m_modalActive) return;
-    // CAPTURE-FIRST: grab the frame while the surface is still live so we
-    // have a valid backdrop, THEN cover + gate. Avoids depending on
-    // render-loop behavior while hidden and masks the capture's blocking
-    // wait (panel + backdrop appear together).
+    // If playing, pause on the frame we're about to freeze — stops audio
+    // and makes the dimmed backdrop match a true still; endModal() resumes.
+    // Modal input is gated + the scrim covers the transport, so the play
+    // state can't change underneath us while the modal is open.
+    m_modalWasPlaying = isPlayingUnified();
+    if (m_modalWasPlaying) pause();
+    // CAPTURE-FIRST: grab the (now paused) frame while the surface is
+    // still live so we have a valid backdrop, THEN cover + gate. Avoids
+    // depending on render-loop behavior while hidden and masks the
+    // capture's blocking wait (panel + backdrop appear together).
     captureBackdrop();
     m_modalActive = true;
     emit modalActiveChanged();
@@ -1618,6 +1624,12 @@ void WindowManager::endModal()
         emit backdropSourceChanged();
     }
     recomputeViewportCover();
+    // Resume playback if we paused it on open — after the viewport is
+    // restored (recompute above) so play resumes onto the live surface.
+    if (m_modalWasPlaying) {
+        m_modalWasPlaying = false;
+        play();
+    }
 }
 
 void WindowManager::detach()
@@ -6937,6 +6949,22 @@ void WindowManager::setTimelineHoverThumbsEnabled(bool on)
     s.setValue(QStringLiteral("ui/timelineHoverThumbs"), on);
     if (!on) clearHoverThumbnail();
     emit timelineHoverThumbsEnabledChanged();
+}
+
+bool WindowManager::alwaysOpenMinimal() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("ui/alwaysOpenMinimal"), false).toBool();
+}
+
+void WindowManager::setAlwaysOpenMinimal(bool on)
+{
+    QSettings s;
+    const bool prev =
+        s.value(QStringLiteral("ui/alwaysOpenMinimal"), false).toBool();
+    if (prev == on) return;
+    s.setValue(QStringLiteral("ui/alwaysOpenMinimal"), on);
+    emit alwaysOpenMinimalChanged();
 }
 
 QString WindowManager::screenshotFormat() const

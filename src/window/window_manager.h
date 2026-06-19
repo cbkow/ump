@@ -97,6 +97,13 @@ class WindowManager : public QObject
                READ timelineHoverThumbsEnabled
                WRITE setTimelineHoverThumbsEnabled
                NOTIFY timelineHoverThumbsEnabledChanged)
+    // When true, the app forces Minimal Mode on launch (overriding the
+    // remembered rail/panel layout). Persisted to QSettings; read by
+    // Main.qml at startup. Off by default.
+    Q_PROPERTY(bool alwaysOpenMinimal
+               READ alwaysOpenMinimal
+               WRITE setAlwaysOpenMinimal
+               NOTIFY alwaysOpenMinimalChanged)
     // Output format for the "save screenshot to Desktop" export —
     // "png" | "jpeg" | "tiff". User-facing export ONLY: note
     // thumbnails and annotation baselines stay PNG (lossless,
@@ -511,6 +518,10 @@ public:
     // every throttled hover request.
     bool timelineHoverThumbsEnabled() const;
     void setTimelineHoverThumbsEnabled(bool on);
+
+    // Always-open-in-minimal-mode preference (see Q_PROPERTY above).
+    bool alwaysOpenMinimal() const;
+    void setAlwaysOpenMinimal(bool on);
 
     // Screenshot export format (see Q_PROPERTY above). Lower-case
     // token: "png" | "jpeg" | "tiff". Read live by screenshotToFile().
@@ -930,6 +941,7 @@ signals:
     void backgroundModeChanged();
     void loopEnabledChanged();
     void timelineHoverThumbsEnabledChanged();
+    void alwaysOpenMinimalChanged();
     void screenshotFormatChanged();
     // User-facing export feedback, surfaced by the StatusStrip.
     // exportStarted fires when an async export (screenshot save) is
@@ -1120,6 +1132,7 @@ private:
     bool                   m_detached = false;
     // ---- UI-over-viewport framework state ----
     bool                   m_modalActive      = false;
+    bool                   m_modalWasPlaying  = false;   // resume on close
     bool                   m_viewportCovered  = false;
     QString                m_viewportNoticeText;        // "" = no notice
     QString                m_backdropSource;            // "" = no backdrop

@@ -675,6 +675,11 @@ Rectangle {
                 // that flips its glyph rather than a button that
                 // jumps location.
                 Item {
+                    // Shown only while open — the re-open affordance is
+                    // in the ViewportOverlay top bar when closed. Hiding
+                    // it on collapse stops the arrow flashing through the
+                    // gutter width during the close animation.
+                    visible: !root.collapsed
                     Layout.preferredWidth: Theme.gutterWidth
                     Layout.fillHeight: true
                     // No idle background — the chevron icon alone
@@ -1786,6 +1791,31 @@ Rectangle {
                         }
 
                         GroupHeader { label: qsTr("Interface") }
+
+                        // Always open in minimal mode — overrides the
+                        // remembered rail/panel layout on next launch.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel { text: qsTr("Always open in minimal mode") }
+                                FlatSwitch {
+                                    Layout.rightMargin: Theme.padding
+                                    checked: WindowManager.alwaysOpenMinimal
+                                    onToggled: {
+                                        WindowManager.alwaysOpenMinimal = checked;
+                                    }
+                                }
+                                RevertBtn {
+                                    onClicked: {
+                                        WindowManager.alwaysOpenMinimal = false;
+                                    }
+                                }
+                            }
+                            HelpText { text: qsTr("Launch with the rails collapsed and the color panel hidden, ignoring the last-used layout. Applies on next launch.") }
+                        }
 
                         // Timeline hover thumbnails.
                         ColumnLayout {

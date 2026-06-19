@@ -574,6 +574,13 @@ ApplicationWindow {
     Component.onCompleted: {
         WindowManager.installGlobalKeyFilter(root);
         WindowManager.setNotesPanelVisible(fxNotesPanel);
+        // "Always open in minimal mode" collapses the rails from the
+        // first frame via the leftRailCollapsed/rightRailCollapsed
+        // bindings above (the color/notes panels are already hidden by
+        // default), so nothing needs to flip here. Once the startup
+        // layout has settled, clear layoutSettling to re-enable the rail
+        // open/close animation and start persisting user toggles.
+        Qt.callLater(function() { root.layoutSettling = false; });
     }
 
     // App-level panel visibility. Each is a plain bool the panel
@@ -643,8 +650,33 @@ ApplicationWindow {
     property int  leftRailWidth:     280
     property int  rightRailWidth:    320
     property int  colorPanelHeight:  360
-    property bool leftRailCollapsed:  false
-    property bool rightRailCollapsed: false
+    // True only during initial startup layout. Two jobs: suppress the
+    // rail width animation, and gate the persistence handlers below so
+    // a forced-minimal launch never overwrites the user's remembered
+    // layout. Cleared one event-loop tick after onCompleted.
+    property bool layoutSettling: true
+
+    // Persisted rail-collapse state — what the user last left (restored
+    // by the Settings element below).
+    property bool savedLeftRailCollapsed:  false
+    property bool savedRightRailCollapsed: false
+
+    // Live collapse state the layout reads. Initialized from the saved
+    // value, OR forced collapsed at launch by "always open in minimal
+    // mode" — so the rails render collapsed from the FIRST layout pass
+    // (identical to a remembered-collapsed launch), avoiding the
+    // open→narrow→wide native-viewport resize. User toggles write these
+    // directly (breaking the binding); the handlers persist that back to
+    // the saved value, but only after startup (layoutSettling) so the
+    // forced-minimal launch value never clobbers the real layout.
+    property bool leftRailCollapsed:  savedLeftRailCollapsed
+                                      || WindowManager.alwaysOpenMinimal
+    property bool rightRailCollapsed: savedRightRailCollapsed
+                                      || WindowManager.alwaysOpenMinimal
+    onLeftRailCollapsedChanged:
+        if (!layoutSettling) savedLeftRailCollapsed = leftRailCollapsed
+    onRightRailCollapsedChanged:
+        if (!layoutSettling) savedRightRailCollapsed = rightRailCollapsed
 
     // QtCore.Settings round-trips the layout state to QSettings
     // (org/app names set in main.cpp). Property aliases are
@@ -655,8 +687,8 @@ ApplicationWindow {
         property alias leftRailWidth:      root.leftRailWidth
         property alias rightRailWidth:     root.rightRailWidth
         property alias colorPanelHeight:   root.colorPanelHeight
-        property alias leftRailCollapsed:  root.leftRailCollapsed
-        property alias rightRailCollapsed: root.rightRailCollapsed
+        property alias leftRailCollapsed:  root.savedLeftRailCollapsed
+        property alias rightRailCollapsed: root.savedRightRailCollapsed
     }
 
     // Effective widths fed to the layout: clamped + collapsed.
@@ -938,6 +970,7 @@ ApplicationWindow {
                 collapsed: root.leftRailCollapsed
                 onToggleCollapsed: root.leftRailCollapsed = !root.leftRailCollapsed
                 Behavior on Layout.preferredWidth {
+                    enabled: !root.layoutSettling
                     NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
             }
@@ -965,8 +998,13 @@ ApplicationWindow {
                         // Rail open buttons live here (in the top bar)
                         // when a rail is fully closed; the rail header
                         // owns the close button while open.
-                        leftRailClosed:  root.leftRailCollapsed
-                        rightRailClosed: root.rightRailCollapsed
+                        // Defer the top-bar open arrow until the rail has
+                        // finished animating shut (width ~0) — otherwise it
+                        // pops in at the START of the close and flashes over
+                        // the still-closing rail. Opening flips collapsed
+                        // false immediately, so the button hides at once.
+                        leftRailClosed:  root.leftRailCollapsed  && leftRail.width  < 2
+                        rightRailClosed: root.rightRailCollapsed && rightRail.width < 2
                         onOpenLeftRail:  root.leftRailCollapsed  = false
                         onOpenRightRail: root.rightRailCollapsed = false
                     }
@@ -1180,6 +1218,7 @@ ApplicationWindow {
                 collapsed: root.rightRailCollapsed
                 onToggleCollapsed: root.rightRailCollapsed = !root.rightRailCollapsed
                 Behavior on Layout.preferredWidth {
+                    enabled: !root.layoutSettling
                     NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
                 }
             }
