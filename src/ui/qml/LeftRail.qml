@@ -1207,6 +1207,10 @@ Rectangle {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: root.createEmptyPlaylistAndRename()
+                        FlatToolTip {
+                            visible: playlistsPlusMa.containsMouse
+                            text: qsTr("New playlist")
+                        }
                     }
                 }
             }

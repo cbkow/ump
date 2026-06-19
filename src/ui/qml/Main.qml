@@ -1168,7 +1168,11 @@ ApplicationWindow {
         // tooltips are Popup.Window OS popups, clamped to the screen.)
         TimelineStatus {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.fxStatusStrip ? Theme.toolStripHeight : 0
+            // Thin readout row (matches the bottom StatusStrip's 22px).
+            // Previously toolStripHeight (32, button height) to give
+            // transport tooltips headroom; trimmed now that tooltips are
+            // Popup.Window OS popups that don't need the buffer.
+            Layout.preferredHeight: root.fxStatusStrip ? 22 : 0
             visible: root.fxStatusStrip
         }
 

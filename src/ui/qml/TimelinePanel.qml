@@ -971,10 +971,13 @@ Pane {
         }
     }
 
-    // Per-row heights. Both tracks at the original 44 px so single
-    // and dual sources read at the same density. Dual = 88 px stack.
-    readonly property int kRowHA: 44
-    readonly property int kRowHB: 44
+    // Per-row heights. Both tracks the same height so single and dual
+    // sources read at the same density. Single = one row (kRowHA);
+    // dual = a 2-row stack (kRowHA + kRowHB). Trimmed 44 → 34 for a
+    // more compact timeline; every dependent offset below is expressed
+    // in terms of these, so they scale together.
+    readonly property int kRowHA: 34
+    readonly property int kRowHB: 34
     // Track-header gutter on the left of the timeline. Hosts
     // edit-mode toggles per track. Width comes from Theme so
     // the TransportBar can match it for visual alignment.
