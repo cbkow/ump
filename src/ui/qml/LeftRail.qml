@@ -693,16 +693,22 @@ Rectangle {
                         color: railToggleMa.containsMouse
                                ? Theme.textPrimary : Theme.textSecondary
                     }
-                    // No tooltip — the rail toggle sits at the
-                    // panel edge near the native player surface;
-                    // the QML tooltip stacks below the child
-                    // window and reads as a flicker.
                     MouseArea {
                         id: railToggleMa
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         hoverEnabled: true
                         onClicked: root.toggleCollapsed()
+                        // Tooltip now renders over the native player
+                        // surface (FlatToolTip is popupType:
+                        // Popup.Window), so the rail-edge toggle can
+                        // carry one without stacking behind the
+                        // viewport.
+                        FlatToolTip {
+                            visible: railToggleMa.containsMouse
+                            text: root.collapsed ? qsTr("Expand panel")
+                                                 : qsTr("Collapse panel")
+                        }
                     }
                 }
 
@@ -829,9 +835,6 @@ Rectangle {
                 // ---- Bin section header (caret + title + add).
                 // Clicking the strip (excluding the + button)
                 // toggles binExpanded; the + opens the file dialog.
-                // Tooltip on the + falls below the button into the
-                // section content area, no clipping at the screen
-                // top edge.
                 Rectangle {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Theme.headerHeight

@@ -179,14 +179,34 @@ ApplicationWindow {
     Connections {
         target: WindowManager.project
         function onProjectError(message) {
-            projectErrorDialog.text = message;
-            projectErrorDialog.open();
+            projectErrorDialog.message = message;
+            projectErrorDialog.opened = true;
         }
     }
-    MessageDialog {
+    // First consumer of the in-scene ModalHost framework: shows over the
+    // (dimmed, frozen) viewport instead of a separate OS dialog window.
+    ModalHost {
         id: projectErrorDialog
         title: qsTr("Project error")
-        buttons: MessageDialog.Ok
+        property string message: ""
+        onClosed: root.reclaimKeyboardFocus()
+
+        Text {
+            width: parent.width
+            text: projectErrorDialog.message
+            color: Theme.textPrimary
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeBase
+            wrapMode: Text.WordWrap
+        }
+        RowLayout {
+            width: parent.width
+            FlatButton {
+                Layout.alignment: Qt.AlignRight
+                text: qsTr("OK")
+                onClicked: projectErrorDialog.close()
+            }
+        }
     }
 
     menuBar: MenuBar {
@@ -934,6 +954,10 @@ ApplicationWindow {
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton
+                                // Suppress viewport input while a modal is
+                                // open (the macOS native PlayerWindow gates
+                                // itself; this is the Windows equivalent).
+                                enabled: !WindowManager.modalActive
                                 // hoverEnabled lets us see Move events
                                 // even without a button held — needed by
                                 // some tool modes (e.g., eraser hover
@@ -972,7 +996,7 @@ ApplicationWindow {
                                 readonly property int kSeamGrabWidth: 14
                                 visible: WindowManager.compositorMode === 2
                                          && WindowManager.dualController
-                                enabled: visible
+                                enabled: visible && !WindowManager.modalActive
                                 width: kSeamGrabWidth
                                 height: parent.height
                                 // Clamp so the strip stays fully inside
@@ -1008,6 +1032,30 @@ ApplicationWindow {
                                 onPressedChanged:
                                     WindowManager.setSplitSeamActive(
                                         containsMouse || pressed)
+                            }
+
+                            // ---- UI-over-viewport: frozen modal backdrop ----
+                            // The native viewport surface is HIDDEN while
+                            // covered, so this becomes the top visible plane
+                            // in its place. It's the dimmed still the modal
+                            // sits over — captured via the screenshot path
+                            // (SDR sRGB), served from image://qcv. Invisible
+                            // (and so harmless) unless covered. Lives INSIDE
+                            // centerStage because it must occupy exactly the
+                            // viewport rect; the modal scrim/panel (top-level
+                            // ModalHost) layers above it. The unsupported-
+                            // media notice, by contrast, is a top-level
+                            // overlay (see viewportNoticeCard below) so it
+                            // sits above ALL chrome, not just the viewport.
+                            Image {
+                                anchors.fill: parent
+                                z: 30
+                                fillMode: Image.PreserveAspectFit
+                                cache: false
+                                asynchronous: true
+                                source: WindowManager.backdropSource
+                                visible: WindowManager.viewportCovered
+                                         && WindowManager.backdropSource.length > 0
                             }
                         }
 
@@ -1062,9 +1110,10 @@ ApplicationWindow {
         }
 
         // ---- Bottom band 0: Timeline status row (frame / TC / fps).
-        // Sits between viewport area and the transport row so
-        // transport tooltips render up into this strip rather than
-        // off the bottom of the viewport.
+        // Sits between the viewport area and the transport row, keeping
+        // the readouts next to the controls that drive them. (Formerly
+        // also a buffer for in-scene transport tooltips — moot now that
+        // tooltips are Popup.Window OS popups, clamped to the screen.)
         TimelineStatus {
             Layout.fillWidth: true
             Layout.preferredHeight: root.fxStatusStrip ? Theme.toolStripHeight : 0
@@ -1158,6 +1207,55 @@ ApplicationWindow {
             Layout.fillWidth: true
             Layout.preferredHeight: root.inFullscreen ? 0 : 22
             visible: !root.inFullscreen
+        }
+    }
+
+    // Unsupported-media notice (ARRIRAW / unsupported codec). A
+    // TOP-LEVEL overlay (sibling of menuClickEater) so it sits above
+    // ALL in-scene chrome — rails, transport, panels — not just the
+    // viewport cell. Non-blocking: no scrim, no input gate, so the
+    // user can still drive the chrome to load other media. The native
+    // viewport surface is hidden whenever viewportNoticeText is set
+    // (WindowManager's shared cover primitive), so this card is the
+    // top visible plane where the video would be. z:9000 keeps it
+    // BELOW menus (10000) and modals (11000) so those still layer over
+    // it. Replaces the old CPU-QImage card composited into the viewport.
+    // Dim scrim behind the notice. Click-TRANSPARENT on purpose: it has
+    // no MouseArea, so pointer/drag events fall through to the chrome
+    // beneath — the notice stays non-blocking (the user can still use
+    // menus / rails / the drop zone to load other media) while the
+    // background reads as dimmed. Covers contentItem only (the MenuBar
+    // lives outside it, so the menu bar stays at full brightness).
+    Rectangle {
+        z: 8999
+        anchors.fill: parent
+        visible: WindowManager.viewportNoticeText.length > 0
+        color: "#000000"
+        opacity: 0.5
+    }
+
+    Rectangle {
+        id: viewportNoticeCard
+        z: 9000
+        anchors.centerIn: parent
+        visible: WindowManager.viewportNoticeText.length > 0
+        width: 760
+        height: 240
+        radius: 12
+        color: Qt.rgba(0.071, 0.071, 0.071, 0.92)
+        border.color: "#464646"
+        border.width: 1
+        Text {
+            anchors.fill: parent
+            anchors.margins: 28
+            text: WindowManager.viewportNoticeText
+            color: "#e8e8e8"
+            font.family: Theme.fontFamily
+            font.pixelSize: 22
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.WordWrap
         }
     }
 

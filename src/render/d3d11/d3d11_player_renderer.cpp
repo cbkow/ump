@@ -1263,8 +1263,6 @@ void D3D11PlayerRenderer::drawFrame()
     // Loading spinner overlay — after the screenshot capture so it's
     // not baked into screenshots, and last so it's on top of content.
     drawLoadingSpinner(ctx, rtv);
-    // Viewport notice (ARRIRAW / unsupported media) — same on-top pass.
-    drawViewportNotice(ctx, rtv);
 
     swapchain->Present(1 /*sync to vsync*/, 0);
 }
@@ -1631,8 +1629,6 @@ void D3D11PlayerRenderer::drawDualFrame()
 
     // Loading spinner overlay (dual path) — same as single flow.
     drawLoadingSpinner(ctx, rtv);
-    // Viewport notice (ARRIRAW / unsupported media) — same on-top pass.
-    drawViewportNotice(ctx, rtv);
 
     swapchain->Present(1 /*sync to vsync*/, 0);
 }
@@ -1975,73 +1971,17 @@ void D3D11PlayerRenderer::setSplitSeamHighlight(float h)  { m_splitSeamHighlight
 void D3D11PlayerRenderer::setDiffGain(float g)            { m_diffGain.store(g); requestUpdate(); }
 void D3D11PlayerRenderer::setLoadingActive(bool on)       { m_loadingActive.store(on); requestUpdate(); }
 
-void D3D11PlayerRenderer::setViewportNotice(const QImage &card)
+// Show/hide the child HWND for the UI-over-viewport "cover" primitive
+// (WindowManager::setViewportCovered). Hiding lets the in-scene QML
+// modal / unsupported-media notice be the top visible plane; showing
+// restores it (geometry is re-applied by the following setViewportRect
+// from syncPlayerGeometry()). Minimal — no swapchain resize.
+void D3D11PlayerRenderer::setViewportVisible(bool visible)
 {
-    std::lock_guard lk(m_noticeMutex);
-    if (card.isNull()) {
-        m_noticePixels.clear();
-        m_noticeW = m_noticeH = 0;
-        m_noticeActive.store(false, std::memory_order_release);
-    } else {
-        // Tightly-packed RGBA8888 so the render thread can hand the bytes
-        // straight to the pool (format 0 = DXGI_FORMAT_R8G8B8A8_UNORM).
-        const QImage rgba = card.convertToFormat(QImage::Format_RGBA8888);
-        m_noticeW = rgba.width();
-        m_noticeH = rgba.height();
-        const auto *b = rgba.constBits();
-        m_noticePixels.assign(
-            b, b + static_cast<size_t>(m_noticeW) * m_noticeH * 4);
-        m_noticeActive.store(true, std::memory_order_release);
-    }
-    m_noticeDirty = true;
-    requestUpdate();
-}
-
-// Upload the GUI-thread card lazily into the thumbnail pool and
-// composite it centered over the swapchain — same channel + pass as the
-// loading spinner, so the native child surface can't occlude it.
-void D3D11PlayerRenderer::drawViewportNotice(void *ctxVoid, void *rtvVoid)
-{
-    bool dirty = false;
-    std::vector<uint8_t> pix;
-    int nW = 0, nH = 0;
-    {
-        std::lock_guard lk(m_noticeMutex);
-        dirty = m_noticeDirty;
-        if (dirty) {
-            pix = m_noticePixels;
-            nW  = m_noticeW;
-            nH  = m_noticeH;
-            m_noticeDirty = false;
-        }
-    }
-    if (dirty) {
-        if (m_noticeHandle) {
-            D3D11TexturePool::thumbnailInstance().queueDelete(m_noticeHandle);
-            m_noticeHandle = 0;
-        }
-        if (!pix.empty() && nW > 0 && nH > 0) {
-            m_noticeHandle =
-                D3D11TexturePool::thumbnailInstance().createTextureFromPixels(
-                    nW, nH, /*RGBA8=*/0, pix.data(), pix.size());
-        }
-    }
-    if (!m_noticeActive.load(std::memory_order_acquire) || !m_noticeHandle) {
-        return;
-    }
-    const int W = m_impl->currentW;
-    const int H = m_impl->currentH;
-    if (W <= 0 || H <= 0) return;
-    const auto *t = D3D11TexturePool::thumbnailInstance().texture(m_noticeHandle);
-    if (!t || !t->srv) return;
-
-    auto *ctx = static_cast<ID3D11DeviceContext *>(ctxVoid);
-    auto *rtv = static_cast<ID3D11RenderTargetView *>(rtvVoid);
-    ID3D11RenderTargetView *rtvs[1] = { rtv };
-    ctx->OMSetRenderTargets(1, rtvs, nullptr);
-    m_impl->compositor.renderCornerOverlay(
-        ctx, t->srv, t->width, t->height, W, H,
-        /*corner=center=*/2, /*overlayFrac=*/0.5f, /*marginPx=*/0.0f);
+    if (!m_impl || !m_impl->childHwnd) return;
+    SetWindowPos(m_impl->childHwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+                     | (visible ? SWP_SHOWWINDOW : SWP_HIDEWINDOW));
 }
 
 namespace { constexpr double kLoadingSpinnerDelaySec = 0.18; }

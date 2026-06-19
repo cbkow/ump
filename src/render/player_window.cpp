@@ -152,6 +152,9 @@ void PlayerWindow::mousePressEvent(QMouseEvent *e)
 {
     QWindow::mousePressEvent(e);
 
+    // Modal open — swallow viewport input (seam + annotator).
+    if (m_inputGated.load(std::memory_order_acquire)) return;
+
     // Split-wipe seam grab wins over the annotator when the press
     // lands on the strip — matches the Windows QML order where
     // splitWipeSeamDrag MouseArea sits above the annotation forwarder.
@@ -184,6 +187,9 @@ void PlayerWindow::mousePressEvent(QMouseEvent *e)
 void PlayerWindow::mouseMoveEvent(QMouseEvent *e)
 {
     QWindow::mouseMoveEvent(e);
+
+    // Modal open — swallow viewport input (seam + annotator).
+    if (m_inputGated.load(std::memory_order_acquire)) return;
 
     if (m_seamDragActive) {
         // Active drag — follow the cursor regardless of strip bounds.
@@ -228,6 +234,9 @@ void PlayerWindow::mouseMoveEvent(QMouseEvent *e)
 void PlayerWindow::mouseReleaseEvent(QMouseEvent *e)
 {
     QWindow::mouseReleaseEvent(e);
+
+    // Modal open — swallow viewport input (seam + annotator).
+    if (m_inputGated.load(std::memory_order_acquire)) return;
 
     if (m_seamDragActive && e->button() == Qt::LeftButton) {
         m_seamDragActive = false;

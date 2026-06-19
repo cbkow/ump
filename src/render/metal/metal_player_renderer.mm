@@ -268,14 +268,6 @@ struct MetalPlayerRenderer::Impl {
     bool                                  loadingSpinnerWasActive = false;
     std::chrono::steady_clock::time_point loadingSpinnerStart;
 
-    // Viewport-notice texture — render-thread-owned. Created lazily
-    // from the GUI thread's RGBA8888 card (m_noticePixels) when
-    // m_noticeDirty, drawn centered over the background. Lives in the
-    // thumbnail pool (small RGBA8, separate from the frame pool).
-    unsigned long long                    noticeHandle = 0;
-    int                                   noticeTexW   = 0;
-    int                                   noticeTexH   = 0;
-
     // Task #107/#108 commit 2 — qcv_render-side impl of
     // IDualPixbufConverter; injected into dualCompositor on first
     // dual-mode entry, cleared on shutdown. Owns the per-slot
@@ -345,11 +337,10 @@ bool MetalPlayerRenderer::init(PlayerWindow *window)
     // before the upload thread can hand textures to the renderer.
     MetalTexturePool::instance().initialize();
     // The thumbnail pool is normally initialized lazily by
-    // TimelineThumbnailCache on first upload — but the viewport-notice
-    // card (ARRIRAW / unsupported media) also lives in this pool and
-    // can be needed before any timeline thumbnail exists. Initialize it
-    // up front (idempotent; matches the cache's 256 MB budget) so the
-    // notice texture isn't dropped (createTextureFromPixels → 0).
+    // TimelineThumbnailCache on first upload. Initialize it up front
+    // (idempotent; matches the cache's 256 MB budget) so any small
+    // RGBA8 overlay texture (e.g. hover thumbnails) can be created
+    // before the first timeline thumbnail exists.
     MetalTexturePool::thumbnailInstance().initialize(256ULL * 1024 * 1024);
 
     // Phase 7.5 B.5: start the GPU upload worker. From here on, any
@@ -661,28 +652,6 @@ void MetalPlayerRenderer::setSplitSeamHighlight(float h)
 void MetalPlayerRenderer::setLoadingActive(bool on)
 {
     m_loadingActive.store(on);
-    requestUpdate();
-}
-void MetalPlayerRenderer::setViewportNotice(const QImage &card)
-{
-    std::lock_guard<std::mutex> lk(m_noticeMutex);
-    if (card.isNull()) {
-        m_noticePixels.clear();
-        m_noticeW = m_noticeH = 0;
-        m_noticeActive.store(false, std::memory_order_release);
-    } else {
-        // Normalize to tightly-packed RGBA8888 so the render thread can
-        // hand the bytes straight to the texture pool (format 0).
-        const QImage rgba = card.convertToFormat(QImage::Format_RGBA8888);
-        m_noticeW = rgba.width();
-        m_noticeH = rgba.height();
-        const size_t bytes = static_cast<size_t>(m_noticeW) * m_noticeH * 4;
-        m_noticePixels.resize(bytes);
-        // copyToFormat already packed rows to width*4 for RGBA8888.
-        std::memcpy(m_noticePixels.data(), rgba.constBits(), bytes);
-        m_noticeActive.store(true, std::memory_order_release);
-    }
-    m_noticeDirty = true;
     requestUpdate();
 }
 void MetalPlayerRenderer::setBackgroundMode(BackgroundMode m)       { m_bgMode = m; }
@@ -1777,58 +1746,9 @@ void MetalPlayerRenderer::drawFrame()
         m_impl->loadingSpinnerWasActive = false;
     }
 
-    // Viewport notice (ARRIRAW / unsupported media) — a centered card
-    // composited over the background on this same on-top overlay pass
-    // (so the native surface can't occlude it, like the spinner).
-    // Upload the GUI-thread RGBA8888 card lazily into the thumbnail
-    // pool; reuse the compositor's overlay path with corner=2 (center).
-    {
-        bool dirty = false;
-        std::vector<uint8_t> pix;
-        int nW = 0, nH = 0;
-        {
-            std::lock_guard<std::mutex> lk(m_noticeMutex);
-            dirty = m_noticeDirty;
-            if (dirty) {
-                pix = m_noticePixels;   // copy out under lock
-                nW  = m_noticeW;
-                nH  = m_noticeH;
-                m_noticeDirty = false;
-            }
-        }
-        if (dirty) {
-            if (m_impl->noticeHandle) {
-                MetalTexturePool::thumbnailInstance().queueDelete(m_impl->noticeHandle);
-                m_impl->noticeHandle = 0;
-            }
-            if (!pix.empty() && nW > 0 && nH > 0) {
-                m_impl->noticeHandle =
-                    MetalTexturePool::thumbnailInstance().createTextureFromPixels(
-                        nW, nH, /*RGBA8Unorm=*/0, pix.data(), pix.size());
-                m_impl->noticeTexW = nW;
-                m_impl->noticeTexH = nH;
-            }
-        }
-        if (m_noticeActive.load(std::memory_order_acquire)
-            && m_impl->noticeHandle
-            && m_impl->presentCompositor.isInitialized()) {
-            const auto *meta = MetalTexturePool::thumbnailInstance()
-                                   .texture(m_impl->noticeHandle);
-            if (meta && meta->valid && meta->texture) {
-                // presentCompositor (not the RGBA16F canvas compositor):
-                // its pipeline is built for THIS drawable's pixel format
-                // and it's the one driving `enc`. Drawn post-OCIO so the
-                // UI card isn't color-managed like image content.
-                m_impl->presentCompositor.renderCornerOverlay(
-                    (__bridge void *)enc,
-                    meta->texture,
-                    meta->width, meta->height,
-                    dstW, dstH,
-                    /*corner=center=*/2, /*overlayFrac=*/0.5f,
-                    /*marginPx=*/0.0f);
-            }
-        }
-    }
+    // (The unsupported-media notice is now an in-scene QML card over the
+    // hidden viewport — see WindowManager's viewport-cover primitive — so
+    // there's no composited notice pass here anymore.)
 
     [enc endEncoding];
 

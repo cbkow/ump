@@ -33,6 +33,7 @@
 #include <thread>
 
 #include "window/window_manager.h"
+#include "render/backdrop_image_provider.h"
 #include "window/sparkle_updater_macos.h"
 
 #if defined(Q_OS_WIN)
@@ -410,6 +411,14 @@ int main(int argc, char *argv[])
     if (!monoName.isEmpty())     windowManager.setMonoFamily(monoName);
     if (!phosphorName.isEmpty()) windowManager.setPhosphorFamily(phosphorName);
     engine.rootContext()->setContextProperty(QStringLiteral("WindowManager"), &windowManager);
+
+    // Frozen modal backdrop (image://qcv/backdrop/<n>). The engine takes
+    // ownership of the provider; WindowManager keeps a borrowed pointer
+    // to publish captured frames into it. See the UI-over-viewport
+    // framework in window_manager.cpp.
+    auto *backdropProvider = new qcv::BackdropImageProvider();
+    engine.addImageProvider(QStringLiteral("qcv"), backdropProvider);
+    windowManager.setBackdropImageProvider(backdropProvider);
 
     engine.loadFromModule(QStringLiteral("Qcv"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) {

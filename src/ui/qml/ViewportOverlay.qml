@@ -417,6 +417,7 @@ Pane {
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
             iconName: "square"
+            tooltipText: qsTr("Single view")
             checkable: true
             checked: WindowManager.compositorMode === 0
             onClicked: WindowManager.compositorMode = 0
@@ -424,6 +425,7 @@ Pane {
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
             iconName: "square-split-horizontal"
+            tooltipText: qsTr("Side-by-side")
             checkable: true
             checked: WindowManager.compositorMode === 1
             onClicked: WindowManager.compositorMode = 1
@@ -431,6 +433,7 @@ Pane {
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
             iconName: "split-horizontal"
+            tooltipText: qsTr("Split wipe")
             checkable: true
             checked: WindowManager.compositorMode === 2
             onClicked: WindowManager.compositorMode = 2
@@ -438,6 +441,7 @@ Pane {
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
             iconName: "exclude"
+            tooltipText: qsTr("Difference")
             checkable: true
             checked: WindowManager.compositorMode === 3
             onClicked: WindowManager.compositorMode = 3
@@ -455,6 +459,7 @@ Pane {
                      && WindowManager.dualController
                      && root.isSavedDualView
             iconName: "floppy-disk"
+            tooltipText: qsTr("Update this saved dual view")
             // Subtle grey fill rather than accent-blue: in this row
             // blue is reserved for dual-view state (the active mode
             // toggle). Update is an action, not a state.
@@ -474,6 +479,8 @@ Pane {
                      && WindowManager.compositorMode !== 0
                      && WindowManager.dualController
             iconName: root.isSavedDualView ? "file-plus" : "floppy-disk"
+            tooltipText: root.isSavedDualView ? qsTr("Save as a new dual view")
+                                              : qsTr("Save dual view")
             onClicked: root.enterSaveMode()
         }
 
@@ -550,6 +557,7 @@ Pane {
         FlatButton {
             visible: root.saveMode
             iconName: "check"
+            tooltipText: qsTr("Save")
             variant: "primary"
             enabled: saveNameField.text.trim().length > 0
             onClicked: root.commitSave()
@@ -557,6 +565,7 @@ Pane {
         FlatButton {
             visible: root.saveMode
             iconName: "x"
+            tooltipText: qsTr("Cancel")
             variant: "danger"
             onClicked: root.saveMode = false
         }

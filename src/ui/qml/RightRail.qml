@@ -118,14 +118,22 @@ Pane {
                         color: railToggleMa.containsMouse
                                ? Theme.textPrimary : Theme.textSecondary
                     }
-                    // No tooltip — sits next to the native player
-                    // child window; QML tooltips stack below it.
                     MouseArea {
                         id: railToggleMa
                         anchors.fill: parent
                         cursorShape: Qt.PointingHandCursor
                         hoverEnabled: true
                         onClicked: root.toggleCollapsed()
+                        // Tooltip now renders over the native player
+                        // surface (FlatToolTip is popupType:
+                        // Popup.Window), so the rail-edge toggle can
+                        // carry one without stacking behind the
+                        // viewport.
+                        FlatToolTip {
+                            visible: railToggleMa.containsMouse
+                            text: root.collapsed ? qsTr("Expand panel")
+                                                 : qsTr("Collapse panel")
+                        }
                     }
                 }
             }

@@ -131,13 +131,9 @@ public:
     // opening media/project, so only the independent render thread can
     // animate). Default no-op for platforms without a spinner.
     virtual void setLoadingActive(bool /*on*/) {}
-    // Viewport notice — a pre-rendered message card (CPU QImage,
-    // RGBA8888) the render thread composites centered over the
-    // background, e.g. "ARRIRAW can't be played here." Drawn on the
-    // same on-top overlay pass as the spinner so it isn't occluded by
-    // the native surface. Pass a null/empty QImage to clear. Default
-    // no-op for platforms not yet wired (D3D11 inherits this for now).
-    virtual void setViewportNotice(const QImage & /*card*/) {}
+    // (The unsupported-media notice moved out of the renderer — it's now
+    // an in-scene QML card over the hidden viewport; see WindowManager's
+    // viewport-cover primitive. No renderer-side notice API remains.)
     virtual void setBackgroundMode(BackgroundMode mode)    = 0;
 
     // Phase 7.5 B.6.5: the renderer queries the active stroke each

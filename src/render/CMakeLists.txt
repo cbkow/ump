@@ -25,6 +25,10 @@ qt_add_qml_module(qcv_render
         svg_path_parser.h
         safety_overlay.cpp
         safety_overlay.h
+        # Serves the frozen modal backdrop frame to QML (image://qcv/...);
+        # see the UI-over-viewport framework in window_manager.cpp.
+        backdrop_image_provider.cpp
+        backdrop_image_provider.h
         # Phase 7.5 A.3 — native QWindow + IPlayerRenderer skeleton.
         # Always compiled; runtime selection via QCV_NATIVE_PLAYER
         # define + WindowManager wiring (see src/window/window_manager.cpp).

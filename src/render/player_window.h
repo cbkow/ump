@@ -64,6 +64,15 @@ public:
     // would still produce the SplitHCursor on hover in single flow.
     void setDualActive(bool active);
 
+    // Suppress all viewport pointer input (seam drag + annotator
+    // forwarding) while a modal is open. The window is also hidden
+    // when the viewport is "covered," so this is belt-and-suspenders,
+    // but it guarantees no stray press slips through during the
+    // hide/show transition. Set from WindowManager::setViewportInputGated.
+    void setInputGated(bool g) {
+        m_inputGated.store(g, std::memory_order_release);
+    }
+
     // Phase F.2.11.x — Windows D3D11 child HWND IDropTarget callback
     // entry. OLE drag-drop on Windows is HWND-based (RegisterDragDrop)
     // and does NOT fall through HTTRANSPARENT like mouse clicks, so
@@ -130,6 +139,8 @@ private:
     std::atomic<bool>  m_dualActive{false};
     bool               m_seamDragActive = false;
     bool               m_seamHighlightOn = false;
+    // True while a modal is open — drops all pointer forwarding.
+    std::atomic<bool>  m_inputGated{false};
 };
 
 } // namespace qcv

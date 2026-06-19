@@ -29,6 +29,8 @@
 #  endif
 #endif
 
+#include "render/backdrop_image_provider.h"
+
 #include "annotations/annotation_exporter.h"
 #include "annotations/annotation_manager.h"
 #include "annotations/annotation_serializer.h"
@@ -1504,6 +1506,120 @@ void WindowManager::syncPlayerGeometry()
 #endif
 }
 
+// ---------------------------------------------------------------------
+// UI-over-viewport framework — shared "viewport cover" primitive.
+//
+// The native viewport surface composites ABOVE the Qt scene, so the
+// only way for in-scene QML (a modal panel, the unsupported-media
+// notice) to appear OVER the video is to hide that surface and let the
+// QML layer underneath become the top visible plane. Both consumers
+// funnel through recomputeViewportCover(): cover when a modal is open
+// OR a notice is showing. This is the one place that touches per-OS
+// window visibility.
+// ---------------------------------------------------------------------
+void WindowManager::recomputeViewportCover()
+{
+    const bool cover = m_modalActive || !m_viewportNoticeText.isEmpty();
+    if (cover == m_viewportCovered) return;
+    m_viewportCovered = cover;
+    setViewportCovered(cover);
+    emit viewportCoveredChanged();
+}
+
+void WindowManager::setViewportCovered(bool covered)
+{
+#if defined(Q_OS_WIN) && defined(QCV_NATIVE_PLAYER)
+    // Windows: the renderer owns a child HWND; show/hide it directly.
+    // On uncover, syncPlayerGeometry() re-runs setViewportRect (which
+    // also re-shows + repositions) to land it back exactly.
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        if (auto *r = pw->renderer()) {
+            if (auto *d3d = dynamic_cast<qcv::D3D11PlayerRenderer *>(r)) {
+                d3d->setViewportVisible(!covered);
+            }
+        }
+    }
+    if (!covered) syncPlayerGeometry();
+#elif defined(QCV_NATIVE_PLAYER)
+    // macOS: the player is a native child QWindow; hide()/show() it.
+    // Re-sync geometry on show so a rail-collapse / resize that landed
+    // while hidden is honored.
+    if (!m_playerWindow) return;
+    if (covered) {
+        m_playerWindow->hide();
+    } else {
+        m_playerWindow->show();
+        syncPlayerGeometry();
+    }
+#else
+    Q_UNUSED(covered);
+#endif
+}
+
+void WindowManager::setViewportInputGated(bool gated)
+{
+#ifdef QCV_NATIVE_PLAYER
+    // macOS owns viewport pointer input in the native PlayerWindow.
+    // Windows routes it through QML MouseAreas, which gate themselves on
+    // the modalActive property — nothing to do here.
+    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
+        pw->setInputGated(gated);
+    }
+#else
+    Q_UNUSED(gated);
+#endif
+}
+
+void WindowManager::captureBackdrop()
+{
+#ifdef QCV_NATIVE_PLAYER
+    if (!m_backdropProvider) return;
+    auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data());
+    if (!pw || !pw->renderer()) return;
+    // Reuses the screenshot path: a 3-pass offscreen render through OCIO
+    // to an SDR sRGB RGBA8 QImage, independent of the live HDR swapchain
+    // mode. Blocks ~one frame (bounded by the renderer's 250 ms ceiling).
+    // TODO(modal-backdrop): optional clean (no-strokes) capture variant —
+    // for now the backdrop inherits whatever the screenshot bakes in.
+    QImage img = pw->renderer()->captureScreenshot();
+    if (img.isNull()) return;
+    m_backdropProvider->setImage(img);
+    // Monotonic suffix busts QML's image cache so a new frame loads.
+    m_backdropSource =
+        QStringLiteral("image://qcv/backdrop/%1").arg(++m_backdropSeq);
+    emit backdropSourceChanged();
+#endif
+}
+
+void WindowManager::beginModal()
+{
+    if (m_modalActive) return;
+    // CAPTURE-FIRST: grab the frame while the surface is still live so we
+    // have a valid backdrop, THEN cover + gate. Avoids depending on
+    // render-loop behavior while hidden and masks the capture's blocking
+    // wait (panel + backdrop appear together).
+    captureBackdrop();
+    m_modalActive = true;
+    emit modalActiveChanged();
+    recomputeViewportCover();
+    setViewportInputGated(true);
+}
+
+void WindowManager::endModal()
+{
+    if (!m_modalActive) return;
+    m_modalActive = false;
+    emit modalActiveChanged();
+    setViewportInputGated(false);
+    // Drop the frozen backdrop so it isn't served stale next time. The
+    // notice (if any) keeps the cover via recompute below.
+    if (!m_backdropSource.isEmpty()) {
+        m_backdropSource.clear();
+        emit backdropSourceChanged();
+    }
+    recomputeViewportCover();
+}
+
 void WindowManager::detach()
 {
     if (m_detached || !m_playerWindow || !m_uiWindow) {
@@ -2312,54 +2428,22 @@ QString buildViewportNoticeText(const MediaItem &item)
         "Unsupported format\n\nThis file can’t be played here.");
 }
 
-// Render the notice into a translucent rounded card (RGBA8888) the
-// renderer composites centered over the viewport background.
-QImage renderViewportNoticeCard(const QString &text)
-{
-    constexpr int kW = 760;
-    constexpr int kH = 240;
-    QImage img(kW, kH, QImage::Format_RGBA8888);
-    img.fill(Qt::transparent);
-
-    QPainter p(&img);
-    p.setRenderHint(QPainter::Antialiasing, true);
-    p.setRenderHint(QPainter::TextAntialiasing, true);
-
-    const QRectF card(10, 10, kW - 20, kH - 20);
-    p.setPen(QPen(QColor(70, 70, 70), 1.0));
-    p.setBrush(QColor(18, 18, 18, 235));
-    p.drawRoundedRect(card, 12.0, 12.0);
-
-    QFont f = p.font();
-    f.setPixelSize(22);
-    f.setBold(true);
-    p.setFont(f);
-    p.setPen(QColor(232, 232, 232));
-    p.drawText(card.adjusted(28, 24, -28, -24),
-               Qt::AlignCenter | Qt::TextWordWrap, text);
-    p.end();
-    return img;
-}
-
 } // namespace
 
 void WindowManager::setViewportNotice(const QString &text)
 {
-    const QImage card = text.isEmpty() ? QImage()
-                                       : renderViewportNoticeCard(text);
-#ifdef QCV_NATIVE_PLAYER
-    if (auto *pw = qobject_cast<qcv::PlayerWindow *>(m_playerWindow.data())) {
-        if (auto *r = pw->renderer()) {
-            // Flush the cached source texture when showing a notice so
-            // the background (not a stale previous frame) sits behind
-            // the card.
-            if (!text.isEmpty()) r->clearSourceAState();
-            r->setViewportNotice(card);
-        }
-    }
-#else
-    Q_UNUSED(text);
-#endif
+    // Phase 3 (hazy-weaving-reddy): the notice is now an in-scene QML
+    // card, not a CPU QImage composited into the viewport. We just
+    // publish the text and recompute the shared viewport cover — a
+    // non-empty notice hides the native surface so the QML card (drawn
+    // in the centerStage region) is the top visible plane. This is
+    // NON-blocking: no scrim, no input gate, chrome stays live so the
+    // user can load other media. The old hidden-surface can't show a
+    // stale frame, so the prior clearSourceAState() dance is gone.
+    if (text == m_viewportNoticeText) return;
+    m_viewportNoticeText = text;
+    emit viewportNoticeTextChanged();
+    recomputeViewportCover();
 }
 
 void WindowManager::clearViewportNotice()

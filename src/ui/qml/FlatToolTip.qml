@@ -19,6 +19,17 @@ import Qcv
 ToolTip {
     id: root
 
+    // popupType: Popup.Window is REQUIRED so the tooltip z-orders
+    // above the player's native viewport surface (CAMetalLayer on
+    // macOS, child HWND on Windows). The default Popup.Item renders
+    // in-scene, which tucks the tooltip BEHIND the player surface
+    // whenever it overlaps the centerStage area — which is why
+    // viewport-adjacent tooltips used to be disabled. Same lever as
+    // ThemedMenu.qml. Safe for tooltips (unlike a separate-window
+    // modal): they're non-interactive and auto-dismiss, so they
+    // never hit the click-reorder problem.
+    popupType: Popup.Window
+
     delay: 600
     timeout: 5000
 

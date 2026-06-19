@@ -51,10 +51,33 @@ namespace qcv {
 class WindowManagerDualSourceAdapter;
 #endif
 
+// Serves the frozen modal backdrop QImage to QML via image://qcv/...
+// (created + registered in main.cpp; we only hold a borrowed pointer).
+class BackdropImageProvider;
+
 class WindowManager : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(bool detached READ detached NOTIFY detachedChanged)
+    // ---- UI-over-viewport framework (see hazy-weaving-reddy plan) ----
+    // The native viewport surface composites ABOVE the Qt scene, so
+    // in-scene QML (modals, the unsupported-media notice) can only sit
+    // ON TOP of it by HIDING that surface. These properties drive the
+    // single shared "viewport cover" primitive from QML.
+    //   modalActive       — a blocking modal is open (drives the scrim +
+    //                       input gating); set via begin/endModal().
+    //   viewportCovered   — the native surface is hidden (modal OR
+    //                       notice); QML shows the backdrop / notice card.
+    //   viewportNoticeText— non-blocking unsupported-media copy ("" none).
+    //   backdropSource    — image://qcv/backdrop URL of the frozen frame
+    //                       shown (dimmed) behind a modal ("" none).
+    Q_PROPERTY(bool modalActive READ modalActive NOTIFY modalActiveChanged)
+    Q_PROPERTY(bool viewportCovered READ viewportCovered
+               NOTIFY viewportCoveredChanged)
+    Q_PROPERTY(QString viewportNoticeText READ viewportNoticeText
+               NOTIFY viewportNoticeTextChanged)
+    Q_PROPERTY(QString backdropSource READ backdropSource
+               NOTIFY backdropSourceChanged)
     Q_PROPERTY(int compositorMode READ compositorMode WRITE setCompositorMode NOTIFY compositorModeChanged)
     // Id of the saved DualPair the current dual session was loaded
     // from (empty when the dual session is unsaved or we're not in
@@ -308,6 +331,26 @@ public:
     bool initialize();
 
     bool detached() const { return m_detached; }
+
+    // ---- UI-over-viewport framework accessors / API ----
+    bool    modalActive()       const { return m_modalActive; }
+    bool    viewportCovered()   const { return m_viewportCovered; }
+    QString viewportNoticeText() const { return m_viewportNoticeText; }
+    QString backdropSource()    const { return m_backdropSource; }
+
+    // Borrowed pointer to the engine-owned backdrop image provider.
+    // Set once from main.cpp right after engine.addImageProvider().
+    void setBackdropImageProvider(BackdropImageProvider *p) {
+        m_backdropProvider = p;
+    }
+
+    // Modal lifecycle, driven by ModalHost.qml. beginModal captures the
+    // current frame as a frozen backdrop (CAPTURE-FIRST, while the
+    // surface is still live), then hides the viewport + gates input;
+    // endModal restores. The notice path shares the cover primitive but
+    // never goes through these (it stays non-blocking).
+    Q_INVOKABLE void beginModal();
+    Q_INVOKABLE void endModal();
 
     int compositorMode() const { return m_compositorMode; }
     void setCompositorMode(int mode);
@@ -876,6 +919,11 @@ signals:
     void recentMediaChanged();
     void recentProjectsChanged();
     void detachedChanged();
+    // UI-over-viewport framework state changes (see the Q_PROPERTYs).
+    void modalActiveChanged();
+    void viewportCoveredChanged();
+    void viewportNoticeTextChanged();
+    void backdropSourceChanged();
     void compositorModeChanged();
     void activeDualViewIdChanged();
     void dualControllerChanged();
@@ -1070,6 +1118,13 @@ private:
     QPointer<QQuickItem>   m_centerStage;
     QRect                  m_lastDetachedGeometry;
     bool                   m_detached = false;
+    // ---- UI-over-viewport framework state ----
+    bool                   m_modalActive      = false;
+    bool                   m_viewportCovered  = false;
+    QString                m_viewportNoticeText;        // "" = no notice
+    QString                m_backdropSource;            // "" = no backdrop
+    int                    m_backdropSeq      = 0;      // image-URL cache-bust
+    BackdropImageProvider *m_backdropProvider = nullptr; // engine-owned
     int                    m_compositorMode = 0;   // PlayerRhiItem::Single
     // Saved DualPair the live dual session is bound to (see the
     // activeDualViewId Q_PROPERTY). Mutate only via
@@ -1220,14 +1275,30 @@ private:
     // Forward the loading-spinner flag to the active player renderer.
     void setLoadingActive(bool on);
 
-    // Viewport notice (ARRIRAW / unsupported media). setViewportNotice
-    // renders a centered message card and pushes it to the active
-    // renderer (drawn over the background, on top of the native
-    // surface — see IPlayerRenderer::setViewportNotice). clear hides
-    // it. Empty `text` clears. Evaluated on load-failure + reconciled
-    // when async metadata resolves; see the loadRequested handler.
+    // Viewport notice (ARRIRAW / unsupported media). Sets
+    // viewportNoticeText + recomputes the viewport cover so an
+    // in-scene QML card draws over the (hidden) native surface. This
+    // is NON-blocking: chrome stays interactive so the user can load
+    // other media. Empty `text` clears. Evaluated on load-failure +
+    // reconciled when async metadata resolves; see loadRequested.
     void setViewportNotice(const QString &text);
     void clearViewportNotice();
+
+    // ---- Shared "viewport cover" primitive (modal + notice) ----
+    // recomputeViewportCover() derives whether the native surface must
+    // be hidden from (modalActive || a notice is showing) and applies
+    // it via setViewportCovered() — the ONLY per-OS branch (macOS
+    // hide()/show()+resync; Windows D3D11 setViewportVisible()+resync).
+    void recomputeViewportCover();
+    void setViewportCovered(bool covered);
+    // Suppress viewport pointer input while a modal is up. macOS gates
+    // the native PlayerWindow; Windows gates the QML MouseAreas via the
+    // modalActive property, so this is a no-op there.
+    void setViewportInputGated(bool gated);
+    // Grab the current displayed frame into the backdrop image provider
+    // and publish its image://qcv/backdrop URL. Capture is mode- and
+    // HDR-independent (reuses the screenshot path → SDR sRGB QImage).
+    void captureBackdrop();
     // Decide the notice (if any) for a media item and apply/clear it.
     // Centralizes the "is this an undecodable raw?" check so both the
     // load-failure path and the async-metadata reconciliation agree.

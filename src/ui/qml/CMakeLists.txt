@@ -40,6 +40,7 @@ set(QCVIEW_QML_FILES
     ToolStrip.qml
     ThemedMenu.qml
     ThemedMenuSeparator.qml
+    ModalHost.qml
 )
 
 foreach(qml_file IN LISTS QCVIEW_QML_FILES)
@@ -99,6 +100,7 @@ qt_add_qml_module(qcview
         ${CMAKE_CURRENT_SOURCE_DIR}/ToolStrip.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/ThemedMenu.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/ThemedMenuSeparator.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/ModalHost.qml
     RESOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/PhosphorIcons.js
 )

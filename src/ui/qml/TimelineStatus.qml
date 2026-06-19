@@ -1,13 +1,12 @@
 // TimelineStatus — frame counter / SMPTE timecode / fps strip.
 //
 // Phase 7.6.b: extracted from the bottom of TimelinePanel and
-// placed above the TransportBar. The position serves two
-// purposes:
-//   1. Visual: digit readouts live close to the playback controls
-//      that change them, not buried under the timeline.
-//   2. Tooltip buffer: gives the transport row 22 px of headroom
-//      so hover tooltips on play/step buttons render here rather
-//      than flying off the bottom of the viewport.
+// placed above the TransportBar so the digit readouts live close to
+// the playback controls that change them, not buried under the
+// timeline. (This strip once also served as a "tooltip buffer" so
+// in-scene transport tooltips wouldn't fall off the viewport bottom;
+// tooltips are now Popup.Window OS popups that the OS clamps to the
+// screen, so that's no longer a reason the strip exists.)
 //
 // Bound through the WindowManager unified accessors so the same
 // strip drives image sequences and videos without QML branching
