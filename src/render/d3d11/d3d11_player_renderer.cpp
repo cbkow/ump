@@ -672,8 +672,15 @@ void D3D11PlayerRenderer::applyPendingResizeIfNeeded()
         m_impl->compositeH = 0;
     }
     if ((posChange || sizeChange) && m_impl->childHwnd) {
+        // Honor the cover state: while the surface is meant to be hidden
+        // (modal / unsupported-media notice), a resize must reposition it
+        // WITHOUT re-showing it on top of the in-scene QML. Reapply the
+        // current desired visibility instead of forcing SWP_SHOWWINDOW.
+        const UINT showFlag =
+            m_childVisible.load(std::memory_order_acquire)
+                ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
         SetWindowPos(m_impl->childHwnd, nullptr, x, y, w, h,
-                      SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+                      SWP_NOZORDER | SWP_NOACTIVATE | showFlag);
     }
     // After a real resize, give DComp a freshly-presented back buffer
     // at the new dims immediately — don't wait for the next wake-cv
@@ -1978,6 +1985,10 @@ void D3D11PlayerRenderer::setLoadingActive(bool on)       { m_loadingActive.stor
 // from syncPlayerGeometry()). Minimal — no swapchain resize.
 void D3D11PlayerRenderer::setViewportVisible(bool visible)
 {
+    // Record intent FIRST so a concurrent resize commit on the render
+    // thread (applyPendingResizeIfNeeded) reapplies the right show/hide
+    // flag rather than racing us back to visible.
+    m_childVisible.store(visible, std::memory_order_release);
     if (!m_impl || !m_impl->childHwnd) return;
     SetWindowPos(m_impl->childHwnd, nullptr, 0, 0, 0, 0,
                  SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE

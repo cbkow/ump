@@ -144,6 +144,14 @@ private:
     int                        m_pendingViewportY = 0;
     bool                       m_viewportPending  = false;
 
+    // Desired child-HWND visibility for the UI-over-viewport "cover"
+    // primitive. setViewportVisible() (GUI thread) sets it; the resize
+    // commit in applyPendingResizeIfNeeded() (render thread) reads it so
+    // a resize that lands while the surface is hidden (modal / notice
+    // open) does NOT re-show it via SWP_SHOWWINDOW. Defaults true: the
+    // HWND is created hidden and the first setViewportRect reveals it.
+    std::atomic<bool>          m_childVisible {true};
+
     // ---- Config (stub stores for F.2.1; real consumers in F.2.2+) ----
     std::atomic<int>           m_hdrMode{static_cast<int>(HdrMode::SdrSRgb)};
     ImageSequenceCache        *m_cache     = nullptr;
