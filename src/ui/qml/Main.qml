@@ -209,6 +209,58 @@ ApplicationWindow {
         }
     }
 
+    // About box — second ModalHost consumer. Opened from the About
+    // menu; renders over the dimmed, frozen viewport.
+    ModalHost {
+        id: aboutModal
+        title: qsTr("About QCView")
+        panelWidth: 380
+        onClosed: root.reclaimKeyboardFocus()
+
+        Text {
+            width: parent.width
+            text: qsTr("QCView")
+            color: Theme.textBright
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeXL
+            font.bold: true
+        }
+        Text {
+            width: parent.width
+            text: qsTr("Version %1").arg(Qt.application.version)
+            color: Theme.textSecondary
+            font.family: Theme.monoFamily
+            font.pixelSize: Theme.fontSizeSmall
+        }
+        Text {
+            width: parent.width
+            text: qsTr("Color-accurate review player.")
+            color: Theme.textMuted
+            font.family: Theme.fontFamily
+            font.pixelSize: Theme.fontSizeSmall
+            wrapMode: Text.WordWrap
+        }
+        RowLayout {
+            width: parent.width
+            spacing: 8
+            FlatButton {
+                text: qsTr("Docs")
+                onClicked: Qt.openUrlExternally("https://qcview.app/")
+            }
+            FlatButton {
+                // Sparkle is macOS-only (see the About menu item).
+                visible: Qt.platform.os === "osx"
+                text: qsTr("Check for Updates…")
+                onClicked: WindowManager.checkForUpdates()
+            }
+            Item { Layout.fillWidth: true }
+            FlatButton {
+                text: qsTr("Close")
+                onClicked: aboutModal.close()
+            }
+        }
+    }
+
     menuBar: MenuBar {
         id: appMenuBar
         // Collapse to zero height in fullscreen — ApplicationWindow
@@ -474,8 +526,8 @@ ApplicationWindow {
             id: aboutMenu
             title: qsTr("&About")
             Action {
-                text: qsTr("QCView v%1").arg(Qt.application.version)
-                enabled: false
+                text: qsTr("About QCView…")
+                onTriggered: aboutModal.opened = true
             }
             ThemedMenuSeparator {}
             // Sparkle auto-updater is macOS-only — Windows ships via the
