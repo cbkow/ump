@@ -156,6 +156,24 @@ Rectangle {
         root.lastSelectedItemId = "";
     }
 
+    // Ctrl/Cmd+A — select every source media row (Videos, Audio,
+    // Images, Image Sequences). Playlists (type 4) and Dual Views
+    // (type 5) are skipped so the result is the set you'd hand to a
+    // new playlist. Anchor lands on the last selected row so a
+    // following Shift-click extends sensibly.
+    function selectAllMedia() {
+        if (!WindowManager.project) return;
+        const flat = WindowManager.project.flatItems || [];
+        const ns = [];
+        for (let i = 0; i < flat.length; ++i) {
+            const t = flat[i].type || 0;
+            if (t === 4 || t === 5) continue;   // skip playlists + dual views
+            ns.push(flat[i].id);
+        }
+        root.selectedItemIds = ns;
+        root.lastSelectedItemId = ns.length ? ns[ns.length - 1] : "";
+    }
+
     function deleteSelectedItems() {
         if (!WindowManager.project) return;
         const ids = root.selectedItemIds.slice();
@@ -205,6 +223,22 @@ Rectangle {
                  && WindowManager.compositorMode === 0
                  && !root.timelineTrackEditing
         onActivated: root.deleteSelectedItems()
+    }
+    // Ctrl/Cmd+A — select all source media in the bin (skips
+    // playlists + dual views; see selectAllMedia). "Ctrl+A" maps to
+    // Cmd+A on macOS automatically. Application context + the same
+    // mode gates as Del/Backspace so it owns the key only in the
+    // normal single-view bin context where playlist-building happens.
+    // A focused rename/save TextField still gets Ctrl+A (select-all
+    // text) first — Qt routes keys to the focused widget before
+    // resolving Shortcuts.
+    Shortcut {
+        sequence: "Ctrl+A"
+        context: Qt.ApplicationShortcut
+        enabled: WindowManager.project
+                 && WindowManager.compositorMode === 0
+                 && !root.timelineTrackEditing
+        onActivated: root.selectAllMedia()
     }
     // F2 — rename the single selected item. No-op when 0 or 2+
     // items are selected.
@@ -339,6 +373,48 @@ Rectangle {
         if (typeof bodyColumn !== "undefined") {
             bodyColumn.playlistsExpanded = true;
         }
+    }
+
+    // Collect the on-disk paths of the current selection that are
+    // eligible to live in a playlist: Videos (0), Images (2) and
+    // Image Sequences (3). Audio (1) is excluded — createPlaylist
+    // rejects it — as are Playlists (4) and Dual Views (5), which
+    // have no single source path. Returned in flat-list (bin) order
+    // so the new playlist matches the order shown in the rail.
+    function playlistablePathsFromSelection() {
+        if (!WindowManager.project) return [];
+        const flat = WindowManager.project.flatItems || [];
+        const paths = [];
+        for (let i = 0; i < flat.length; ++i) {
+            const it = flat[i];
+            const t = it.type || 0;
+            if (t !== 0 && t !== 2 && t !== 3) continue;
+            if (!root.isItemSelected(it.id)) continue;
+            if (!it.path) continue;
+            paths.push(it.path);
+        }
+        return paths;
+    }
+
+    // Context-menu action: build a new playlist from the eligible
+    // selection. Mirrors createEmptyPlaylistAndRename's post-create
+    // behavior (activate, select, open inline rename, reveal the
+    // Playlists section) so the two creation paths feel identical.
+    // createPlaylist dedupes each path through addMediaFile, so the
+    // already-imported media is referenced, not re-added.
+    function createPlaylistFromSelection() {
+        const paths = root.playlistablePathsFromSelection();
+        if (paths.length === 0 || !WindowManager.project) return;
+        const autoName = WindowManager.project.nextPlaylistAutoName();
+        const id = WindowManager.project.createPlaylist(
+            paths, autoName, 24.0, 1920, 1080, 0);
+        if (!id) return;
+        WindowManager.project.setActiveItem(id);
+        root.selectedItemIds = [id];
+        root.lastSelectedItemId = id;
+        root.editingItemId = id;
+        if (typeof bodyColumn !== "undefined")
+            bodyColumn.playlistsExpanded = true;
     }
 
     // Phase 3.H.3 — playlists live in a dedicated section below
@@ -577,7 +653,7 @@ Rectangle {
                 id: rowMa
                 anchors.fill: parent
                 hoverEnabled: true
-                acceptedButtons: Qt.LeftButton
+                acceptedButtons: Qt.LeftButton | Qt.RightButton
                 drag.target: rowItem.isPlaylist ? null : dragGhost
                 drag.threshold: 6
                 enabled: !rowItem.isEditing
@@ -587,12 +663,11 @@ Rectangle {
                 // Activation moved to double-click in prep for
                 // drag-and-drop into playlists.
                 //
-                // No right-click context menu: the player surface is
-                // a child HWND on Windows that overlaps the popup
-                // z-order, so QML Menus tuck under the viewport and
-                // are unreachable. Rename = F2; delete = Del; double-
-                // click = activate. Same gestures we'd surface in a
-                // menu, just bound to keys.
+                // Right-click opens the row context menu (Create
+                // Playlist from Selection / Delete). It renders above
+                // the player HWND via ThemedMenu's Popup.Window — the
+                // earlier "menus tuck under the viewport" limitation
+                // is gone. Rename = F2 still works as the keyboard path.
                 onClicked: (mouse) => {
                     // Drop any lingering focus on a TextField /
                     // SpinBox text editor (e.g., the audio sync slider)
@@ -603,6 +678,10 @@ Rectangle {
                     // focus, so the keystroke goes to whichever text
                     // input was last touched.
                     WindowManager.dropTextInputFocus();
+                    if (mouse.button === Qt.RightButton) {
+                        root.openRowMenu(rowItem.itemId);
+                        return;
+                    }
                     root.selectItem(rowItem.itemId, mouse.modifiers);
                 }
                 onDoubleClicked: (mouse) => {
@@ -613,6 +692,40 @@ Rectangle {
                     }
                 }
             }
+        }
+    }
+
+    // Right-click context menu for bin / playlist rows. Uses
+    // ThemedMenu (popupType: Popup.Window) so it z-orders ABOVE the
+    // player's child HWND on Windows — the exact reason the rail had
+    // no context menu before (see the rowMa note that used to live
+    // here). Opened from a row's MouseArea via openRowMenu(); the
+    // enabled state is snapshotted at open time so the items don't
+    // re-evaluate while the popup is showing.
+    property bool ctxCanCreatePlaylist: false
+    function openRowMenu(rowItemId) {
+        // Standard right-click selection semantics: if the clicked
+        // row isn't already part of the selection, replace selection
+        // with just it; if it IS already selected, leave the existing
+        // multi-selection intact so the action applies to the group.
+        if (rowItemId && !root.isItemSelected(rowItemId))
+            root.selectItem(rowItemId, 0);
+        root.ctxCanCreatePlaylist =
+            root.playlistablePathsFromSelection().length > 0;
+        rowContextMenu.popup();
+    }
+    ThemedMenu {
+        id: rowContextMenu
+        MenuItem {
+            text: qsTr("Create Playlist from Selection")
+            enabled: root.ctxCanCreatePlaylist
+            onTriggered: root.createPlaylistFromSelection()
+        }
+        MenuSeparator {}
+        MenuItem {
+            text: qsTr("Delete")
+            enabled: root.selectedItemIds.length > 0
+            onTriggered: root.deleteSelectedItems()
         }
     }
 
