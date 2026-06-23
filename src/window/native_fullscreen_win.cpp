@@ -6,7 +6,6 @@
 #include <windows.h>
 
 #include <QHash>
-#include <QScreen>
 #include <QWindow>
 #include <QtLogging>
 
@@ -42,16 +41,28 @@ bool enterBorderlessFullscreenWin(QWindow *window)
     if (!hwnd) return false;
     if (savedStates().contains(hwnd)) return true;   // already in FS
 
-    QScreen *screen = window->screen();
-    if (!screen) return false;
-    // FULL geometry (includes taskbar area) — not availableGeometry.
-    const QRect screenRect = screen->geometry();
-    // QScreen geometry is logical pixels; SetWindowPos wants physical.
-    const qreal dpr = window->devicePixelRatio();
-    const int sx = static_cast<int>(screenRect.x()      * dpr + 0.5);
-    const int sy = static_cast<int>(screenRect.y()      * dpr + 0.5);
-    const int sw = static_cast<int>(screenRect.width()  * dpr + 0.5);
-    const int sh = static_cast<int>(screenRect.height() * dpr + 0.5);
+    // Ask Win32 for the monitor this window currently sits on, in
+    // PHYSICAL pixels. We deliberately avoid QScreen::geometry() * dpr:
+    // that assumes one global scale factor, which breaks on mixed-DPI
+    // multi-monitor layouts (Qt's logical virtual-desktop layout is not
+    // a uniform scaling of the physical layout under Per-Monitor-V2).
+    // GetMonitorInfo and SetWindowPos both speak the same physical
+    // virtual-desktop space, so rcMonitor is exactly what we want — the
+    // FULL monitor rect (includes the taskbar area), on every monitor
+    // and DPI combination.
+    HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfo(mon, &mi)) {
+        qWarning("enterBorderlessFullscreenWin: GetMonitorInfo failed (GLE=%lu)",
+                 GetLastError());
+        return false;
+    }
+    const RECT &r = mi.rcMonitor;
+    const int sx = r.left;
+    const int sy = r.top;
+    const int sw = r.right  - r.left;
+    const int sh = r.bottom - r.top;
 
     SavedState s{};
     s.placement.length = sizeof(WINDOWPLACEMENT);
