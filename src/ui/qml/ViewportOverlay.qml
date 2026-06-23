@@ -606,7 +606,8 @@ Pane {
         width: Theme.gutterWidth
         Rectangle {
             anchors.fill: parent
-            color: leftOpenMa.containsMouse ? Theme.surfaceHover : "transparent"
+            color: leftOpenMa.containsMouse ? Theme.affordanceHover
+                                            : Theme.affordanceIdle
         }
         Rectangle {
             anchors.right:  parent.right
@@ -642,7 +643,8 @@ Pane {
         width: Theme.gutterWidth
         Rectangle {
             anchors.fill: parent
-            color: rightOpenMa.containsMouse ? Theme.surfaceHover : "transparent"
+            color: rightOpenMa.containsMouse ? Theme.affordanceHover
+                                             : Theme.affordanceIdle
         }
         Rectangle {
             anchors.left:   parent.left

@@ -45,6 +45,13 @@ QtObject {
     // closed header still reads as its own bar against the rail
     // instead of dissolving into the app background.
     readonly property color sectionClosedBg: "#1a1a1a"
+    // Edge affordance buttons — the rail open buttons (top-bar
+    // gutters) and the rail collapse chevrons. Idle carries a subtle
+    // raised-gray fill so the button reads as interactive without a
+    // hover; hover steps up to a clearer but still muted gray. Both
+    // sit a notch above the `toolbar` (#1f1f1f) strip they live in.
+    readonly property color affordanceIdle:  "#262626"
+    readonly property color affordanceHover: "#323232"
 
     // --- Text ---
     readonly property color textPrimary:   "#dddddd"

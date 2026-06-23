@@ -107,14 +107,14 @@ Pane {
                     visible: !root.collapsed
                     Layout.preferredWidth: Theme.gutterWidth
                     Layout.fillHeight: true
-                    // No idle background — the chevron icon alone
-                    // reads as the target; hover still brightens
-                    // the gutter so there's clear click feedback.
+                    // Subtle raised-gray idle fill so the toggle reads
+                    // as a button at rest; hover steps up for clear
+                    // click feedback. See Theme.affordanceIdle/Hover.
                     Rectangle {
                         anchors.fill: parent
                         color: railToggleMa.containsMouse
-                               ? Theme.surfaceHover
-                               : "transparent"
+                               ? Theme.affordanceHover
+                               : Theme.affordanceIdle
                     }
                     Icon {
                         anchors.centerIn: parent
