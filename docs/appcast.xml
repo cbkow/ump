@@ -12,7 +12,7 @@
 
   It signs the DMG (EdDSA via the Keychain key), derives the per-tag enclosure
   URL + byte length, and inserts a new <item> below the marker. Commit + push
-  → GitHub Pages republishes the feed. An empty channel = "everyone is up to
+  -> GitHub Pages republishes the feed. An empty channel = "everyone is up to
   date" (Sparkle reports no update), which is correct until the first item.
 -->
 <rss version="2.0"
