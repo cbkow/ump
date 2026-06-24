@@ -69,8 +69,8 @@ FetchContent_Declare(
 
 | | Value |
 |---|---|
-| **Pin** | **n8.1** |
-| **License** | LGPLv2.1+ (avoid `--enable-gpl` build flags to keep LGPL) |
+| **Pin** | **n8.1** (8.1 release branch) — **Windows: 8.1.2 (`n8.1.2-20260624`)** |
+| **License** | LGPLv2.1+ generally; **Windows build is GPL** (BtbN GPL-Shared, `--enable-gpl`) |
 | **Verified** | Local Homebrew install confirmed working (Week-0 prototype) |
 | **Build flags** | `--enable-videotoolbox --enable-vulkan --enable-libdav1d --enable-libsvtav1 --enable-libopus --disable-x86asm-on-cross` |
 | **Hwaccels needed** | `videotoolbox` (macOS), `vulkan` (Win+Linux) |
@@ -81,6 +81,45 @@ Note: building FFmpeg from source via FetchContent is a **slow build**
 distro packages; CI and shipped builds use FetchContent for
 reproducibility. CMake handles both via a `QCVIEW_USE_SYSTEM_FFMPEG`
 toggle.
+
+#### Windows: BtbN GPL-Shared build (vendored, in-tree)
+
+vcpkg's FFmpeg 8.1 ships **without libplacebo + libshaderc**, so the
+ProRes Vulkan compute decoder is unavailable. Windows therefore uses a
+[BtbN GPL-Shared 8.1-branch build](https://github.com/BtbN/FFmpeg-Builds)
+with both baked into the DLLs (same major API — libavcodec 62 /
+libavutil 60 / libavformat 62 — so it ABI-matches vcpkg's headers and is
+a drop-in for the DLL-copy step in `src/app/CMakeLists.txt`).
+
+- **Vendored at** `external/ffmpeg-win64/` — the default
+  `QCV_BTBN_FFMPEG_DIR`. **Gitignored** (~200 MB; `avcodec-62.dll` alone
+  is ~98 MB, and `main` auto-pushes to GitHub which hard-blocks
+  ≥100 MB files). The `.pc` files are relocatable
+  (`prefix=${pcfiledir}/../..`), so the tree works from any location.
+- **Current build:** `n8.1.2-20260624` — **patches CVE-2026-8461
+  "PixelSmash"** (heap OOB write in the MagicYUV decoder; fixed upstream
+  in FFmpeg 8.1.2, 2026-06-17). Supersedes the prior `n8.1-11-g75d37c499d`
+  winget build, which was vulnerable.
+- **Why not winget:** the `BtbN.FFmpeg.GPL.Shared.8.1` winget package was
+  still pinned to the vulnerable April build (`8.1-20260430`) with no
+  upgrade available, so we consume BtbN's rolling `latest` release zip
+  directly instead.
+- **Override** with the `BTBN_FFMPEG_DIR` env var (bound by the
+  `windows-release` preset) or `-DQCV_BTBN_FFMPEG_DIR=<path>`.
+
+**Re-fetch / refresh** (run from repo root, replacing the contents of
+`external/ffmpeg-win64/`):
+
+```powershell
+$zip = "$env:TEMP\ffmpeg-81.zip"
+Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip" -OutFile $zip
+Expand-Archive $zip -DestinationPath "$env:TEMP\ffmpeg-extract" -Force
+Remove-Item external\ffmpeg-win64 -Recurse -Force -ErrorAction SilentlyContinue
+Move-Item "$env:TEMP\ffmpeg-extract\ffmpeg-n8.1-latest-win64-gpl-shared-8.1" external\ffmpeg-win64
+# Verify before trusting: expect 8.1.2+ and all three Vulkan deps.
+external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -version | Select-Object -First 1
+external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -buildconf | Select-String "libplacebo|libshaderc|vulkan"
+```
 
 ### OCIO (OpenColorIO)
 
@@ -376,7 +415,7 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 | Dep | Pin | Source | Category |
 |---|---|---|---|
 | Qt | 6.11.0 | installer | SDK |
-| FFmpeg | n8.1 | FetchContent | core |
+| FFmpeg | n8.1 (Win: 8.1.2 `n8.1.2-20260624`) | system / BtbN vendored | core |
 | OCIO | v2.5.0 | FetchContent | core |
 | OpenEXR | v3.4.7 | FetchContent | core |
 | ink-stroke-modeler | (commit TBD) | FetchContent | core |
@@ -397,5 +436,6 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 | Date | Change | By |
 |---|---|---|
 | 2026-04-24 | Initial pin manifest from port plan | Plan + Week-0 verification |
+| 2026-06-24 | Windows FFmpeg: BtbN GPL-Shared `n8.1-11-g75d37c499d` → `n8.1.2-20260624` (vendored in-tree at `external/ffmpeg-win64/`, gitignored). Security fix for CVE-2026-8461 "PixelSmash". See `dependencies-changelog.md`. | Chris |
 
 (Append future bumps here.)

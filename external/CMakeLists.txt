@@ -39,18 +39,32 @@ set(FETCHCONTENT_UPDATES_DISCONNECTED TRUE)
 #
 # Phase F.2.4 Windows override: vcpkg's FFmpeg 8.1 is missing
 # libplacebo + libshaderc, so the prores Vulkan compute decoder isn't
-# available. BtbN's `FFmpeg.GPL.Shared.8.1` winget package ships
-# FFmpeg 8.1 (same major API: libavcodec 62 / libavutil 60 /
-# libavformat 62) with libplacebo + libshaderc baked into the DLLs.
-# Prepending its pkgconfig dir to PKG_CONFIG_PATH makes pkg-config
-# prefer it over vcpkg's. Configure with -DQCV_BTBN_FFMPEG_DIR=<path>
-# to override the default winget location.
+# available. We use a BtbN GPL-Shared 8.1-branch build (same major API:
+# libavcodec 62 / libavutil 60 / libavformat 62) with libplacebo +
+# libshaderc baked into the DLLs. Prepending its pkgconfig dir to
+# PKG_CONFIG_PATH makes pkg-config prefer it over vcpkg's. Configure with
+# -DQCV_BTBN_FFMPEG_DIR=<path> (or the BTBN_FFMPEG_DIR env var via the
+# preset) to override the default in-tree location.
+#
+# Default is the in-tree vendored build at external/ffmpeg-win64/ — a
+# relocatable BtbN GPL-Shared build (.pc uses prefix=${pcfiledir}/../..).
+# The binaries are gitignored (avcodec-62.dll alone is ~98 MB, and main
+# auto-pushes to GitHub which hard-blocks >=100 MB files); re-fetch per
+# dependencies.md §2 / dependencies-changelog.md. Pinned to FFmpeg
+# 8.1.2 (n8.1.2-20260624) — patches CVE-2026-8461 "PixelSmash" (heap
+# OOB write in the MagicYUV decoder), which the prior n8.1-11 build was
+# vulnerable to.
 if(QCVIEW_USE_SYSTEM_FFMPEG)
     if(WIN32)
+        # NOTE: the windows-release preset binds QCV_BTBN_FFMPEG_DIR to
+        # $env{BTBN_FFMPEG_DIR}, which caches as "" when the env var is
+        # unset. A plain `set(... CACHE)` without FORCE cannot overwrite
+        # that existing (empty) entry, so we FORCE the in-tree default
+        # whenever the value is empty/unset.
         if(NOT QCV_BTBN_FFMPEG_DIR)
             set(QCV_BTBN_FFMPEG_DIR
-                "$ENV{LOCALAPPDATA}/Microsoft/WinGet/Packages/BtbN.FFmpeg.GPL.Shared.8.1_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-n8.1-11-g75d37c499d-win64-gpl-shared-8.1"
-                CACHE PATH "BtbN FFmpeg GPL Shared install root (must contain bin/ lib/ include/ lib/pkgconfig/)")
+                "${CMAKE_SOURCE_DIR}/external/ffmpeg-win64"
+                CACHE PATH "BtbN FFmpeg GPL Shared install root (must contain bin/ lib/ include/ lib/pkgconfig/)" FORCE)
         endif()
         if(EXISTS "${QCV_BTBN_FFMPEG_DIR}/lib/pkgconfig/libavcodec.pc")
             set(ENV{PKG_CONFIG_PATH}
@@ -64,8 +78,10 @@ if(QCVIEW_USE_SYSTEM_FFMPEG)
             message(WARNING
                 "QCV_BTBN_FFMPEG_DIR='${QCV_BTBN_FFMPEG_DIR}' is missing "
                 "lib/pkgconfig/libavcodec.pc — falling back to vcpkg FFmpeg "
-                "(prores Vulkan decode will NOT be available). Install via: "
-                "winget install BtbN.FFmpeg.GPL.Shared.8.1")
+                "(prores Vulkan decode will NOT be available, and vcpkg's "
+                "FFmpeg may be older than the CVE-2026-8461 fix). Re-fetch "
+                "the vendored build into external/ffmpeg-win64/ per "
+                "dependencies.md §2 (the binaries are gitignored).")
         endif()
     endif()
     find_package(PkgConfig REQUIRED)

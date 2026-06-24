@@ -99,6 +99,13 @@ external/install/
 external/source/
 external/build/
 
+# Vendored Windows FFmpeg (BtbN GPL-Shared 8.1 branch) — the default
+# QCV_BTBN_FFMPEG_DIR. ~200 MB of prebuilt DLLs/libs (avcodec-62.dll
+# alone is ~98 MB); main auto-pushes to GitHub which hard-blocks
+# >=100 MB files, so these are never committed. Re-fetch per
+# dependencies.md §2 / dependencies-changelog.md.
+external/ffmpeg-win64/
+
 # Local Claude Code / agent config
 .claude/
 
