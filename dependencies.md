@@ -62,16 +62,16 @@ Each entry includes the `FetchContent_Declare()` block to copy into
 FetchContent_Declare(
     ffmpeg
     GIT_REPOSITORY https://github.com/FFmpeg/FFmpeg.git
-    GIT_TAG n8.1                                # release tag, ABI-stable
+    GIT_TAG n8.1.2                              # release tag, ABI-stable
     GIT_SHALLOW TRUE
 )
 ```
 
 | | Value |
 |---|---|
-| **Pin** | **n8.1** (8.1 release branch) — **Windows: 8.1.2 (`n8.1.2-20260624`)** |
-| **License** | LGPLv2.1+ generally; **Windows build is GPL** (BtbN GPL-Shared, `--enable-gpl`) |
-| **Verified** | Local Homebrew install confirmed working (Week-0 prototype) |
+| **Pin** | **n8.1.2** (8.1 release branch) — both **macOS (self-built, in-tree at `external/install/`)** and **Windows (`n8.1.2-20260624`)** |
+| **License** | **GPL v3** on both shipped platforms (macOS self-built `--enable-gpl --enable-version3`; Windows BtbN GPL-Shared `--enable-gpl`) |
+| **Verified** | macOS self-built `n8.1.2` (libavcodec 62.28.102 / libavutil 60.26.102 / libavformat 62.12.102) loads + app links/builds clean; Windows build version-checked |
 | **Build flags** | `--enable-videotoolbox --enable-vulkan --enable-libdav1d --enable-libsvtav1 --enable-libopus --disable-x86asm-on-cross` |
 | **Hwaccels needed** | `videotoolbox` (macOS), `vulkan` (Win+Linux) |
 | **Codecs needed** | H.264, H.265, AV1, ProRes, DNxHR, JPEG (image-sequence fallback) |
@@ -120,6 +120,56 @@ Move-Item "$env:TEMP\ffmpeg-extract\ffmpeg-n8.1-latest-win64-gpl-shared-8.1" ext
 external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -version | Select-Object -First 1
 external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -buildconf | Select-String "libplacebo|libshaderc|vulkan"
 ```
+
+#### macOS: self-built GPL v3 (vendored, in-tree)
+
+macOS does **not** use Homebrew for the shipped binary — it links a
+**self-built arm64 FFmpeg** installed into `external/install/` (dylibs in
+`external/install/lib`, headers in `external/install/include`). CMake
+finds it because `CMakeLists.txt` prepends `external/install/lib/pkgconfig`
+to `PKG_CONFIG_PATH` (see `QCV_VENDOR_PREFIX`). The whole `external/install/`
+tree is **gitignored**, so the binary is never committed and must be
+rebuilt from source on each dev machine / version bump.
+
+- **Current build:** `n8.1.2` — **patches CVE-2026-8461 "PixelSmash"**
+  (heap OOB write in the MagicYUV decoder; fixed upstream 2026-06-17).
+  Sonames unchanged from the prior `n8.1` build (libavcodec 62 /
+  libavutil 60 / libavformat 62), so it's an ABI-clean drop-in.
+- **Codec deps** are pre-built **static** archives already in
+  `external/install/lib` (`libx264/libx265/libdav1d/libvpx/libmp3lame/`
+  `libopus/libSvtAv1Enc.a`) with matching `.pc` files in
+  `external/install/lib/pkgconfig` (note: `x265.pc` is vendored there too,
+  since FFmpeg's configure requires pkg-config for libx265).
+
+**Re-build** (run from repo root; reuses the in-tree static codec deps,
+overwrites the `libav*`/`libsw*` dylibs + headers in `external/install/`):
+
+```bash
+INSTALL="$PWD/external/install"
+git clone --depth 1 --branch n8.1.2 https://github.com/FFmpeg/FFmpeg.git external/source/ffmpeg
+cd external/source/ffmpeg
+PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig" ./configure \
+  --prefix="$INSTALL" --enable-shared --disable-static --enable-pthreads \
+  --enable-videotoolbox --enable-audiotoolbox \
+  --enable-hwaccel=h264_videotoolbox --enable-hwaccel=hevc_videotoolbox \
+  --enable-hwaccel=prores_videotoolbox \
+  --enable-gpl --enable-version3 \
+  --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libvpx \
+  --enable-libmp3lame --enable-libopus --enable-libsvtav1 \
+  --disable-programs --disable-doc --disable-debug --arch=arm64 \
+  --extra-cflags="-I$INSTALL/include -mmacosx-version-min=13.0 -arch arm64" \
+  --extra-ldflags="-L$INSTALL/lib -mmacosx-version-min=13.0 -arch arm64" \
+  --extra-libs=-lc++
+make -j"$(sysctl -n hw.ncpu)" && make install
+# make install leaves the old versioned dylibs behind — prune stale ones:
+#   ls external/install/lib/libav*.*.*.dylib  (keep only the newest micro)
+# Verify: cat external/install/include/libavutil/ffversion.h  → n8.1.2
+```
+
+**NOTE — no `--enable-nonfree`:** the previous build carried a vestigial
+`--enable-nonfree` (no GPL-incompatible codec was ever linked). It was
+dropped in this rebuild; the binary now matches the
+`LICENSES/THIRD_PARTY_NOTICES.txt` macOS entry exactly.
 
 ### OCIO (OpenColorIO)
 
@@ -415,7 +465,7 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 | Dep | Pin | Source | Category |
 |---|---|---|---|
 | Qt | 6.11.0 | installer | SDK |
-| FFmpeg | n8.1 (Win: 8.1.2 `n8.1.2-20260624`) | system / BtbN vendored | core |
+| FFmpeg | n8.1.2 (macOS self-built; Win: `n8.1.2-20260624`) | self-built / BtbN, both vendored in-tree | core |
 | OCIO | v2.5.0 | FetchContent | core |
 | OpenEXR | v3.4.7 | FetchContent | core |
 | ink-stroke-modeler | (commit TBD) | FetchContent | core |
@@ -437,5 +487,6 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 |---|---|---|
 | 2026-04-24 | Initial pin manifest from port plan | Plan + Week-0 verification |
 | 2026-06-24 | Windows FFmpeg: BtbN GPL-Shared `n8.1-11-g75d37c499d` → `n8.1.2-20260624` (vendored in-tree at `external/ffmpeg-win64/`, gitignored). Security fix for CVE-2026-8461 "PixelSmash". See `dependencies-changelog.md`. | Chris |
+| 2026-06-24 | macOS FFmpeg: self-built `n8.1` → `n8.1.2` (rebuilt in-tree at `external/install/`, gitignored). Same CVE-2026-8461 fix; sonames unchanged (62/60/62), ABI-clean drop-in. Also dropped vestigial `--enable-nonfree`. See `dependencies-changelog.md`. | Chris |
 
 (Append future bumps here.)
