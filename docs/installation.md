@@ -48,6 +48,9 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.8
+- Improved audio sync and added pitch-shifting audio for scrubbing + FF/RW 
+
 What’s new in 2.1.5
 - tighted up the UI in the timeline, tracks and other elements are less tall
 - sidebar rails now fully close
