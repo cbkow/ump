@@ -2388,6 +2388,7 @@ Pane {
                             ? Math.round(seconds * dualFps) : 0;
                         WindowManager.dualController.beginScrub();
                         WindowManager.dualController.requestScrubFrame(masterFrame);
+                        WindowManager.beginScrubAudio(seconds);
                         // Optimistic timer update — keeps the QML scrubber
                         // position bound to time (commitTime → seekToTime
                         // currently routes through seekToFrame which would
@@ -2413,6 +2414,7 @@ Pane {
                         if (frameRate > 0)
                             WindowManager.scrubToTimelineFrame(
                                 Math.round(seconds * frameRate));
+                        WindowManager.beginScrubAudio(seconds);
                         return;
                     }
                     if (isImageSequence) {
@@ -2427,6 +2429,7 @@ Pane {
                         wasPlayingBeforeScrub = timer && timer.playing;
                         if (wasPlayingBeforeScrub) WindowManager.pause();
                         commitTime(seconds);
+                        WindowManager.beginScrubAudio(seconds);
                         return;
                     }
                     if (!WindowManager.videoDecoder) return;
@@ -2450,6 +2453,7 @@ Pane {
                                                   seconds);
                         if (bf >= 0) WindowManager.videoDecoderB.seekToFrame(bf);
                     }
+                    WindowManager.beginScrubAudio(seconds);
                 }
 
                 function doMove(viewX) {
@@ -2461,12 +2465,14 @@ Pane {
                             ? Math.round(seconds * dualFps) : 0;
                         WindowManager.dualController.requestScrubFrame(masterFrame);
                         if (timer) timer.seek(seconds);
+                        WindowManager.scrubAudioMove(seconds);
                         return;
                     }
                     if (root.playlistActive) {
                         if (frameRate > 0)
                             WindowManager.scrubToTimelineFrame(
                                 Math.round(seconds * frameRate));
+                        WindowManager.scrubAudioMove(seconds);
                         return;
                     }
                     if (isImageSequence) {
@@ -2480,6 +2486,7 @@ Pane {
                         // Audio: same pattern as image-seq — direct
                         // timer + AudioPlayer seek through commitTime.
                         commitTime(seconds);
+                        WindowManager.scrubAudioMove(seconds);
                         return;
                     }
                     if (WindowManager.scrubDecoder) {
@@ -2493,11 +2500,15 @@ Pane {
                                                   seconds);
                         if (bf >= 0) WindowManager.videoDecoderB.seekToFrame(bf);
                     }
+                    WindowManager.scrubAudioMove(seconds);
                 }
 
                 function doRelease(viewX) {
                     if (!loaded) return;
                     const seconds = xToTime(viewX);
+                    // Stop scrub audio FIRST — the commit/resume
+                    // paths below re-seat the normal audio pipeline.
+                    WindowManager.endScrubAudio();
                     // Optimistic timer update so the playhead's
                     // `timeToX(position)` binding lands at the target
                     // the instant `scrubArea.pressed` flips false —

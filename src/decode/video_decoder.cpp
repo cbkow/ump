@@ -288,6 +288,17 @@ void VideoDecoder::togglePlayback()
     else play();
 }
 
+void VideoDecoder::setPlaybackSpeed(double speed)
+{
+    // Same clamp range as PlaybackTimer::setPlaybackSpeed.
+    if (speed < 0.0625) speed = 0.0625;
+    if (speed > 8.0)    speed = 8.0;
+    if (m_playbackSpeed.exchange(speed, std::memory_order_acq_rel) == speed) {
+        return;
+    }
+    m_paceSpeedDirty.store(true, std::memory_order_release);
+}
+
 void VideoDecoder::clearErrorState()
 {
     if (state() == Errored) {
@@ -1099,6 +1110,13 @@ void VideoDecoder::publishHandle(FrameHandle handle, int64_t pts, bool pace)
     // discontinuity sets the baseline; subsequent frames sleep until
     // baselineWall + (pts - baselinePts) * dt.
     if (pace && m_isPlaying.load(std::memory_order_acquire) && m_frameIndex.isValid()) {
+        // Speed change since the last paced publish: re-baseline so
+        // the new rate applies from here rather than re-pacing the
+        // whole distance from the old baseline (which would fast-
+        // forward or stall to "catch up" with the new divisor).
+        if (m_paceSpeedDirty.exchange(false, std::memory_order_acq_rel)) {
+            m_paceBaselineSet = false;
+        }
         if (!m_paceBaselineSet) {
             m_paceBaselineWall = std::chrono::steady_clock::now();
             m_paceBaselinePts  = pts;
@@ -1107,8 +1125,11 @@ void VideoDecoder::publishHandle(FrameHandle handle, int64_t pts, bool pace)
             const double secsPerTick =
                 static_cast<double>(m_frameIndex.timeBaseNum()) /
                 static_cast<double>(m_frameIndex.timeBaseDen());
+            const double speed =
+                m_playbackSpeed.load(std::memory_order_acquire);
             const double targetSecs =
-                (pts - m_paceBaselinePts) * secsPerTick;
+                (pts - m_paceBaselinePts) * secsPerTick
+                / ((speed > 0.0) ? speed : 1.0);
             const auto target = m_paceBaselineWall +
                 std::chrono::nanoseconds(static_cast<int64_t>(targetSecs * 1e9));
             const auto now = std::chrono::steady_clock::now();

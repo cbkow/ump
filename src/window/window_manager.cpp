@@ -1003,6 +1003,15 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
                     m_audio->setRoutingMode(
                         static_cast<int>(scopeItem->audioRoutingMode));
                 }
+                // Re-apply the session review speed — open()
+                // constructs a fresh decoder whose TempoStage
+                // defaults to 1x. Matters mid-playlist: a clip swap
+                // must keep audio tempo in step with the video
+                // pacing speed or the sync servo fights a rate
+                // mismatch it can't win.
+                if (m_reviewSpeed != 1.0) {
+                    m_audio->setPlaybackTempo(m_reviewSpeed);
+                }
             }
             // Push the MediaItem's videoRangeOverride into the live
             // decoder at open. Without this the decoder defaults to
@@ -2322,6 +2331,69 @@ void WindowManager::setLoopEnabled(bool on)
     emit loopEnabledChanged();
 }
 
+double WindowManager::currentAudioSourceSeconds() const
+{
+    const double mp = m_timeline ? m_timeline->timer()->position() : 0.0;
+    if (!m_playlistActive) return mp;
+    const Clip *c = playlistActiveClip();
+    if (!c) return mp;
+    return std::max(0.0, c->sourceIn + (mp - c->startTime));
+}
+
+void WindowManager::setReviewSpeed(double speed)
+{
+    // Preset range only — the engines clamp wider, but the feature
+    // is "review speeds", not shuttle (that's the A/J/D/L gesture).
+    if (speed < 0.25) speed = 0.25;
+    if (speed > 4.0)  speed = 4.0;
+    if (qFuzzyCompare(m_reviewSpeed, speed)) return;
+    m_reviewSpeed = speed;
+
+    // Video pacing: the streaming decoder's publish sleep divides by
+    // speed; the wall-clock timer covers image-seq / audio-only /
+    // playlist clock paths.
+    if (m_videoDecoder) m_videoDecoder->setPlaybackSpeed(speed);
+    if (m_timeline)     m_timeline->timer()->setPlaybackSpeed(speed);
+
+    // Audio: constant-pitch tempo stage, then re-anchor at the
+    // current master position so old-tempo ring residue is dropped
+    // and the sync servo restarts clean.
+    if (m_audio && m_audio->hasAudio()) {
+        m_audio->setPlaybackTempo(speed);
+        m_audio->seek(currentAudioSourceSeconds());
+    }
+
+    // Dual island: master timer speed + both mixer sides, then a
+    // same-frame seek re-anchors both decoders + per-side servos.
+    if (m_dualController) {
+        if (m_dualController->timer()) {
+            m_dualController->timer()->setSpeed(speed);
+        }
+        if (m_dualController->audio()) {
+            m_dualController->audio()->setTempoBoth(speed);
+        }
+        m_dualController->seekToFrame(m_dualController->currentFrame());
+    }
+
+    qInfo("WindowManager: review speed %.2fx", speed);
+    emit reviewSpeedChanged();
+}
+
+void WindowManager::cycleReviewSpeed()
+{
+    // R key: cycle the preset ring. Starts from whatever the current
+    // speed is closest to, so external setReviewSpeed values slot in.
+    static constexpr double kSpeeds[] = {0.5, 0.75, 1.0, 1.25, 1.5, 2.0};
+    constexpr int n = static_cast<int>(sizeof(kSpeeds) / sizeof(kSpeeds[0]));
+    int nearest = 0;
+    double best = 1e9;
+    for (int i = 0; i < n; ++i) {
+        const double d = std::abs(kSpeeds[i] - m_reviewSpeed);
+        if (d < best) { best = d; nearest = i; }
+    }
+    setReviewSpeed(kSpeeds[(nearest + 1) % n]);
+}
+
 void WindowManager::setBackgroundMode(int mode)
 {
     if (mode < 0) mode = 0;
@@ -3222,6 +3294,21 @@ const Clip *WindowManager::playlistActiveClip() const
     return &track.clips[m_playlistCurrentClipIndex];
 }
 
+const Clip *WindowManager::clipAtTimelineSec(double tSec) const
+{
+    if (!m_playlistActive || !m_timeline) return nullptr;
+    const Timeline &t = m_timeline->timeline();
+    if (t.tracks.isEmpty()) return nullptr;
+    const Track &track = t.tracks.first();
+    for (const Clip &c : track.clips) {
+        if (c.isGap) continue;
+        if (tSec >= c.startTime && tSec < c.startTime + c.duration) {
+            return &c;
+        }
+    }
+    return nullptr;
+}
+
 int WindowManager::playlistFindNonGapClip(int from, int direction) const
 {
     if (!m_timeline) return -1;
@@ -3787,6 +3874,86 @@ void WindowManager::scrubToTimelineFrame(int frame)
     m_timeline->timer()->seek(pos);
 }
 
+void WindowManager::beginScrubAudio(double timelineSeconds)
+{
+    m_scrubVelClock.start();
+    m_scrubVelLastMs  = 0;
+    m_scrubVelLastSec = timelineSeconds;
+    m_scrubVelEma     = 0.0;
+    m_scrubAudioActive = true;
+
+    // Speed 0 at press: the engine's hold detection keeps it silent
+    // until the drag actually moves.
+    if (m_dualController) {
+        m_dualController->beginShuttle(0.0);
+        return;
+    }
+    if (m_playlistActive && m_audio) {
+        const Clip *c = clipAtTimelineSec(timelineSeconds);
+        m_audio->beginShuttle(
+            c ? c->mediaPath : QString(),
+            c ? c->sourceIn + (timelineSeconds - c->startTime) : 0.0,
+            0.0, m_audio->routingMode());
+    } else if (m_audio && m_audio->hasAudio() && m_videoDecoder) {
+        m_audio->beginShuttle(m_videoDecoder->sourcePath(),
+                              timelineSeconds, 0.0,
+                              m_audio->routingMode());
+    } else {
+        m_scrubAudioActive = false;   // image-seq / no audio source
+    }
+}
+
+void WindowManager::scrubAudioMove(double timelineSeconds)
+{
+    if (!m_scrubAudioActive) return;
+
+    // Drag-velocity estimate: signed source-seconds per wall second,
+    // EMA-smoothed with a dt-scaled alpha (tau ≈ 80 ms) so mouse
+    // event jitter doesn't warble the grain pitch. The engine's
+    // hold detection covers the stationary case (no move events
+    // arrive here to decay the estimate).
+    const qint64 now = m_scrubVelClock.elapsed();
+    const double dt  = static_cast<double>(now - m_scrubVelLastMs) * 1e-3;
+    if (dt > 0.0005) {
+        double v = (timelineSeconds - m_scrubVelLastSec) / dt;
+        v = std::clamp(v, -32.0, 32.0);
+        const double alpha = 1.0 - std::exp(-dt / 0.080);
+        m_scrubVelEma += alpha * (v - m_scrubVelEma);
+        m_scrubVelLastMs  = now;
+        m_scrubVelLastSec = timelineSeconds;
+    }
+    const double speed = m_scrubVelEma;
+
+    if (m_dualController) {
+        const double fps = m_dualController->fps();
+        if (fps > 0.0) {
+            m_dualController->shuttleTick(
+                static_cast<int>(std::lround(timelineSeconds * fps)),
+                speed);
+        }
+        return;
+    }
+    if (!m_audio || !m_audio->shuttleActive()) return;
+    if (m_playlistActive) {
+        const Clip *c = clipAtTimelineSec(timelineSeconds);
+        m_audio->shuttleTarget(
+            c ? c->mediaPath : QString(),
+            c ? c->sourceIn + (timelineSeconds - c->startTime) : 0.0,
+            speed);
+    } else if (m_videoDecoder) {
+        m_audio->shuttleTarget(m_videoDecoder->sourcePath(),
+                               timelineSeconds, speed);
+    }
+}
+
+void WindowManager::endScrubAudio()
+{
+    if (!m_scrubAudioActive) return;
+    m_scrubAudioActive = false;
+    if (m_dualController) m_dualController->endShuttle();
+    if (m_audio && m_audio->shuttleActive()) m_audio->endShuttle();
+}
+
 void WindowManager::beginEditScrub()
 {
     // Edits are a paused activity — stop playback so the streaming
@@ -4282,6 +4449,11 @@ void WindowManager::startFastSeek(int direction)
     // initial speed so the user gets a snappy reverse.
     if (m_fastSeekTimer && m_fastSeekDir == direction) return;
 
+    // Shuttle and review speed are mutually exclusive transports —
+    // entering the gesture snaps playback rate back to 1x so the
+    // release commit resumes at normal speed.
+    if (m_reviewSpeed != 1.0) setReviewSpeed(1.0);
+
     // Pause normal playback first — match old app pattern.
     if (isPlayingUnified()) {
         if (m_dualController) {
@@ -4330,6 +4502,33 @@ void WindowManager::startFastSeek(int direction)
             fps;
     } else {
         m_fastSeekPositionSec = 0.0;
+    }
+
+    // Shuttle audio: deck-style pitched grains following the gesture
+    // position (ShuttleAudioEngine). Replaces the old audio-only
+    // per-tick m_audio->seek storm (a destructive ring+codec flush
+    // every 33 ms). Routing per mode:
+    //   dual     → controller translates master→per-side source and
+    //              drives the mixer's two engines
+    //   playlist → timeline pos maps to (clip file, source sec);
+    //              gaps ride as an empty path (silence, cursor keeps
+    //              tracking)
+    //   single video / audio-only → the decoder's sourcePath
+    const double initialSigned =
+        static_cast<double>(direction) * kFastSeekInitialSpeed;
+    if (m_dualController) {
+        m_dualController->beginShuttle(initialSigned);
+    } else if (m_playlistActive && m_audio) {
+        const Clip *c = clipAtTimelineSec(m_fastSeekPositionSec);
+        m_audio->beginShuttle(
+            c ? c->mediaPath : QString(),
+            c ? c->sourceIn + (m_fastSeekPositionSec - c->startTime) : 0.0,
+            initialSigned, m_audio->routingMode());
+    } else if (m_audio && m_audio->hasAudio() && m_videoDecoder) {
+        m_audio->beginShuttle(m_videoDecoder->sourcePath(),
+                              m_fastSeekPositionSec,
+                              initialSigned,
+                              m_audio->routingMode());
     }
 
     if (!m_fastSeekTimer) {
@@ -4407,12 +4606,34 @@ void WindowManager::startFastSeek(int direction)
                 if (m_timeline) m_timeline->timer()->seek(m_fastSeekPositionSec);
             } else if (m_audioActive) {
                 if (m_timeline) m_timeline->timer()->seek(m_fastSeekPositionSec);
-                if (m_audio)    m_audio->seek(m_fastSeekPositionSec);
+                // Audio follows via the shuttle grain engine below —
+                // the old per-tick m_audio->seek here was a
+                // destructive ring+codec flush storm.
             } else if (m_playlistActive) {
                 if (m_timeline) m_timeline->timer()->seek(m_fastSeekPositionSec);
             } else if (m_videoDecoder) {
                 if (m_timeline) m_timeline->timer()->seek(m_fastSeekPositionSec);
                 m_videoDecoder->seekToFrame(target);
+            }
+
+            // Feed the integrated position + signed ramp speed to the
+            // shuttle audio (no-op unless beginShuttle ran at
+            // gesture start).
+            if (m_dualController) {
+                m_dualController->shuttleTick(target, signedSpeed);
+            } else if (m_playlistActive && m_audio
+                       && m_audio->shuttleActive()) {
+                const Clip *c = clipAtTimelineSec(m_fastSeekPositionSec);
+                m_audio->shuttleTarget(
+                    c ? c->mediaPath : QString(),
+                    c ? c->sourceIn + (m_fastSeekPositionSec - c->startTime)
+                      : 0.0,
+                    signedSpeed);
+            } else if (m_audio && m_audio->shuttleActive()
+                       && m_videoDecoder) {
+                m_audio->shuttleTarget(m_videoDecoder->sourcePath(),
+                                       m_fastSeekPositionSec,
+                                       signedSpeed);
             }
         });
     }
@@ -5072,6 +5293,10 @@ void WindowManager::stopFastSeek()
 {
     if (!m_fastSeekTimer) return;
     m_fastSeekTimer->stop();
+    // Tear down shuttle audio BEFORE the final commit so the commit
+    // seek + (possible) play() below re-seat the normal pipeline.
+    if (m_dualController) m_dualController->endShuttle();
+    if (m_audio && m_audio->shuttleActive()) m_audio->endShuttle();
     const int prevDir = m_fastSeekDir;
     m_fastSeekDir   = 0;
     m_fastSeekSpeed = 0.0;
@@ -5316,6 +5541,11 @@ bool WindowManager::eventFilter(QObject *watched, QEvent *event)
             // promised L for loop, but the JKL alias predates and wins.
             setLoopEnabled(!loopEnabled());
             return true;
+        case Qt::Key_R:
+            // Review speed: cycle 0.5 → 0.75 → 1 → 1.25 → 1.5 → 2.
+            // Shift+R (below) snaps back to 1x.
+            cycleReviewSpeed();
+            return true;
         case Qt::Key_F:
             emit fullscreenToggleRequested();
             return true;
@@ -5336,6 +5566,10 @@ bool WindowManager::eventFilter(QObject *watched, QEvent *event)
     } else if (mods == Qt::ShiftModifier) {
         if (ke->key() == Qt::Key_I) {
             clearInOutPoints();
+            return true;
+        }
+        if (ke->key() == Qt::Key_R) {
+            setReviewSpeed(1.0);
             return true;
         }
     } else if (mods == Qt::ControlModifier) {

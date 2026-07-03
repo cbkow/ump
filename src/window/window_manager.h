@@ -93,6 +93,7 @@ class WindowManager : public QObject
                WRITE setAutoUpdateChecks NOTIFY autoUpdateChecksChanged)
     Q_PROPERTY(int backgroundMode READ backgroundMode WRITE setBackgroundMode NOTIFY backgroundModeChanged)
     Q_PROPERTY(bool loopEnabled READ loopEnabled WRITE setLoopEnabled NOTIFY loopEnabledChanged)
+    Q_PROPERTY(double reviewSpeed READ reviewSpeed WRITE setReviewSpeed NOTIFY reviewSpeedChanged)
     Q_PROPERTY(bool timelineHoverThumbsEnabled
                READ timelineHoverThumbsEnabled
                WRITE setTimelineHoverThumbsEnabled
@@ -365,6 +366,15 @@ public:
     void setBackgroundMode(int mode);
     bool loopEnabled() const { return m_loopEnabled; }
     void setLoopEnabled(bool on);
+
+    // Review speed — continuous playback at 0.5x..2x with constant-
+    // pitch audio (decoder TempoStage) and speed-scaled video pacing.
+    // Routed per engine in setReviewSpeed; reset to 1x on media load
+    // and on shuttle start (the two are mutually exclusive). R cycles
+    // the preset set, Shift+R resets.
+    double reviewSpeed() const { return m_reviewSpeed; }
+    Q_INVOKABLE void setReviewSpeed(double speed);
+    Q_INVOKABLE void cycleReviewSpeed();
 
     // In/Out point API. Frame numbers; -1 = unset. Setting either
     // pushes the resulting range to PlaybackTimer.setLoopRange and
@@ -940,6 +950,7 @@ signals:
     void dualControllerChanged();
     void backgroundModeChanged();
     void loopEnabledChanged();
+    void reviewSpeedChanged();
     void timelineHoverThumbsEnabledChanged();
     void alwaysOpenMinimalChanged();
     void screenshotFormatChanged();
@@ -1145,6 +1156,7 @@ private:
     QString                m_activeDualViewId;
     int                    m_backgroundMode = 0;   // BackgroundMode::Black
     bool                   m_loopEnabled    = false;
+    double                 m_reviewSpeed    = 1.0;
     // User-intent flag for the loop EOS handler. The video decoder's
     // own isPlaying() can flip to false momentarily during the EOS
     // → seek(0) → resume cycle; a short looped clip cycles fast
@@ -1423,6 +1435,15 @@ private:
     //      check that drives the final seekToFrame on release.
     bool                                  m_fastSeekActive = false;
 
+    // Scrub-audio gesture state: drag-velocity estimator (EMA over
+    // move events; the engine's hold detection handles the no-events
+    // stationary case) + active flag.
+    bool                                  m_scrubAudioActive = false;
+    QElapsedTimer                         m_scrubVelClock;
+    qint64                                m_scrubVelLastMs  = 0;
+    double                                m_scrubVelLastSec = 0.0;
+    double                                m_scrubVelEma     = 0.0;
+
     // Phase 7.4.b.2 Stage A — buffer-status emit throttle. We only
     // emit imageSeqBufferStatusChanged when (ahead, behind, size)
     // actually changes; previously emitted at 60 Hz unconditionally,
@@ -1550,6 +1571,20 @@ private:
     // Resolve the currently-loaded playlist clip from the timeline.
     // Returns nullptr if not in playlist mode or index out of range.
     const Clip *playlistActiveClip() const;
+
+    // Playlist: the non-gap clip covering timeline second `tSec`, or
+    // nullptr (gap / out of range / not playlist mode). Unlike
+    // playlistActiveClip (which tracks the orchestrator's current
+    // index), this maps an arbitrary position — the shuttle gesture
+    // integrates positions far from the active clip.
+    const Clip *clipAtTimelineSec(double tSec) const;
+
+    // Master-clock position translated to the active audio file's
+    // SOURCE seconds (identity in single mode; via the active clip's
+    // sourceIn/startTime offsets in playlist mode). Mirrors the
+    // audioPosition lambda in the VideoDecoder wiring; used by
+    // review-speed re-anchoring.
+    double currentAudioSourceSeconds() const;
     // Open clip at trackClipIndex on m_videoDecoder. Skips gaps by
     // advancing forward / backward; handles end-of-playlist wrap
     // (loop) or pause (no loop). Returns the index actually loaded
@@ -1580,6 +1615,19 @@ public:
     // and `srcFrame = (timelinePos - clipStart + sourceIn) * srcFps`
     // is fed to ScrubDecoder. No-op outside playlist mode.
     Q_INVOKABLE void scrubToTimelineFrame(int frame);
+
+    // ---- Scrub audio (timeline drag) ----
+    // Analog-scrub audio through the shuttle grain engines: QML's
+    // drag handlers bracket the gesture (begin on press, move per
+    // drag event with the timeline position in seconds, end on
+    // release). Speed is ESTIMATED from drag velocity (EMA); the
+    // engine's hold detection silences a stationary mouse. Routed
+    // per mode exactly like the FF/RW gesture (dual → controller
+    // per-side, playlist → clip mapping, single/audio-only →
+    // decoder sourcePath).
+    Q_INVOKABLE void beginScrubAudio(double timelineSeconds);
+    Q_INVOKABLE void scrubAudioMove(double timelineSeconds);
+    Q_INVOKABLE void endScrubAudio();
 
     // ---- Live viewport feedback during clip slip/trim edits ----
     // The QML timeline edit gesture brackets a drag with these:

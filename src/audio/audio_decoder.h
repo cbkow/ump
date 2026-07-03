@@ -17,6 +17,7 @@
 
 #include "audio_ring_buffer.h"
 #include "i_audio_source.h"
+#include "tempo_stage.h"
 
 #include <QObject>
 #include <QString>
@@ -85,6 +86,15 @@ public:
     // seek has happened yet.
     double secondsSinceLastSeek() const override;
 
+    // m_seekRequested is set by seek() and cleared by the decode
+    // thread only after flushAndSeek completed (ring flushed).
+    bool seekPending() const override { return m_seekRequested.load(); }
+
+    // Constant-pitch tempo (review speeds). Pass-through to the
+    // TempoStage; applied lazily on the decode thread. 1.0 = bypass.
+    void   setTempo(double tempo) override { m_tempoStage.setTempo(tempo); }
+    double tempo() const override { return m_tempoStage.tempo(); }
+
     // Per-clip channel routing mode. `mode` matches the
     // qcv::AudioRoutingMode enum in media_item.h (0 = Auto, 1 =
     // Downmix5_1, 2 = Stereo7_8). Setter is thread-safe — it just
@@ -119,6 +129,10 @@ private:
     void decodeThreadFn();
     bool decodeNextPacket();
     void flushAndSeek(double position);
+    // Blocking ring write shared by the direct and tempo-stage
+    // paths — spins (2 ms naps) until all bytes land, a stop is
+    // requested, or a seek preempts the write.
+    void writeAllToRing(const uint8_t *data, std::size_t bytes);
 
     bool openAudioStream();
     void closeAudioStream();
@@ -173,6 +187,12 @@ private:
     // Reusable per-frame resample destination — avoids per-frame
     // heap allocation in the hot path.
     std::vector<uint8_t> m_resampleBuffer;
+
+    // Constant-pitch tempo stage (review speeds) + its drain buffer.
+    // Both touched on the decode thread only (setTempo is the
+    // thread-safe knob).
+    TempoStage           m_tempoStage;
+    std::vector<float>   m_tempoBuffer;
 };
 
 } // namespace qcv

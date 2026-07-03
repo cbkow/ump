@@ -109,6 +109,17 @@ bool AudioPlayer::initialize()
         return false;
     }
 #endif
+#if QCV_HAS_AUDIO_DEVICE
+    // Servo scratch: sized for the device's real worst-case callback
+    // (WASAPI's first fill can request the whole buffer) at the max
+    // consumption ratio, plus interpolation margin. Never resized in
+    // the render callback.
+    if (m_device) {
+        const std::size_t maxFrames =
+            static_cast<std::size_t>(m_device->bufferFrameCount()) + 16;
+        m_servoScratch.assign(maxFrames * 2 * 2, 0.0f);
+    }
+#endif
     m_initialized = true;
     return true;
 }
@@ -182,12 +193,11 @@ void AudioPlayer::play()
     if (!m_decoder || !m_decoder->hasAudio()) return;
     if (m_isPlaying.exchange(true)) return;
 #if QCV_HAS_AUDIO_DEVICE
-    if (m_device) {
-        // Anchor for the playout-position calculation in update().
-        m_playStartSamples.store(m_device->samplesWritten(),
-                                 std::memory_order_relaxed);
-        m_device->start();
-    }
+    // No re-anchoring here: the playout-position anchor is owned by
+    // seek() alone (consumption simply pauses with the device while
+    // stopped, so the estimate stays valid across pause/play), and
+    // WindowManager seeks before resuming playback anyway.
+    if (m_device) m_device->start();
 #endif
     emit isPlayingChanged();
 }
@@ -207,25 +217,29 @@ void AudioPlayer::seek(double seconds)
 {
     if (!m_decoder || !m_decoder->hasAudio()) return;
 
-    // Apply the user's A/V-sync offset only at the decoder boundary:
-    // tell the decoder to fetch samples for `seconds - offset` so the
-    // audio CONTENT lags the video clock by offsetMs — the right
-    // direction to compensate for video display + pipeline lag (the
-    // user normally hears audio "ahead" of the visible image and
-    // wants to delay it). Anchor m_playStartPos at `seconds` (the
-    // video time) so update()'s drift math keeps comparing two
-    // values in the same clock domain.
+    // Apply the user's A/V-sync offset at the decoder boundary: fetch
+    // samples for `seconds - offset` so the audio CONTENT lags the
+    // video clock by offsetMs — the right direction to compensate for
+    // video display + pipeline lag. The anchor lands in the same
+    // shifted (source-seconds) domain; update() compares against
+    // `videoPos - offset` so both sides of the drift subtraction stay
+    // in one clock domain.
+    //
+    // Order matters: the decoder seek FIRST (it raises seekPending,
+    // which makes the render callback stop consuming pre-flush
+    // frames), THEN the anchor/counter reset. A callback already
+    // in flight when this runs can attribute at most one buffer
+    // (~10 ms) of pre-seek consumption to the new anchor — the servo
+    // absorbs that.
     const double offsetSec =
         m_syncOffsetMs.load(std::memory_order_relaxed) / 1000.0;
     m_decoder->seek(seconds - offsetSec);
 
-    m_playStartPos.store(seconds, std::memory_order_relaxed);
-#if QCV_HAS_AUDIO_DEVICE
-    if (m_device) {
-        m_playStartSamples.store(m_device->samplesWritten(),
-                                 std::memory_order_relaxed);
-    }
-#endif
+    m_anchorSrcSec = seconds - offsetSec;
+    m_srcFramesConsumed.store(0, std::memory_order_relaxed);
+    m_servo.reset();
+    m_servoRatio.store(1.0f, std::memory_order_relaxed);
+    m_lastServoUpdateValid = false;
 }
 
 void AudioPlayer::setSyncOffsetMs(int ms)
@@ -257,6 +271,55 @@ void AudioPlayer::setRoutingMode(int mode)
     if (m_decoder) m_decoder->setRoutingMode(mode);
 }
 
+void AudioPlayer::setPlaybackTempo(double tempo)
+{
+    if (m_decoder) m_decoder->setTempo(tempo);
+}
+
+double AudioPlayer::playbackTempo() const
+{
+    return m_decoder ? m_decoder->tempo() : 1.0;
+}
+
+int AudioPlayer::routingMode() const
+{
+    return m_decoder ? m_decoder->routingMode() : 0;
+}
+
+void AudioPlayer::beginShuttle(const QString &path, double srcSec,
+                               double signedSpeed, int routingMode)
+{
+    if (!m_initialized) return;
+    if (!m_shuttle) m_shuttle = std::make_unique<ShuttleAudioEngine>();
+    m_shuttle->begin(path, srcSec, signedSpeed, routingMode);
+#if QCV_HAS_AUDIO_DEVICE
+    // Normal playback is paused during the gesture (device stopped);
+    // the grain ring needs the callback running.
+    if (m_device) m_device->start();
+#endif
+}
+
+void AudioPlayer::shuttleTarget(const QString &path, double srcSec,
+                                double signedSpeed)
+{
+    if (m_shuttle) m_shuttle->updateTarget(path, srcSec, signedSpeed);
+}
+
+void AudioPlayer::endShuttle()
+{
+    if (m_shuttle) m_shuttle->end();
+#if QCV_HAS_AUDIO_DEVICE
+    // Keep the device only if normal playback is running (the commit
+    // seek + play() at gesture release restarts it otherwise).
+    if (m_device && !m_isPlaying.load()) m_device->stop();
+#endif
+}
+
+bool AudioPlayer::shuttleActive() const
+{
+    return m_shuttle && m_shuttle->active();
+}
+
 QVariantList AudioPlayer::audioChannelPeaks() const
 {
     QVariantList out;
@@ -276,52 +339,106 @@ QStringList AudioPlayer::audioChannelNames() const
 
 void AudioPlayer::update(double videoPositionSeconds)
 {
-    // Drift-correction loop, called per video frame from the
-    // owning playback controller. Wall-clock master, audio chases
-    // via codec seek when drift exceeds threshold AND the cooldown
-    // has elapsed (codec seeks are destructive — flush ring + flush
-    // codec state — and a too-frequent loop thrashes).
+    // Continuous sync servo, called per video frame (video mode) or
+    // from the ~30 Hz pump (other modes). Three tiers by |drift|:
     //
-    // Threshold of 150 ms is below human A/V-desync perception
-    // (~80 ms) margin and above normal jitter (~30–60 ms decode
-    // jitter + buffer latency). Same value the old app's AudioMixer
-    // used. Cooldown of 1 s prevents back-to-back seeks while the
-    // ring buffer refills.
-    //
-    // Discontinuity escape: loop wraps and external scrubs push
-    // |drift| past 1 s instantly. In that regime the cooldown is
-    // counter-productive — letting audio fall a full clip behind
-    // before we correct is the gap the user hears as "pause until
-    // the audio catches up." Above this threshold we re-seek
-    // immediately regardless of cooldown.
-    constexpr double kDriftThresholdSeconds = 0.150;
-    constexpr double kSeekCooldownSeconds   = 1.0;
-    constexpr double kDiscontinuitySeconds  = 1.0;
+    //   <= 40 ms  servo band — trim the render callback's consumption
+    //             ratio by up to ±0.2 % (inaudible) via the PI
+    //             controller; drift converges to ~0 with no seeks.
+    //   40 ms..1s soft re-seek with the 1 s cooldown (the old
+    //             correction path — now rare; something external
+    //             pushed audio well off the clock).
+    //   > 1 s     discontinuity (loop wrap, external scrub): re-seek
+    //             immediately, cooldown bypassed. Letting audio trail
+    //             a full clip behind is the gap the user hears as
+    //             "pause until the audio catches up."
+    constexpr double kServoBandSeconds     = 0.040;
+    constexpr double kSeekCooldownSeconds  = 1.0;
+    constexpr double kDiscontinuitySeconds = 1.0;
 
     if (!m_decoder || !m_decoder->hasAudio()
         || !m_isPlaying.load()) return;
 
 #if QCV_HAS_AUDIO_DEVICE
     if (!m_device) return;
-    const uint64_t samplesNow = m_device->samplesWritten();
-    const uint64_t samplesAtStart = m_playStartSamples.load();
-    const double elapsedAudio =
-        (samplesNow >= samplesAtStart)
-        ? static_cast<double>(samplesNow - samplesAtStart)
-          / m_device->sampleRate()
-        : 0.0;
-    const double audioPos = m_playStartPos.load() + elapsedAudio;
 
-    const double drift = videoPositionSeconds - audioPos;
+    // A decoder seek is still in flight — the consumption counter is
+    // frozen (callback outputs silence) and the estimate below would
+    // be garbage. Wait for the flush to complete.
+    if (m_decoder->seekPending()) {
+        m_lastServoUpdateValid = false;
+        return;
+    }
+
+    const double offsetSec =
+        m_syncOffsetMs.load(std::memory_order_relaxed) / 1000.0;
+    const double target = videoPositionSeconds - offsetSec;
+
+    // EOF tail: past the end of the audio stream there is nothing to
+    // consume — the position estimate freezes while the video clock
+    // runs on, and correcting would just thrash seeks against EOF.
+    // Freeze the servo instead; the next real seek (loop wrap, user
+    // action) re-engages it.
+    const double dur = m_decoder->duration();
+    if (dur > 0.0 && target > dur - 0.050) {
+        m_servoRatio.store(1.0f, std::memory_order_relaxed);
+        m_lastServoUpdateValid = false;
+        return;
+    }
+
+    // Playout position in source seconds: consumption at the ring
+    // drain, minus what the device has buffered but not yet played.
+    // Ring frames are output-domain; ×tempo maps them back to source
+    // seconds (the tempo stage consumes `tempo` source seconds per
+    // output second). Tempo changes re-anchor via seek, so the value
+    // is constant within an anchor epoch.
+    const int sampleRate = m_device->sampleRate();
+    const double tempo = m_decoder->tempo();
+    const double ratioNow =
+        static_cast<double>(m_servoRatio.load(std::memory_order_relaxed));
+    const double srcSecConsumed =
+        static_cast<double>(m_srcFramesConsumed.load(std::memory_order_relaxed))
+        / static_cast<double>(sampleRate) * tempo;
+    const double latencySec =
+        m_device->bufferLatencySeconds() * ratioNow * tempo;
+    const double audioSrcPos = m_anchorSrcSec + srcSecConsumed - latencySec;
+
+    const double drift    = target - audioSrcPos;
     const double absDrift = std::abs(drift);
-    const bool   discontinuity = absDrift > kDiscontinuitySeconds;
-    if (absDrift > kDriftThresholdSeconds
-        && (discontinuity
-            || m_decoder->secondsSinceLastSeek() > kSeekCooldownSeconds)) {
-        qInfo("AudioPlayer: drift %+0.0f ms — re-seeking audio to %.2fs%s",
-              drift * 1000.0, videoPositionSeconds,
-              discontinuity ? " (discontinuity, cooldown bypassed)" : "");
-        seek(videoPositionSeconds);
+
+    if (absDrift > kServoBandSeconds) {
+        const bool discontinuity = absDrift > kDiscontinuitySeconds;
+        if (discontinuity
+            || m_decoder->secondsSinceLastSeek() > kSeekCooldownSeconds) {
+            qInfo("AudioPlayer: drift %+0.0f ms — re-seeking audio to "
+                  "%.2fs%s",
+                  drift * 1000.0, videoPositionSeconds,
+                  discontinuity ? " (discontinuity, cooldown bypassed)" : "");
+            seek(videoPositionSeconds);
+        }
+        return;
+    }
+
+    // Servo band: dt-aware PI update, ratio published to the render
+    // callback.
+    const auto now = std::chrono::steady_clock::now();
+    double dt = 0.0;
+    if (m_lastServoUpdateValid) {
+        dt = std::chrono::duration<double>(now - m_lastServoUpdate).count();
+    }
+    m_lastServoUpdate      = now;
+    m_lastServoUpdateValid = true;
+
+    const double ratio = m_servo.update(drift, dt);
+    m_servoRatio.store(static_cast<float>(ratio), std::memory_order_relaxed);
+
+    // Convergence trace, ~every 10 s at the 30 Hz pump cadence.
+    // Expected steady state: |drift| < 5 ms, ratio within ±0.0005 of
+    // 1. Cheap enough to keep in release builds for field diagnosis.
+    if (++m_servoLogCounter >= 300) {
+        m_servoLogCounter = 0;
+        qInfo("AudioPlayer: servo drift %+.1f ms  ratio %.5f",
+              drift * 1000.0, ratio);
     }
 #else
     Q_UNUSED(videoPositionSeconds);
@@ -347,14 +464,61 @@ void AudioPlayer::dataCallback(void * /*device*/, float *output,
 
 void AudioPlayer::processAudio(float *output, uint32_t frameCount)
 {
-    if (!m_isPlaying.load()
-        || m_muted.load()
-        || !m_decoder
-        || !m_decoder->hasAudio()) {
-        std::memset(output, 0, frameCount * 2 * sizeof(float));
+    const size_t outBytes = static_cast<size_t>(frameCount) * 2
+                            * sizeof(float);
+    // Shuttle mode preempts normal playback (which the gesture
+    // paused): drain the grain ring, then fall through to the shared
+    // mute/volume/soft-limit tail below.
+    if (m_shuttle && m_shuttle->active()) {
+        m_shuttle->read(output, frameCount);
+        if (m_muted.load()) {
+            std::memset(output, 0, outBytes);
+            return;
+        }
+        const float vol = m_volume.load();
+        const size_t n = static_cast<size_t>(frameCount) * 2;
+        for (size_t i = 0; i < n; ++i) output[i] *= vol;
         return;
     }
-    m_decoder->read(output, frameCount);
+    if (!m_isPlaying.load() || !m_decoder || !m_decoder->hasAudio()) {
+        std::memset(output, 0, outBytes);
+        return;
+    }
+    // Decoder seek in flight: the ring holds pre-seek audio about to
+    // be flushed. Output silence WITHOUT consuming so pre-flush
+    // frames never count against the fresh seek anchor.
+    if (m_decoder->seekPending()) {
+        std::memset(output, 0, outBytes);
+        return;
+    }
+
+    // Drain through the servo resampler at the ratio update()
+    // published. Ratio 1.0 ± 0.2 % — srcNeeded ≈ frameCount.
+    const double ratio =
+        static_cast<double>(m_servoRatio.load(std::memory_order_relaxed));
+    const size_t srcNeeded =
+        m_servoResampler.sourceFramesNeeded(frameCount, ratio);
+    if (srcNeeded * 2 > m_servoScratch.size()) {
+        // Callback larger than the scratch sized at initialize() —
+        // shouldn't happen; silence beats allocating on the RT thread.
+        std::memset(output, 0, outBytes);
+        return;
+    }
+    // read() pads underrun with silence; count only REAL frames —
+    // the stream doesn't advance for the padded region, and the
+    // position estimate must not either.
+    const size_t framesRead =
+        m_decoder->read(m_servoScratch.data(), srcNeeded);
+    m_servoResampler.process(m_servoScratch.data(), srcNeeded,
+                             output, frameCount, ratio);
+    m_srcFramesConsumed.fetch_add(framesRead, std::memory_order_relaxed);
+
+    // Muted AFTER consuming: the stream keeps advancing with the
+    // clock, so unmute plays current audio, not a stale buffer.
+    if (m_muted.load()) {
+        std::memset(output, 0, outBytes);
+        return;
+    }
 
     // Soft limit: keep small signals linear, smoothly compress
     // anything above ±0.8 toward ±1.0 asymptote so multi-track

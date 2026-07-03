@@ -782,6 +782,9 @@ void MultiStreamAudioDecoder::flushAndSeek(double position)
         if (cctx) avcodec_flush_buffers(cctx);
     }
     if (m_ring) m_ring->clear();
+    // Drop tempo-stage state — pre-seek WSOLA windows must not smear
+    // into post-seek audio.
+    m_tempoStage.flush();
 
     // Rebuild the libavfilter graph atomically. Decoder flushes only
     // clear FFmpeg's per-codec internal buffers; amerge's per-input
@@ -906,11 +909,32 @@ void MultiStreamAudioDecoder::decodeThreadFn()
             // on each stream this returns AVERROR(EAGAIN); fine.
             while (av_buffersink_get_frame(p->buffersink, outFrame) >= 0) {
                 if (m_ring) {
-                    const int bytes = outFrame->nb_samples * 2 * sizeof(float);
                     const auto *data = outFrame->extended_data
                         ? outFrame->extended_data[0]
                         : outFrame->data[0];
-                    if (data) {
+                    if (data && !m_tempoStage.bypassed()) {
+                        // Review-speed path: stretch, then the same
+                        // single-shot (non-blocking) ring write the
+                        // 1x path uses — the depth-target back-
+                        // pressure upstream keeps drops rare.
+                        constexpr std::size_t kDrainFrames = 4096;
+                        if (m_tempoBuffer.size() < kDrainFrames * 2) {
+                            m_tempoBuffer.resize(kDrainFrames * 2);
+                        }
+                        m_tempoStage.put(
+                            reinterpret_cast<const float *>(data),
+                            static_cast<std::size_t>(outFrame->nb_samples));
+                        std::size_t got = 0;
+                        while ((got = m_tempoStage.receive(
+                                    m_tempoBuffer.data(), kDrainFrames)) > 0) {
+                            m_ring->write(
+                                reinterpret_cast<const uint8_t *>(
+                                    m_tempoBuffer.data()),
+                                got * 2 * sizeof(float));
+                        }
+                    } else if (data) {
+                        const int bytes =
+                            outFrame->nb_samples * 2 * sizeof(float);
                         m_ring->write(reinterpret_cast<const uint8_t *>(data),
                                       static_cast<std::size_t>(bytes));
                     }

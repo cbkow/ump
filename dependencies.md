@@ -234,6 +234,25 @@ FetchContent_Declare(
 repo, pick `HEAD`, replace `<commit-hash-to-fill-on-first-build>`
 with the actual hash, and update this entry.
 
+### SoundTouch (Olli Parviainen)
+
+```cmake
+FetchContent_Declare(
+    soundtouch
+    GIT_REPOSITORY https://codeberg.org/soundtouch/soundtouch.git
+    GIT_TAG 0047e0b1ecfceb041348579119bf79b73a322a3a   # tag 2.4.1
+    GIT_SHALLOW FALSE
+)
+```
+
+| | Value |
+|---|---|
+| **Pin** | **commit 0047e0b1 (= release tag 2.4.1, 2026 vintage)** |
+| **License** | LGPL v2.1 |
+| **License note** | Statically linked. LGPL-2.1 compliance is satisfied the same way the app's GPL FFmpeg build already forces: the whole work is distributed under GPL-compatible terms and source offers cover relinking. Notice in `LICENSES/SoundTouch-LICENSE.txt` + THIRD_PARTY_NOTICES §. |
+| **Build flags** | `INTEGER_SAMPLES=OFF` (float pipeline), `SOUNDSTRETCH=OFF` (no CLI tool), `SOUNDTOUCH_DLL=OFF` |
+| **Used by** | TempoStage (`src/audio/tempo_stage.{h,cpp}`) — constant-pitch WSOLA time-stretch for review-speed playback (0.5x–2x). Both decoder shapes route through it on their decode threads; 1x bypasses. |
+
 ### Abseil (transitive from ink-stroke-modeler)
 
 ```cmake

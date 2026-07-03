@@ -103,6 +103,16 @@ public:
     Q_INVOKABLE void pause();
     Q_INVOKABLE void togglePlayback();
 
+    // Review-speed playback rate. The streaming pacing sleep in
+    // publishHandle targets (pts − baselinePts) × timeBase / speed,
+    // so 2.0 publishes frames twice as fast. Safe from any thread;
+    // the pace baseline resets on change so the new rate applies
+    // from the current frame, not retroactively from the baseline.
+    Q_INVOKABLE void setPlaybackSpeed(double speed);
+    double playbackSpeed() const {
+        return m_playbackSpeed.load(std::memory_order_acquire);
+    }
+
     State state() const { return m_state.load(std::memory_order_acquire); }
     QString sourcePath() const { return m_sourcePath; }
     QString lastError() const { return m_lastError; }
@@ -320,6 +330,12 @@ private:
 
     // Play/pause + frame-pacing state. Used only on the decode thread.
     std::atomic<bool>      m_isPlaying{false};
+    // Review-speed multiplier for the pacing sleep. A change flips
+    // m_paceSpeedDirty; the decode thread re-baselines before the
+    // next paced publish (m_paceBaselineSet is decode-thread-owned,
+    // so the setter can't touch it directly).
+    std::atomic<double>    m_playbackSpeed{1.0};
+    std::atomic<bool>      m_paceSpeedDirty{false};
     bool                   m_paceBaselineSet = false;
     std::chrono::steady_clock::time_point m_paceBaselineWall;
     int64_t                m_paceBaselinePts = 0;

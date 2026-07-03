@@ -1,19 +1,24 @@
-// AudioPlayer — Phase 5.0.a, single-clip audio playback.
+// AudioPlayer — single-clip audio playback.
 //
-// Owns one AudioDecoder + one platform audio device. The render
-// callback drains the decoder's ring buffer into the device output
-// buffer. Phase 5.0.a is the simplest path — no master-clock sync,
-// no gap detection, no volume soft-limit. The decode thread runs
-// free; the device runs free; the audio plays at its own rate as
-// fast as the codec produces it.
+// Owns one AudioDecoder (or MultiStreamAudioDecoder) + one platform
+// audio device. The render callback drains the decoder's ring buffer
+// into the device output buffer through a fractional-rate resampler.
 //
-// Phase 5.0.b adds the master-clock sync: the video clock owns
-// time, AudioPlayer::update() polls drift and seeks the decoder
-// when drift > threshold. Volume + mute land there too.
+// Master-clock sync is a continuous servo: update() measures drift
+// between the master clock and the audio playout position (recon-
+// structed from source frames actually consumed, minus device
+// latency) and trims the consumption ratio by up to ±0.2 % — an
+// inaudible pitch change — so drift converges to ~0 with no seeks.
+// Hard decoder re-seeks remain only as escape tiers: a soft re-seek
+// when drift leaves the servo band (rare) and an immediate one for
+// discontinuities > 1 s (loop wraps, external scrubs).
 
 #pragma once
 
+#include "audio_sync_servo.h"
+#include "fractional_resampler.h"
 #include "i_audio_source.h"
+#include "shuttle_audio_engine.h"
 
 #include <QObject>
 #include <QString>
@@ -21,7 +26,10 @@
 #include <QVariantList>
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 namespace qcv {
 
@@ -92,9 +100,10 @@ public:
     // image. Negative offset advances audio (uncommon — use case is
     // an audio-side delay we want to compensate for). WindowManager
     // owns the user-facing slider + per-OS default + QSettings
-    // persistence; this is just the live knob. Re-anchors on the
-    // next seek; call seek(currentVideoPos) yourself if you want
-    // immediate effect.
+    // persistence; this is just the live knob. The sync servo tracks
+    // the shifted target continuously; for slider jumps beyond the
+    // servo band the soft re-seek tier converges it, or call
+    // seek(currentVideoPos) yourself for immediate effect.
     void setSyncOffsetMs(int ms);
     int  syncOffsetMs() const { return m_syncOffsetMs.load(); }
 
@@ -106,18 +115,46 @@ public:
     // the inspector pill emits audioRoutingModeChanged.
     void setRoutingMode(int mode);
 
+    // Constant-pitch playback tempo (review speeds, WSOLA in the
+    // decoder's TempoStage). 1.0 = bypass. Caller (WindowManager)
+    // re-anchors with seek(currentMasterPos) right after a change so
+    // old-tempo ring residue is dropped and the servo restarts clean.
+    void   setPlaybackTempo(double tempo);
+    double playbackTempo() const;
+
+    // Current decoder routing mode (for handing to the shuttle
+    // engine's grain reader so shuttle honors the clip's fold).
+    int routingMode() const;
+
+    // ---- Shuttle (FF/RW hold gesture) ----
+    // Grain-based varispeed audio following the fast-seek position;
+    // see ShuttleAudioEngine. begin starts the grain thread (and the
+    // device, which normal pause() may have stopped); shuttleTarget
+    // is the per-gesture-tick update (signedSpeed < 0 = rewind);
+    // endShuttle joins the thread and stops the device again unless
+    // normal playback is running. While active, processAudio drains
+    // the grain ring INSTEAD of the main decoder (whose decode thread
+    // idles on back-pressure, ready for the commit seek at release).
+    void beginShuttle(const QString &path, double srcSec,
+                      double signedSpeed, int routingMode);
+    void shuttleTarget(const QString &path, double srcSec,
+                       double signedSpeed);
+    void endShuttle();
+    bool shuttleActive() const;
+
     // Per-source-channel peak levels of the most-recently-decoded
     // frame, pre-fold. Empty when no audio is open. Driven by the
     // 30 Hz audio meter pump in WindowManager.
     QVariantList audioChannelPeaks() const;
     QStringList  audioChannelNames() const;
 
-    // Drift-correction tick. Caller passes the master clock's
-    // current position in seconds (the wall-clock-driven video
-    // clock). If audio's playout position diverges by more than
-    // the drift threshold AND a seek-cooldown has elapsed,
-    // re-seeks the audio decoder to videoPos. No-op otherwise so
-    // the codec stays pristine between corrections.
+    // Sync tick. Caller passes the master clock's current position
+    // in seconds. Runs the drift servo (see header comment): inside
+    // the servo band the consumption ratio is trimmed; outside it,
+    // the decoder is re-seeked (soft tier with cooldown, immediate
+    // for > 1 s discontinuities). Call cadence is irregular (per
+    // video frame in video mode, ~30 Hz pump otherwise) — the servo
+    // is dt-aware.
     void update(double videoPositionSeconds);
 
 signals:
@@ -137,6 +174,9 @@ private:
     // sources interchangeably. Concrete instance picked at open()
     // time based on the file's audio-stream count.
     std::unique_ptr<IAudioSource>     m_decoder;
+    // Grain-based shuttle audio (constructed lazily on first
+    // gesture). Read by the render callback via active() + read().
+    std::unique_ptr<ShuttleAudioEngine> m_shuttle;
 #if defined(Q_OS_MACOS) || defined(__APPLE__)
     std::unique_ptr<CoreAudioDevice>  m_device;
 #elif defined(Q_OS_WIN)
@@ -146,20 +186,45 @@ private:
     std::atomic<float>                m_volume{1.0f};
     std::atomic<bool>                 m_muted{false};
 
-    // Audio's playout position is reconstructed from
-    //   playStartPos + (samplesAtPlayStart → samplesNow) / sampleRate
-    // playStartPos snapshots the seek target at the moment play()
-    // started, so the math survives subsequent seeks (each seek
-    // resets both anchors).
-    std::atomic<double>               m_playStartPos{0.0};
-    std::atomic<uint64_t>             m_playStartSamples{0};
+    // ---- Servo state ----
+    // Audio playout position is reconstructed in SOURCE seconds:
+    //   audioSrcPos = m_anchorSrcSec
+    //               + srcFramesConsumed / sampleRate
+    //               - device bufferLatencySeconds() × ratio
+    // The anchor is owned solely by seek() (play() does not re-anchor;
+    // WindowManager always seeks before resuming). Consumption counts
+    // REAL ring frames drained by the render callback — silence
+    // padding on underrun does not advance it, and while a decoder
+    // seek is pending the callback outputs silence without consuming,
+    // so pre-flush frames never count against a fresh anchor.
+    double                            m_anchorSrcSec = 0.0;   // UI thread
+    std::atomic<uint64_t>             m_srcFramesConsumed{0};
+
+    // Controller runs on the UI thread in update(); the resulting
+    // ratio crosses to the render callback through this atomic.
+    AudioSyncServo                    m_servo;                // UI thread
+    std::atomic<float>                m_servoRatio{1.0f};
+
+    // Render-callback-only: fractional resampler + its source scratch
+    // (sized once in initialize() from the device's real buffer frame
+    // count — WASAPI can request the full buffer in one callback).
+    FractionalResampler               m_servoResampler;
+    std::vector<float>                m_servoScratch;
+
+    // dt source for the servo's PI terms (update cadence is
+    // irregular). UI thread only.
+    std::chrono::steady_clock::time_point m_lastServoUpdate{};
+    bool                              m_lastServoUpdateValid = false;
+    int                               m_servoLogCounter = 0;
 
     // A/V sync offset in milliseconds. Applied at seek() — the
     // decoder is told to fetch samples for `videoTime - offsetMs/1000`
-    // while m_playStartPos stays anchored at videoTime so the drift
-    // loop in update() compares against the user-visible video clock
-    // unmodified. End result: audio plays `offsetMs` later than video
-    // (positive offset = compensates for video display + pipeline lag).
+    // and the anchor lands in the same shifted domain; update()
+    // compares against `videoTime - offset` so the servo holds the
+    // offset continuously (a slider change shifts the target without
+    // waiting for the next seek). End result: audio plays `offsetMs`
+    // later than video (positive offset = compensates for video
+    // display + pipeline lag).
     std::atomic<int>                  m_syncOffsetMs{0};
 };
 

@@ -483,7 +483,14 @@ void DualPlaybackController::seekToFrame(int frameNumber)
     // slipped clips play the right audio range. -1 means "this
     // side is in a timeline gap" → the mixer mutes it until master
     // re-enters a clip range.
-    if (m_audio) {
+    //
+    // Skipped while the shuttle gesture is live: fast-seek calls
+    // seekToFrame every 33 ms and a per-tick seekPerSide is a
+    // destructive decoder-flush storm (full filter-graph rebuild per
+    // tick on multi-stream sides). Shuttle audio runs through the
+    // mixer's grain engines instead; the release commit's final
+    // seekToFrame (shuttle already ended) re-seats the decoders.
+    if (m_audio && !m_audio->shuttleActive()) {
         auto perSideSeconds = [this, frameNumber](char side,
                                                   IDualSource *src) -> double {
             if (!src || src->fps() <= 0.0) return -1.0;
@@ -505,6 +512,48 @@ void DualPlaybackController::togglePlayback()
 {
     if (isPlaying()) pause();
     else play();
+}
+
+// ---------------------------------------------------------------------------
+// Shuttle audio (FF/RW gesture). Translation mirrors seekToFrame's
+// per-side math; -1 = that side is in a timeline gap.
+// ---------------------------------------------------------------------------
+
+void DualPlaybackController::beginShuttle(double signedSpeed)
+{
+    if (!m_open.load(std::memory_order_acquire) || !m_audio) return;
+    const int master = currentFrame();
+    auto perSideSeconds = [this, master](char side,
+                                          IDualSource *src) -> double {
+        if (!src || src->fps() <= 0.0) return -1.0;
+        const int sf = translateMasterToSourceFrame(master, side);
+        if (sf < 0) return -1.0;
+        return static_cast<double>(sf) / src->fps();
+    };
+    m_audio->beginShuttle(perSideSeconds('A', m_sourceA.get()),
+                          perSideSeconds('B', m_sourceB.get()),
+                          signedSpeed);
+}
+
+void DualPlaybackController::shuttleTick(int masterFrame,
+                                          double signedSpeed)
+{
+    if (!m_audio || !m_audio->shuttleActive()) return;
+    auto perSideSeconds = [this, masterFrame](char side,
+                                              IDualSource *src) -> double {
+        if (!src || src->fps() <= 0.0) return -1.0;
+        const int sf = translateMasterToSourceFrame(masterFrame, side);
+        if (sf < 0) return -1.0;
+        return static_cast<double>(sf) / src->fps();
+    };
+    m_audio->shuttleTargetPerSide(perSideSeconds('A', m_sourceA.get()),
+                                  perSideSeconds('B', m_sourceB.get()),
+                                  signedSpeed);
+}
+
+void DualPlaybackController::endShuttle()
+{
+    if (m_audio) m_audio->endShuttle();
 }
 
 // ---------------------------------------------------------------------------

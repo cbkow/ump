@@ -7,6 +7,8 @@
 
 set(QCV_AUDIO_SOURCES
     audio_ring_buffer.h
+    audio_sync_servo.h
+    fractional_resampler.h
     i_audio_source.h
     audio_decoder.h
     audio_decoder.cpp
@@ -14,6 +16,13 @@ set(QCV_AUDIO_SOURCES
     multi_stream_audio_decoder.cpp
     audio_player.h
     audio_player.cpp
+    audio_routing_matrix.h
+    audio_chunk_reader.h
+    audio_chunk_reader.cpp
+    shuttle_audio_engine.h
+    shuttle_audio_engine.cpp
+    tempo_stage.h
+    tempo_stage.cpp
 )
 
 if(APPLE)
@@ -39,6 +48,9 @@ target_link_libraries(qcv_audio
         Qt6::Core
     PRIVATE
         PkgConfig::FFMPEG
+        # WSOLA tempo stage (review speeds). Static, vendored via
+        # FetchContent in external/CMakeLists.txt.
+        SoundTouch
 )
 
 if(APPLE)

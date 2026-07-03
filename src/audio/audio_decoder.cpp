@@ -1,5 +1,6 @@
 #include "audio_decoder.h"
 
+#include "audio_routing_matrix.h"
 #include "project/media_item.h"   // AudioRoutingMode enum (values
                                    // mirrored by the int API on this
                                    // class; static_assert below catches
@@ -36,68 +37,15 @@ static_assert(static_cast<int>(AudioRoutingMode::Stereo7_8)  == 2,
 
 namespace {
 
-// Build a 2×N output-from-input downmix matrix per routing mode +
-// source channel count. Returns nullopt when no custom matrix is
-// needed (FFmpeg's default swr behavior is correct: mono→stereo,
-// stereo passthrough, 6ch 5.1→stereo BS.775 fold). When set, the
-// matrix is row-major: [L_out_row..., R_out_row...].
-std::optional<std::vector<double>>
-computeRoutingMatrix(int mode, int srcChannels)
-{
-    if (srcChannels <= 0) return std::nullopt;
+// Ring capacity + producer depth target. 192,000 B = ~500 ms of
+// 48 kHz stereo f32; depth target 38,400 B = ~100 ms. Values match
+// MultiStreamAudioDecoder's policy so both decoder shapes present
+// the same latency profile to the servo.
+constexpr std::size_t kRingBytes         = 192000;
+constexpr std::size_t kBackPressureBytes = 38400;
 
-    auto pluck = [srcChannels](int leftCh, int rightCh)
-        -> std::optional<std::vector<double>>
-    {
-        if (leftCh  >= srcChannels) leftCh  = std::min(0, srcChannels - 1);
-        if (rightCh >= srcChannels) rightCh = std::min(1, srcChannels - 1);
-        std::vector<double> m(2 * srcChannels, 0.0);
-        m[leftCh]                  = 1.0;   // L_out = ch[leftCh]
-        m[srcChannels + rightCh]   = 1.0;   // R_out = ch[rightCh]
-        return m;
-    };
-
-    // ITU-R BS.775 5.1→stereo coefficients, applied to the first
-    // 6 source channels (assumes broadcast layout: L R C LFE Ls Rs).
-    // LFE deliberately dropped (not contributing to either output);
-    // adding -10 dB LFE is a follow-up if reviewers ask.
-    auto downmix5_1 = [srcChannels]()
-        -> std::optional<std::vector<double>>
-    {
-        if (srcChannels < 6) return std::nullopt;
-        std::vector<double> m(2 * srcChannels, 0.0);
-        // L_out = L + 0.707·C + 0.707·Ls
-        m[0]                = 1.0;     // L
-        m[2]                = 0.707;   // C
-        m[4]                = 0.707;   // Ls
-        // R_out = R + 0.707·C + 0.707·Rs
-        m[srcChannels + 1]  = 1.0;     // R
-        m[srcChannels + 2]  = 0.707;   // C
-        m[srcChannels + 5]  = 0.707;   // Rs
-        return m;
-    };
-
-    const auto routing = static_cast<AudioRoutingMode>(mode);
-    switch (routing) {
-    case AudioRoutingMode::Downmix5_1:
-        return downmix5_1();   // nullopt if source has <6 channels →
-                                // falls through to default behavior.
-    case AudioRoutingMode::Stereo7_8:
-        if (srcChannels >= 8) return pluck(6, 7);
-        return std::nullopt;   // UI gates this; defensive fallback.
-    case AudioRoutingMode::Auto:
-    default:
-        // Auto: defer to FFmpeg's defaults for 1/2/6 ch (mono→stereo,
-        // direct, BS.775 downmix). For 8ch, default to the broadcast
-        // stereo bounce on channels 7-8. For other counts (3,4,5,7,
-        // 9+), pluck the first two channels — safest fallback.
-        if (srcChannels == 1 || srcChannels == 2 || srcChannels == 6) {
-            return std::nullopt;
-        }
-        if (srcChannels >= 8) return pluck(6, 7);
-        return pluck(0, 1);
-    }
-}
+// computeRoutingMatrix lives in audio_routing_matrix.h — shared with
+// AudioChunkReader so shuttle grains honor the same per-clip routing.
 
 // Compute per-channel peak (|max sample|, normalized to [0..1])
 // from a decoded AVFrame. Dispatches on the four sample formats
@@ -211,7 +159,13 @@ bool AudioDecoder::open(const QString &path)
         return false;
     }
     m_hasAudio = true;
-    m_ring = std::make_unique<AudioRingBuffer>();
+    // ~500 ms capacity (matches MultiStreamAudioDecoder's kRingBytes).
+    // The old 2 MB (~5.5 s) default made every producer-side change
+    // (routing, tempo) inaudible for seconds and bought nothing — the
+    // sync servo bounds drift, and the decode thread's depth target
+    // (see decodeThreadFn) keeps ~100 ms buffered, far above
+    // scheduler jitter.
+    m_ring = std::make_unique<AudioRingBuffer>(kRingBytes);
     m_isOpen = true;
     qInfo("AudioDecoder: opened %s — %d Hz, %d ch, %.2fs",
           qPrintable(path), m_sourceSampleRate, m_sourceChannels, m_duration);
@@ -513,6 +467,22 @@ double AudioDecoder::secondsSinceLastSeek() const
     return now - last;
 }
 
+void AudioDecoder::writeAllToRing(const uint8_t *data, std::size_t bytes)
+{
+    // Block until the ring has space — codecs that decode faster
+    // than realtime (e.g. raw WAV) overrun otherwise. A pending seek
+    // or stop abandons the remainder (it's about to be flushed).
+    std::size_t total = 0;
+    while (total < bytes
+           && m_running.load() && !m_seekRequested.load()) {
+        const std::size_t n = m_ring->write(data + total, bytes - total);
+        total += n;
+        if (total < bytes) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+}
+
 void AudioDecoder::flushAndSeek(double position)
 {
     if (!m_formatCtx || m_audioStreamIdx < 0) return;
@@ -520,6 +490,9 @@ void AudioDecoder::flushAndSeek(double position)
 
     m_ring->clear();
     avcodec_flush_buffers(m_codecCtx);
+    // Drop the tempo stage's buffered input/output — WSOLA state from
+    // before the seek must not smear into post-seek audio.
+    m_tempoStage.flush();
 
     int64_t targetTs = static_cast<int64_t>(position / av_q2d(stream->time_base));
     if (m_streamStartTime != AV_NOPTS_VALUE && m_streamStartTime > 0) {
@@ -564,8 +537,12 @@ void AudioDecoder::decodeThreadFn()
                 m_seekRequested = false;
             }
         }
-        // Back-pressure: ring near-full.
-        if (m_ring->availableWrite() < 8192) {
+        // Back-pressure: hold a ~100 ms depth target rather than
+        // filling the ring to the brim. Keeps producer-side changes
+        // (routing/tempo) audible within ~110 ms and keeps the
+        // consumption-based position estimate's worst-case ring
+        // residue small. Mirrors MultiStreamAudioDecoder.
+        if (m_ring->availableRead() > kBackPressureBytes) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
@@ -650,17 +627,30 @@ bool AudioDecoder::decodeNextPacket()
         if (converted > 0) {
             const size_t bytesToWrite = static_cast<size_t>(converted)
                                       * m_outputFormat.channels * sizeof(float);
-            // Block until the ring has space — codecs that decode
-            // faster than realtime (e.g. raw WAV) overrun otherwise.
-            size_t total = 0;
-            const uint8_t *p = m_resampleBuffer.data();
-            while (total < bytesToWrite
-                   && m_running.load() && !m_seekRequested.load()) {
-                const size_t n = m_ring->write(p + total, bytesToWrite - total);
-                total += n;
-                if (total < bytesToWrite) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            if (!m_tempoStage.bypassed()) {
+                // Review-speed path: stretch through the WSOLA stage,
+                // drain whatever it has ready into the ring. The
+                // stage buffers internally until it has an analysis
+                // window, so early receive() calls returning 0 are
+                // normal.
+                constexpr size_t kDrainFrames = 4096;
+                if (m_tempoBuffer.size() < kDrainFrames * 2) {
+                    m_tempoBuffer.resize(kDrainFrames * 2);
                 }
+                m_tempoStage.put(
+                    reinterpret_cast<const float *>(m_resampleBuffer.data()),
+                    static_cast<size_t>(converted));
+                size_t got = 0;
+                while (m_running.load() && !m_seekRequested.load()
+                       && (got = m_tempoStage.receive(m_tempoBuffer.data(),
+                                                      kDrainFrames)) > 0) {
+                    writeAllToRing(
+                        reinterpret_cast<const uint8_t *>(m_tempoBuffer.data()),
+                        got * m_outputFormat.bytesPerFrame());
+                }
+            } else {
+                // 1x path — byte-identical to the pre-tempo code.
+                writeAllToRing(m_resampleBuffer.data(), bytesToWrite);
             }
 
             if (m_decodeFrame->pts != AV_NOPTS_VALUE) {

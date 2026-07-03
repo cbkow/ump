@@ -20,10 +20,13 @@ namespace qcv {
 class AudioRingBuffer
 {
 public:
-    // Default ~2 MB capacity ≈ 11 s at 48 kHz stereo float32. The
-    // exact size isn't load-bearing — decode thread back-pressures
-    // when full so anything ≥ a few frames works. 11 s is a
-    // comfortable cushion for codec bursts and decode jitter.
+    // Default ~2 MB capacity ≈ 5.5 s at 48 kHz stereo float32
+    // (384,000 B/s). The exact size isn't load-bearing — decode
+    // thread back-pressures when full so anything ≥ a few frames
+    // works. Both decoder classes now pass an explicit ~500 ms
+    // capacity and hold a ~100 ms depth target instead of filling
+    // to the brim (deep buffering delays producer-side changes and
+    // buys nothing once the sync servo bounds drift).
     explicit AudioRingBuffer(size_t capacityBytes = 2 * 1024 * 1024)
         : m_capacity(capacityBytes)
         , m_buffer(capacityBytes)

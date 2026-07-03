@@ -123,6 +123,18 @@ public:
     Q_INVOKABLE void requestScrubFrame(int masterFrame);
     Q_INVOKABLE void endScrub(int finalMasterFrame);
 
+    // ---- Shuttle audio (FF/RW hold gesture) ----
+    // WindowManager's fast-seek drives these: beginShuttle at
+    // gesture start (after pause()), shuttleTick per 33 ms
+    // integrator tick with the target master frame + signed ramp
+    // speed, endShuttle at release before the final seekToFrame
+    // commit. Master→per-side source translation happens here (same
+    // math seekToFrame and the pump use); DualAudioMixer's grain
+    // engines do the audio.
+    Q_INVOKABLE void beginShuttle(double signedSpeed);
+    Q_INVOKABLE void shuttleTick(int masterFrame, double signedSpeed);
+    Q_INVOKABLE void endShuttle();
+
     // ---- Per-side scrub for clip-edit feedback (slip/trim) ----
     // Unlike requestScrubFrame (which drives BOTH sides off a master
     // frame AND moves the master timer), this displays a specific

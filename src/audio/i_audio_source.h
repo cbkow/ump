@@ -78,6 +78,14 @@ public:
     // AudioPlayer's drift-correction cooldown.
     virtual double secondsSinceLastSeek() const = 0;
 
+    // True between seek() being requested and the decode thread
+    // completing the flush. While pending, ring content is pre-seek
+    // audio about to be discarded — the render callback outputs
+    // silence instead of consuming it, so the caller's consumption-
+    // based position accounting only ever counts post-flush frames
+    // against the new seek anchor.
+    virtual bool seekPending() const = 0;
+
     // ---- Routing ----
     // Per-clip channel routing mode (qcv::AudioRoutingMode cast to
     // int: 0 = Auto, 1 = Downmix5_1, 2 = Stereo7_8). Setter is
@@ -85,6 +93,17 @@ public:
     // whatever DSP graph is in use without disturbing decoders.
     virtual void setRoutingMode(int mode) = 0;
     virtual int  routingMode() const = 0;
+
+    // ---- Tempo (review speeds) ----
+    // Constant-pitch time-stretch on the decode thread (TempoStage /
+    // SoundTouch WSOLA). tempo semantics: output duration = input /
+    // tempo, so ring frames map to source seconds ×tempo — the
+    // players scale their consumption-based position estimates
+    // accordingly. Setter is thread-safe; 1.0 bypasses the stage
+    // (byte-identical to the pre-tempo path). Callers re-anchor with
+    // a seek after changing it.
+    virtual void   setTempo(double tempo) = 0;
+    virtual double tempo() const = 0;
 
     // ---- Source description (for inspector + meters) ----
     // For AudioDecoder: number of channels in the one open stream.

@@ -321,6 +321,24 @@ AUTO-UPDATE (macOS)
       - SUSignatureVerifier.m              — BSD-2-Clause, Mark Hamlin
 
 ================================================================================
+AUDIO PROCESSING
+================================================================================
+
+36. SoundTouch 2.4.1
+    Copyright (c) Olli Parviainen 2001-2026.
+    License: GNU Lesser General Public License version 2.1 (LGPL v2.1)
+    Website: https://www.surina.net/soundtouch/
+    Source: https://codeberg.org/soundtouch/soundtouch
+            (pinned commit 0047e0b1 = release tag 2.4.1)
+    Files: SoundTouch-LICENSE.txt
+    Note: statically linked into the qcview executable (float sample
+    pipeline). Used for constant-pitch time-stretch (WSOLA) in the
+    review-speed playback feature. QCView as a whole is distributed
+    under GPL v3 (see below), which satisfies LGPL v2.1 section 3's
+    GPL-conversion option; the corresponding-source offer below covers
+    relinking/modification rights.
+
+================================================================================
 SOURCE AND OFFER
 ================================================================================
 

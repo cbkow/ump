@@ -40,6 +40,7 @@ Thanks to the communities behind these projects for their documentation, example
 - **Khronos Group** — Vulkan, the cross-vendor compute / video-decode API.
 - **Phosphor Icons** — the icon family used throughout the QML UI.
 - **Google Ink Stroke Modeler** — handwriting / drawing stroke smoothing.
+- **Olli Parviainen / SoundTouch** — WSOLA time-stretch powering constant-pitch review-speed playback.
 - **Phil Harvey / ExifTool** — Adobe project metadata extraction.
 
 ---

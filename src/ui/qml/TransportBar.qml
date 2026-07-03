@@ -187,6 +187,25 @@ Pane {
             onClicked: WindowManager.seekToNextClipStart()
         }
 
+        // Review-speed readout — visible only when playback rate is
+        // not 1x (R cycles presets, Shift+R resets). Click to cycle,
+        // matching the key.
+        Text {
+            visible: Math.abs(WindowManager.reviewSpeed - 1.0) > 0.001
+            text: WindowManager.reviewSpeed.toFixed(2)
+                      .replace(/\.?0+$/, "") + "×"
+            color: Theme.accent
+            font.pixelSize: Theme.fontSizeSmall
+            font.bold: true
+            verticalAlignment: Text.AlignVCenter
+            Layout.leftMargin: Theme.spacingTight
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: WindowManager.cycleReviewSpeed()
+            }
+        }
+
         // Vertical separator after the transport cluster.
         Rectangle {
             Layout.preferredWidth: 1

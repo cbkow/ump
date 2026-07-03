@@ -10,10 +10,14 @@
 // reference track and a 48kHz video both land at the mixer's common
 // sink rate without extra work here.
 //
-// Master-clock sync mirrors AudioPlayer::update — caller passes the
-// dual master playhead in seconds each tick; per-side drift triggers
-// a re-seek on each decoder independently when the threshold +
-// cooldown allow.
+// Master-clock sync mirrors AudioPlayer: a continuous per-side servo.
+// The caller passes per-side translated source positions each pump
+// tick; each side reconstructs its playout position from source
+// frames actually consumed (minus shared device latency) and trims
+// its consumption ratio by up to ±0.2 % through a per-side
+// FractionalResampler in the render callback. Hard re-seeks remain
+// as escape tiers (soft band + >1 s discontinuity), plus the
+// existing gap→clip edge re-seek.
 //
 // Lifetime: owned by DualPlaybackController. Open both paths up
 // front (empty path = silent side); start on play(), stop on
@@ -21,12 +25,18 @@
 
 #pragma once
 
+#include "audio/audio_sync_servo.h"
+#include "audio/fractional_resampler.h"
+#include "audio/shuttle_audio_engine.h"
+
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 
 namespace qcv {
@@ -117,6 +127,26 @@ public:
     void setSyncOffsetMs(int ms);
     int  syncOffsetMs() const { return m_syncOffsetMs.load(); }
 
+    // Constant-pitch playback tempo (review speeds), applied to both
+    // sides — the dual island plays one master clock, so per-side
+    // tempos make no sense. Caller re-seeks (seekPerSide) right
+    // after so both anchors restart clean.
+    void setTempoBoth(double tempo);
+
+    // ---- Shuttle (FF/RW hold gesture) ----
+    // Two ShuttleAudioEngines (one per side) following the per-side
+    // translated source positions DualPlaybackController computes
+    // from the master shuttle position. srcSec < 0 = that side is in
+    // a timeline gap (engine silences but keeps tracking). While
+    // active, processAudio mixes the grain engines instead of the
+    // decoders; per-side mutes still apply. begin starts the device
+    // (dual pause() stopped it); end stops it again unless playing.
+    void beginShuttle(double srcSecA, double srcSecB, double signedSpeed);
+    void shuttleTargetPerSide(double srcSecA, double srcSecB,
+                              double signedSpeed);
+    void endShuttle();
+    bool shuttleActive() const { return m_shuttleActive.load(); }
+
     // Per-side channel routing. Pass-through to the corresponding
     // AudioDecoder; safe mid-playback. Each side's MediaItem carries
     // its own AudioRoutingMode (per the videoRangeOverride pattern),
@@ -141,6 +171,34 @@ private:
     static void dataCallback(void *device, float *output,
                               uint32_t frameCount, void *userData);
     void processAudio(float *output, uint32_t frameCount);
+
+    // Per-side servo state. Mirrors AudioPlayer's members: the anchor
+    // is owned by the seek sites, consumption is counted at the ring
+    // drain in processAudio (REAL frames only — silence padding and
+    // seek-pending windows don't advance it), and updatePerSide runs
+    // the PI controller on the pump thread with the resulting ratio
+    // crossing to the callback through the atomic.
+    struct SideSync {
+        std::atomic<double>   anchorSrcSec{0.0};
+        std::atomic<uint64_t> srcFramesConsumed{0};
+        std::atomic<float>    ratio{1.0f};
+        // Raised by seek sites, consumed by updatePerSide — resets
+        // the controller + dt baseline without cross-thread access
+        // to the non-atomic members below.
+        std::atomic<bool>     resetPending{true};
+
+        AudioSyncServo        servo;       // pump thread only
+        std::chrono::steady_clock::time_point lastUpdate{};   // pump
+        bool                  lastUpdateValid = false;         // pump
+        int                   logCounter = 0;                  // pump
+
+        FractionalResampler   resampler;   // render callback only
+    };
+    // Re-anchor one side at a fresh source position (seek sites).
+    void reanchorSide(SideSync &sync, double anchorSrcSec);
+    // Servo tick for one side (updatePerSide).
+    void servoSide(const char *tag, IAudioSource *dec, SideSync &sync,
+                   double targetSrcSec);
 
     bool m_initialized = false;
     // IAudioSource so each side independently dispatches to single-
@@ -171,6 +229,18 @@ private:
     // for drift detection and gap→clip re-seek.
     std::atomic<double> m_lastSeekPosA{-1.0};
     std::atomic<double> m_lastSeekPosB{-1.0};
+
+    SideSync m_syncA;
+    SideSync m_syncB;
+
+    // Shuttle grain engines (lazy — constructed on first gesture)
+    // + the side paths remembered from open() so shuttle can hand
+    // the grain readers their files.
+    std::unique_ptr<ShuttleAudioEngine> m_shuttleA;
+    std::unique_ptr<ShuttleAudioEngine> m_shuttleB;
+    std::atomic<bool> m_shuttleActive{false};
+    QString m_pathA;
+    QString m_pathB;
 
     // Single A/V-sync offset shared by both sides (matches the
     // global slider). Applied internally at every seek call site.

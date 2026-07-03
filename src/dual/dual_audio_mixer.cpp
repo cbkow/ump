@@ -151,6 +151,9 @@ bool DualAudioMixer::open(const QString &pathA, const QString &pathB,
     // (or vice versa) — they're independent.
     m_decoderA = makeDecoderForPath(pathA, this, audioStreamCountHintA);
     m_decoderB = makeDecoderForPath(pathB, this, audioStreamCountHintB);
+    // Remembered for the shuttle engines' grain readers.
+    m_pathA = pathA;
+    m_pathB = pathB;
 
     bool any = false;
     if (m_decoderA && !pathA.isEmpty() && m_decoderA->open(pathA)) {
@@ -174,8 +177,11 @@ bool DualAudioMixer::open(const QString &pathA, const QString &pathB,
 void DualAudioMixer::close()
 {
     if (m_playing.load()) pause();
+    endShuttle();
     if (m_decoderA) m_decoderA->close();
     if (m_decoderB) m_decoderB->close();
+    m_pathA.clear();
+    m_pathB.clear();
     emit hasAudioChanged();
 }
 
@@ -218,6 +224,7 @@ void DualAudioMixer::seekPerSide(double sourceSecondsA,
     if (m_decoderA && m_decoderA->hasAudio()) {
         if (sourceSecondsA >= 0.0) {
             m_decoderA->seek(sourceSecondsA - offsetSec);
+            reanchorSide(m_syncA, sourceSecondsA - offsetSec);
             m_lastSeekPosA.store(sourceSecondsA);
         }
         m_inGapA.store(sourceSecondsA < 0.0);
@@ -227,12 +234,24 @@ void DualAudioMixer::seekPerSide(double sourceSecondsA,
     if (m_decoderB && m_decoderB->hasAudio()) {
         if (sourceSecondsB >= 0.0) {
             m_decoderB->seek(sourceSecondsB - offsetSec);
+            reanchorSide(m_syncB, sourceSecondsB - offsetSec);
             m_lastSeekPosB.store(sourceSecondsB);
         }
         m_inGapB.store(sourceSecondsB < 0.0);
     } else {
         m_inGapB.store(true);
     }
+}
+
+void DualAudioMixer::reanchorSide(SideSync &sync, double anchorSrcSec)
+{
+    // Order matters like AudioPlayer::seek: the decoder seek was
+    // issued by the caller first (seekPending is up, so the render
+    // callback stops consuming), then the anchor/counter reset here.
+    sync.anchorSrcSec.store(anchorSrcSec, std::memory_order_relaxed);
+    sync.srcFramesConsumed.store(0, std::memory_order_relaxed);
+    sync.ratio.store(1.0f, std::memory_order_relaxed);
+    sync.resetPending.store(true, std::memory_order_release);
 }
 
 void DualAudioMixer::setSyncOffsetMs(int ms)
@@ -246,22 +265,23 @@ void DualAudioMixer::updatePerSide(double sourceSecondsA,
                                      double sourceSecondsB)
 {
     // Edit-aware sync. Called per pump tick by the controller.
-    // Two responsibilities:
+    // Three responsibilities:
     //   1. Update gap flags so processAudio skips the right side
     //      when master is outside that track's clip range.
     //   2. Re-seek a side when it transitions gap → clip, so audio
     //      resumes at the new clip's source-in offset rather than
     //      where the gap left it.
-    // Drift correction (long-running re-seek for clock skew) is
-    // a follow-up — the decoders + device share a wall clock and
-    // nominal drift in steady state is zero.
+    //   3. Run the per-side drift servo (see header) while inside
+    //      a clip — this is dual's first continuous drift control;
+    //      before it, sides relied on sharing a wall clock.
     constexpr double kSeekCooldownSeconds = 1.0;
 
     const double offsetSec =
         m_syncOffsetMs.load(std::memory_order_relaxed) / 1000.0;
-    auto handle = [offsetSec](IAudioSource *dec, double newPos,
-                                std::atomic<bool> &inGap,
-                                std::atomic<double> &lastSeekPos) {
+    auto handle = [&](const char *tag, IAudioSource *dec, double newPos,
+                      std::atomic<bool> &inGap,
+                      std::atomic<double> &lastSeekPos,
+                      SideSync &sync) {
         if (!dec || !dec->hasAudio()) {
             inGap.store(true);
             return;
@@ -269,19 +289,118 @@ void DualAudioMixer::updatePerSide(double sourceSecondsA,
         const bool wasInGap = inGap.load();
         const bool nowInGap = (newPos < 0.0);
         if (nowInGap != wasInGap) inGap.store(nowInGap);
-        if (!nowInGap && wasInGap) {
+        if (nowInGap) {
+            // No consumption while gapped — the position estimate is
+            // frozen, so make the servo start fresh at the next clip.
+            sync.resetPending.store(true, std::memory_order_release);
+            return;
+        }
+        if (wasInGap) {
             // Gap → clip transition. Seek the decoder to the new
             // clip's source position so playback resumes at the
             // right offset. Cooldown is short (we don't expect
             // back-to-back gap crossings).
             if (dec->secondsSinceLastSeek() > kSeekCooldownSeconds) {
                 dec->seek(newPos - offsetSec);
+                reanchorSide(sync, newPos - offsetSec);
                 lastSeekPos.store(newPos);
             }
+            return;   // let the seek settle before servoing
         }
+        servoSide(tag, dec, sync, newPos - offsetSec);
     };
-    handle(m_decoderA.get(), sourceSecondsA, m_inGapA, m_lastSeekPosA);
-    handle(m_decoderB.get(), sourceSecondsB, m_inGapB, m_lastSeekPosB);
+    handle("A", m_decoderA.get(), sourceSecondsA, m_inGapA,
+           m_lastSeekPosA, m_syncA);
+    handle("B", m_decoderB.get(), sourceSecondsB, m_inGapB,
+           m_lastSeekPosB, m_syncB);
+}
+
+void DualAudioMixer::servoSide(const char *tag, IAudioSource *dec,
+                                 SideSync &sync, double targetSrcSec)
+{
+    // Per-side mirror of AudioPlayer::update's tiers — see that
+    // function for the rationale on each constant. `targetSrcSec`
+    // arrives already shifted into the decoder's (offset-applied)
+    // source domain, matching the anchors reanchorSide stores.
+    constexpr double kServoBandSeconds     = 0.040;
+    constexpr double kSeekCooldownSeconds  = 1.0;
+    constexpr double kDiscontinuitySeconds = 1.0;
+
+#if QCV_DUAL_HAS_AUDIO_DEVICE
+    if (!m_device) return;
+
+    if (sync.resetPending.exchange(false, std::memory_order_acquire)) {
+        sync.servo.reset();
+        sync.lastUpdateValid = false;
+        sync.ratio.store(1.0f, std::memory_order_relaxed);
+    }
+    if (dec->seekPending()) {
+        sync.lastUpdateValid = false;
+        return;
+    }
+    // EOF tail: nothing to consume past stream end; freeze rather
+    // than thrash seeks against EOF (e.g. B shorter than A).
+    const double dur = dec->duration();
+    if (dur > 0.0 && targetSrcSec > dur - 0.050) {
+        sync.ratio.store(1.0f, std::memory_order_relaxed);
+        sync.lastUpdateValid = false;
+        return;
+    }
+
+    // Ring frames are output-domain; ×tempo maps back to source
+    // seconds (constant within an anchor epoch — tempo changes
+    // re-seek both sides).
+    const double tempo = dec->tempo();
+    const double ratioNow = static_cast<double>(
+        sync.ratio.load(std::memory_order_relaxed));
+    const double srcSecConsumed =
+        static_cast<double>(
+            sync.srcFramesConsumed.load(std::memory_order_relaxed))
+        / static_cast<double>(m_device->sampleRate()) * tempo;
+    const double latencySec =
+        m_device->bufferLatencySeconds() * ratioNow * tempo;
+    const double audioSrcPos =
+        sync.anchorSrcSec.load(std::memory_order_relaxed)
+        + srcSecConsumed - latencySec;
+
+    const double drift    = targetSrcSec - audioSrcPos;
+    const double absDrift = std::abs(drift);
+
+    if (absDrift > kServoBandSeconds) {
+        const bool discontinuity = absDrift > kDiscontinuitySeconds;
+        if (discontinuity
+            || dec->secondsSinceLastSeek() > kSeekCooldownSeconds) {
+            qInfo("DualAudioMixer[%s]: drift %+0.0f ms — re-seeking to "
+                  "%.2fs%s",
+                  tag, drift * 1000.0, targetSrcSec,
+                  discontinuity ? " (discontinuity, cooldown bypassed)"
+                                : "");
+            dec->seek(targetSrcSec);
+            reanchorSide(sync, targetSrcSec);
+        }
+        return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    double dt = 0.0;
+    if (sync.lastUpdateValid) {
+        dt = std::chrono::duration<double>(now - sync.lastUpdate).count();
+    }
+    sync.lastUpdate      = now;
+    sync.lastUpdateValid = true;
+
+    const double ratio = sync.servo.update(drift, dt);
+    sync.ratio.store(static_cast<float>(ratio), std::memory_order_relaxed);
+
+    // Convergence trace ~every 10 s at the 60 Hz pump cadence.
+    if (++sync.logCounter >= 600) {
+        sync.logCounter = 0;
+        qInfo("DualAudioMixer[%s]: servo drift %+.1f ms  ratio %.5f",
+              tag, drift * 1000.0, ratio);
+    }
+#else
+    Q_UNUSED(tag); Q_UNUSED(dec); Q_UNUSED(sync); Q_UNUSED(targetSrcSec);
+#endif
 }
 
 bool DualAudioMixer::hasAudioA() const
@@ -304,6 +423,67 @@ void DualAudioMixer::setMutedB(bool m)
 {
     if (m_mutedB.exchange(m) == m) return;
     emit mutedBChanged();
+}
+
+void DualAudioMixer::setTempoBoth(double tempo)
+{
+    if (m_decoderA) m_decoderA->setTempo(tempo);
+    if (m_decoderB) m_decoderB->setTempo(tempo);
+}
+
+void DualAudioMixer::beginShuttle(double srcSecA, double srcSecB,
+                                    double signedSpeed)
+{
+    if (!m_initialized) return;
+    if (!m_shuttleA) m_shuttleA = std::make_unique<ShuttleAudioEngine>();
+    if (!m_shuttleB) m_shuttleB = std::make_unique<ShuttleAudioEngine>();
+
+    auto beginSide = [&](ShuttleAudioEngine &e, IAudioSource *dec,
+                         const QString &path, double srcSec) {
+        const bool usable = dec && dec->hasAudio() && !path.isEmpty();
+        e.begin(usable ? path : QString(),
+                std::max(0.0, srcSec), signedSpeed,
+                dec ? dec->routingMode() : 0);
+        e.setInGap(srcSec < 0.0);
+    };
+    beginSide(*m_shuttleA, m_decoderA.get(), m_pathA, srcSecA);
+    beginSide(*m_shuttleB, m_decoderB.get(), m_pathB, srcSecB);
+    m_shuttleActive.store(true);
+#if QCV_DUAL_HAS_AUDIO_DEVICE
+    // Dual pause() at gesture start stopped the device; the grain
+    // rings need the callback running.
+    if (m_device) m_device->start();
+#endif
+}
+
+void DualAudioMixer::shuttleTargetPerSide(double srcSecA, double srcSecB,
+                                            double signedSpeed)
+{
+    if (!m_shuttleActive.load()) return;
+    auto tick = [&](ShuttleAudioEngine *e, const QString &path,
+                    double srcSec) {
+        if (!e) return;
+        if (srcSec < 0.0) {
+            // Gap: silence but keep the last real target so clip
+            // re-entry snaps from something sensible.
+            e->setInGap(true);
+            return;
+        }
+        e->setInGap(false);
+        e->updateTarget(path, srcSec, signedSpeed);
+    };
+    tick(m_shuttleA.get(), m_pathA, srcSecA);
+    tick(m_shuttleB.get(), m_pathB, srcSecB);
+}
+
+void DualAudioMixer::endShuttle()
+{
+    if (!m_shuttleActive.exchange(false)) return;
+    if (m_shuttleA) m_shuttleA->end();
+    if (m_shuttleB) m_shuttleB->end();
+#if QCV_DUAL_HAS_AUDIO_DEVICE
+    if (m_device && !m_playing.load()) m_device->stop();
+#endif
 }
 
 void DualAudioMixer::setRoutingModeA(int mode)
@@ -351,24 +531,81 @@ void DualAudioMixer::processAudio(float *output, uint32_t frameCount)
     const size_t samples = static_cast<size_t>(frameCount) * 2; // stereo
     std::memset(output, 0, samples * sizeof(float));
 
+    // Shuttle preempts normal playback (which the gesture paused):
+    // mix the grain engines, honoring per-side mutes, through the
+    // same soft-limit shape as the normal path below.
+    if (m_shuttleActive.load()) {
+        static thread_local std::vector<float> shuttleBuf;
+        if (shuttleBuf.size() < samples) shuttleBuf.resize(samples);
+        auto mixEngine = [&](ShuttleAudioEngine *e, bool muted) {
+            if (!e || muted) return;
+            e->read(shuttleBuf.data(), frameCount);
+            for (size_t i = 0; i < samples; ++i) {
+                output[i] += shuttleBuf[i];
+            }
+        };
+        mixEngine(m_shuttleA.get(), m_mutedA.load());
+        mixEngine(m_shuttleB.get(), m_mutedB.load());
+        auto softLimitShuttle = [](float x) noexcept -> float {
+            constexpr float threshold = 0.8f;
+            if (x >  threshold) {
+                const float excess = x - threshold;
+                return  threshold
+                        + (1.0f - threshold) * (excess / (1.0f + excess));
+            }
+            if (x < -threshold) {
+                const float excess = -x - threshold;
+                return -threshold
+                        - (1.0f - threshold) * (excess / (1.0f + excess));
+            }
+            return x;
+        };
+        for (size_t i = 0; i < samples; ++i) {
+            output[i] = softLimitShuttle(output[i]);
+        }
+        return;
+    }
+
     if (!m_playing.load()) return;
 
-    // Pull each side into a temp buffer, sum into output. Both
-    // sides land at 48k stereo float32 (AudioDecoder's SwrContext
-    // resamples on the decode thread), so direct accumulation works.
+    // Pull each side through its servo resampler into a temp buffer,
+    // sum into output. Both sides land at 48k stereo float32 (the
+    // decoders resample on their decode threads), so direct
+    // accumulation works. Buffers are thread_local and grow-once —
+    // same idiom the pre-servo version used for sideBuf.
     static thread_local std::vector<float> sideBuf;
+    static thread_local std::vector<float> srcBuf;
     if (sideBuf.size() < samples) sideBuf.resize(samples);
 
-    auto pullAndMix = [&](IAudioSource *dec, bool muted, bool inGap) {
-        if (!dec || !dec->hasAudio() || muted || inGap) return;
-        std::memset(sideBuf.data(), 0, samples * sizeof(float));
-        dec->read(sideBuf.data(), frameCount);
+    auto pullAndMix = [&](IAudioSource *dec, SideSync &sync,
+                          bool muted, bool inGap) {
+        if (!dec || !dec->hasAudio() || inGap) return;
+        // Seek in flight: don't consume pre-flush frames (they'd
+        // count against the fresh anchor). Side is silent this
+        // callback; the flush completes within a decode iteration.
+        if (dec->seekPending()) return;
+
+        const double ratio = static_cast<double>(
+            sync.ratio.load(std::memory_order_relaxed));
+        const size_t srcNeeded =
+            sync.resampler.sourceFramesNeeded(frameCount, ratio);
+        if (srcBuf.size() < srcNeeded * 2) srcBuf.resize(srcNeeded * 2);
+
+        // Count only REAL frames (read() pads underrun with silence).
+        const size_t framesRead = dec->read(srcBuf.data(), srcNeeded);
+        sync.resampler.process(srcBuf.data(), srcNeeded,
+                               sideBuf.data(), frameCount, ratio);
+        sync.srcFramesConsumed.fetch_add(framesRead,
+                                         std::memory_order_relaxed);
+        // Muted sides still consume (position keeps tracking the
+        // clock) — unmute plays current audio, not a stale buffer.
+        if (muted) return;
         for (size_t i = 0; i < samples; ++i) {
             output[i] += sideBuf[i];
         }
     };
-    pullAndMix(m_decoderA.get(), m_mutedA.load(), m_inGapA.load());
-    pullAndMix(m_decoderB.get(), m_mutedB.load(), m_inGapB.load());
+    pullAndMix(m_decoderA.get(), m_syncA, m_mutedA.load(), m_inGapA.load());
+    pullAndMix(m_decoderB.get(), m_syncB, m_mutedB.load(), m_inGapB.load());
 
     // Soft limit on the sum so two unity-gain sources mixing to
     // ±2.0 don't hard-clip the device. Same shape as

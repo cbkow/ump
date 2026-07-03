@@ -29,6 +29,7 @@
 
 #include "audio_ring_buffer.h"
 #include "i_audio_source.h"
+#include "tempo_stage.h"
 
 #include <QObject>
 #include <QString>
@@ -78,6 +79,15 @@ public:
     const AudioFormat &format() const override { return m_outputFormat; }
 
     double secondsSinceLastSeek() const override;
+
+    // Set by seek(), cleared by the decode thread only after
+    // flushAndSeek (graph flush + ring clear) completed.
+    bool seekPending() const override { return m_seekRequested.load(); }
+
+    // Constant-pitch tempo (review speeds). Pass-through to the
+    // TempoStage; applied lazily on the decode thread. 1.0 = bypass.
+    void   setTempo(double tempo) override { m_tempoStage.setTempo(tempo); }
+    double tempo() const override { return m_tempoStage.tempo(); }
 
     void setRoutingMode(int mode) override;
     int  routingMode() const override { return m_routingMode.load(); }
@@ -158,6 +168,11 @@ private:
 
     // Output ring (float32 stereo @ m_outputFormat.sampleRate).
     std::unique_ptr<AudioRingBuffer> m_ring;
+
+    // Constant-pitch tempo stage (review speeds) + drain buffer.
+    // Decode-thread-owned apart from the thread-safe setTempo knob.
+    TempoStage         m_tempoStage;
+    std::vector<float> m_tempoBuffer;
 
     // Decode + pump.
     std::thread        m_decodeThread;

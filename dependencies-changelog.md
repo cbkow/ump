@@ -5,6 +5,32 @@ pin, reason, tested platforms, and anything to watch in production.
 
 ---
 
+## 2026-07-02 — SoundTouch: NEW dependency, commit `0047e0b1` (tag 2.4.1)
+
+**Dependency:** SoundTouch (vendored via FetchContent in
+`external/CMakeLists.txt`, statically linked into `qcv_audio`).
+
+**Pin:** commit `0047e0b1ecfceb041348579119bf79b73a322a3a` = upstream
+release tag `2.4.1` (codeberg.org/soundtouch/soundtouch).
+
+**Reason:** New feature — constant-pitch review-speed playback
+(0.5x–2x). `TempoStage` (`src/audio/tempo_stage.{h,cpp}`) wraps one
+`soundtouch::SoundTouch` per audio decoder as a decode-thread WSOLA
+stage; 1x playback bypasses it entirely.
+
+**Build flags:** `INTEGER_SAMPLES=OFF` (float pipeline),
+`SOUNDSTRETCH=OFF`, `SOUNDTOUCH_DLL=OFF`. NEON autodetects on arm64.
+
+**License:** LGPL v2.1, statically linked — covered by the app's GPL v3
+distribution (see `LICENSES/THIRD_PARTY_NOTICES.txt` §36 +
+`LICENSES/SoundTouch-LICENSE.txt`).
+
+**Tested:** macOS arm64 (builds + links clean). Windows build pending
+next Windows CI/machine pass — plain C++ with first-class CMake, no
+platform code expected to differ.
+
+---
+
 ## 2026-06-24 — macOS FFmpeg: self-built `n8.1` → `n8.1.2`
 
 **Dependency:** FFmpeg (macOS self-built arm64 build, vendored in-tree at
