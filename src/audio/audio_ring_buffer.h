@@ -34,11 +34,25 @@ public:
         , m_readPos(0)
     {}
 
-    // Reset both indices. Call on seek / stop.
+    // Reset both indices. Call on seek / stop. NOT safe while the
+    // other side is live — a concurrent producer/consumer can strand
+    // its position past the reset index. Use discardAll() to flush
+    // from the consumer while the producer keeps running.
     void clear() noexcept
     {
         m_writePos.store(0, std::memory_order_release);
         m_readPos .store(0, std::memory_order_release);
+    }
+
+    // Consumer-only: drop everything currently readable by skipping
+    // the read cursor up to the producer's position. Only the
+    // consumer ever moves m_readPos, so this is SPSC-safe with a
+    // live producer (anything written after the writePos load simply
+    // remains readable).
+    void discardAll() noexcept
+    {
+        m_readPos.store(m_writePos.load(std::memory_order_acquire),
+                        std::memory_order_release);
     }
 
     // Bytes available to read (consumer perspective).

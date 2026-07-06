@@ -5,8 +5,9 @@
 //   - AudioPlayer / DualAudioMixer render callbacks (sync servo):
 //     ratios within 1 ± 0.002 — trims audio consumption rate so the
 //     playout position converges on the master clock without seeks.
-//   - ShuttleAudioEngine grains (varispeed): ratios 0.5 .. 32 — the
-//     tape-style pitch-follows-speed shuttle sound.
+//   - ShuttleAudioEngine grains (varispeed): ratios 0.05 .. 1 — the
+//     tape-style pitch-follows-speed sound for sub-1x scrubs (pitch
+//     is capped at natural above 1x; see kPitchCap there).
 //
 // Cubic Catmull-Rom interpolation over a 4-frame window. A 3-frame
 // history plus a fractional phase carry across process() calls so

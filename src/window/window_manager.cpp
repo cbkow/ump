@@ -3908,16 +3908,18 @@ void WindowManager::scrubAudioMove(double timelineSeconds)
     if (!m_scrubAudioActive) return;
 
     // Drag-velocity estimate: signed source-seconds per wall second,
-    // EMA-smoothed with a dt-scaled alpha (tau ≈ 80 ms) so mouse
-    // event jitter doesn't warble the grain pitch. The engine's
-    // hold detection covers the stationary case (no move events
-    // arrive here to decay the estimate).
+    // EMA-smoothed with a dt-scaled alpha (tau ≈ 40 ms) so mouse
+    // event jitter doesn't warble the grain pitch. Tau was 80 ms
+    // when jitter above 1x was audible; with the engine's 1x pitch
+    // cap only sub-1x drags hear the estimate, so a faster tracker
+    // wins. The engine's hold detection covers the stationary case
+    // (no move events arrive here to decay the estimate).
     const qint64 now = m_scrubVelClock.elapsed();
     const double dt  = static_cast<double>(now - m_scrubVelLastMs) * 1e-3;
     if (dt > 0.0005) {
         double v = (timelineSeconds - m_scrubVelLastSec) / dt;
         v = std::clamp(v, -32.0, 32.0);
-        const double alpha = 1.0 - std::exp(-dt / 0.080);
+        const double alpha = 1.0 - std::exp(-dt / 0.040);
         m_scrubVelEma += alpha * (v - m_scrubVelEma);
         m_scrubVelLastMs  = now;
         m_scrubVelLastSec = timelineSeconds;
@@ -4504,10 +4506,10 @@ void WindowManager::startFastSeek(int direction)
         m_fastSeekPositionSec = 0.0;
     }
 
-    // Shuttle audio: deck-style pitched grains following the gesture
-    // position (ShuttleAudioEngine). Replaces the old audio-only
-    // per-tick m_audio->seek storm (a destructive ring+codec flush
-    // every 33 ms). Routing per mode:
+    // Shuttle audio: skim-style grains following the gesture position
+    // (ShuttleAudioEngine; natural pitch above 1x, varispeed below).
+    // Replaces the old audio-only per-tick m_audio->seek storm (a
+    // destructive ring+codec flush every 33 ms). Routing per mode:
     //   dual     → controller translates master→per-side source and
     //              drives the mixer's two engines
     //   playlist → timeline pos maps to (clip file, source sec);

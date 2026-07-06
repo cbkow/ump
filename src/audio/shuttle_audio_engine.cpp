@@ -15,26 +15,25 @@ namespace {
 constexpr int         kOutRate           = 48000;
 constexpr std::size_t kGrainOutFrames    = 3840;   // 80 ms per grain
 constexpr std::size_t kEdgeFadeFrames    = 240;    // 5 ms grain-edge fade
-// Below this |speed|, reverse grains get their PCM reversed for the
-// authentic backwards sound. Above it a grain spans so much source
-// time that reversal is imperceptible — keep forward PCM and let the
-// sparse "spooling" character carry the position feedback.
-constexpr double      kReverseGrainMaxSpeed = 8.0;
-// Back-pressure: hold ~120 ms buffered so speed changes stay audible
-// within ~a grain of latency.
-constexpr std::size_t kMaxBufferedBytes  = 46080;
-// Varispeed clamp for the GRAIN math (pitch + source span). The low
-// end covers drag-scrub, where a slow drag plays deeply pitched-down
-// grains (classic analog-scrub sound). The high end is the PITCH CAP:
-// transport speeds above it (shuttle ramps to 32x, aggressive drags
-// hit similar rates) do NOT pitch further — linear varispeed at 32x
-// is a 5-octave squeal. Instead the cursor advances at the cap, the
-// target runs ahead at the real speed, and the snap rule below jumps
-// the cursor forward — the audio degrades into cap-pitched snippets
-// sampled sparsely along the path, which is what real decks (and
-// Premiere/Avid shuttle) sound like at high speed.
+// Back-pressure: hold ~40 ms buffered. Queued audio is committed at
+// the speed it was produced with, so queue depth IS the speed-change
+// latency; with the 80 ms grain the queue sawtooths 40–120 ms.
+constexpr std::size_t kMaxBufferedBytes  = 15360;
+// Post-flush fade-in (render callback): a direction-flip flush cuts
+// the output mid-waveform; ramp the next ~2.7 ms in to soften it.
+constexpr std::size_t kFlushFadeFrames   = 128;
+// Varispeed clamp for the GRAIN math (pitch + source span). Below 1x
+// pitch follows speed — a slow drag-scrub plays deeply pitched-down
+// grains (the tape sound, useful for finding a beat or a word by
+// ear; Pro Tools-style). Above 1x pitch does NOT rise: grains keep
+// playing at natural pitch while the transport target runs ahead at
+// the real speed, and the snap rule below jumps the cursor forward —
+// fast shuttles/drags become natural-pitch fragments sampled sparsely
+// along the path (FCP-skim / Avid digital-scrub sound). The previous
+// 4x cap read as a constant squeal: at fit-to-width zoom nearly any
+// drag exceeds 4x real time, so every gesture pinned the cap.
 constexpr double      kMinSpeed  = 0.05;
-constexpr double      kPitchCap  = 4.0;   // ~2 octaves up, then plateau
+constexpr double      kPitchCap  = 1.0;   // natural pitch is the ceiling
 // Hold detection: below this |speed|, or when the transport target
 // hasn't moved for the timeout, the engine idles silent (cursor
 // keeps tracking). Covers a stationary drag-scrub mouse (no move
@@ -67,12 +66,20 @@ void ShuttleAudioEngine::begin(const QString &path, double startSrcSec,
     }
     m_reqGeneration.fetch_add(1, std::memory_order_release);
     m_targetSrcSec.store(startSrcSec, std::memory_order_relaxed);
-    m_signedSpeed.store(signedSpeed, std::memory_order_relaxed);
+    const double prevSpeed =
+        m_signedSpeed.exchange(signedSpeed, std::memory_order_relaxed);
+    // Direction flip while live (J→L etc. re-begins without a thread
+    // teardown): the queued audio is wrong-way — flush it.
+    if (prevSpeed * signedSpeed < 0.0) {
+        m_flushRing.store(true, std::memory_order_release);
+    }
     m_inGap.store(false, std::memory_order_relaxed);
     m_lastTargetMoveMs.store(nowMs(), std::memory_order_relaxed);
 
     if (!m_running.load()) {
         m_ring.clear();
+        m_flushRing.store(false, std::memory_order_relaxed);
+        m_postFlushFadeLeft = 0;
         m_running.store(true);
         m_active.store(true);
         m_thread = std::thread(&ShuttleAudioEngine::grainThreadFn, this);
@@ -88,7 +95,14 @@ void ShuttleAudioEngine::updateTarget(const QString &path, double srcSec,
     if (std::abs(srcSec - prevTarget) > kTargetMoveEpsilon) {
         m_lastTargetMoveMs.store(nowMs(), std::memory_order_relaxed);
     }
-    m_signedSpeed.store(signedSpeed, std::memory_order_relaxed);
+    const double prevSpeed =
+        m_signedSpeed.exchange(signedSpeed, std::memory_order_relaxed);
+    // Direction flip (drag reversal, shuttle J↔L): everything queued
+    // in the ring is wrong-way audio — have the render callback
+    // discard it rather than play up to ~120 ms of it.
+    if (prevSpeed * signedSpeed < 0.0) {
+        m_flushRing.store(true, std::memory_order_release);
+    }
     // Path handoff only when it actually changed (playlist boundary).
     bool changed = false;
     {
@@ -127,9 +141,27 @@ std::size_t ShuttleAudioEngine::read(float *out, std::size_t frames)
         std::memset(out, 0, frames * 2 * sizeof(float));
         return 0;
     }
+    // Direction flip: everything queued is wrong-way audio. Discard
+    // it from the consumer side (SPSC-safe — see discardAll) and
+    // fade the next delivered samples in to soften the cut.
+    if (m_flushRing.exchange(false, std::memory_order_acquire)) {
+        m_ring.discardAll();
+        m_postFlushFadeLeft = kFlushFadeFrames;
+    }
     const std::size_t bytesWanted = frames * 2 * sizeof(float);
     const std::size_t bytesRead   = m_ring.read(out, bytesWanted);
     const std::size_t framesRead  = bytesRead / (2 * sizeof(float));
+    if (m_postFlushFadeLeft > 0 && framesRead > 0) {
+        const std::size_t n = std::min(m_postFlushFadeLeft, framesRead);
+        for (std::size_t i = 0; i < n; ++i) {
+            const float g = static_cast<float>(
+                kFlushFadeFrames - m_postFlushFadeLeft + i)
+                / static_cast<float>(kFlushFadeFrames);
+            out[i * 2 + 0] *= g;
+            out[i * 2 + 1] *= g;
+        }
+        m_postFlushFadeLeft -= n;
+    }
     if (framesRead < frames) {
         std::memset(out + framesRead * 2, 0,
                     (frames - framesRead) * 2 * sizeof(float));
@@ -145,6 +177,7 @@ void ShuttleAudioEngine::grainThreadFn()
     // transport target when divergence exceeds the threshold.
     double cursor = m_targetSrcSec.load(std::memory_order_relaxed);
     bool needFadeIn = true;   // fade the first grain in after any reset
+    int prevDir = 0;          // last grain's direction (0 = none yet)
 
     while (m_running.load(std::memory_order_relaxed)) {
         // ---- Source handoff (path change / first grain) ----
@@ -223,10 +256,21 @@ void ShuttleAudioEngine::grainThreadFn()
             m_signedSpeed.load(std::memory_order_relaxed);
         // Pitch-capped grain speed: above kPitchCap the transport
         // target outruns the cursor and the snap rule turns playback
-        // into sparse cap-pitched snippets (see kPitchCap comment).
+        // into sparse natural-pitch snippets (see kPitchCap comment).
         const double aspeed =
             std::clamp(std::abs(signedSpeed), kMinSpeed, kPitchCap);
         const int dir = (signedSpeed < 0.0) ? -1 : 1;
+
+        // Direction flip: the render callback flushes the queued
+        // wrong-way audio; re-anchor on the live target so the first
+        // new grain comes from where the user turned, not wherever
+        // the old direction had run ahead to.
+        if (prevDir != 0 && dir != prevDir) {
+            cursor = m_targetSrcSec.load(std::memory_order_relaxed);
+            m_resampler.reset();
+            needFadeIn = true;
+        }
+        prevDir = dir;
 
         // ---- Re-sync to the transport target ----
         const double target =
@@ -273,7 +317,9 @@ void ShuttleAudioEngine::grainThreadFn()
                         (srcFrames - got) * 2 * sizeof(float));
         }
 
-        const bool reversed = (dir < 0 && aspeed <= kReverseGrainMaxSpeed);
+        // Grain spans never exceed 1x source time (kPitchCap), so
+        // reversal is always audible — reverse every backward grain.
+        const bool reversed = (dir < 0);
         if (reversed) {
             // Reverse whole stereo frames in place.
             float *p = m_srcBuf.data();
@@ -323,6 +369,12 @@ void ShuttleAudioEngine::grainThreadFn()
         std::size_t total = 0;
         const std::size_t want = kGrainOutFrames * 2 * sizeof(float);
         while (total < want && m_running.load(std::memory_order_relaxed)) {
+            // Direction flipped while shipping: the rest of this
+            // grain is wrong-way audio — drop it (the callback is
+            // flushing the queue anyway).
+            const double liveSpeed =
+                m_signedSpeed.load(std::memory_order_relaxed);
+            if (((liveSpeed < 0.0) ? -1 : 1) != dir) break;
             const std::size_t n = m_ring.write(bytes + total, want - total);
             total += n;
             if (total < want) {

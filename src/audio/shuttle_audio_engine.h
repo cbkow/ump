@@ -5,18 +5,25 @@
 // issues per-tick seeks; video chases by sampling. Audio gets this
 // engine instead: a grain thread follows the integrated position,
 // decoding short chunks FORWARD from a synchronous AudioChunkReader,
-// varispeed-resampling them by the current signed speed (pitch
-// follows speed — the tape/deck sound), and feeding a small ring the
-// device callback drains. Direction only affects where the next
-// grain comes from, so RW needs no backward-decode machinery.
+// varispeed-resampling them by the current signed speed, and feeding
+// a small ring the device callback drains. Direction only affects
+// where the next grain comes from, so RW needs no backward-decode
+// machinery.
+//
+// Pitch rule (kPitchCap = 1.0): below 1x, pitch follows speed — the
+// tape sound for slow, deliberate scrubs. At and above 1x, grains
+// play at natural pitch while the cursor snap-chases the faster
+// transport target — fast gestures sound like natural-pitch
+// fragments sampled along the path (FCP-skim / Avid digital scrub),
+// never a pitched-up squeal.
 //
 // Grain geometry: each grain produces kGrainOutFrames (80 ms) from
-// kGrainOutFrames × |speed| source frames — contiguous varispeed
-// segments. Forward grains chain through the reader's continuation
-// fast path AND through the resampler's carried phase, so FF is one
-// continuous pitched stream with no crossfades. Reverse grains are
-// individually reversed (below kReverseGrainMaxSpeed) and edged with
-// short fades to kill boundary clicks.
+// kGrainOutFrames × min(|speed|, 1.0) source frames — contiguous
+// varispeed segments. Forward grains chain through the reader's
+// continuation fast path AND through the resampler's carried phase,
+// so contiguous stretches play as one continuous stream with no
+// crossfades. Reverse grains are individually reversed and edged
+// with short fades to kill boundary clicks.
 //
 // Re-sync: the grain cursor free-runs; each grain it compares against
 // the transport's target and snaps only when the divergence exceeds
@@ -99,6 +106,10 @@ private:
     // moved the target — hold detection for drag-scrub (a stationary
     // mouse stops producing move events) and edge-clamped shuttles.
     std::atomic<int64_t>  m_lastTargetMoveMs{0};
+    // Set on direction sign flips: the queued ring audio is wrong-way
+    // — the render callback discards it (consumer-side, SPSC-safe)
+    // on its next read() instead of playing it out.
+    std::atomic<bool>     m_flushRing{false};
     std::mutex            m_reqMutex;      // guards the two below
     QString               m_reqPath;
     int                   m_reqRouting = 0;
@@ -107,9 +118,14 @@ private:
     std::thread           m_thread;
 
     // ---- Callback-drained output ----
-    // ~170 ms at 48 kHz stereo f32; grain thread back-pressures at
-    // ~120 ms so speed changes stay audible within ~a grain.
+    // ~170 ms capacity at 48 kHz stereo f32; grain thread back-
+    // pressures at ~40 ms, so the queue sawtooths 40–120 ms (one
+    // 80 ms grain lands whenever the level dips under the threshold)
+    // and never blocks the write loop in steady state.
     AudioRingBuffer       m_ring{65536};
+    // Consumer-only (render callback): frames left of the short
+    // fade-in masking the mid-waveform cut a ring flush leaves.
+    std::size_t           m_postFlushFadeLeft = 0;
 
     // ---- Grain-thread-only state ----
     // Reader LRU of 2, keyed by path — survives playlist boundary
