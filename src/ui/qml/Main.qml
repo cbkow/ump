@@ -99,7 +99,7 @@ ApplicationWindow {
         nameFilters: [
             qsTr("Media files (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi *.webm "
                  + "*.wav *.aif *.aiff *.mp3 *.flac *.m4a "
-                 + "*.png *.jpg *.jpeg *.tif *.tiff *.exr *.dpx)"),
+                 + "*.png *.jpg *.jpeg *.tif *.tiff *.exr)"),
             qsTr("All files (*)"),
         ]
         onAccepted: {
@@ -914,9 +914,9 @@ ApplicationWindow {
         // pick any frame of a sequence — ProjectManager.addMediaFile
         // detects siblings and creates one ImageSequence MediaItem.
         nameFilters: [
-            qsTr("Media files (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi *.png *.jpg *.jpeg *.tif *.tiff *.exr *.dpx)"),
+            qsTr("Media files (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi *.png *.jpg *.jpeg *.tif *.tiff *.exr)"),
             qsTr("Video files (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi)"),
-            qsTr("Image / sequence files (*.png *.jpg *.jpeg *.tif *.tiff *.exr *.dpx)"),
+            qsTr("Image / sequence files (*.png *.jpg *.jpeg *.tif *.tiff *.exr)"),
             qsTr("All files (*)")
         ]
         fileMode: FileDialog.OpenFile

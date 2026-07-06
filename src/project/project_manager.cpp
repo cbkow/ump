@@ -24,11 +24,16 @@ namespace {
 // image-sequence detection branch in addMediaFile.
 bool isImageExtension(const QString &suffixLower)
 {
+    // Must stay in lockstep with ImageSequenceCache's
+    // createLoaderForExtension — every extension here is routed to
+    // the native image loaders (as a sequence OR a single still).
+    // DPX was dropped deliberately: no native loader, and no plan to
+    // build one (a .dpx now falls through to the FFmpeg path like
+    // any other unclaimed extension).
     static const QStringList kImageExts = {
         QStringLiteral("png"),  QStringLiteral("jpg"),
         QStringLiteral("jpeg"), QStringLiteral("tif"),
         QStringLiteral("tiff"), QStringLiteral("exr"),
-        QStringLiteral("dpx"),
     };
     return kImageExts.contains(suffixLower);
 }
@@ -249,7 +254,6 @@ QString ProjectManager::detectType(const QString &path, MediaType *outType)
     static const QStringList kImageExts = {
         QStringLiteral("png"), QStringLiteral("jpg"), QStringLiteral("jpeg"),
         QStringLiteral("tif"), QStringLiteral("tiff"), QStringLiteral("exr"),
-        QStringLiteral("dpx"),
     };
 
     MediaType t = MediaType::Video;
@@ -557,7 +561,12 @@ QString ProjectManager::addMediaFile(const QString &path)
             }
             return addImageSequenceFromFile(abs, 24.0);
         }
-        // Single-image fall-through.
+        // Single still (no numbered siblings): import as a 1-frame
+        // ImageSequence so it rides the native loaders (OpenEXR →
+        // FP16, 16-bit PNG, ...) and the OCIO chain instead of
+        // VideoDecoder's 8-bit swscale sink. The playback stack
+        // handles frameCount == 1 as-is.
+        return addSingleImageAsSequence(abs, 24.0);
     }
 
     // Dedupe by absolute path. Multiple entries pointing at the
@@ -666,39 +675,101 @@ QString ProjectManager::addImageSequenceFromFile(const QString &anyFilePath,
     item.imageSeq.missingFrames = std::move(missing);
     // width/height fill in once the decoder probes (WindowManager).
 
+    populateExrImportMetadata(item);
+
+    m_mediaPool.append(item);
+    for (ProjectBin &bin : m_bins) {
+        if (bin.accepts == MediaType::Image) {
+            bin.itemIds.append(item.id);
+            break;
+        }
+    }
+    markDirty();
+    emit binsChanged();
+    return item.id;
+}
+
+void ProjectManager::populateExrImportMetadata(MediaItem &item)
+{
     // EXR layer discovery — open the first frame's header to
     // enumerate parts / channel-prefix tokens. Done at import time
     // so the inspector's layer dropdown is populated before the
     // user opens the clip.
-    if (item.imageSeq.format == QStringLiteral("EXR")) {
-        const auto layers = EXRImageLoader::discoverLayers(
-            item.path.toStdString());
-        QStringList discovered;
-        for (const auto &name : layers) {
-            discovered.append(QString::fromStdString(name));
-        }
-        qInfo("ProjectManager: EXR '%s' layers (%lld): [%s]",
-              qPrintable(item.path),
-              static_cast<long long>(discovered.size()),
-              qPrintable(discovered.join(", ")));
-        item.imageSeq.availableLayers = discovered;
-        if (!discovered.isEmpty()) {
-            // Default to the first layer (usually "default" for
-            // ffmpeg-generated EXRs, "beauty" or similar for
-            // typical VFX renders that name their primary part).
-            item.imageSeq.layer = discovered.first();
-        }
-        // Header-only compression probe — same MultiPartInputFile
-        // open as discoverLayers, kept as a separate call so the
-        // EXR loader interface stays single-purpose. Cheap (no
-        // pixel decode); empty string surfaces nothing in the
-        // inspector.
-        const auto comp = EXRImageLoader::compressionName(
-            item.path.toStdString());
-        if (!comp.empty()) {
-            item.imageSeq.compression = QString::fromStdString(comp);
+    if (item.imageSeq.format != QStringLiteral("EXR")) return;
+
+    const auto layers = EXRImageLoader::discoverLayers(
+        item.path.toStdString());
+    QStringList discovered;
+    for (const auto &name : layers) {
+        discovered.append(QString::fromStdString(name));
+    }
+    qInfo("ProjectManager: EXR '%s' layers (%lld): [%s]",
+          qPrintable(item.path),
+          static_cast<long long>(discovered.size()),
+          qPrintable(discovered.join(", ")));
+    item.imageSeq.availableLayers = discovered;
+    if (!discovered.isEmpty()) {
+        // Default to the first layer (usually "default" for
+        // ffmpeg-generated EXRs, "beauty" or similar for
+        // typical VFX renders that name their primary part).
+        item.imageSeq.layer = discovered.first();
+    }
+    // Header-only compression probe — same MultiPartInputFile
+    // open as discoverLayers, kept as a separate call so the
+    // EXR loader interface stays single-purpose. Cheap (no
+    // pixel decode); empty string surfaces nothing in the
+    // inspector.
+    const auto comp = EXRImageLoader::compressionName(
+        item.path.toStdString());
+    if (!comp.empty()) {
+        item.imageSeq.compression = QString::fromStdString(comp);
+    }
+}
+
+QString ProjectManager::addSingleImageAsSequence(const QString &absPath,
+                                                 double fps)
+{
+    const QFileInfo fi(absPath);
+    const QString dir = fi.absolutePath();
+    // Literal filename as the "pattern": ImageSequenceCache and the
+    // hover-thumb encoder build frame paths with snprintf(pattern,
+    // frame) — a pattern with no % conversion just yields itself.
+    // Escape literal '%' so a name like "render 50%.exr" can't act
+    // as a format string.
+    QString pattern = fi.fileName();
+    pattern.replace(QLatin1Char('%'), QStringLiteral("%%"));
+
+    // Dedupe by directory + pattern — the same key real sequences
+    // use, so re-dropping the file returns the existing item.
+    for (const MediaItem &existing : m_mediaPool) {
+        if (existing.type == MediaType::ImageSequence &&
+            existing.imageSeq.directory == dir &&
+            existing.imageSeq.pattern == pattern) {
+            return existing.id;
         }
     }
+
+    if (fps <= 0.0) fps = 24.0;
+
+    MediaItem item;
+    item.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    item.name = fi.fileName();
+    item.path = fi.absoluteFilePath();
+    item.type = MediaType::ImageSequence;
+    item.duration = 1.0 / fps;
+    item.hasAudio = false;
+
+    item.imageSeq.directory  = dir;
+    item.imageSeq.pattern    = pattern;
+    item.imageSeq.frameCount = 1;
+    item.imageSeq.startFrame = 0;
+    item.imageSeq.endFrame   = 0;
+    item.imageSeq.frameRate  = fps;
+    item.imageSeq.duration   = item.duration;
+    item.imageSeq.format     = fi.suffix().toUpper();
+    // width/height fill in once the decoder probes (WindowManager).
+
+    populateExrImportMetadata(item);
 
     m_mediaPool.append(item);
     for (ProjectBin &bin : m_bins) {

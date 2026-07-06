@@ -274,10 +274,10 @@ Rectangle {
         nameFilters: [
             qsTr("All media (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi *.webm "
                + "*.wav *.aif *.aiff *.mp3 *.flac *.m4a "
-               + "*.png *.jpg *.jpeg *.tif *.tiff *.exr *.dpx)"),
+               + "*.png *.jpg *.jpeg *.tif *.tiff *.exr)"),
             qsTr("Video files (*.mov *.mp4 *.m4v *.mxf *.mkv *.avi *.webm)"),
             qsTr("Audio files (*.wav *.aif *.aiff *.mp3 *.flac *.m4a)"),
-            qsTr("Image files (*.png *.jpg *.jpeg *.tif *.tiff *.exr *.dpx)"),
+            qsTr("Image files (*.png *.jpg *.jpeg *.tif *.tiff *.exr)"),
             qsTr("All files (*)")
         ]
         fileMode: FileDialog.OpenFiles

@@ -399,6 +399,20 @@ public:
 private:
     int findIndexInPool(const QString &id) const;
 
+    // Single still (no numbered siblings on disk) imported as a
+    // 1-frame ImageSequence so it rides the native loader + FP16 +
+    // OCIO path instead of VideoDecoder's 8-bit swscale sink. The
+    // stored pattern is the literal filename (no % token — the
+    // cache's snprintf ignores the frame argument), with any literal
+    // '%' escaped to '%%' so a name like "render 50%.exr" can't act
+    // as a format string.
+    QString addSingleImageAsSequence(const QString &absPath, double fps);
+
+    // EXR import probe shared by sequence + single-image adds:
+    // layer discovery for the inspector dropdown + header-only
+    // compression name. No-op for non-EXR items.
+    static void populateExrImportMetadata(MediaItem &item);
+
     // Image-sequence detection. Given any single file path, parses
     // the filename's trailing digits, scans the directory for
     // siblings sharing the same base+separator+extension, and reports

@@ -1091,6 +1091,12 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
         }
 
         if (!m_loopEnabled) return;
+        // 1-frame sources (a still routed through FFmpeg, a 1-frame
+        // movie): the wrap would spin decode→EOS→seek→decode at full
+        // speed re-showing the same frame — pacing never engages
+        // because each republish resets its baseline. The frame is
+        // already displayed; there is nothing to loop.
+        if (m_videoDecoder->frameCount() <= 1) return;
         m_videoDecoder->seekToFrame(0);
         // Only auto-resume if the user actually wants playback
         // running. Without this guard, a short clip (e.g. 6 frames
