@@ -48,6 +48,9 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.1.10
+- UI tweaks and bug fixes
+
 What’s new in 2.1.9
 - Improved audio scrubbing. It still pitch-shifts when slower than 1x speed, but no longer pitch-shifts when faster than 1x
 - Minimized latency when scrubbing
