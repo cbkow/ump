@@ -43,7 +43,10 @@ Pane {
     }
 
     background: Rectangle {
-        color: "#1c1c1c"
+        // Darker well (aesthetics pass 1) — the InspectorCard planes
+        // inside read as raised against this; was the flat #1c1c1c
+        // shared with the left rail.
+        color: Theme.bg
         // Polish — single-edge divider on the left rather than a
         // 4-sided frame.
         Rectangle {
@@ -181,6 +184,11 @@ Pane {
                 ImageSequenceInspector {
                     id: imageSeqPanel
                     Layout.fillWidth: true
+                    // Inset to match the InspectorCards above (the
+                    // panel is itself a card plane now).
+                    Layout.leftMargin: Theme.padding
+                    Layout.rightMargin: Theme.padding
+                    Layout.bottomMargin: visible ? Theme.padding : 0
                     item: inspectorPanel.displayedItem
                     side: inspectorPanel.dualActive
                           ? inspectorPanel.inspectedSide
@@ -194,12 +202,73 @@ Pane {
                 // Main.qml (file/view menu accelerators),
                 // TimelinePanel.qml (edit-mode shortcuts), and
                 // LeftRail.qml (Delete/F2 for bins).
-                CollapsibleSection {
+                //
+                // Card plane with its own collapse header (same
+                // pattern as ImageSequenceInspector) instead of the
+                // shared CollapsibleSection — that component still
+                // carries the old flat style and gets restyled in
+                // the left-rail pass.
+                Rectangle {
                     id: keyboardShortcutsSection
                     Layout.fillWidth: true
-                    title: qsTr("Keyboard Shortcuts")
-                    iconName: "keyboard"
-                    expanded: false
+                    Layout.leftMargin: Theme.padding
+                    Layout.rightMargin: Theme.padding
+                    Layout.bottomMargin: Theme.padding
+                    color: Theme.card
+                    radius: Theme.radiusBase
+                    clip: true
+                    property bool expanded: false
+                    implicitHeight: expanded
+                        ? shortcutsBody.y + shortcutsBody.implicitHeight
+                          + Theme.padding
+                        : shortcutsHeader.height
+
+                    Rectangle {
+                        id: shortcutsHeader
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: Theme.headerHeight
+                        radius: Theme.radiusBase
+                        color: shortcutsHeaderMa.containsMouse
+                               ? Theme.surfaceHover : "transparent"
+
+                        MouseArea {
+                            id: shortcutsHeaderMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: keyboardShortcutsSection.expanded =
+                                       !keyboardShortcutsSection.expanded
+                        }
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: 0
+                            Item {
+                                Layout.preferredWidth: Theme.gutterWidth
+                                Layout.fillHeight: true
+                                Icon {
+                                    anchors.centerIn: parent
+                                    name: keyboardShortcutsSection.expanded
+                                          ? "caret-down" : "caret-right"
+                                    size: Theme.iconSizeSmall
+                                    color: Theme.textSecondary
+                                }
+                            }
+                            // Card-voice title (tiny caps, muted) —
+                            // matches the InspectorCard titles above.
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Keyboard Shortcuts")
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeTiny
+                                font.bold: true
+                                font.capitalization: Font.AllUppercase
+                                font.letterSpacing: 0.8
+                            }
+                        }
+                    }
 
                     // Each item is either:
                     //   { label, keys }                         — same on all platforms (single keys, F-keys, etc.)
@@ -301,62 +370,90 @@ Pane {
                     ]
 
                     ColumnLayout {
-                        x: 10
-                        width: parent ? parent.width - 20 : 0
+                        id: shortcutsBody
+                        anchors.top: shortcutsHeader.bottom
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: Theme.padding
+                        anchors.rightMargin: Theme.padding
+                        visible: keyboardShortcutsSection.expanded
                         spacing: 0
 
                         Repeater {
                             model: keyboardShortcutsSection.categories
                             delegate: ColumnLayout {
                                 Layout.fillWidth: true
-                                Layout.topMargin: 8
-                                spacing: 2
+                                Layout.topMargin: Theme.padding
+                                spacing: Theme.spacingTight
 
                                 required property var modelData
 
+                                // Category heading — caps voice but a
+                                // notch brighter than the card title;
+                                // group separation is spacing now, no
+                                // hairline rule.
                                 Text {
                                     Layout.fillWidth: true
                                     text: modelData.heading
-                                    color: "#888"
-                                    font.pixelSize: 10
+                                    color: Theme.textSecondary
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.fontSizeTiny
                                     font.bold: true
                                     font.capitalization: Font.AllUppercase
                                     font.letterSpacing: 0.5
-                                }
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.preferredHeight: 1
-                                    Layout.bottomMargin: 2
-                                    color: "#262626"
                                 }
                                 Repeater {
                                     model: modelData.items
                                     delegate: RowLayout {
                                         Layout.fillWidth: true
-                                        spacing: 8
+                                        Layout.preferredHeight: Theme.rowHeightKV + 2
+                                        spacing: Theme.spacingLoose
                                         required property var modelData
 
                                         Text {
                                             Layout.fillWidth: true
                                             text: modelData.label
-                                            color: "#cccccc"
-                                            font.pixelSize: 11
+                                            color: Theme.textPrimary
+                                            font.family: Theme.fontFamily
+                                            font.pixelSize: Theme.fontSizeSmall
                                             elide: Text.ElideRight
                                         }
-                                        Text {
-                                            // Per-platform pick. `keys` is the all-platforms fallback used
-                                            // when an entry is identical on Windows + Mac (single letters,
-                                            // F-keys, etc.). Modifier-bearing combos provide separate
-                                            // keysWin / keysMac strings instead.
-                                            text: modelData.keys
-                                                  ? modelData.keys
-                                                  : (Qt.platform.os === "windows"
-                                                     ? modelData.keysWin
-                                                     : modelData.keysMac)
-                                            color: "#888"
-                                            font.pixelSize: 11
-                                            font.family: Theme.monoFamily
-                                            horizontalAlignment: Text.AlignRight
+                                        // Keycaps — each comma-separated
+                                        // binding renders as its own
+                                        // recessed cap (same well tone
+                                        // the KvRow values use).
+                                        Row {
+                                            Layout.alignment: Qt.AlignVCenter
+                                            spacing: Theme.spacing
+                                            Repeater {
+                                                // Per-platform pick. `keys` is the all-platforms fallback used
+                                                // when an entry is identical on Windows + Mac (single letters,
+                                                // F-keys, etc.). Modifier-bearing combos provide separate
+                                                // keysWin / keysMac strings instead.
+                                                model: {
+                                                    const s = modelData.keys
+                                                          ? modelData.keys
+                                                          : (Qt.platform.os === "windows"
+                                                             ? modelData.keysWin
+                                                             : modelData.keysMac);
+                                                    return s ? s.split(", ") : [];
+                                                }
+                                                delegate: Rectangle {
+                                                    required property var modelData
+                                                    width: capText.implicitWidth + 10
+                                                    height: 16
+                                                    radius: Theme.radiusSmall
+                                                    color: Theme.surfaceRecess
+                                                    Text {
+                                                        id: capText
+                                                        anchors.centerIn: parent
+                                                        text: modelData
+                                                        color: Theme.textSecondary
+                                                        font.family: Theme.monoFamily
+                                                        font.pixelSize: Theme.fontSizeMono
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

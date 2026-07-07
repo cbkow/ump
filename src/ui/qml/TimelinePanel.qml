@@ -31,7 +31,7 @@ Pane {
     padding: 0
 
     background: Rectangle {
-        color: "#181818"
+        color: Theme.bgAlt
         // No top divider — the TransportBar above already draws
         // its own bottom divider, which sits exactly here. Two
         // adjacent 1-px lines read as a double border.
@@ -1144,7 +1144,10 @@ Pane {
             id: rulerRow
             Layout.fillWidth: true
             Layout.preferredHeight: 20
-            color: "#1c1c1c"
+            // Toolbar tone — the ruler is an interactive scrub strip,
+            // same register as the rail headers / panel toolbars
+            // (was hardcoded #1c1c1c).
+            color: Theme.toolbar
             clip: true
 
             // Tick spacing — adaptive. Pick the largest interval
@@ -1296,9 +1299,9 @@ Pane {
                 text: root.playlistActive
                       ? qsTr("Drop media here to add to the playlist")
                       : qsTr("Open a video to enable the timeline.")
-                color: "#555555"
-                font.pixelSize: 11
-                font.italic: true
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeTiny
             }
 
             // Track A — primary source. Phase 7.8 Stage B: render
@@ -1327,7 +1330,7 @@ Pane {
                 y: kRowHA
                 width: parent.width
                 height: 1
-                color: "#222222"
+                color: Theme.divider
             }
 
             // Track B — secondary source. Stage C: same edit-aware
@@ -2684,10 +2687,10 @@ Pane {
                     : (4 + (kRowHA - 8) + 4)
                 width: badgeText.implicitWidth + 12
                 height: badgeText.implicitHeight + 6
-                color: "#1a1a1a"
+                color: Theme.surface
                 border.color: "#ffc864"
                 border.width: 1
-                radius: 3
+                radius: Theme.radiusBase
                 z: 15
                 Text {
                     id: badgeText
@@ -2695,7 +2698,7 @@ Pane {
                     text: editState && editState.badgeText
                           ? editState.badgeText : ""
                     color: "#ffe6b6"
-                    font.pixelSize: 11
+                    font.pixelSize: Theme.fontSizeMono
                     font.family: Theme.monoFamily
                 }
             }

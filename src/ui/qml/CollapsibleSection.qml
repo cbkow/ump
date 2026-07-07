@@ -1,11 +1,16 @@
-// CollapsibleSection — accordion-style section for the rails per
-// Guide 03 §2 / §4.
+// CollapsibleSection — accordion-style section for the rails.
 //
-// Header is a flat row with a Phosphor caret in a fixed-width
-// slot matching Theme.gutterWidth, so the carets across multiple
-// stacked sections (and the rail's own collapse chevron) all
-// share the same x column. Squared corners, no fill border;
-// hover paints the surfaceHover background.
+// Aesthetics pass 2: renders as a raised card plane (Theme.card,
+// radiusBase) on the rail well, matching the InspectorCards and the
+// left rail's Media/Dual Views/Playlists cards. Header is the shared
+// card voice — Phosphor caret in the fixed Theme.gutterWidth slot
+// (so carets align across stacked sections) + tiny-caps muted title.
+// The old open/closed header fills, section icon and bottom divider
+// are gone; tone and spacing do the separation now.
+//
+// Only the left rail's preference sections (Safety Guides /
+// Background / Settings) use this — the other rail sections carry
+// bespoke card headers (counts, + buttons, list wells).
 
 import QtQuick
 import QtQuick.Controls
@@ -15,19 +20,18 @@ import Qcv
 Pane {
     id: root
     property string title: ""
-    // Optional Phosphor icon slug; when non-empty, renders to the
-    // left of the title in the header row. Mirrors the transport-row
-    // icon vocabulary so a user who clicked a transport button to
-    // jump here recognizes the section by its glyph.
-    property string iconName: ""
     property bool   expanded: true
     default property alias content: contentArea.data
 
     padding: 0
     Layout.fillWidth: true
+    Layout.leftMargin: Theme.padding
+    Layout.rightMargin: Theme.padding
+    Layout.topMargin: Theme.padding
 
     background: Rectangle {
-        color: "transparent"
+        color: Theme.card
+        radius: Theme.radiusBase
     }
 
     ColumnLayout {
@@ -38,10 +42,9 @@ Pane {
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: Theme.headerHeight
+            radius: Theme.radiusBase
             color: headerMouseArea.containsMouse
-                   ? Theme.surfaceHover
-                   : (root.expanded
-                        ? Theme.sectionOpenBg : Theme.sectionClosedBg)
+                   ? Theme.surfaceHover : "transparent"
 
             RowLayout {
                 anchors.fill: parent
@@ -61,55 +64,37 @@ Pane {
                     }
                 }
 
-                // Optional section icon — appears between the caret
-                // slot and the title when iconName is set.
-                Icon {
-                    visible: root.iconName.length > 0
-                    Layout.preferredWidth: Theme.iconSizeToolbar
-                    Layout.preferredHeight: Theme.iconSizeToolbar
-                    Layout.rightMargin: Theme.spacing
-                    name: root.iconName
-                    size: Theme.iconSizeToolbar
-                    color: Theme.textSecondary
-                }
-
                 Text {
                     Layout.fillWidth: true
                     text: root.title
-                    color: Theme.textPrimary
+                    color: Theme.textMuted
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBase
+                    font.pixelSize: Theme.fontSizeTiny
                     font.bold: true
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 0.8
                     elide: Text.ElideRight
                 }
                 Item { Layout.preferredWidth: Theme.padding }
-            }
-
-            // Bottom divider — single-edge, shown in both states so
-            // each header reads as a discrete bar whether open or
-            // closed.
-            Rectangle {
-                anchors.left:  parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                height: Theme.dividerWidth
-                color: Theme.divider
             }
 
             MouseArea {
                 id: headerMouseArea
                 anchors.fill: parent
                 hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
                 onClicked: root.expanded = !root.expanded
             }
         }
 
-        // Content
+        // Content — call sites do their own horizontal padding;
+        // the trailing spacing keeps the last control off the
+        // card's bottom edge even when the content ends flush.
         Item {
             id: contentArea
             Layout.fillWidth: true
             visible: root.expanded
-            implicitHeight: childrenRect.height
+            implicitHeight: childrenRect.height + Theme.spacing
         }
     }
 }

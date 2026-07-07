@@ -63,67 +63,89 @@ Rectangle {
         spacing: Theme.paddingLoose
 
         // ---- Frame counter / playlist seconds --------------------
-        Text {
-            text: {
-                const t = WindowManager.timeline
-                          ? WindowManager.timeline.timer : null;
-                const _refresh = t ? t.position : 0;
-                const _src     = WindowManager.imageSeqActive;
-                if (!t) return qsTr("Time —");
-                if (root.isPlaylistMode) {
-                    return root.fmtSec(t.position) + " / "
-                         + root.fmtSec(t.duration);
-                }
-                const fc = WindowManager.frameCountUnified();
-                if (fc <= 0) return qsTr("Frame —");
-                // Source-of-truth frame number — the active decoder's
-                // own currentFrame (dual master / video source / image-
-                // seq cache), NOT position × timeline.frameRate. The
-                // latter is wrong in dual mode where the timeline's
-                // frameRate is fpsA but the master clock runs masterFps.
-                const cf = WindowManager.currentFrameUnified();
-                return qsTr("Frame %1 / %2").arg(cf).arg(fc - 1);
-            }
-            color: Theme.textPrimary
-            font.family: Theme.monoFamily
-            font.pixelSize: Theme.fontSizeSmall
+        // Primary readouts sit in recessed wells (aesthetics pass 3)
+        // — read-only data vocabulary, and the fixed well anchors the
+        // churning digits visually.
+        Rectangle {
             Layout.preferredWidth: 160
+            Layout.preferredHeight: 18
+            radius: Theme.radiusSmall
+            color: Theme.surfaceRecess
+            Text {
+                anchors.fill: parent
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                verticalAlignment: Text.AlignVCenter
+                text: {
+                    const t = WindowManager.timeline
+                              ? WindowManager.timeline.timer : null;
+                    const _refresh = t ? t.position : 0;
+                    const _src     = WindowManager.imageSeqActive;
+                    if (!t) return qsTr("Time —");
+                    if (root.isPlaylistMode) {
+                        return root.fmtSec(t.position) + " / "
+                             + root.fmtSec(t.duration);
+                    }
+                    const fc = WindowManager.frameCountUnified();
+                    if (fc <= 0) return qsTr("Frame —");
+                    // Source-of-truth frame number — the active decoder's
+                    // own currentFrame (dual master / video source / image-
+                    // seq cache), NOT position × timeline.frameRate. The
+                    // latter is wrong in dual mode where the timeline's
+                    // frameRate is fpsA but the master clock runs masterFps.
+                    const cf = WindowManager.currentFrameUnified();
+                    return qsTr("Frame %1 / %2").arg(cf).arg(fc - 1);
+                }
+                color: Theme.textPrimary
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.fontSizeSmall
+                elide: Text.ElideRight
+            }
         }
         // ---- SMPTE timecode --------------------------------------
-        Text {
+        Rectangle {
             visible: !root.isPlaylistMode
                      && (WindowManager.dualController
                          ? (WindowManager.dualController.fps > 0)
                          : (!WindowManager.imageSeqActive
                             && WindowManager.videoDecoder
                             && WindowManager.videoDecoder.fps > 0))
-            text: {
-                if (WindowManager.dualController) {
-                    return WindowManager.dualController.formatTimecode(
-                        Math.max(0, WindowManager.dualController.currentFrame));
-                }
-                if (WindowManager.videoDecoder) {
-                    // formatTimecode is a Q_INVOKABLE without its own
-                    // notify — reference startTimecode so the binding
-                    // re-evaluates when the user clicks an Origin
-                    // pill ("From start" / Embedded / QT Start / ...).
-                    // Without this, the playhead readout stays on the
-                    // previous origin until the next frame change.
-                    const _originTag = WindowManager.videoDecoder.startTimecode;
-                    return WindowManager.videoDecoder.formatTimecode(
-                        Math.max(0, WindowManager.videoDecoder.currentFrame));
-                }
-                return "";
-            }
-            // Drop-frame timecodes get the warn color so the
-            // user knows the values aren't strictly continuous.
-            color: !WindowManager.dualController
-                   && WindowManager.videoDecoder
-                   && WindowManager.videoDecoder.isDropFrame
-                   ? Theme.warn : Theme.textPrimary
-            font.family: Theme.monoFamily
-            font.pixelSize: Theme.fontSizeSmall
             Layout.preferredWidth: 130
+            Layout.preferredHeight: 18
+            radius: Theme.radiusSmall
+            color: Theme.surfaceRecess
+            Text {
+                anchors.fill: parent
+                anchors.leftMargin: 6
+                anchors.rightMargin: 6
+                verticalAlignment: Text.AlignVCenter
+                text: {
+                    if (WindowManager.dualController) {
+                        return WindowManager.dualController.formatTimecode(
+                            Math.max(0, WindowManager.dualController.currentFrame));
+                    }
+                    if (WindowManager.videoDecoder) {
+                        // formatTimecode is a Q_INVOKABLE without its own
+                        // notify — reference startTimecode so the binding
+                        // re-evaluates when the user clicks an Origin
+                        // pill ("From start" / Embedded / QT Start / ...).
+                        // Without this, the playhead readout stays on the
+                        // previous origin until the next frame change.
+                        const _originTag = WindowManager.videoDecoder.startTimecode;
+                        return WindowManager.videoDecoder.formatTimecode(
+                            Math.max(0, WindowManager.videoDecoder.currentFrame));
+                    }
+                    return "";
+                }
+                // Drop-frame timecodes get the warn color so the
+                // user knows the values aren't strictly continuous.
+                color: !WindowManager.dualController
+                       && WindowManager.videoDecoder
+                       && WindowManager.videoDecoder.isDropFrame
+                       ? Theme.warn : Theme.textPrimary
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
         }
 
         // ---- In/Out range readout (flat) -------------------------

@@ -26,6 +26,10 @@ set(QCVIEW_QML_FILES
     CollapsibleSection.qml
     ImageSequenceInspector.qml
     InspectorPanel.qml
+    InspectorCard.qml
+    KvRow.qml
+    KvChipRow.qml
+    FlatChip.qml
     NotesPanel.qml
     ColorPickerInline.qml
     Theme.qml
@@ -86,6 +90,10 @@ qt_add_qml_module(qcview
         ${CMAKE_CURRENT_SOURCE_DIR}/CollapsibleSection.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/ImageSequenceInspector.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/InspectorPanel.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/InspectorCard.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/KvRow.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/KvChipRow.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/FlatChip.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/NotesPanel.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/ColorPickerInline.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/Theme.qml

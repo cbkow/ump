@@ -11,9 +11,14 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Qcv
 
+// Rendered as an InspectorCard-style plane (aesthetics pass 1) —
+// same Theme.card fill + radius as the metadata cards above it in
+// the rail, but it keeps its own collapsible header (caret + format
+// chip) since long EXR layer lists are worth folding away.
 Rectangle {
     id: root
-    color: Theme.bgAlt
+    color: Theme.card
+    radius: Theme.radiusBase
     border.width: 0
     // Inspector exposes a public collapse flag — LeftRail (or any
     // future host) can wire a user toggle to it. Default open so a
@@ -89,21 +94,19 @@ Rectangle {
                     color: Theme.textSecondary
                 }
             }
-            Icon {
-                Layout.preferredWidth: Theme.iconSizeToolbar
-                Layout.preferredHeight: Theme.iconSizeToolbar
-                Layout.rightMargin: Theme.spacing
-                name: "images"
-                size: Theme.iconSizeToolbar
-                color: Theme.textSecondary
-            }
+            // Title in the shared card voice (tiny caps, muted) so
+            // this panel reads as a peer of the InspectorCards above
+            // it; the old icon + bold-12 header was a third header
+            // species the rail didn't need.
             Text {
                 Layout.fillWidth: true
                 text: qsTr("Image Sequence")
-                color: Theme.textPrimary
+                color: Theme.textMuted
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeBase
+                font.pixelSize: Theme.fontSizeTiny
                 font.bold: true
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 0.8
             }
             Text {
                 text: seq ? (seq.format || "") : ""
@@ -137,21 +140,10 @@ Rectangle {
         // standards cover ~95% of source material; outliers (47.952,
         // 119.88, custom 22-fps stop-motion, …) get added when a
         // real customer file shows up. Chips wrap into 2-3 rows
-        // depending on rail width via Flow.
-        Text {
-            text: qsTr("FPS")
-            color: Theme.textSecondary
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSmall
-        }
-        Flow {
-            Layout.fillWidth: true
-            // Flow doesn't propagate childrenRect to implicitHeight
-            // by default (Qt 6 quirk) — without this binding the
-            // ColumnLayout above thinks the Flow needs zero height
-            // and the rest of the inspector gets clipped.
-            Layout.preferredHeight: childrenRect.height
-            spacing: 4
+        // depending on rail width via KvChipRow's Flow.
+        KvChipRow {
+            id: fpsRow
+            label: qsTr("Frame rate")
 
             readonly property double currentFps:
                 WindowManager.timeline
@@ -160,130 +152,68 @@ Rectangle {
             Repeater {
                 model: ["23.976", "24", "25", "29.97",
                         "30", "50", "59.94", "60"]
-                Rectangle {
-                    width: 56
-                    height: 22
-                    // Flat toggle — solid accent fill when active,
-                    // hover lifts the resting cells. No border.
-                    radius: Theme.radius
+                FlatChip {
+                    required property var modelData
                     readonly property double presetFps:
                         parseFloat(modelData)
-                    readonly property bool isCurrent:
-                        Math.abs(presetFps - parent.currentFps) < 0.01
-                    color: isCurrent
-                           ? Theme.accent
-                           : (chipMa.containsMouse ? Theme.surfaceHover : "transparent")
-                    Text {
-                        anchors.centerIn: parent
-                        text: modelData
-                        color: parent.isCurrent ? Theme.textBright : Theme.textPrimary
-                        font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                    }
-                    MouseArea {
-                        id: chipMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (WindowManager.timeline)
-                                WindowManager.timeline.setFrameRate(parent.presetFps);
-                            // Persist onto the media item so the choice
-                            // survives a media switch + project save/
-                            // reload (setFrameRate only retunes the live
-                            // timeline). Targets the displayed item, so
-                            // the dual A/B side picker persists per-side.
-                            if (WindowManager.project && root.item && root.item.id)
-                                WindowManager.project.setImageSeqFrameRate(
-                                    root.item.id, parent.presetFps);
-                        }
+                    minWidth: 48
+                    active: Math.abs(presetFps - fpsRow.currentFps) < 0.01
+                    label: modelData
+                    onClicked: {
+                        if (WindowManager.timeline)
+                            WindowManager.timeline.setFrameRate(presetFps);
+                        // Persist onto the media item so the choice
+                        // survives a media switch + project save/
+                        // reload (setFrameRate only retunes the live
+                        // timeline). Targets the displayed item, so
+                        // the dual A/B side picker persists per-side.
+                        if (WindowManager.project && root.item && root.item.id)
+                            WindowManager.project.setImageSeqFrameRate(
+                                root.item.id, presetFps);
                     }
                 }
             }
         }
 
-        // ---- Range readout
-        GridLayout {
+        // ---- Range readout — shared KvRow rules (fixed label
+        // column, mono values one size down).
+        ColumnLayout {
             Layout.fillWidth: true
-            columns: 2
-            rowSpacing: 2
-            columnSpacing: Theme.spacingLoose
+            spacing: Theme.spacingTight
 
-            Text { text: qsTr("Range");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: seq ? qsTr("%1 – %2 (%3 frames)")
-                              .arg(seq.startFrame)
-                              .arg(seq.endFrame)
-                              .arg(seq.frameCount)
-                            : ""
-                color: Theme.textPrimary
-                font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeSmall
-                Layout.fillWidth: true
-                elide: Text.ElideRight
+            KvRow {
+                label: qsTr("Range")
+                value: seq ? qsTr("%1 – %2 (%3 frames)")
+                               .arg(seq.startFrame)
+                               .arg(seq.endFrame)
+                               .arg(seq.frameCount)
+                           : ""
             }
-
-            Text { text: qsTr("Pattern");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: seq ? seq.pattern : ""
-                color: Theme.textPrimary
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.monoFamily
-                Layout.fillWidth: true
-                elide: Text.ElideMiddle
+            KvRow {
+                label: qsTr("Pattern")
+                value: seq ? seq.pattern : ""
+                valueElide: Text.ElideMiddle
             }
-
-            Text { text: qsTr("Resolution");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: seq && seq.width > 0
+            KvRow {
+                label: qsTr("Resolution")
+                value: seq && seq.width > 0
                       ? qsTr("%1 × %2").arg(seq.width).arg(seq.height)
                       : qsTr("(probing…)")
-                color: Theme.textPrimary
-                font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeSmall
             }
-
             // EXR compression — populated at import via the EXR header
             // probe (EXRImageLoader::compressionName). Empty for non-
             // EXR formats and on probe failure; the row collapses out
-            // of the grid so it doesn't leave a hole in the layout.
-            Text {
-                text: qsTr("Compression")
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
+            // so it doesn't leave a hole in the layout.
+            KvRow {
                 visible: seq && seq.compression && seq.compression.length > 0
-                Layout.preferredHeight: visible ? implicitHeight : 0
+                label: qsTr("Compression")
+                value: seq && seq.compression ? seq.compression : ""
             }
-            Text {
-                text: seq && seq.compression ? seq.compression : ""
-                color: Theme.textPrimary
-                font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeSmall
-                visible: seq && seq.compression && seq.compression.length > 0
-                Layout.preferredHeight: visible ? implicitHeight : 0
-            }
-
-            Text { text: qsTr("Duration");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: WindowManager.timeline
+            KvRow {
+                label: qsTr("Duration")
+                value: WindowManager.timeline
                       ? WindowManager.timeline.duration.toFixed(2) + " s"
                       : ""
-                color: Theme.textPrimary
-                font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeSmall
             }
         }
 
@@ -306,10 +236,9 @@ Rectangle {
         // (getClosestFrame) — playhead still advances 1 frame/tick,
         // only the cached grid is sparse. Behind-buffer collapses
         // to 0 when stride > 1 so all RAM goes forward.
-        RowLayout {
+        KvChipRow {
             id: strideRow
-            Layout.fillWidth: true
-            spacing: Theme.spacingLoose
+            label: qsTr("Cache stride")
             // Current stride for the highlight — per-side in dual (routes
             // to dualImageSeqStride for this panel's A/B side), single
             // flow otherwise. The leading property read is a dependency
@@ -321,56 +250,27 @@ Rectangle {
                     ? WindowManager.dualImageSeqStride(root.side)
                     : WindowManager.imageSeqCacheStride;
             }
-            Text {
-                text: qsTr("Cache stride")
-                color: Theme.textSecondary
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
-                Layout.preferredWidth: 80
-            }
             Repeater {
                 model: [1, 2, 3, 4]
-                Rectangle {
-                    Layout.preferredWidth: 32
-                    Layout.preferredHeight: 22
-                    // Flat toggle — solid accent fill when active,
-                    // hover lifts resting cells. No border.
-                    radius: Theme.radius
+                FlatChip {
+                    required property var modelData
                     // Coerce modelData to number — QML 6 hands the
                     // array element through as a QVariant in some
                     // contexts and `=== int` then fails silently,
                     // leaving every chip un-highlighted.
                     readonly property int v: Number(modelData)
-                    readonly property bool isCurrent:
-                        strideRow.curStride === v
-                    color: isCurrent
-                           ? Theme.accent
-                           : (strideMa.containsMouse ? Theme.surfaceHover : "transparent")
-                    Text {
-                        anchors.centerIn: parent
-                        text: parent.v + "x"
-                        color: parent.isCurrent ? Theme.textBright : Theme.textSecondary
-                        font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                    }
-                    MouseArea {
-                        id: strideMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: {
-                            if (root.side !== "")
-                                WindowManager.setDualImageSeqStride(
-                                    root.side, parent.v);
-                            else
-                                WindowManager.setImageSeqCacheStride(parent.v);
-                        }
-                        FlatToolTip {
-                            visible: strideMa.containsMouse
-                            text: parent.parent.v === 1
-                                  ? qsTr("Every Frame (Full)")
-                                  : qsTr("Every %1 Frames").arg(parent.parent.v)
-                        }
+                    minWidth: 32
+                    active: strideRow.curStride === v
+                    label: v + "x"
+                    tooltip: v === 1
+                          ? qsTr("Every Frame (Full)")
+                          : qsTr("Every %1 Frames").arg(v)
+                    onClicked: {
+                        if (root.side !== "")
+                            WindowManager.setDualImageSeqStride(
+                                root.side, v);
+                        else
+                            WindowManager.setImageSeqCacheStride(v);
                     }
                 }
             }
@@ -386,36 +286,23 @@ Rectangle {
         // timeline track, here as a numeric readout for users who
         // want exact counts (debugging buffer behavior, tuning
         // read-ahead in the future settings panel).
-        GridLayout {
+        ColumnLayout {
             Layout.fillWidth: true
-            columns: 2
-            rowSpacing: 2
-            columnSpacing: Theme.spacingLoose
+            spacing: Theme.spacingTight
 
-            Text { text: qsTr("Cache ahead");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: qsTr("%1 / %2 frames")
+            KvRow {
+                label: qsTr("Cache ahead")
+                value: qsTr("%1 / %2 frames")
                           .arg(WindowManager.imageSeqBufferedAhead)
                           .arg(WindowManager.imageSeqReadAheadFrames)
-                color: Theme.success
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.monoFamily
+                valueColor: Theme.success
             }
-
-            Text { text: qsTr("Cache behind");
-                   color: Theme.textSecondary;
-                   font.family: Theme.fontFamily;
-                   font.pixelSize: Theme.fontSizeSmall }
-            Text {
-                text: qsTr("%1 / %2 frames")
+            KvRow {
+                label: qsTr("Cache behind")
+                value: qsTr("%1 / %2 frames")
                           .arg(WindowManager.imageSeqBufferedBehind)
                           .arg(WindowManager.imageSeqReadBehindFrames)
-                color: Qt.darker(Theme.success, 1.5)
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.monoFamily
+                valueColor: Qt.darker(Theme.success, 1.5)
             }
         }
 
@@ -434,7 +321,7 @@ Rectangle {
             text: qsTr("Layer")
             color: Theme.textSecondary
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSmall
+            font.pixelSize: Theme.fontSizeTiny
             visible: content.isEXR
         }
         ColumnLayout {
@@ -483,7 +370,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         text: parent.layerName
                         color: parent.isCurrent ? Theme.textBright : Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: Theme.fontSizeMono
                         font.family: Theme.monoFamily
                         elide: Text.ElideMiddle
                     }

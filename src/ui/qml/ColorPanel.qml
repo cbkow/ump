@@ -152,6 +152,7 @@ Pane {
                 spacing: Theme.spacingLoose
                 Item { Layout.fillWidth: true }
                 FlatButton {
+                    variant: "raised"
                     text: qsTr("Cancel")
                     onClicked: saveAsDialog.close()
                 }
@@ -194,11 +195,28 @@ Pane {
         anchors.margins: 0
         spacing: 0
 
-        // ---- Preset bar (top)
-        RowLayout {
+        // ---- Preset bar (top) — toolbar strip (aesthetics pass 3
+        // tone offset): matches the rail header treatment so the
+        // panel reads as three bands — toolbar / reel field /
+        // toolbar — with the recessed wells keeping their contrast
+        // against the middle surface.
+        Rectangle {
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.spacingLoose
-            Layout.rightMargin: 0
+            Layout.preferredHeight: 40
+            color: Theme.toolbar
+
+            Rectangle {
+                anchors.left:   parent.left
+                anchors.right:  parent.right
+                anchors.bottom: parent.bottom
+                height: Theme.dividerWidth
+                color:  Theme.divider
+            }
+
+            RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingLoose
+            anchors.rightMargin: Theme.spacingLoose
             spacing: Theme.spacingLoose
 
             Text {
@@ -219,6 +237,7 @@ Pane {
             }
             // Preset stepper — wired to PresetManager (Phase 2.5e.1).
             FlatButton {
+                variant: "raised"
                 iconName: "caret-left"
                 tooltipText: qsTr("Previous preset")
                 enabled: WindowManager.presets
@@ -227,7 +246,9 @@ Pane {
             Rectangle {
                 Layout.preferredWidth: 280
                 Layout.preferredHeight: Theme.toolStripHeight
-                color: Theme.surface
+                // Read-only value = well vocabulary; Theme.surface
+                // was invisible against the panel's own surface.
+                color: Theme.surfaceRecess
                 radius: Theme.radiusSmall
                 Text {
                     anchors.fill: parent
@@ -257,6 +278,7 @@ Pane {
                 }
             }
             FlatButton {
+                variant: "raised"
                 iconName: "caret-right"
                 tooltipText: qsTr("Next preset")
                 enabled: WindowManager.presets
@@ -264,6 +286,7 @@ Pane {
             }
             Item { width: Theme.spacingLoose }
             FlatButton {
+                variant: "raised"
                 text: qsTr("Save")
                 iconName: "floppy-disk"
                 tooltipText: qsTr("Overwrite the active user preset")
@@ -278,6 +301,7 @@ Pane {
                 onClicked: WindowManager.presets.saveCurrent()
             }
             FlatButton {
+                variant: "raised"
                 text: qsTr("Save as…")
                 iconName: "floppy-disk-back"
                 enabled: WindowManager.presets
@@ -295,11 +319,12 @@ Pane {
                 enabled: WindowManager.presets
                          && WindowManager.presets.activePresetName.length > 0
                          && !WindowManager.presets.activeIsBuiltIn()
-                variant: enabled ? "danger" : "default"
+                variant: enabled ? "danger" : "raised"
                 tooltipText: enabled
                              ? qsTr("Delete the active user preset")
                              : qsTr("Select a user preset to delete")
                 onClicked: WindowManager.presets.deleteCurrent()
+            }
             }
         }
 
@@ -334,10 +359,12 @@ Pane {
 
                 Text {
                     text: qsTr("Preset")
-                    color: Theme.textSecondary
+                    color: Theme.textMuted
                     font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
+                    font.pixelSize: Theme.fontSizeTiny
                     font.bold: true
+                    font.capitalization: Font.AllUppercase
+                    font.letterSpacing: 0.8
                 }
 
                 FlatTextField {
@@ -397,17 +424,19 @@ Pane {
                                 anchors.rightMargin: 6
                                 verticalAlignment: Text.AlignVCenter
                                 text: section
-                                color: Theme.textSecondary
+                                color: Theme.textMuted
                                 font.family: Theme.fontFamily
                                 font.pixelSize: Theme.fontSizeTiny
                                 font.bold: true
+                                font.capitalization: Font.AllUppercase
+                                font.letterSpacing: 0.5
                             }
                         }
 
                         delegate: Item {
                             id: presetRow
                             width: ListView.view.width
-                            height: visible ? 22 : 0
+                            height: visible ? Theme.rowHeightDense : 0
                             property string entryName: modelData.name
                             // PresetManager::Preset::Kind:
                             //   0 Universal, 1 SdrSrgb, 2 HdrEdrSrgb,
@@ -479,6 +508,16 @@ Pane {
                                      : (presetMa.containsMouse && presetRow.entryEnabled
                                         ? Theme.surfaceHover : "transparent")
                             }
+                            // Current-preset accent rule — rail-row
+                            // selected vocabulary (was a green ★).
+                            Rectangle {
+                                visible: presetRow.isCurrent
+                                anchors.left:   parent.left
+                                anchors.top:    parent.top
+                                anchors.bottom: parent.bottom
+                                width: 2
+                                color: Theme.accent
+                            }
                             RowLayout {
                                 anchors.fill: parent
                                 anchors.leftMargin: 6
@@ -487,20 +526,12 @@ Pane {
                                 opacity: presetRow.entryEnabled ? 1.0 : 0.45
 
                                 Text {
-                                    text: presetRow.isCurrent ? "★" : ""
-                                    color: Theme.success
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    Layout.preferredWidth: 10
-                                }
-                                Text {
                                     Layout.fillWidth: true
                                     text: presetRow.entryName
                                     color: presetRow.isCurrent
                                            ? Theme.textBright : Theme.textPrimary
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeSmall
-                                    font.bold: presetRow.isCurrent
                                     elide: Text.ElideRight
                                 }
                                 // Platform-logo decoration. Cross-
@@ -641,10 +672,23 @@ Pane {
         // < a few ms). Disengage to return to raw without losing
         // slot selections. See Guide 05 D9 (and the engage-vs-bypass
         // pivot in Phase 2.5b).
-        RowLayout {
+        Rectangle {
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.spacingLoose
-            Layout.rightMargin: 0
+            Layout.preferredHeight: 40
+            color: Theme.toolbar
+
+            Rectangle {
+                anchors.left:  parent.left
+                anchors.right: parent.right
+                anchors.top:   parent.top
+                height: Theme.dividerWidth
+                color: Theme.divider
+            }
+
+            RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: Theme.spacingLoose
+            anchors.rightMargin: Theme.spacingLoose
             spacing: Theme.spacingLoose
 
             RowLayout {
@@ -682,10 +726,10 @@ Pane {
             // under "display/brightness". WILL clip HDR highlights
             // above the display's headroom — user-responsible.
             Text {
-                text: qsTr("Brightness:")
+                text: qsTr("Brightness")
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
+                font.pixelSize: Theme.fontSizeTiny
             }
             FlatSlider {
                 id: brightnessSlider
@@ -707,21 +751,32 @@ Pane {
                     onDoubleClicked: WindowManager.brightness = 1.0
                 }
             }
-            Text {
-                text: (WindowManager
-                        ? WindowManager.brightness
-                        : 1.0).toFixed(2) + "×"
-                color: Theme.textSecondary
-                font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeSmall
-                Layout.preferredWidth: 40
-                horizontalAlignment: Text.AlignRight
+            // Recessed readout chip — same treatment as the Safety
+            // Guides slider readouts.
+            Rectangle {
+                Layout.preferredWidth: 44
+                Layout.preferredHeight: 16
+                radius: Theme.radiusSmall
+                color: Theme.surfaceRecess
+                Text {
+                    anchors.centerIn: parent
+                    text: (WindowManager
+                            ? WindowManager.brightness
+                            : 1.0).toFixed(2) + "×"
+                    color: Theme.textPrimary
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontSizeMono
+                }
             }
+            // Reset fades in only when brightness is off 1.0× —
+            // same only-when-dirty rule as the Settings reverts;
+            // the slot stays reserved so the row never shifts.
             FlatButton {
                 iconName: "arrow-counter-clockwise"
                 tooltipText: qsTr("Reset brightness to 1.0×")
                 enabled: WindowManager
                          && Math.abs(WindowManager.brightness - 1.0) > 1e-3
+                opacity: enabled ? 1 : 0
                 onClicked: WindowManager.brightness = 1.0
             }
 
@@ -730,10 +785,10 @@ Pane {
             // chip in the menu bar. The dropdown items map to
             // WindowManager.HdrMode enum values.
             Text {
-                text: qsTr("Display:")
+                text: qsTr("Display")
                 color: Theme.textSecondary
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
+                font.pixelSize: Theme.fontSizeTiny
             }
             FlatComboBox {
                 id: hdrModeCombo
@@ -813,6 +868,7 @@ Pane {
             }
 
             FlatButton {
+                variant: "raised"
                 text: qsTr("Export LUT…")
                 iconName: "export"
                 // Bakes the configured OCIO chain to a .cube — works
@@ -826,6 +882,7 @@ Pane {
                              ? qsTr("Bake the active OCIO chain to a 65³ .cube LUT")
                              : qsTr("Configure input / display / view first")
                 onClicked: exportLutDialog.open()
+            }
             }
         }
     }
@@ -868,10 +925,13 @@ Pane {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !reel.expandable || reel.expanded
                 text: reel.title
-                color: Theme.textSecondary
+                // Shared card-title voice (aesthetics pass 3).
+                color: Theme.textMuted
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
+                font.pixelSize: Theme.fontSizeTiny
                 font.bold: true
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 0.8
             }
             Icon {
                 visible: reel.expandable && reel.expanded
@@ -948,7 +1008,7 @@ Pane {
                 // QSortFilterProxyModel.
                 delegate: Item {
                     width: ListView.view.width
-                    height: visible ? 22 : 0
+                    height: visible ? Theme.rowHeightDense : 0
                     visible: reel.filterText.length === 0
                              || modelData.toLowerCase().indexOf(
                                   reel.filterText.toLowerCase()) >= 0
@@ -958,18 +1018,22 @@ Pane {
                         color: modelData === reel.currentText ? Theme.selection
                              : (mouseArea.containsMouse ? Theme.surfaceHover : "transparent")
                     }
+                    // Current-entry accent rule — same selected
+                    // vocabulary as the rail rows (the old green ★
+                    // glyph was a one-off).
+                    Rectangle {
+                        visible: modelData === reel.currentText
+                        anchors.left:   parent.left
+                        anchors.top:    parent.top
+                        anchors.bottom: parent.bottom
+                        width: 2
+                        color: Theme.accent
+                    }
                     RowLayout {
                         anchors.fill: parent
                         anchors.leftMargin: 6
                         anchors.rightMargin: 6
                         spacing: Theme.spacing
-                        Text {
-                            text: modelData === reel.currentText ? "★" : ""
-                            color: Theme.success
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSmall
-                            Layout.preferredWidth: 10
-                        }
                         Text {
                             Layout.fillWidth: true
                             text: modelData
@@ -977,7 +1041,6 @@ Pane {
                                    ? Theme.textBright : Theme.textPrimary
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.fontSizeSmall
-                            font.bold: modelData === reel.currentText
                             elide: Text.ElideRight
                         }
                     }
@@ -1032,8 +1095,10 @@ Pane {
                         // can expand," not a loaded-state signal.
                         color: Theme.textSecondary
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: Theme.fontSizeTiny
                         font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 0.8
                     }
                 }
 
@@ -1100,10 +1165,13 @@ Pane {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: tile.expanded
                 text: tile.title
-                color: Theme.textSecondary
+                // Shared card-title voice (aesthetics pass 3).
+                color: Theme.textMuted
                 font.family: Theme.fontFamily
-                font.pixelSize: Theme.fontSizeSmall
+                font.pixelSize: Theme.fontSizeTiny
                 font.bold: true
+                font.capitalization: Font.AllUppercase
+                font.letterSpacing: 0.8
             }
             Icon {
                 visible: tile.expanded
@@ -1301,8 +1369,10 @@ Pane {
                         color: tile.path ? Theme.textPrimary
                                           : Theme.textSecondary
                         font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: Theme.fontSizeTiny
                         font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 0.8
                     }
                 }
 

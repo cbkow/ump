@@ -139,14 +139,15 @@ Pane {
                     && WindowManager.videoDecoder.sourcePath
                     && WindowManager.videoDecoder.sourcePath.length > 0)
                 || WindowManager.imageSeqActive
-            // Flat chip — the colored "A" letter inside is the
-            // source-marker. Drag-over uses the standard 2-px
-            // Theme.accent border via the overlay below (matches
-            // the Media bin + PlayerWindow viewport pattern);
-            // hover lifts to surfaceHover.
+            // Source slot as a WELL (aesthetics pass 3) — the chip
+            // holds read-only data (the source name) and is the drop
+            // target, so surfaceRecess makes it read as a visible
+            // slot waiting for content instead of hover-revealed
+            // text. Drag-over keeps the standard 2-px Theme.accent
+            // border via the overlay below; hover lifts the fill.
             color: aChipMa.containsMouse
-                   ? Theme.surfaceHover : "transparent"
-            radius: 0
+                   ? Theme.surfaceHover : Theme.surfaceRecess
+            radius: Theme.radiusSmall
 
             RowLayout {
                 anchors.fill: parent
@@ -257,6 +258,7 @@ Pane {
             // pattern in LeftRail.qml.
             Rectangle {
                 anchors.fill: parent
+                radius: Theme.radiusSmall
                 color: "transparent"
                 border.color: Theme.accent
                 border.width: 2
@@ -287,13 +289,11 @@ Pane {
                 : (WindowManager.videoDecoderB
                    ? WindowManager.videoDecoderB.sourcePath
                    : "")
-            // Flat chip — the colored "B" letter inside is the
-            // source-marker. Drag-over uses the standard 2-px
-            // Theme.accent border via the overlay below; hover
-            // lifts to surfaceHover. Matches A chip + Media bin.
+            // Source slot as a WELL — matches the A chip; see its
+            // comment.
             color: bChipMa.containsMouse
-                   ? Theme.surfaceHover : "transparent"
-            radius: 0
+                   ? Theme.surfaceHover : Theme.surfaceRecess
+            radius: Theme.radiusSmall
 
             // Drop zone — currently video-only. Source B
             // image-sequence support is a separate piece of work
@@ -420,6 +420,7 @@ Pane {
             // Drop highlight overlay — same pattern as A chip.
             Rectangle {
                 anchors.fill: parent
+                radius: Theme.radiusSmall
                 color: "transparent"
                 border.color: Theme.accent
                 border.width: 2
@@ -431,8 +432,12 @@ Pane {
         Item { Layout.fillWidth: true }
 
         // ---- Compositor mode toggles — icon-only, checkable.
+        // Raised idle + accent-when-checked = segmented control
+        // (checked wins over the raised fill in FlatButton's pal).
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
+            variant: "raised"
+            cornerRadius: 0
             iconName: "square"
             tooltipText: qsTr("Single view")
             checkable: true
@@ -441,6 +446,8 @@ Pane {
         }
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
+            variant: "raised"
+            cornerRadius: 0
             iconName: "square-split-horizontal"
             tooltipText: qsTr("Side-by-side")
             checkable: true
@@ -449,6 +456,8 @@ Pane {
         }
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
+            variant: "raised"
+            cornerRadius: 0
             iconName: "split-horizontal"
             tooltipText: qsTr("Split wipe")
             checkable: true
@@ -457,6 +466,8 @@ Pane {
         }
         FlatButton {
             visible: !root.saveMode && !root.playlistActive
+            variant: "raised"
+            cornerRadius: 0
             iconName: "exclude"
             tooltipText: qsTr("Difference")
             checkable: true
@@ -477,10 +488,11 @@ Pane {
                      && root.isSavedDualView
             iconName: "floppy-disk"
             tooltipText: qsTr("Update this saved dual view")
-            // Subtle grey fill rather than accent-blue: in this row
-            // blue is reserved for dual-view state (the active mode
+            // Raised gray rather than accent-blue: in this row blue
+            // is reserved for dual-view state (the active mode
             // toggle). Update is an action, not a state.
-            variant: "subtle"
+            variant: "raised"
+            cornerRadius: 0
             onClicked: root.commitUpdate()
         }
 
@@ -495,6 +507,8 @@ Pane {
             visible: !root.saveMode && !root.playlistActive
                      && WindowManager.compositorMode !== 0
                      && WindowManager.dualController
+            variant: "raised"
+            cornerRadius: 0
             iconName: root.isSavedDualView ? "file-plus" : "floppy-disk"
             tooltipText: root.isSavedDualView ? qsTr("Save as a new dual view")
                                               : qsTr("Save dual view")
@@ -518,14 +532,22 @@ Pane {
             value: WindowManager.splitPos
             onValueChanged: WindowManager.splitPos = value
         }
-        Text {
+        // Recessed readout chip — shared slider-readout treatment
+        // (Safety Guides / brightness).
+        Rectangle {
             visible: !root.saveMode && !root.playlistActive
                      && WindowManager.compositorMode === 2
-            text: WindowManager.splitPos.toFixed(2)
-            color: Theme.textSecondary
-            font.family: Theme.monoFamily
-            font.pixelSize: Theme.fontSizeTiny
             Layout.preferredWidth: 36
+            Layout.preferredHeight: 16
+            radius: Theme.radiusSmall
+            color: Theme.surfaceRecess
+            Text {
+                anchors.centerIn: parent
+                text: WindowManager.splitPos.toFixed(2)
+                color: Theme.textPrimary
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.fontSizeMono
+            }
         }
 
         // ---- Gain slider (Difference only) — shares the slot with the
@@ -542,23 +564,29 @@ Pane {
             value: WindowManager.diffGain
             onValueChanged: WindowManager.diffGain = value
         }
-        Text {
+        Rectangle {
             visible: !root.saveMode && !root.playlistActive
                      && WindowManager.compositorMode === 3
-            text: "×" + WindowManager.diffGain.toFixed(1)
-            color: Theme.textSecondary
-            font.family: Theme.monoFamily
-            font.pixelSize: Theme.fontSizeTiny
             Layout.preferredWidth: 36
+            Layout.preferredHeight: 16
+            radius: Theme.radiusSmall
+            color: Theme.surfaceRecess
+            Text {
+                anchors.centerIn: parent
+                text: "×" + WindowManager.diffGain.toFixed(1)
+                color: Theme.textPrimary
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.fontSizeMono
+            }
         }
 
         // ---- Inline Save Dual View form (visible only in saveMode)
         Text {
             visible: root.saveMode
-            text: qsTr("Name:")
-            color: Theme.textPrimary
+            text: qsTr("Name")
+            color: Theme.textSecondary
             font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeSmall
+            font.pixelSize: Theme.fontSizeTiny
         }
         FlatTextField {
             id: saveNameField

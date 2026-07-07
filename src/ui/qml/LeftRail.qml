@@ -26,7 +26,9 @@ import Qcv
 Rectangle {
     id: root
     implicitWidth: 280
-    color: "#1c1c1c"
+    // Darker well (aesthetics pass 2) — sections render as raised
+    // card planes on this, mirroring the right rail's treatment.
+    color: Theme.bg
     // Polish — single-edge divider on the right rather than a
     // 4-sided frame; keeps the rail / centerStage seam at 1 px.
     Rectangle {
@@ -454,7 +456,10 @@ Rectangle {
         Item {
             id: rowItem
             width: parent ? parent.width : 0
-            height: 22
+            // Unified list-row height (aesthetics pass 2) — media,
+            // Dual Views and Playlists all share this delegate, so
+            // one value fixes the old 22/26 drift across sections.
+            height: Theme.rowHeight
             required property var modelData
             property string itemId: modelData.id
             property string itemName: modelData.name
@@ -916,95 +921,117 @@ Rectangle {
                 // section (shown only when at least one exists).
                 property bool dualViewsExpanded: true
 
-                // ---- Bin section header (caret + title + add).
-                // Clicking the strip (excluding the + button)
-                // toggles binExpanded; the + opens the file dialog.
+                // ---- Media card (aesthetics pass 2) ----
+                // Bin header + list as one raised card plane on the
+                // rail well, matching the right rail's InspectorCards.
+                // Collapse behavior unchanged (bodyColumn.binExpanded);
+                // the header uses the shared card-voice title (tiny
+                // caps, muted) with the collapse caret in the gutter.
                 Rectangle {
+                    id: mediaCard
                     Layout.fillWidth: true
-                    Layout.preferredHeight: Theme.headerHeight
-                    color: binHeaderMa.containsMouse
-                           ? Theme.surfaceHover
-                           : (bodyColumn.binExpanded
-                                ? Theme.sectionOpenBg : "transparent")
+                    Layout.leftMargin: Theme.padding
+                    Layout.rightMargin: Theme.padding
+                    Layout.topMargin: Theme.padding
+                    color: Theme.card
+                    radius: Theme.radiusBase
+                    clip: true
+                    // Track the ANIMATED list height (not the
+                    // binExpanded flag) so the card grows/shrinks
+                    // with the list's 160 ms ease instead of
+                    // snapping closed while the list is still
+                    // animating under the clip.
+                    implicitHeight: mediaCardHeader.height
+                        + listFrame.height
+                        + (listFrame.height > 0 ? Theme.padding : 0)
 
-                    MouseArea {
-                        id: binHeaderMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: bodyColumn.binExpanded =
-                                   !bodyColumn.binExpanded
-                    }
+                    Rectangle {
+                        id: mediaCardHeader
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        height: Theme.headerHeight
+                        radius: Theme.radiusBase
+                        color: binHeaderMa.containsMouse
+                               ? Theme.surfaceHover : "transparent"
 
-                    RowLayout {
-                        anchors.fill: parent
-                        spacing: 0
-                        Item {
-                            Layout.preferredWidth: Theme.gutterWidth
-                            Layout.fillHeight: true
-                            Icon {
-                                anchors.centerIn: parent
-                                name: bodyColumn.binExpanded
-                                      ? "caret-down" : "caret-right"
-                                size: Theme.iconSizeSmall
-                                color: Theme.textSecondary
+                        MouseArea {
+                            id: binHeaderMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: bodyColumn.binExpanded =
+                                       !bodyColumn.binExpanded
+                        }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            spacing: 0
+                            Item {
+                                Layout.preferredWidth: Theme.gutterWidth
+                                Layout.fillHeight: true
+                                Icon {
+                                    anchors.centerIn: parent
+                                    name: bodyColumn.binExpanded
+                                          ? "caret-down" : "caret-right"
+                                    size: Theme.iconSizeSmall
+                                    color: Theme.textSecondary
+                                }
+                            }
+                            // Card-voice title — the film-strip icon
+                            // is gone; cards are text-titled like the
+                            // right rail.
+                            Text {
+                                Layout.fillWidth: true
+                                text: qsTr("Media")
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeTiny
+                                font.bold: true
+                                font.capitalization: Font.AllUppercase
+                                font.letterSpacing: 0.8
+                            }
+                            Text {
+                                text: "(" + mediaList.count + ")"
+                                color: Theme.textMuted
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeTiny
+                                Layout.rightMargin: Theme.padding
                             }
                         }
-                        Icon {
-                            Layout.preferredWidth: Theme.iconSizeToolbar
-                            Layout.preferredHeight: Theme.iconSizeToolbar
-                            Layout.rightMargin: Theme.spacing
-                            name: "film-strip"
-                            size: Theme.iconSizeToolbar
-                            color: Theme.textSecondary
-                        }
-                        Text {
-                            Layout.fillWidth: true
-                            text: qsTr("Media")
-                            color: Theme.textPrimary
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeBase
-                            font.bold: true
-                        }
-                        Item { Layout.preferredWidth: Theme.padding }
                     }
-                    Rectangle {
-                        visible: bodyColumn.binExpanded
-                        anchors.left:   parent.left
-                        anchors.right:  parent.right
-                        anchors.bottom: parent.bottom
-                        height: Theme.dividerWidth
-                        color:  Theme.divider
-                    }
-                }
 
-        // ---- Flat media list. Type glyph + name. Click selects
-        // and loads. Empty state hint when nothing is added yet.
+        // ---- Flat media list — recessed well on the card (same
+        // tone the inspector value wells use). Type glyph + name
+        // rows; empty-state hint when nothing is added yet.
         // Animated height collapse via the binExpanded flag above.
         Rectangle {
             id: listFrame
-            Layout.fillWidth: true
+            anchors.top: mediaCardHeader.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.leftMargin: Theme.padding
+            anchors.rightMargin: Theme.padding
             // Grow with content — no max cap. A tall bin extends the
             // bodyColumn and the rail's own ScrollView (bodyScroll)
             // scrolls it; the inner ListView is sized to its full
             // content (interactive:false below) so there's a single
             // scroller, not a list-inside-a-scroller. The 120 px floor
             // keeps the empty-state hint readable.
-            Layout.preferredHeight:
-                bodyColumn.binExpanded
-                ? Math.max(120, mediaList.contentHeight + 4)
+            height: bodyColumn.binExpanded
+                ? Math.max(120, mediaList.contentHeight + 8)
                 : 0
-            visible: Layout.preferredHeight > 0
-            Behavior on Layout.preferredHeight {
+            visible: height > 0
+            Behavior on height {
                 NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
             }
             // Drop highlight is rendered as a sibling overlay below
             // (dropHighlight), not as a border on this rectangle —
             // the ListView's section delegates and row backgrounds
-            // are drawn on top of listFrame's border and were eating
-            // the top/bottom edges (especially the in-list "VIDEOS"
-            // section header butting against the bin header above).
-            color: Theme.bg
+            // are drawn on top of listFrame's fill and would eat
+            // the top/bottom edges.
+            color: Theme.surfaceRecess
+            radius: Theme.radiusSmall
             clip: true
 
             DropArea {
@@ -1033,7 +1060,7 @@ Rectangle {
             ListView {
                 id: mediaList
                 anchors.fill: parent
-                anchors.margins: 1
+                anchors.margins: 2
                 clip: true
                 boundsBehavior: Flickable.StopAtBounds
                 // listFrame is sized to contentHeight, so the list
@@ -1070,13 +1097,15 @@ Rectangle {
                 // items below.
                 section.property: "type"
                 section.criteria: ViewSection.FullString
+                // Type headers sit text-only on the recessed well —
+                // the old bgAlt strip fought the card/well tones.
                 section.delegate: Rectangle {
                     width: ListView.view.width
                     height: 18
-                    color: Theme.bgAlt
+                    color: "transparent"
                     Text {
                         anchors.fill: parent
-                        anchors.leftMargin: Theme.gutterWidth
+                        anchors.leftMargin: Theme.padding
                         anchors.rightMargin: Theme.padding
                         verticalAlignment: Text.AlignVCenter
                         text: root.sectionLabel(section)
@@ -1095,9 +1124,9 @@ Rectangle {
                     anchors.centerIn: parent
                     visible: mediaList.count === 0
                     text: qsTr("Drop media here to add to the project")
-                    color: "#555555"
-                    font.pixelSize: 10
-                    font.italic: true
+                    color: Theme.textMuted
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.fontSizeTiny
                     wrapMode: Text.WordWrap
                     width: parent.width - 24
                     horizontalAlignment: Text.AlignHCenter
@@ -1110,6 +1139,7 @@ Rectangle {
             // still receives the drag events; this is paint-only.
             Rectangle {
                 anchors.fill: parent
+                radius: Theme.radiusSmall
                 color: "transparent"
                 border.color: Theme.accent
                 border.width: 2
@@ -1117,6 +1147,7 @@ Rectangle {
                 z: 10
             }
         }
+                }
 
         // ---- Dual Views section ----
         // Saved A/B comparisons (MediaType::DualPair === 5), moved
@@ -1128,83 +1159,104 @@ Rectangle {
         // button here. Double-click a row to load it (handled by the
         // shared itemRowComponent's isDualPair branch).
         Rectangle {
-            id: dualViewsHeader
+            id: dualViewsCard
             visible: root.dualViewItems.length > 0
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.headerHeight
-            color: dualViewsHeadMa.containsMouse
-                   ? Theme.surfaceHover
-                   : (bodyColumn.dualViewsExpanded
-                        ? Theme.sectionOpenBg : "transparent")
+            Layout.leftMargin: Theme.padding
+            Layout.rightMargin: Theme.padding
+            Layout.topMargin: Theme.padding
+            color: Theme.card
+            radius: Theme.radiusBase
+            clip: true
+            // Track the ANIMATED well height (see mediaCard) so the
+            // card grows/shrinks with the collapse ease.
+            implicitHeight: dualViewsHeader.height
+                + dualViewsWell.height
+                + (dualViewsWell.height > 0 ? Theme.padding : 0)
 
-            MouseArea {
-                id: dualViewsHeadMa
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: bodyColumn.dualViewsExpanded =
-                           !bodyColumn.dualViewsExpanded
-            }
+            Rectangle {
+                id: dualViewsHeader
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: Theme.headerHeight
+                radius: Theme.radiusBase
+                color: dualViewsHeadMa.containsMouse
+                       ? Theme.surfaceHover : "transparent"
 
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-                Item {
-                    Layout.preferredWidth: Theme.gutterWidth
-                    Layout.fillHeight: true
-                    Icon {
-                        anchors.centerIn: parent
-                        name: bodyColumn.dualViewsExpanded
-                              ? "caret-down" : "caret-right"
-                        size: Theme.iconSizeSmall
-                        color: Theme.textSecondary
+                MouseArea {
+                    id: dualViewsHeadMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: bodyColumn.dualViewsExpanded =
+                               !bodyColumn.dualViewsExpanded
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 0
+                    Item {
+                        Layout.preferredWidth: Theme.gutterWidth
+                        Layout.fillHeight: true
+                        Icon {
+                            anchors.centerIn: parent
+                            name: bodyColumn.dualViewsExpanded
+                                  ? "caret-down" : "caret-right"
+                            size: Theme.iconSizeSmall
+                            color: Theme.textSecondary
+                        }
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Dual Views")
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 0.8
+                    }
+                    Text {
+                        text: "(" + root.dualViewItems.length + ")"
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        Layout.rightMargin: Theme.padding
                     }
                 }
-                Icon {
-                    Layout.preferredWidth: Theme.iconSizeToolbar
-                    Layout.preferredHeight: Theme.iconSizeToolbar
-                    Layout.rightMargin: Theme.spacing
-                    // Matches the per-row DualPair glyph (frame-corners)
-                    // used by itemRowComponent's _typeIconName(5).
-                    name: "frame-corners"
-                    size: Theme.iconSizeToolbar
-                    color: Theme.textSecondary
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Dual Views")
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBase
-                    font.bold: true
-                }
-                Text {
-                    text: "(" + root.dualViewItems.length + ")"
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.rightMargin: Theme.padding
-                }
             }
-            Rectangle {
-                visible: bodyColumn.dualViewsExpanded
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                anchors.bottom: parent.bottom
-                height: Theme.dividerWidth
-                color:  Theme.divider
-            }
-        }
 
-        // Dual Views items list. Same shared row delegate as Media /
-        // Playlists; hidden when collapsed or empty.
-        Column {
-            Layout.fillWidth: true
-            visible: bodyColumn.dualViewsExpanded
-                     && root.dualViewItems.length > 0
-            Repeater {
-                model: root.dualViewItems
-                delegate: itemRowComponent
+            // Dual Views items list — recessed well, same shared row
+            // delegate as Media / Playlists.
+            Rectangle {
+                id: dualViewsWell
+                anchors.top: dualViewsHeader.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: Theme.padding
+                anchors.rightMargin: Theme.padding
+                height: bodyColumn.dualViewsExpanded
+                            && root.dualViewItems.length > 0
+                        ? dualViewsCol.height + 4 : 0
+                Behavior on height {
+                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
+                color: Theme.surfaceRecess
+                radius: Theme.radiusSmall
+                clip: true
+
+                Column {
+                    id: dualViewsCol
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 2
+                    Repeater {
+                        model: root.dualViewItems
+                        delegate: itemRowComponent
+                    }
+                }
             }
         }
 
@@ -1215,112 +1267,135 @@ Rectangle {
         // them with all the Media-row affordances (rename, click-
         // to-load, context menu).
         Rectangle {
-            id: playlistsHeader
+            id: playlistsCard
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.headerHeight
-            color: playlistsHeadMa.containsMouse
-                   ? Theme.surfaceHover
-                   : (bodyColumn.playlistsExpanded
-                        ? Theme.sectionOpenBg : "transparent")
+            Layout.leftMargin: Theme.padding
+            Layout.rightMargin: Theme.padding
+            Layout.topMargin: Theme.padding
+            color: Theme.card
+            radius: Theme.radiusBase
+            clip: true
+            // Track the ANIMATED well height (see mediaCard) so the
+            // card grows/shrinks with the collapse ease. With no
+            // playlists the card is just its header — the + stays
+            // the always-available entry point for creating the
+            // first one.
+            implicitHeight: playlistsHeader.height
+                + playlistsWell.height
+                + (playlistsWell.height > 0 ? Theme.padding : 0)
 
-            MouseArea {
-                id: playlistsHeadMa
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: bodyColumn.playlistsExpanded =
-                           !bodyColumn.playlistsExpanded
-            }
+            Rectangle {
+                id: playlistsHeader
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: Theme.headerHeight
+                radius: Theme.radiusBase
+                color: playlistsHeadMa.containsMouse
+                       ? Theme.surfaceHover : "transparent"
 
-            RowLayout {
-                anchors.fill: parent
-                spacing: 0
-                Item {
-                    Layout.preferredWidth: Theme.gutterWidth
-                    Layout.fillHeight: true
-                    Icon {
-                        anchors.centerIn: parent
-                        name: bodyColumn.playlistsExpanded
-                              ? "caret-down" : "caret-right"
-                        size: Theme.iconSizeSmall
-                        color: Theme.textSecondary
+                MouseArea {
+                    id: playlistsHeadMa
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: bodyColumn.playlistsExpanded =
+                               !bodyColumn.playlistsExpanded
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 0
+                    Item {
+                        Layout.preferredWidth: Theme.gutterWidth
+                        Layout.fillHeight: true
+                        Icon {
+                            anchors.centerIn: parent
+                            name: bodyColumn.playlistsExpanded
+                                  ? "caret-down" : "caret-right"
+                            size: Theme.iconSizeSmall
+                            color: Theme.textSecondary
+                        }
                     }
-                }
-                Icon {
-                    Layout.preferredWidth: Theme.iconSizeToolbar
-                    Layout.preferredHeight: Theme.iconSizeToolbar
-                    Layout.rightMargin: Theme.spacing
-                    name: "queue"
-                    size: Theme.iconSizeToolbar
-                    color: Theme.textSecondary
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: qsTr("Playlists")
-                    color: Theme.textPrimary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeBase
-                    font.bold: true
-                }
-                Text {
-                    text: "(" + root.playlistItems.length + ")"
-                    color: Theme.textMuted
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.rightMargin: Theme.spacing
-                }
-                // Empty-playlist creation, always reachable. Flat
-                // icon-only button, doesn't toggle the section
-                // when clicked (its MouseArea consumes the click
-                // before the header strip's MouseArea sees it).
-                Item {
-                    Layout.preferredWidth: 22
-                    Layout.preferredHeight: 22
-                    Layout.rightMargin: Theme.padding
-                    z: 2
-                    Icon {
-                        anchors.centerIn: parent
-                        name: "plus"
-                        size: Theme.iconSizeSmall
-                        color: playlistsPlusMa.containsMouse
-                               ? Theme.accent : Theme.textSecondary
+                    Text {
+                        Layout.fillWidth: true
+                        text: qsTr("Playlists")
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 0.8
                     }
-                    MouseArea {
-                        id: playlistsPlusMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.createEmptyPlaylistAndRename()
-                        FlatToolTip {
-                            visible: playlistsPlusMa.containsMouse
-                            text: qsTr("New playlist")
+                    Text {
+                        text: "(" + root.playlistItems.length + ")"
+                        color: Theme.textMuted
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        Layout.rightMargin: Theme.spacing
+                    }
+                    // Empty-playlist creation, always reachable. Flat
+                    // icon-only button, doesn't toggle the section
+                    // when clicked (its MouseArea consumes the click
+                    // before the header strip's MouseArea sees it).
+                    Item {
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                        Layout.rightMargin: Theme.padding
+                        z: 2
+                        Icon {
+                            anchors.centerIn: parent
+                            name: "plus"
+                            size: Theme.iconSizeSmall
+                            color: playlistsPlusMa.containsMouse
+                                   ? Theme.accent : Theme.textSecondary
+                        }
+                        MouseArea {
+                            id: playlistsPlusMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.createEmptyPlaylistAndRename()
+                            FlatToolTip {
+                                visible: playlistsPlusMa.containsMouse
+                                text: qsTr("New playlist")
+                            }
                         }
                     }
                 }
             }
-            Rectangle {
-                visible: bodyColumn.playlistsExpanded
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                anchors.bottom: parent.bottom
-                height: Theme.dividerWidth
-                color:  Theme.divider
-            }
-        }
 
-        // Playlists items list. Repeater + the shared row delegate.
-        // Hidden entirely when the section has no items so the
-        // empty case doesn't steal vertical space from the
-        // Inspector. The section's header above (with the +)
-        // remains the always-available entry point for creating
-        // the first playlist.
-        Column {
-            Layout.fillWidth: true
-            visible: bodyColumn.playlistsExpanded
-                     && root.playlistItems.length > 0
-            Repeater {
-                model: root.playlistItems
-                delegate: itemRowComponent
+            // Playlists items list — recessed well + the shared row
+            // delegate. Collapses to nothing when empty so the empty
+            // case doesn't steal vertical space.
+            Rectangle {
+                id: playlistsWell
+                anchors.top: playlistsHeader.bottom
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.leftMargin: Theme.padding
+                anchors.rightMargin: Theme.padding
+                height: bodyColumn.playlistsExpanded
+                            && root.playlistItems.length > 0
+                        ? playlistsCol.height + 4 : 0
+                Behavior on height {
+                    NumberAnimation { duration: 160; easing.type: Easing.OutCubic }
+                }
+                color: Theme.surfaceRecess
+                radius: Theme.radiusSmall
+                clip: true
+
+                Column {
+                    id: playlistsCol
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: 2
+                    Repeater {
+                        model: root.playlistItems
+                        delegate: itemRowComponent
+                    }
+                }
             }
         }
 
@@ -1332,7 +1407,6 @@ Rectangle {
                     id: safetyGuidesSection
                     Layout.fillWidth: true
                     title: qsTr("Safety Guides")
-                    iconName: "rectangle-dashed"
                     expanded: false
 
                     ColumnLayout {
@@ -1340,32 +1414,60 @@ Rectangle {
                         width: parent ? parent.width - 2 * Theme.padding : 0
                         spacing: Theme.spacingLoose
 
-                        FlatComboBox {
-                            id: safetyPicker
+                        // Shared label column (Theme.labelColWidth)
+                        // so the four rows — Guide / Opacity / Width
+                        // / Color — align with each other and with
+                        // the KV rows everywhere else.
+                        component SafetyLabel: Text {
+                            color: Theme.textSecondary
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.fontSizeTiny
+                            Layout.preferredWidth: Theme.labelColWidth
+                            elide: Text.ElideRight
+                        }
+                        // Slider readout — small recessed value chip
+                        // (same tone as the inspector wells), fixed
+                        // width so both sliders end at the same x.
+                        component SliderReadout: Rectangle {
+                            property string value: ""
+                            Layout.preferredWidth: 36
+                            Layout.preferredHeight: 16
+                            radius: Theme.radiusSmall
+                            color: Theme.surfaceRecess
+                            Text {
+                                anchors.centerIn: parent
+                                text: parent.value
+                                color: Theme.textPrimary
+                                font.family: Theme.monoFamily
+                                font.pixelSize: Theme.fontSizeMono
+                            }
+                        }
+
+                        RowLayout {
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.padding
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeSmall
-                            model: {
-                                const all = WindowManager.availableSafetySvgs()
-                                return [qsTr("(none)")].concat(all)
+                            spacing: Theme.spacingLoose
+                            SafetyLabel { text: qsTr("Guide") }
+                            FlatComboBox {
+                                id: safetyPicker
+                                Layout.fillWidth: true
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.fontSizeSmall
+                                model: {
+                                    const all = WindowManager.availableSafetySvgs()
+                                    return [qsTr("(none)")].concat(all)
+                                }
+                                currentIndex: 0
+                                onActivated: WindowManager.setSafetySvg(
+                                    safetyPicker.currentIndex === 0
+                                        ? ""
+                                        : safetyPicker.textAt(safetyPicker.currentIndex))
                             }
-                            currentIndex: 0
-                            onActivated: WindowManager.setSafetySvg(
-                                safetyPicker.currentIndex === 0
-                                    ? ""
-                                    : safetyPicker.textAt(safetyPicker.currentIndex))
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.spacing
-                            Text {
-                                text: qsTr("Opacity")
-                                color: Theme.textSecondary
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                                Layout.preferredWidth: 50
-                            }
+                            spacing: Theme.spacingLoose
+                            SafetyLabel { text: qsTr("Opacity") }
                             FlatSlider {
                                 id: safetyOpacitySlider
                                 Layout.fillWidth: true
@@ -1375,25 +1477,14 @@ Rectangle {
                                 value: 0.7
                                 onValueChanged: WindowManager.setSafetyOpacity(value)
                             }
-                            Text {
-                                text: safetyOpacitySlider.value.toFixed(2)
-                                color: Theme.textPrimary
-                                font.family: Theme.monoFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                                Layout.preferredWidth: 32
-                                horizontalAlignment: Text.AlignRight
+                            SliderReadout {
+                                value: safetyOpacitySlider.value.toFixed(2)
                             }
                         }
                         RowLayout {
                             Layout.fillWidth: true
-                            spacing: Theme.spacing
-                            Text {
-                                text: qsTr("Width")
-                                color: Theme.textSecondary
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                                Layout.preferredWidth: 50
-                            }
+                            spacing: Theme.spacingLoose
+                            SafetyLabel { text: qsTr("Width") }
                             FlatSlider {
                                 id: safetyWidthSlider
                                 Layout.fillWidth: true
@@ -1403,19 +1494,22 @@ Rectangle {
                                 value: 2
                                 onValueChanged: WindowManager.setSafetyLineWidth(value)
                             }
-                            Text {
-                                text: safetyWidthSlider.value.toFixed(0)
-                                color: Theme.textPrimary
-                                font.family: Theme.monoFamily
-                                font.pixelSize: Theme.fontSizeSmall
-                                Layout.preferredWidth: 32
-                                horizontalAlignment: Text.AlignRight
+                            SliderReadout {
+                                value: safetyWidthSlider.value.toFixed(0)
                             }
                         }
                         // Inline color picker — same component as
                         // the annotation tools. Sticky preference
                         // for the safety-guide color stored under
                         // safety/colorHex.
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingLoose
+                            SafetyLabel {
+                                text: qsTr("Color")
+                                Layout.alignment: Qt.AlignTop
+                                topPadding: 2
+                            }
                         ColorPickerInline {
                             id: safetyColorPicker
                             Layout.fillWidth: true
@@ -1446,6 +1540,7 @@ Rectangle {
                                 }
                             }
                         }
+                        }
                     }
                 }
 
@@ -1454,7 +1549,6 @@ Rectangle {
                     id: backgroundSection
                     Layout.fillWidth: true
                     title: qsTr("Background")
-                    iconName: "checkerboard"
                     expanded: false
 
                     GridLayout {
@@ -1579,7 +1673,6 @@ Rectangle {
                     id: settingsSection
                     Layout.fillWidth: true
                     title: qsTr("Settings")
-                    iconName: "gear"
                     expanded: false
 
                     // Defaults — match the constructors / Settings spec.
@@ -1669,13 +1762,17 @@ Rectangle {
 
                     // Inline reusable revert button: small flat
                     // arrow-counter-clockwise icon that goes accent
-                    // on hover. The icon + the per-row HelpText
-                    // below it are already self-documenting; no
-                    // tooltip is shown.
+                    // on hover. Declutter (aesthetics pass 2): only
+                    // shown when the row's value differs from its
+                    // default (`dirty`) — but the 22 px slot is
+                    // always reserved so the control column stays
+                    // aligned across clean and dirty rows.
                     component RevertBtn: Item {
+                        property bool dirty: true
                         signal clicked
                         Layout.preferredWidth: 22
                         Layout.preferredHeight: 22
+                        opacity: dirty ? 1 : 0
                         Icon {
                             anchors.centerIn: parent
                             name: "arrow-counter-clockwise"
@@ -1686,46 +1783,70 @@ Rectangle {
                         MouseArea {
                             id: revertMa
                             anchors.fill: parent
+                            enabled: parent.dirty
                             cursorShape: Qt.PointingHandCursor
                             hoverEnabled: true
                             onClicked: parent.clicked()
                         }
                     }
 
-                    component GroupHeader: ColumnLayout {
+                    // Group heading — caps voice, no hairline rule
+                    // (last holdout of the old divider vocabulary;
+                    // spacing does the grouping now, matching the
+                    // Keyboard Shortcuts categories).
+                    component GroupHeader: Text {
                         property string label: ""
                         Layout.fillWidth: true
                         Layout.topMargin: Theme.padding
-                        spacing: 2
-                        Text {
-                            Layout.fillWidth: true
-                            text: parent.label
-                            color: Theme.textMuted
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.fontSizeTiny
-                            font.bold: true
-                            font.capitalization: Font.AllUppercase
-                            font.letterSpacing: 0.5
-                        }
-                        Rectangle {
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 1
-                            color: Theme.divider
+                        text: label
+                        color: Theme.textSecondary
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.fontSizeTiny
+                        font.bold: true
+                        font.capitalization: Font.AllUppercase
+                        font.letterSpacing: 0.5
+                    }
+
+                    // Fixed-width control slot for switch rows —
+                    // right-aligns the switch to the same edge the
+                    // spinboxes / combo end at, so the card reads as
+                    // three columns: label / control / revert.
+                    component SlotSwitch: Item {
+                        property alias checked: slotSw.checked
+                        signal toggled()
+                        Layout.preferredWidth: 110
+                        Layout.preferredHeight: 22
+                        FlatSwitch {
+                            id: slotSw
+                            anchors.right: parent.right
+                            anchors.verticalCenter: parent.verticalCenter
+                            onToggled: parent.toggled()
                         }
                     }
 
+                    // Row label with optional hover help — replaces
+                    // the old always-visible HelpText paragraphs
+                    // that made the card read as a wall of text.
+                    // The explanations still exist, one hover away.
                     component RowLabel: Text {
+                        id: rowLabelRoot
+                        property string help: ""
                         Layout.fillWidth: true
                         color: Theme.textPrimary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeSmall
-                    }
-                    component HelpText: Text {
-                        Layout.fillWidth: true
-                        color: Theme.textMuted
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                        wrapMode: Text.WordWrap
+                        elide: Text.ElideRight
+                        MouseArea {
+                            id: rowLabelMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            acceptedButtons: Qt.NoButton
+                            FlatToolTip {
+                                visible: rowLabelMa.containsMouse
+                                         && rowLabelRoot.help.length > 0
+                                text: rowLabelRoot.help
+                            }
+                        }
                     }
 
                     ColumnLayout {
@@ -1742,22 +1863,26 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Image-seq decode threads") }
+                                RowLabel {
+                                    text: qsTr("Image-seq decode threads")
+                                    help: qsTr("Applies on next sequence load.")
+                                }
                                 FlatSpinBox {
                                     from: 1
                                     to: 64
                                     value: perfSettings.imageSeqThreads
                                     onValueModified: perfSettings.imageSeqThreads = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.imageSeqThreads
+                                           !== settingsSection.kImageSeqThreadsDefault
                                     onClicked: perfSettings.imageSeqThreads =
                                                   settingsSection.kImageSeqThreadsDefault
                                 }
                             }
-                            HelpText { text: qsTr("Applies on next sequence load.") }
                         }
 
                         // Image-seq cache window.
@@ -1767,23 +1892,28 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Image-seq cache window") }
+                                RowLabel {
+                                    text: qsTr("Image-seq cache window")
+                                    help: qsTr("Frames cached ahead of the playhead. "
+                                             + "Lower = less RAM.")
+                                }
                                 FlatSpinBox {
                                     from: 24
                                     to: 240
                                     stepSize: 6
                                     value: perfSettings.imageSeqReadAhead
                                     onValueModified: perfSettings.imageSeqReadAhead = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.imageSeqReadAhead
+                                           !== settingsSection.kImageSeqAheadDefault
                                     onClicked: perfSettings.imageSeqReadAhead =
                                                   settingsSection.kImageSeqAheadDefault
                                 }
                             }
-                            HelpText { text: qsTr("Frames cached ahead of the playhead. Lower = less RAM.") }
                         }
 
                         // Video (FFmpeg) decode threads.
@@ -1793,15 +1923,20 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Video decode threads") }
+                                RowLabel {
+                                    text: qsTr("Video decode threads")
+                                    help: qsTr("0 = Auto. Single-video playback only; "
+                                             + "dual and scrub stay on Auto. Applies "
+                                             + "on next video load.")
+                                }
                                 FlatSpinBox {
                                     from: 0
                                     to: 32
                                     value: perfSettings.ffmpegThreads
                                     onValueModified: perfSettings.ffmpegThreads = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                     textFromValue: function(value) {
                                         return value === 0
                                             ? qsTr("Auto")
@@ -1814,11 +1949,12 @@ Rectangle {
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.ffmpegThreads
+                                           !== settingsSection.kFFmpegThreadsDefault
                                     onClicked: perfSettings.ffmpegThreads =
                                                   settingsSection.kFFmpegThreadsDefault
                                 }
                             }
-                            HelpText { text: qsTr("0 = Auto. Single-video playback only; dual and scrub stay on Auto. Applies on next video load.") }
                         }
 
                         // Windows-only toggle (defaults ON). Turning
@@ -1834,22 +1970,28 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Enable hardware decoding") }
-                                FlatSwitch {
-                                    Layout.rightMargin: Theme.padding
+                                RowLabel {
+                                    text: qsTr("Enable hardware decoding")
+                                    help: qsTr("GPU decode (Vulkan/D3D11VA) when "
+                                             + "available. Turn off if playback "
+                                             + "misbehaves — forces software decode "
+                                             + "everywhere. Applies on next file load.")
+                                }
+                                SlotSwitch {
                                     checked: perfSettings.hardwareDecodeEnabled
                                     onToggled: {
                                         perfSettings.hardwareDecodeEnabled = checked;
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.hardwareDecodeEnabled
+                                           !== settingsSection.kHwDecodeEnabledDefault
                                     onClicked: {
                                         perfSettings.hardwareDecodeEnabled =
                                             settingsSection.kHwDecodeEnabledDefault;
                                     }
                                 }
                             }
-                            HelpText { text: qsTr("GPU decode (Vulkan/D3D11VA) when available. Turn off if playback misbehaves — forces software decode everywhere. Applies on next file load.") }
                         }
 
                         // Scrub GOP-cache budget (MB per decoder).
@@ -1859,23 +2001,30 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Scrub cache size (MB)") }
+                                RowLabel {
+                                    text: qsTr("Scrub cache size (MB)")
+                                    help: qsTr("Decoded frames kept near the playhead "
+                                             + "for instant backward scrub. Higher = "
+                                             + "smoother, more RAM/VRAM. Per decoder — "
+                                             + "dual uses 2x. Applies on next file load.")
+                                }
                                 FlatSpinBox {
                                     from: 128
                                     to: 4096
                                     stepSize: 128
                                     value: perfSettings.scrubCacheMB
                                     onValueModified: perfSettings.scrubCacheMB = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.scrubCacheMB
+                                           !== settingsSection.kScrubCacheMBDefault
                                     onClicked: perfSettings.scrubCacheMB =
                                                   settingsSection.kScrubCacheMBDefault
                                 }
                             }
-                            HelpText { text: qsTr("Decoded frames kept near the playhead for instant backward scrub. Higher = smoother, more RAM/VRAM. Per decoder — dual uses 2x. Applies on next file load.") }
                         }
 
                         // Experimental: hardware scrub for h264/h265.
@@ -1885,22 +2034,29 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Hardware scrub for h264/h265 (experimental)") }
-                                FlatSwitch {
-                                    Layout.rightMargin: Theme.padding
+                                RowLabel {
+                                    text: qsTr("Hardware scrub for h264/h265 (experimental)")
+                                    help: qsTr("GPU decode while scrubbing h264/h265, "
+                                             + "not just all-intra (ProRes). "
+                                             + "Experimental — turn off if scrubbed "
+                                             + "frames look wrong. Applies on next "
+                                             + "file load.")
+                                }
+                                SlotSwitch {
                                     checked: perfSettings.hwScrubInterCodecs
                                     onToggled: {
                                         perfSettings.hwScrubInterCodecs = checked;
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: perfSettings.hwScrubInterCodecs
+                                           !== settingsSection.kHwScrubInterDefault
                                     onClicked: {
                                         perfSettings.hwScrubInterCodecs =
                                             settingsSection.kHwScrubInterDefault;
                                     }
                                 }
                             }
-                            HelpText { text: qsTr("GPU decode while scrubbing h264/h265, not just all-intra (ProRes). Experimental — turn off if scrubbed frames look wrong. Applies on next file load.") }
                         }
 
                         GroupHeader { label: qsTr("Interface") }
@@ -1913,21 +2069,26 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Always open in minimal mode") }
-                                FlatSwitch {
-                                    Layout.rightMargin: Theme.padding
+                                RowLabel {
+                                    text: qsTr("Always open in minimal mode")
+                                    help: qsTr("Launch with the rails collapsed and "
+                                             + "the color panel hidden, ignoring the "
+                                             + "last-used layout. Applies on next "
+                                             + "launch.")
+                                }
+                                SlotSwitch {
                                     checked: WindowManager.alwaysOpenMinimal
                                     onToggled: {
                                         WindowManager.alwaysOpenMinimal = checked;
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: WindowManager.alwaysOpenMinimal
                                     onClicked: {
                                         WindowManager.alwaysOpenMinimal = false;
                                     }
                                 }
                             }
-                            HelpText { text: qsTr("Launch with the rails collapsed and the color panel hidden, ignoring the last-used layout. Applies on next launch.") }
                         }
 
                         // Timeline hover thumbnails.
@@ -1938,8 +2099,7 @@ Rectangle {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
                                 RowLabel { text: qsTr("Timeline hover thumbnails") }
-                                FlatSwitch {
-                                    Layout.rightMargin: Theme.padding
+                                SlotSwitch {
                                     // Bind to the WM Q_PROPERTY so the
                                     // transport-row toggle and this
                                     // switch stay in sync live.
@@ -1949,6 +2109,8 @@ Rectangle {
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: WindowManager.timelineHoverThumbsEnabled
+                                           !== settingsSection.kHoverThumbsDefault
                                     onClicked: {
                                         WindowManager.timelineHoverThumbsEnabled =
                                             settingsSection.kHoverThumbsDefault;
@@ -1966,11 +2128,15 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("Screenshot format") }
+                                RowLabel {
+                                    text: qsTr("Screenshot format")
+                                    help: qsTr("Format for Desktop screenshots. JPEG "
+                                             + "is lossy; PNG/TIFF lossless. Notes "
+                                             + "always use PNG.")
+                                }
                                 FlatComboBox {
                                     id: screenshotFormatPicker
                                     Layout.preferredWidth: 110
-                                    Layout.rightMargin: Theme.padding
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.fontSizeSmall
                                     model: ["PNG", "JPEG", "TIFF"]
@@ -1981,13 +2147,11 @@ Rectangle {
                                         settingsSection.kScreenshotFormats[currentIndex]
                                 }
                                 RevertBtn {
+                                    dirty: WindowManager.screenshotFormat
+                                           !== settingsSection.kScreenshotFormatDefault
                                     onClicked: WindowManager.screenshotFormat =
                                         settingsSection.kScreenshotFormatDefault
                                 }
-                            }
-                            HelpText {
-                                text: qsTr("Format for Desktop screenshots. JPEG is "
-                                    + "lossy; PNG/TIFF lossless. Notes always use PNG.")
                             }
                         }
 
@@ -2005,9 +2169,11 @@ Rectangle {
                                 spacing: Theme.spacing
                                 RowLabel {
                                     text: qsTr("Automatically check for updates")
+                                    help: qsTr("Checks daily for updates, sending only "
+                                             + "your IP and app/OS version. Update "
+                                             + "manually anytime from the About menu.")
                                 }
-                                FlatSwitch {
-                                    Layout.rightMargin: Theme.padding
+                                SlotSwitch {
                                     // Bound directly to Sparkle's own
                                     // persisted setting (single source of
                                     // truth — no separate QSettings copy).
@@ -2016,11 +2182,10 @@ Rectangle {
                                         WindowManager.autoUpdateChecks = checked;
                                     }
                                 }
-                            }
-                            HelpText {
-                                text: qsTr("Checks daily for updates, sending only your "
-                                    + "IP and app/OS version. Update manually anytime "
-                                    + "from the About menu.")
+                                // No revert button on this row — a
+                                // filler keeps the control column
+                                // aligned with the rows above.
+                                Item { Layout.preferredWidth: 22 }
                             }
                         }
 
@@ -2040,16 +2205,21 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("A/V sync (Single)") }
+                                RowLabel {
+                                    text: qsTr("A/V sync (Single)")
+                                    help: qsTr("Positive values delay audio to offset "
+                                             + "pipeline/display lag. Tune by ear; "
+                                             + "applies on the next seek or play.")
+                                }
                                 FlatSpinBox {
                                     from: -100
                                     to: 100
                                     value: WindowManager.audioSyncOffsetMs
                                     onValueModified:
                                         WindowManager.audioSyncOffsetMs = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                     textFromValue: function(value) {
                                         return value + " ms";
                                     }
@@ -2059,6 +2229,8 @@ Rectangle {
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: WindowManager.audioSyncOffsetMs
+                                           !== WindowManager.audioSyncOffsetMsDefault
                                     onClicked:
                                         WindowManager.audioSyncOffsetMs =
                                             WindowManager.audioSyncOffsetMsDefault
@@ -2067,16 +2239,22 @@ Rectangle {
                             RowLayout {
                                 Layout.fillWidth: true
                                 spacing: Theme.spacing
-                                RowLabel { text: qsTr("A/V sync (Dual)") }
+                                RowLabel {
+                                    text: qsTr("A/V sync (Dual)")
+                                    help: qsTr("Positive values delay audio to offset "
+                                             + "pipeline/display lag. Dual's latency "
+                                             + "runs deeper than single. Tune by ear; "
+                                             + "applies on the next seek or play.")
+                                }
                                 FlatSpinBox {
                                     from: -100
                                     to: 100
                                     value: WindowManager.dualAudioSyncOffsetMs
                                     onValueModified:
                                         WindowManager.dualAudioSyncOffsetMs = value
-                                    Layout.preferredWidth: 80
+                                    Layout.preferredWidth: 110
                                     font.family: Theme.monoFamily
-                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.pixelSize: Theme.fontSizeMono
                                     textFromValue: function(value) {
                                         return value + " ms";
                                     }
@@ -2086,15 +2264,12 @@ Rectangle {
                                     }
                                 }
                                 RevertBtn {
+                                    dirty: WindowManager.dualAudioSyncOffsetMs
+                                           !== WindowManager.dualAudioSyncOffsetMsDefault
                                     onClicked:
                                         WindowManager.dualAudioSyncOffsetMs =
                                             WindowManager.dualAudioSyncOffsetMsDefault
                                 }
-                            }
-                            HelpText {
-                                text: qsTr("Positive values delay audio to offset "
-                                         + "pipeline/display lag. Tune by ear; applies "
-                                         + "on the next seek or play.")
                             }
                         }
 
@@ -2106,13 +2281,18 @@ Rectangle {
                             color: Theme.error
                             opacity: 0.4
                         }
+                        // Sized to content, not full width — a
+                        // full-bleed red button was more alarm than
+                        // a preferences card needs.
                         FlatButton {
-                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignLeft
                             Layout.topMargin: Theme.spacing
                             Layout.bottomMargin: Theme.padding
                             iconName: "trash"
+                            iconSize: Theme.iconSizeSmall
                             text: qsTr("Reset all preferences…")
                             variant: "danger"
+                            Layout.preferredHeight: 24
                             onClicked: resetAllConfirm.open()
                         }
                     }

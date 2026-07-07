@@ -15,6 +15,13 @@ Switch {
     implicitWidth: 32
     implicitHeight: 18
     spacing: 0
+    // Kill the Basic-style template's default ~6 px padding — the
+    // indicator draws at x: leftPadding, so any padding painted the
+    // track OUTSIDE the control's 32x18 logical bounds. That made
+    // right-anchored switches (Settings' SlotSwitch column) overhang
+    // the control column by the padding amount. Zero padding =
+    // visual footprint === geometry, so anchors mean what they say.
+    padding: 0
 
     indicator: Rectangle {
         implicitWidth: 32

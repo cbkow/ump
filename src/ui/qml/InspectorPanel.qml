@@ -18,9 +18,12 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Qcv
 
+// Transparent container — the RightRail provides the darker well
+// (Theme.bg) and each section below renders as a raised InspectorCard
+// plane on it (aesthetics pass 1).
 Rectangle {
     id: root
-    color: Theme.bgAlt
+    color: "transparent"
     border.width: 0
 
     property bool expanded: true
@@ -139,30 +142,9 @@ Rectangle {
                ("00" + s).slice(-2);
     }
 
-    // Reusable section header — uppercase letter-spaced label
-    // followed by a 1-px Theme.divider rule. Used by each major
-    // group below (FILE / VIDEO / HDR / COLOR / AUDIO / TIMECODE
-    // / LINKED PROJECTS / PLAYLIST CONTENTS) so the section
-    // separation is consistent.
-    component SectionHeader: ColumnLayout {
-        property string label: ""
-        Layout.fillWidth: true
-        spacing: 2
-        Text {
-            Layout.fillWidth: true
-            text: parent.label
-            color: Theme.textMuted
-            font.family: Theme.fontFamily
-            font.pixelSize: Theme.fontSizeTiny
-            font.bold: true
-            font.letterSpacing: 0.5
-        }
-        Rectangle {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 1
-            color: Theme.divider
-        }
-    }
+    // Section headers are gone — each group below is an
+    // InspectorCard whose title carries the tiny-caps voice and
+    // whose card edge replaces the old 1-px divider rule.
 
     // Slim pill row at the top of the panel with the A/B side
     // picker (dual mode only) and the active item's type label.
@@ -250,14 +232,18 @@ Rectangle {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Theme.padding
-        spacing: Theme.paddingLoose
+        spacing: Theme.padding
 
         // ---- File section ----
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+        InspectorCard {
+            id: fileCard
+            title: qsTr("File")
 
-            SectionHeader { label: qsTr("FILE") }
+            // Path hidden for media types that don't reference an
+            // on-disk file — currently Playlist (4) and DualPair (5);
+            // both are pure pool aggregates with no path.
+            readonly property bool hasOnDiskPath:
+                root.itemType !== 4 && root.itemType !== 5
 
             // Name (editable later in 3.D when MediaModel::update lands)
             Text {
@@ -269,44 +255,55 @@ Rectangle {
                 elide: Text.ElideMiddle
             }
 
-            // Path. Hidden for media types that don't reference an
-            // on-disk file — currently Playlist (4) and DualPair (5);
-            // both are pure pool aggregates with no path.
-            readonly property bool hasOnDiskPath:
-                root.itemType !== 4 && root.itemType !== 5
-
             Text {
                 Layout.fillWidth: true
-                visible: parent.hasOnDiskPath
+                visible: fileCard.hasOnDiskPath
                 text: root.hasActive
                     ? WindowManager.toNativeSeparators(root.displayedItem.path)
                     : ""
                 color: Theme.textSecondary
                 font.family: Theme.monoFamily
-                font.pixelSize: Theme.fontSizeTiny
+                font.pixelSize: Theme.fontSizeMono
                 elide: Text.ElideMiddle
                 wrapMode: Text.NoWrap
             }
 
-            // Path action buttons — same visibility gate.
-            // Top divider for the action row.
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                Layout.topMargin: Theme.spacing
-                color: Theme.divider
-                visible: parent.hasOnDiskPath
-            }
+            // Stat row: size, duration
             RowLayout {
                 Layout.fillWidth: true
-                // Negate the column's 2-px spacing so the buttons
-                // touch the divider above.
-                Layout.topMargin: -2
+                spacing: Theme.paddingLoose
+                Text {
+                    text: root.hasActive
+                        ? root.formatSize(root.displayedItem.sizeBytes || 0)
+                        : ""
+                    color: Theme.textSecondary
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontSizeMono
+                }
+                Text {
+                    text: root.hasActive
+                        ? root.formatDuration(root.displayedItem.duration || 0)
+                        : ""
+                    color: Theme.textSecondary
+                    font.family: Theme.monoFamily
+                    font.pixelSize: Theme.fontSizeMono
+                }
+                Item { Layout.fillWidth: true }
+            }
+
+            // Path actions — the card edge provides the grouping the
+            // old divider sandwich used to.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: Theme.spacing
                 spacing: 4
-                visible: parent.hasOnDiskPath
+                visible: fileCard.hasOnDiskPath
 
                 FlatButton {
+                    variant: "raised"
+                    Layout.preferredHeight: 24
                     iconName: "copy"
+                    iconSize: Theme.iconSizeSmall
                     text: qsTr("Copy path")
                     onClicked: {
                         if (root.displayedItem && root.displayedItem.path) {
@@ -317,45 +314,16 @@ Rectangle {
                     }
                 }
                 FlatButton {
+                    variant: "raised"
+                    Layout.preferredHeight: 24
                     iconName: "folder-simple"
+                    iconSize: Theme.iconSizeSmall
                     text: qsTr("Reveal")
                     onClicked: {
                         if (root.displayedItem && root.displayedItem.path) {
                             WindowManager.revealInFileManager(root.displayedItem.path)
                         }
                     }
-                }
-                Item { Layout.fillWidth: true }
-            }
-            // Bottom divider for the action row.
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 1
-                Layout.topMargin: -2
-                color: Theme.divider
-                visible: parent.hasOnDiskPath
-            }
-
-            // Stat row: size, duration
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: 4
-                spacing: Theme.paddingLoose
-                Text {
-                    text: root.hasActive
-                        ? root.formatSize(root.displayedItem.sizeBytes || 0)
-                        : ""
-                    color: Theme.textSecondary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                }
-                Text {
-                    text: root.hasActive
-                        ? root.formatDuration(root.displayedItem.duration || 0)
-                        : ""
-                    color: Theme.textSecondary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeTiny
                 }
                 Item { Layout.fillWidth: true }
             }
@@ -386,106 +354,51 @@ Rectangle {
         }
 
         // ---- VIDEO ----
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+        InspectorCard {
+            title: qsTr("Video")
             visible: content.videoLoaded
                      && content.vmeta
                      && content.vmeta.width > 0
 
-            SectionHeader { label: qsTr("VIDEO") }
-
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Theme.paddingLoose
-                rowSpacing: 2
-
-                Text { text: qsTr("Resolution"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta
-                        ? content.vmeta.width + " × " + content.vmeta.height
-                        : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text { text: qsTr("Frame rate"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta && content.vmeta.frameRate > 0
-                        ? content.vmeta.frameRate.toFixed(3) + " fps"
-                        : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text { text: qsTr("Total frames"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.totalFrames : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text { text: qsTr("Codec"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.videoCodec : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    elide: Text.ElideRight
-                }
-
-                Text { text: qsTr("Pixel format"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.pixelFormat : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text { text: qsTr("Bit depth"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta
-                        ? content.vmeta.bitDepth + qsTr(" bit") +
-                          (content.vmeta.hasAlpha ? qsTr(" + alpha") : "")
-                        : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text {
-                    text: qsTr("HDR")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    visible: content.vmeta && content.vmeta.isHdrContent
-                }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta && content.vmeta.isHdrContent
-                        ? qsTr("Yes — ") + content.vmeta.colorTransfer
-                        : ""
-                    color: Theme.warn
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    visible: content.vmeta && content.vmeta.isHdrContent
-                }
+            KvRow {
+                label: qsTr("Resolution")
+                value: content.vmeta
+                    ? content.vmeta.width + " × " + content.vmeta.height
+                    : ""
+            }
+            KvRow {
+                label: qsTr("Frame rate")
+                value: content.vmeta && content.vmeta.frameRate > 0
+                    ? content.vmeta.frameRate.toFixed(3) + " fps"
+                    : ""
+            }
+            KvRow {
+                label: qsTr("Total frames")
+                value: content.vmeta ? content.vmeta.totalFrames : ""
+            }
+            KvRow {
+                label: qsTr("Codec")
+                value: content.vmeta ? content.vmeta.videoCodec : ""
+            }
+            KvRow {
+                label: qsTr("Pixel format")
+                value: content.vmeta ? content.vmeta.pixelFormat : ""
+            }
+            KvRow {
+                label: qsTr("Bit depth")
+                value: content.vmeta
+                    ? content.vmeta.bitDepth + qsTr(" bit") +
+                      (content.vmeta.hasAlpha ? qsTr(" + alpha") : "")
+                    : ""
+            }
+            KvRow {
+                visible: content.vmeta && content.vmeta.isHdrContent === true
+                label: qsTr("HDR")
+                value: content.vmeta && content.vmeta.isHdrContent
+                    ? qsTr("Yes — ") + content.vmeta.colorTransfer
+                    : ""
+                valueColor: Theme.warn
+                monoValue: false
             }
         }
 
@@ -496,10 +409,10 @@ Rectangle {
         // Custom takes a pixel-aspect scalar (AE term) or a display
         // aspect W:H. Mirrors the Range pill's target-resolution +
         // pickable rules; setPixelAspect persists + pushes live.
-        ColumnLayout {
+        InspectorCard {
             id: parSection
-            Layout.fillWidth: true
-            spacing: 4
+            title: qsTr("Pixel Aspect")
+            bodySpacing: 4
             visible: content.videoLoaded && content.vmeta
                      && content.vmeta.width > 0
                      && root.itemType === 0   // Video only
@@ -552,125 +465,64 @@ Rectangle {
             readonly property int effW:
                 Math.round(storageW * (curParDen > 0 ? curParNum / curParDen : 1))
 
-            SectionHeader { label: qsTr("PIXEL ASPECT") }
-
             // Mode pill row — Square / Detected (R:R) / Custom.
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 4
-                Text {
-                    text: qsTr("Aspect")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.preferredWidth: 80
-                }
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: 4
-                    Repeater {
-                        model: [
-                            { key: 0, label: qsTr("Square") },
-                            { key: 1, label: qsTr("Detected") },
-                            { key: 2, label: qsTr("Custom") },
-                        ]
-                        Rectangle {
-                            id: parChip
-                            required property var modelData
-                            // Detected is meaningless on square-pixel
-                            // content — disable it there.
-                            readonly property bool chipDisabled:
-                                modelData.key === 1 && !parSection.isAnamorphic
-                            readonly property bool isActive:
-                                modelData.key === parSection.parMode
-                            readonly property string buttonLabel:
-                                modelData.key === 1 && parSection.isAnamorphic
-                                ? qsTr("Detected ") + parSection.detSarNum
-                                  + ":" + parSection.detSarDen
-                                : modelData.label
-                            width: parChipLabel.implicitWidth + 14
-                            height: 18
-                            radius: Theme.radius
-                            color: isActive
-                                   ? Theme.accent
-                                   : (parChipMa.containsMouse
-                                      ? Theme.surfaceHover : "transparent")
-                            opacity: (parSection.parPickable && !chipDisabled)
-                                     ? 1.0 : 0.55
-                            Text {
-                                id: parChipLabel
-                                anchors.centerIn: parent
-                                text: parent.buttonLabel
-                                color: parent.isActive
-                                       ? Theme.textBright : Theme.textPrimary
-                                font.family: Theme.monoFamily
-                                font.pixelSize: Theme.fontSizeTiny
+            KvChipRow {
+                label: qsTr("Aspect")
+                Repeater {
+                    model: [
+                        { key: 0, label: qsTr("Square") },
+                        { key: 1, label: qsTr("Detected") },
+                        { key: 2, label: qsTr("Custom") },
+                    ]
+                    FlatChip {
+                        id: parChip
+                        required property var modelData
+                        // Detected is meaningless on square-pixel
+                        // content — disable it there.
+                        readonly property bool chipDisabled:
+                            modelData.key === 1 && !parSection.isAnamorphic
+                        active: modelData.key === parSection.parMode
+                        interactive: parSection.parPickable && !chipDisabled
+                        label: modelData.key === 1 && parSection.isAnamorphic
+                            ? qsTr("Detected ") + parSection.detSarNum
+                              + ":" + parSection.detSarDen
+                            : modelData.label
+                        onClicked: {
+                            if (!parSection.parTargetItemId
+                                || !WindowManager.project) return;
+                            // Seed Custom from the detected ratio
+                            // (or 1:1) so its fields start sensible.
+                            var n = parSection.curParNum;
+                            var d = parSection.curParDen;
+                            if (parChip.modelData.key === 2
+                                && parSection.parMode !== 2) {
+                                n = parSection.isAnamorphic
+                                    ? parSection.detSarNum : 1;
+                                d = parSection.isAnamorphic
+                                    ? parSection.detSarDen : 1;
                             }
-                            MouseArea {
-                                id: parChipMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                enabled: parSection.parPickable
-                                         && !parChip.chipDisabled
-                                cursorShape: (parSection.parPickable
-                                              && !parChip.chipDisabled)
-                                    ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                onClicked: {
-                                    if (!parSection.parTargetItemId
-                                        || !WindowManager.project) return;
-                                    // Seed Custom from the detected ratio
-                                    // (or 1:1) so its fields start sensible.
-                                    var n = parSection.curParNum;
-                                    var d = parSection.curParDen;
-                                    if (parChip.modelData.key === 2
-                                        && parSection.parMode !== 2) {
-                                        n = parSection.isAnamorphic
-                                            ? parSection.detSarNum : 1;
-                                        d = parSection.isAnamorphic
-                                            ? parSection.detSarDen : 1;
-                                    }
-                                    WindowManager.project.setPixelAspect(
-                                        parSection.parTargetItemId,
-                                        parChip.modelData.key, n, d);
-                                }
-                            }
+                            WindowManager.project.setPixelAspect(
+                                parSection.parTargetItemId,
+                                parChip.modelData.key, n, d);
                         }
                     }
                 }
             }
 
             // Read-out — detected SAR + resulting display aspect / dims.
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Theme.paddingLoose
-                rowSpacing: 2
-
-                Text { text: qsTr("Detected"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: parSection.isAnamorphic
-                        ? parSection.detSarNum + ":" + parSection.detSarDen
-                          + qsTr(" (non-square)")
-                        : qsTr("1:1 (square)")
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-
-                Text { text: qsTr("Display"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: parSection.curDar > 0
-                        ? parSection.curDar.toFixed(3) + ":1   ("
-                          + parSection.effW + " × " + parSection.storageH + ")"
-                        : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
+            KvRow {
+                label: qsTr("Detected")
+                value: parSection.isAnamorphic
+                    ? parSection.detSarNum + ":" + parSection.detSarDen
+                      + qsTr(" (non-square)")
+                    : qsTr("1:1 (square)")
+            }
+            KvRow {
+                label: qsTr("Display")
+                value: parSection.curDar > 0
+                    ? parSection.curDar.toFixed(3) + ":1   ("
+                      + parSection.effW + " × " + parSection.storageH + ")"
+                    : ""
             }
 
             // Custom entry — pixel-aspect scalar (AE term) and a
@@ -684,20 +536,20 @@ Rectangle {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: Theme.spacingLoose
                     Text {
                         text: qsTr("Pixel aspect")
                         color: Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeTiny
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: Theme.labelColWidth
                     }
                     TextField {
                         id: parScalarField
                         Layout.preferredWidth: 90
                         text: parSection.curPar.toFixed(4)
                         font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: Theme.fontSizeMono
                         selectByMouse: true
                         inputMethodHints: Qt.ImhFormattedNumbersOnly
                         onEditingFinished: {
@@ -718,13 +570,13 @@ Rectangle {
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: 4
+                    spacing: Theme.spacingLoose
                     Text {
                         text: qsTr("Display aspect")
                         color: Theme.textSecondary
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.fontSizeTiny
-                        Layout.preferredWidth: 80
+                        Layout.preferredWidth: Theme.labelColWidth
                     }
                     // Display aspect as a single decimal (e.g. 2.390 for
                     // a 32:9 frame). A single scalar round-trips to a
@@ -739,7 +591,7 @@ Rectangle {
                         text: parSection.curDar > 0
                               ? parSection.curDar.toFixed(4) : ""
                         font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeSmall
+                        font.pixelSize: Theme.fontSizeMono
                         selectByMouse: true
                         inputMethodHints: Qt.ImhFormattedNumbersOnly
                         onEditingFinished: {
@@ -757,15 +609,14 @@ Rectangle {
                         }
                     }
                     Text { text: ": 1"; color: Theme.textSecondary
-                           font.family: Theme.monoFamily; font.pixelSize: Theme.fontSizeSmall }
+                           font.family: Theme.monoFamily; font.pixelSize: Theme.fontSizeMono }
                 }
             }
         }
 
         // ---- COLOR ----
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 2
+        InspectorCard {
+            title: qsTr("Color")
             visible: content.videoLoaded
                      && content.vmeta
                      && (content.vmeta.colorspace.length > 0
@@ -773,58 +624,25 @@ Rectangle {
                          || content.vmeta.colorTransfer.length > 0
                          || content.vmeta.colorRange.length > 0)
 
-            SectionHeader { label: qsTr("COLOR") }
-
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Theme.paddingLoose
-                rowSpacing: 2
-
-                Text { text: qsTr("Colorspace"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny
-                       visible: content.vmeta && content.vmeta.colorspace.length > 0 }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.colorspace : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    visible: content.vmeta && content.vmeta.colorspace.length > 0
-                }
-                Text { text: qsTr("Primaries"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny
-                       visible: content.vmeta && content.vmeta.colorPrimaries.length > 0 }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.colorPrimaries : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    visible: content.vmeta && content.vmeta.colorPrimaries.length > 0
-                }
-                Text { text: qsTr("Transfer"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny
-                       visible: content.vmeta && content.vmeta.colorTransfer.length > 0 }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.colorTransfer : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    visible: content.vmeta && content.vmeta.colorTransfer.length > 0
-                }
-                Text { text: qsTr("NCLC tag"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny
-                       visible: content.vmeta && content.vmeta.nclcTag.length > 0 }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.nclcTag : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    visible: content.vmeta && content.vmeta.nclcTag.length > 0
-                }
+            KvRow {
+                visible: content.vmeta && content.vmeta.colorspace.length > 0
+                label: qsTr("Colorspace")
+                value: content.vmeta ? content.vmeta.colorspace : ""
+            }
+            KvRow {
+                visible: content.vmeta && content.vmeta.colorPrimaries.length > 0
+                label: qsTr("Primaries")
+                value: content.vmeta ? content.vmeta.colorPrimaries : ""
+            }
+            KvRow {
+                visible: content.vmeta && content.vmeta.colorTransfer.length > 0
+                label: qsTr("Transfer")
+                value: content.vmeta ? content.vmeta.colorTransfer : ""
+            }
+            KvRow {
+                visible: content.vmeta && content.vmeta.nclcTag.length > 0
+                label: qsTr("NCLC tag")
+                value: content.vmeta ? content.vmeta.nclcTag : ""
             }
 
             // ---- Range override picker (Phase 3.G) ----
@@ -834,11 +652,10 @@ Rectangle {
             // loaded source — same UX rule as the Phase 3.F Origin
             // picker (changing it on a non-loaded item just sets a
             // flag with no visible effect until the user loads it).
-            RowLayout {
+            KvChipRow {
                 id: rangeRow
-                Layout.fillWidth: true
+                label: qsTr("Range")
                 Layout.topMargin: 4
-                spacing: 4
                 visible: root.itemType === 0  // Video only
 
                 readonly property bool rangePickable:
@@ -881,82 +698,37 @@ Rectangle {
                     return qsTr("Auto");
                 }
 
-                Text {
-                    text: qsTr("Range")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.preferredWidth: 80
-                }
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: 4
+                Repeater {
+                    model: [
+                        { key: 0, useDetected: true,  label: qsTr("Auto") },
+                        { key: 1, useDetected: false, label: qsTr("Full") },
+                        { key: 2, useDetected: false, label: qsTr("Limited") },
+                    ]
 
-                    Repeater {
-                        model: [
-                            { key: 0, useDetected: true,  label: qsTr("Auto") },
-                            { key: 1, useDetected: false, label: qsTr("Full") },
-                            { key: 2, useDetected: false, label: qsTr("Limited") },
-                        ]
-
-                        Rectangle {
-                            id: rangeChip
-                            required property var modelData
-                            readonly property bool isActive:
-                                modelData.key === rangeRow.activeRange
-                            readonly property string buttonLabel:
-                                modelData.useDetected ? rangeRow.detectedLabel
-                                                      : modelData.label
-                            width: btnLabel.implicitWidth + 14
-                            height: 18
-                            radius: Theme.radius
-                            // Flat toggle vocabulary — solid accent
-                            // fill when active, transparent at rest;
-                            // hover lifts the inactive cells. No
-                            // border.
-                            color: isActive
-                                   ? Theme.accent
-                                   : (chipMa.containsMouse
-                                      ? Theme.surfaceHover : "transparent")
-                            opacity: rangeRow.rangePickable ? 1.0 : 0.55
-                            Text {
-                                id: btnLabel
-                                anchors.centerIn: parent
-                                text: parent.buttonLabel
-                                color: parent.isActive ? Theme.textBright : Theme.textPrimary
-                                font.family: Theme.monoFamily
-                                font.pixelSize: Theme.fontSizeTiny
-                            }
-                            MouseArea {
-                                id: chipMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: rangeRow.rangePickable
-                                    ? Qt.PointingHandCursor
-                                    : Qt.ArrowCursor
-                                enabled: rangeRow.rangePickable
-                                onClicked: {
-                                    // Mutate the resolved target —
-                                    // active clip's source MediaItem
-                                    // in playlist mode, displayedItem
-                                    // otherwise. C++ side's
-                                    // videoRangeOverrideChanged signal
-                                    // pushes the value into whichever
-                                    // live decoder owns it (single-flow
-                                    // VideoDecoder OR DualPlaybackController
-                                    // per-side range atomic), so we
-                                    // don't call setRangeOverride here
-                                    // anymore — that previously double-
-                                    // applied for single-flow and missed
-                                    // entirely for dual.
-                                    const targetId =
-                                        rangeRow.rangeTargetItemId;
-                                    if (targetId && WindowManager.project) {
-                                        WindowManager.project
-                                            .setVideoRangeOverride(
-                                                targetId, modelData.key);
-                                    }
-                                }
+                    FlatChip {
+                        required property var modelData
+                        active: modelData.key === rangeRow.activeRange
+                        interactive: rangeRow.rangePickable
+                        label: modelData.useDetected ? rangeRow.detectedLabel
+                                                     : modelData.label
+                        onClicked: {
+                            // Mutate the resolved target — active
+                            // clip's source MediaItem in playlist
+                            // mode, displayedItem otherwise. C++
+                            // side's videoRangeOverrideChanged signal
+                            // pushes the value into whichever live
+                            // decoder owns it (single-flow
+                            // VideoDecoder OR DualPlaybackController
+                            // per-side range atomic), so we don't
+                            // call setRangeOverride here anymore —
+                            // that previously double-applied for
+                            // single-flow and missed entirely for
+                            // dual.
+                            const targetId = rangeRow.rangeTargetItemId;
+                            if (targetId && WindowManager.project) {
+                                WindowManager.project
+                                    .setVideoRangeOverride(
+                                        targetId, modelData.key);
                             }
                         }
                     }
@@ -971,67 +743,35 @@ Rectangle {
         // Stereo 7-8 needs ≥8). For mono/stereo sources only the
         // metadata + meter rows render — there's nothing meaningful
         // to choose.
-        ColumnLayout {
+        InspectorCard {
             id: audioSection
-            Layout.fillWidth: true
-            spacing: 2
+            title: qsTr("Audio")
             visible: content.videoLoaded
                      && content.vmeta
                      && content.vmeta.audioCodec.length > 0
 
-            SectionHeader { label: qsTr("AUDIO") }
-
-            GridLayout {
-                Layout.fillWidth: true
-                columns: 2
-                columnSpacing: Theme.paddingLoose
-                rowSpacing: 2
-
-                Text { text: qsTr("Codec"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta ? content.vmeta.audioCodec : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-                Text { text: qsTr("Sample rate"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta && content.vmeta.audioSampleRate > 0
-                        ? content.vmeta.audioSampleRate + qsTr(" Hz") : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-                Text { text: qsTr("Channels"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny }
-                Text {
-                    Layout.fillWidth: true
-                    text: content.vmeta && content.vmeta.audioChannels > 0
-                        ? content.vmeta.audioChannels +
-                          (content.vmeta.audioChannels === 2 ? qsTr(" (stereo)")
-                          : content.vmeta.audioChannels === 1 ? qsTr(" (mono)") : "")
-                        : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
-                Text { text: qsTr("Layout"); color: Theme.textSecondary;
-                       font.family: Theme.fontFamily; font.pixelSize: Theme.fontSizeTiny;
-                       visible: content.vmeta && content.vmeta.audioChannelLayoutName
-                                && content.vmeta.audioChannelLayoutName.length > 0 }
-                Text {
-                    Layout.fillWidth: true
-                    visible: content.vmeta && content.vmeta.audioChannelLayoutName
-                             && content.vmeta.audioChannelLayoutName.length > 0
-                    text: content.vmeta ? content.vmeta.audioChannelLayoutName : ""
-                    color: Theme.textPrimary
-                    font.family: Theme.monoFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                }
+            KvRow {
+                label: qsTr("Codec")
+                value: content.vmeta ? content.vmeta.audioCodec : ""
+            }
+            KvRow {
+                label: qsTr("Sample rate")
+                value: content.vmeta && content.vmeta.audioSampleRate > 0
+                    ? content.vmeta.audioSampleRate + qsTr(" Hz") : ""
+            }
+            KvRow {
+                label: qsTr("Channels")
+                value: content.vmeta && content.vmeta.audioChannels > 0
+                    ? content.vmeta.audioChannels +
+                      (content.vmeta.audioChannels === 2 ? qsTr(" (stereo)")
+                      : content.vmeta.audioChannels === 1 ? qsTr(" (mono)") : "")
+                    : ""
+            }
+            KvRow {
+                visible: content.vmeta && content.vmeta.audioChannelLayoutName
+                         && content.vmeta.audioChannelLayoutName.length > 0
+                label: qsTr("Layout")
+                value: content.vmeta ? content.vmeta.audioChannelLayoutName : ""
             }
 
             // ---- Routing mode pill row -----------------------------
@@ -1078,80 +818,46 @@ Rectangle {
                 routingTargetItem
                     ? (routingTargetItem.audioRoutingMode || 0) : 0
 
-            RowLayout {
-                Layout.fillWidth: true
+            KvChipRow {
+                label: qsTr("Mix")
                 Layout.topMargin: Theme.spacing
-                spacing: Theme.spacingLoose
-                visible: parent.routingPicker
-                Text {
-                    text: qsTr("Mix")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeSmall
-                    Layout.preferredWidth: 80
-                }
+                visible: audioSection.routingPicker
                 // Auto pill — always present.
                 Repeater {
                     model: {
                         // Build the visible mode list per source. Auto
                         // is unconditional; Downmix5_1 needs ≥6 channels;
                         // Stereo7_8 needs ≥8.
-                        const ch = parent.parent.audioCh;
+                        const ch = audioSection.audioCh;
                         const list = [{ mode: 0, label: "Auto" }];
                         if (ch >= 6) list.push({ mode: 1, label: "5.1 → 2" });
                         if (ch >= 8) list.push({ mode: 2, label: "7-8" });
                         return list;
                     }
-                    Rectangle {
-                        Layout.preferredWidth: 50
-                        Layout.preferredHeight: 18
-                        radius: Theme.radius
-                        // Reference the audioSection ColumnLayout's
-                        // resolved routing target via its id rather
-                        // than walking parent.parent — Repeater
-                        // delegate parent semantics are fragile and
-                        // the earlier draft of this pill already
-                        // tripped on a miscounted parent walk.
-                        readonly property bool isCurrent:
-                            audioSection.currentMode === modelData.mode
-                        color: isCurrent
-                            ? Theme.accent
-                            : (modeMa.containsMouse ? Theme.surfaceHover : "transparent")
-                        Text {
-                            anchors.centerIn: parent
-                            text: modelData.label
-                            color: parent.isCurrent ? Theme.textBright : Theme.textSecondary
-                            font.family: Theme.monoFamily
-                            font.pixelSize: Theme.fontSizeTiny
-                        }
-                        MouseArea {
-                            id: modeMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                // Click mutates the routing TARGET
-                                // (the active clip's source MediaItem
-                                // in playlist mode, NOT the playlist
-                                // item). Without this, the inspector
-                                // pill silently edited the playlist's
-                                // own audioRoutingMode field which
-                                // wasn't the field the decoder reads
-                                // on clip transition.
-                                const targetId =
-                                    audioSection.routingTargetItemId;
-                                if (targetId && WindowManager.project) {
-                                    WindowManager.project.setAudioRoutingMode(
-                                        targetId, modelData.mode);
-                                }
-                            }
-                            FlatToolTip {
-                                visible: modeMa.containsMouse
-                                text: modelData.mode === 0
-                                    ? qsTr("Auto — picks the right mix per source")
-                                    : modelData.mode === 1
-                                    ? qsTr("5.1 → Stereo (BS.775 downmix from channels 1-6)")
-                                    : qsTr("Channels 7-8 (broadcast stereo bounce)")
+                    FlatChip {
+                        required property var modelData
+                        minWidth: 50
+                        active: audioSection.currentMode === modelData.mode
+                        label: modelData.label
+                        tooltip: modelData.mode === 0
+                            ? qsTr("Auto — picks the right mix per source")
+                            : modelData.mode === 1
+                            ? qsTr("5.1 → Stereo (BS.775 downmix from channels 1-6)")
+                            : qsTr("Channels 7-8 (broadcast stereo bounce)")
+                        onClicked: {
+                            // Click mutates the routing TARGET (the
+                            // active clip's source MediaItem in
+                            // playlist mode, NOT the playlist item).
+                            // Without this, the inspector pill
+                            // silently edited the playlist's own
+                            // audioRoutingMode field which wasn't the
+                            // field the decoder reads on clip
+                            // transition.
+                            const targetId =
+                                audioSection.routingTargetItemId;
+                            if (targetId && WindowManager.project) {
+                                WindowManager.project.setAudioRoutingMode(
+                                    targetId, modelData.mode);
                             }
                         }
                     }
@@ -1249,13 +955,10 @@ Rectangle {
             (content.vmeta && content.vmeta.hasEmbeddedTimecode) ||
             (content.ameta && content.ameta.hasAnyTimecode)
 
-        ColumnLayout {
+        InspectorCard {
             id: timecodeSection
-            Layout.fillWidth: true
-            spacing: 2
+            title: qsTr("Timecode")
             visible: content.hasAnyTcLine
-
-            SectionHeader { label: qsTr("TIMECODE") }
 
             // ---- Origin picker (Phase 3.F) ----
             // Row of toggle buttons: which TC source feeds the
@@ -1311,65 +1014,28 @@ Rectangle {
                 return out;
             }
 
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: 4
+            KvChipRow {
+                label: qsTr("Origin")
                 // tcPickable / tcButtonModel / activeTc live on
-                // timecodeSection (the inner ColumnLayout above).
-                // The earlier `content.tcPickable` was an outer-id
-                // miss that QML6 strict-scope reports as "Unable to
-                // assign [undefined] to bool" — visible defaulted
-                // to true so the row stayed shown but the Repeater
-                // model was undefined and the picker was empty.
+                // timecodeSection (the card above). The earlier
+                // `content.tcPickable` was an outer-id miss that
+                // QML6 strict-scope reports as "Unable to assign
+                // [undefined] to bool" — visible defaulted to true
+                // so the row stayed shown but the Repeater model was
+                // undefined and the picker was empty.
                 visible: timecodeSection.tcPickable
 
-                Text {
-                    text: qsTr("Origin")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.preferredWidth: 80
-                }
-                Flow {
-                    Layout.fillWidth: true
-                    spacing: 4
+                Repeater {
+                    model: timecodeSection.tcButtonModel()
 
-                    Repeater {
-                        model: timecodeSection.tcButtonModel()
-
-                        Rectangle {
-                            readonly property bool isActive:
-                                modelData.key === timecodeSection.activeTc
-                            // Labels vary in length ("From start" vs
-                            // "QT TC") so width auto-fits; height +
-                            // radius match the Mix / Range pill style.
-                            width: btnLabel.implicitWidth + 14
-                            Layout.preferredHeight: 18
-                            height: 18
-                            radius: Theme.radius
-                            color: isActive
-                                ? Theme.accent
-                                : (originMa.containsMouse
-                                    ? Theme.surfaceHover : "transparent")
-                            Text {
-                                id: btnLabel
-                                anchors.centerIn: parent
-                                text: modelData.label
-                                color: parent.isActive ? Theme.textBright : Theme.textSecondary
-                                font.family: Theme.monoFamily
-                                font.pixelSize: Theme.fontSizeTiny
-                            }
-                            MouseArea {
-                                id: originMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    if (WindowManager.videoDecoder) {
-                                        WindowManager.videoDecoder
-                                            .setStartTimecode(modelData.key);
-                                    }
-                                }
+                    FlatChip {
+                        required property var modelData
+                        active: modelData.key === timecodeSection.activeTc
+                        label: modelData.label
+                        onClicked: {
+                            if (WindowManager.videoDecoder) {
+                                WindowManager.videoDecoder
+                                    .setStartTimecode(modelData.key);
                             }
                         }
                     }
@@ -1379,33 +1045,13 @@ Rectangle {
             // FFmpeg-extracted: container "timecode" tag. Almost
             // always matches QT StartTimecode for .mov files but
             // quicker (no exiftool fork).
-            RowLayout {
+            KvRow {
                 visible: content.vmeta && content.vmeta.hasEmbeddedTimecode
-                Layout.fillWidth: true
-                spacing: Theme.spacingLoose
-                Text {
-                    text: qsTr("Source")
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                    Layout.preferredWidth: 80
-                }
-                Text {
-                    text: content.vmeta ? content.vmeta.embeddedTimecode : ""
-                    color: Theme.textPrimary
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.monoFamily
-                }
-                Text {
-                    visible: content.vmeta && content.vmeta.startFrame !== undefined
-                    text: content.vmeta && content.vmeta.startFrame !== undefined
-                        ? qsTr("(frame %1)").arg(content.vmeta.startFrame)
-                        : ""
-                    color: Theme.textSecondary
-                    font.family: Theme.fontFamily
-                    font.pixelSize: Theme.fontSizeTiny
-                }
-                Item { Layout.fillWidth: true }
+                label: qsTr("Source")
+                value: content.vmeta ? content.vmeta.embeddedTimecode : ""
+                note: content.vmeta && content.vmeta.startFrame !== undefined
+                    ? qsTr("(frame %1)").arg(content.vmeta.startFrame)
+                    : ""
             }
 
             // Adobe-extended QuickTime variants (when present).
@@ -1418,24 +1064,11 @@ Rectangle {
                     { label: qsTr("XMP Alt"),      getter: function() {
                         return content.ameta ? content.ameta.xmpAltTimecode : "" } },
                 ]
-                RowLayout {
+                KvRow {
+                    required property var modelData
                     visible: modelData.getter().length > 0
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingLoose
-                    Text {
-                        text: modelData.label
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                        Layout.preferredWidth: 80
-                    }
-                    Text {
-                        text: modelData.getter()
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.monoFamily
-                    }
-                    Item { Layout.fillWidth: true }
+                    label: modelData.label
+                    value: modelData.getter()
                 }
             }
 
@@ -1447,25 +1080,12 @@ Rectangle {
                     { label: qsTr("Media Created"), getter: function() {
                         return content.ameta ? content.ameta.qtMediaCreateDate : "" } },
                 ]
-                RowLayout {
+                KvRow {
+                    required property var modelData
                     visible: modelData.getter().length > 0
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingLoose
-                    Text {
-                        text: modelData.label
-                        color: Theme.textSecondary
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                        Layout.preferredWidth: 80
-                    }
-                    Text {
-                        Layout.fillWidth: true
-                        text: modelData.getter()
-                        color: Theme.textSecondary
-                        font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeTiny
-                        elide: Text.ElideRight
-                    }
+                    label: modelData.label
+                    value: modelData.getter()
+                    valueColor: Theme.textSecondary
                 }
             }
         }
@@ -1475,12 +1095,10 @@ Rectangle {
         // launches the linked .aep / .prproj in its native app
         // (After Effects / Premiere); Copy puts the path on the
         // clipboard.
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 4
+        InspectorCard {
+            title: qsTr("Linked Projects")
+            bodySpacing: 4
             visible: content.ameta && content.ameta.hasAnyProject
-
-            SectionHeader { label: qsTr("LINKED PROJECTS") }
 
             Repeater {
                 model: [
@@ -1507,20 +1125,19 @@ Rectangle {
                         text: WindowManager.toNativeSeparators(modelData.pathFn())
                         color: Theme.textPrimary
                         font.family: Theme.monoFamily
-                        font.pixelSize: Theme.fontSizeTiny
+                        font.pixelSize: Theme.fontSizeMono
                         elide: Text.ElideMiddle
                     }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        Layout.topMargin: Theme.spacing
-                        color: Theme.divider
-                    }
+                    // Action row — the card groups this block now;
+                    // the old divider sandwich is gone.
                     RowLayout {
                         spacing: Theme.spacing
-                        Layout.topMargin: -1
+                        Layout.topMargin: 2
                         FlatButton {
+                            variant: "raised"
+                            Layout.preferredHeight: 24
                             iconName: "arrow-square-out"
+                            iconSize: Theme.iconSizeSmall
                             text: qsTr("Open")
                             onClicked: {
                                 const p = modelData.pathFn()
@@ -1528,23 +1145,23 @@ Rectangle {
                             }
                         }
                         FlatButton {
+                            variant: "raised"
+                            Layout.preferredHeight: 24
                             iconName: "copy"
+                            iconSize: Theme.iconSizeSmall
                             text: qsTr("Copy")
                             onClicked: WindowManager.copyTextToClipboard(
                                 WindowManager.toNativeSeparators(modelData.pathFn()))
                         }
                         FlatButton {
+                            variant: "raised"
+                            Layout.preferredHeight: 24
                             iconName: "folder-simple"
+                            iconSize: Theme.iconSizeSmall
                             text: qsTr("Reveal")
                             onClicked: WindowManager.revealInFileManager(modelData.pathFn())
                         }
                         Item { Layout.fillWidth: true }
-                    }
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 1
-                        Layout.topMargin: -1
-                        color: Theme.divider
                     }
                 }
             }
@@ -1558,17 +1175,16 @@ Rectangle {
         // seeks to that clip's first frame in the playlist (play/pause
         // preserved); the open button on the right loads the source in
         // single mode (the old row behavior).
-        ColumnLayout {
-            Layout.fillWidth: true
-            spacing: 4
+        InspectorCard {
+            id: playlistCard
+            title: qsTr("Playlist Contents")
+            bodySpacing: 4
             visible: root.itemType === 4
                      && root.displayedItem
                      && root.displayedItem.playlist
 
             readonly property var pl:
                 root.displayedItem ? root.displayedItem.playlist : null
-
-            SectionHeader { label: qsTr("PLAYLIST CONTENTS") }
 
             // Summary row: clip count + canvas. fps is intentionally
             // hidden — the playlist clock is auto-derived from the
@@ -1578,17 +1194,17 @@ Rectangle {
                 Layout.fillWidth: true
                 spacing: Theme.paddingLoose
                 Text {
-                    text: parent.parent.pl
-                          ? qsTr("%1 clips").arg(parent.parent.pl.clipCount || 0)
+                    text: playlistCard.pl
+                          ? qsTr("%1 clips").arg(playlistCard.pl.clipCount || 0)
                           : ""
                     color: Theme.textSecondary
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.fontSizeTiny
                 }
                 Text {
-                    text: parent.parent.pl
-                          ? parent.parent.pl.canvasWidth + " × "
-                            + parent.parent.pl.canvasHeight
+                    text: playlistCard.pl
+                          ? playlistCard.pl.canvasWidth + " × "
+                            + playlistCard.pl.canvasHeight
                           : ""
                     color: Theme.textSecondary
                     font.family: Theme.monoFamily
@@ -1600,7 +1216,7 @@ Rectangle {
             // Clip list. ProjectManager surfaces each entry resolved
             // to {mediaId, name, path, type, duration, inPoint, outPoint}.
             Repeater {
-                model: parent.pl ? parent.pl.items : []
+                model: playlistCard.pl ? playlistCard.pl.items : []
 
                 Rectangle {
                     id: clipRow
@@ -1613,14 +1229,16 @@ Rectangle {
                         WindowManager.playlistCurrentItemIndex === clipRow.index
                     Layout.fillWidth: true
                     Layout.preferredHeight: 26
+                    // Recessed-by-tone rows (surfaceRecess on the
+                    // card plane) — the per-row border is gone; only
+                    // the playing clip keeps an accent edge.
                     color: clipRow.isCurrentClip
                            ? Theme.rowActive
                            : (rowMa.containsMouse ? Theme.surfaceHover
-                                                  : Theme.surface)
-                    border.color: clipRow.isCurrentClip ? Theme.accent
-                                                        : Theme.border
-                    border.width: 1
-                    radius: 2
+                                                  : Theme.surfaceRecess)
+                    border.color: Theme.accent
+                    border.width: clipRow.isCurrentClip ? 1 : 0
+                    radius: Theme.radiusSmall
 
                     // Row click seeks to this clip's first frame in the
                     // playlist (works whether playing or paused).

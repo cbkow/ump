@@ -37,6 +37,11 @@ QtObject {
     // saturation; lightness held back so white text keeps AAA
     // contrast.
     readonly property color rowActive:    "#0d5ba8"
+    // Raised content card — inspector sections render as planes on
+    // the rail's darker well (aesthetics pass 1, Resolve lean). One
+    // deliberate step above `bg` so the separation survives dim
+    // monitors; pairs with radiusBase corners for the product look.
+    readonly property color card:         "#1e1e1e"
     // Expanded section header fill. Sits between `bg` and
     // `surfaceHover` so an open header groups visually with its
     // content below without competing with the hover state.
@@ -90,6 +95,10 @@ QtObject {
                                          : "Phosphor"
 
     readonly property int fontSizeTiny:   10
+    // Mono data values render one step below their paired sans size —
+    // JetBrainsMono's x-height reads ~1 px larger than Inter at equal
+    // pixel size, so 10 px mono balances 10-11 px sans labels.
+    readonly property int fontSizeMono:   10
     readonly property int fontSizeSmall:  11
     readonly property int fontSizeBase:   12
     readonly property int fontSizeMedium: 13
@@ -103,6 +112,15 @@ QtObject {
     readonly property int iconSizeLarge:   24
 
     // --- Dimensions ---
+    // Inspector content rules (aesthetics pass 1):
+    // every label/value and label/chips row shares one label-column
+    // width so values align vertically across sections AND panels;
+    // KV rows sit on a fixed-height rhythm; toggle chips are one
+    // uniform height (was 18 px in InspectorPanel, 22 px in
+    // ImageSequenceInspector).
+    readonly property int labelColWidth:    96
+    readonly property int rowHeightKV:      18
+    readonly property int chipHeight:       20
     readonly property int rowHeight:        24
     readonly property int rowHeightDense:   22
     readonly property int rowHeightTall:    28

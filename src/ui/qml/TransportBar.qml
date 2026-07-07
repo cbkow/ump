@@ -189,20 +189,36 @@ Pane {
 
         // Review-speed readout — visible only when playback rate is
         // not 1x (R cycles presets, Shift+R resets). Click to cycle,
-        // matching the key.
-        Text {
+        // matching the key. Recessed readout chip (shared slider-
+        // readout treatment); accent text keeps the "off-1x" alert.
+        Rectangle {
             visible: Math.abs(WindowManager.reviewSpeed - 1.0) > 0.001
-            text: WindowManager.reviewSpeed.toFixed(2)
-                      .replace(/\.?0+$/, "") + "×"
-            color: Theme.accent
-            font.pixelSize: Theme.fontSizeSmall
-            font.bold: true
-            verticalAlignment: Text.AlignVCenter
+            Layout.preferredWidth: speedText.implicitWidth + 12
+            Layout.preferredHeight: 16
             Layout.leftMargin: Theme.spacingTight
+            radius: Theme.radiusSmall
+            color: speedMa.containsMouse
+                   ? Theme.surfaceHover : Theme.surfaceRecess
+            Text {
+                id: speedText
+                anchors.centerIn: parent
+                text: WindowManager.reviewSpeed.toFixed(2)
+                          .replace(/\.?0+$/, "") + "×"
+                color: Theme.accent
+                font.family: Theme.monoFamily
+                font.pixelSize: Theme.fontSizeMono
+                font.bold: true
+            }
             MouseArea {
+                id: speedMa
                 anchors.fill: parent
+                hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: WindowManager.cycleReviewSpeed()
+                FlatToolTip {
+                    visible: speedMa.containsMouse
+                    text: qsTr("Review speed — click to cycle (R)")
+                }
             }
         }
 

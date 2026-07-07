@@ -12,6 +12,10 @@ import Qcv
 //                on hover) — marks an actionable button without
 //                spending the accent-blue, which some toolstrips
 //                reserve for state (e.g. the dual-view mode row).
+//   - "raised":  affordance-gray fill at rest with radiusBase
+//                corners (aesthetics pass 1) — for buttons sitting
+//                on InspectorCard planes, where a transparent-idle
+//                button reads as loose text instead of a control.
 //
 // Use:
 //   FlatButton { text: "Save"; variant: "primary"; onClicked: ... }
@@ -29,11 +33,17 @@ import Qcv
 Button {
     id: root
 
-    property string variant: "default"        // "default" | "primary" | "danger" | "subtle"
+    property string variant: "default"        // "default" | "primary" | "danger" | "subtle" | "raised"
     property string iconName: ""              // Phosphor icon slug
     property int    iconSize: Theme.iconSizeToolbar
     property color  iconColor: "transparent"  // transparent => track text color
     property string tooltipText: ""
+    // Corner rounding. Raised defaults to radiusBase for buttons
+    // sitting on card planes; INLINE toolbar buttons (e.g. the
+    // dual-view bar's mode toggles) override to 0 — inline elements
+    // stay squared per the app's base corner language.
+    property int    cornerRadius: variant === "raised"
+                                  ? Theme.radiusBase : Theme.radius
 
     // When true, the checked state draws no accent border and no
     // fill — only the text/icon color shifts via checkedColor.
@@ -57,7 +67,11 @@ Button {
             if (root.variant === "primary") return Theme.accent
             if (root.variant === "danger")  return Theme.error
             if (root.variant === "subtle")  return Theme.surfaceHover
+            // Checked wins over the raised fill — a checkable raised
+            // button (e.g. the dual-view mode toggles) reads as a
+            // segmented control: gray cells, accent on the active one.
             if (root.checked && !root.subtleChecked) return Theme.accent
+            if (root.variant === "raised")  return Theme.affordanceIdle
             return "transparent"
         }
         readonly property color bgHover: {
@@ -65,6 +79,7 @@ Button {
             if (root.variant === "danger")  return Qt.lighter(Theme.error, 1.15)
             if (root.variant === "subtle")  return Theme.borderStrong
             if (root.checked && !root.subtleChecked) return Theme.accentHover
+            if (root.variant === "raised")  return Theme.affordanceHover
             return Theme.surfaceHover
         }
         readonly property color fg: {
@@ -85,6 +100,12 @@ Button {
             // Default-variant when checked → bright on accent fill.
             if (root.variant === "default")
                 return root.checked ? Theme.textBright : Theme.textPrimary
+            // Raised sits on a gray fill, not accent — primary text
+            // at rest, bright on hover / when checked (checked bg is
+            // accent, see bgIdle).
+            if (root.variant === "raised")
+                return (root.checked || root.hovered)
+                       ? Theme.textBright : Theme.textPrimary
             return Theme.textBright
         }
     }
@@ -96,7 +117,7 @@ Button {
     bottomPadding: 0
 
     background: Rectangle {
-        radius: Theme.radius
+        radius: root.cornerRadius
         color: root.hovered ? pal.bgHover : pal.bgIdle
         border.width: 0
     }
