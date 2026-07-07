@@ -23,14 +23,9 @@ import Qcv
 Rectangle {
     id: root
 
+    // No top divider — the strip's tone against the viewport above
+    // is the separation (borders pass, 2026-07-07).
     color: Theme.bgAlt
-    Rectangle {
-        anchors.left:  parent.left
-        anchors.right: parent.right
-        anchors.top:   parent.top
-        height: 1
-        color:  Theme.divider
-    }
 
     // Phase 3.H.3 — playlist mode shows seconds-based readouts;
     // frame counters and SMPTE timecode hide because the playlist

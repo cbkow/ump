@@ -19,7 +19,7 @@ Pane {
     padding: 0
 
     background: Rectangle {
-        color: "#141414"
+        color: Theme.surfaceRecess
         Rectangle {
             anchors.left:  parent.left
             anchors.right: parent.right

@@ -30,8 +30,12 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Theme.padding
-        anchors.rightMargin: Theme.padding
+        // Tight inner inset (margins pass 2): the OUTER rail→card
+        // inset carries the plane look; the inner one was costing
+        // content width on a 280-320px rail. Title + body share the
+        // same left edge.
+        anchors.leftMargin: Theme.paddingTight
+        anchors.rightMargin: Theme.paddingTight
         anchors.topMargin: Theme.padding
         visible: root.title.length > 0
         height: visible ? implicitHeight : 0
@@ -50,8 +54,8 @@ Rectangle {
         anchors.top: titleText.visible ? titleText.bottom : parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Theme.padding
-        anchors.rightMargin: Theme.padding
+        anchors.leftMargin: Theme.paddingTight
+        anchors.rightMargin: Theme.paddingTight
         anchors.topMargin: titleText.visible ? 6 : Theme.padding
         spacing: Theme.spacingTight
     }

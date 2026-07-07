@@ -116,14 +116,9 @@ Rectangle {
                 Layout.rightMargin: Theme.padding
             }
         }
-        Rectangle {
-            visible: root.expanded
-            anchors.left:   parent.left
-            anchors.right:  parent.right
-            anchors.bottom: parent.bottom
-            height: Theme.dividerWidth
-            color:  Theme.divider
-        }
+        // No header divider — the sibling cards (InspectorCard /
+        // Keyboard Shortcuts) don't draw one; title + spacing carry
+        // the grouping.
     }
 
     ColumnLayout {
@@ -131,7 +126,9 @@ Rectangle {
         anchors.left:   parent.left
         anchors.right:  parent.right
         anchors.top:    header.bottom
-        anchors.margins: Theme.padding
+        // Tight inner inset — matches InspectorCard (margins pass 2).
+        anchors.leftMargin:  Theme.paddingTight
+        anchors.rightMargin: Theme.paddingTight
         anchors.topMargin: Theme.padding
         visible: root.expanded
         spacing: Theme.spacingLoose

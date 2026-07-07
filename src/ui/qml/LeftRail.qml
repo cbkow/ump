@@ -29,13 +29,20 @@ Rectangle {
     // Darker well (aesthetics pass 2) — sections render as raised
     // card planes on this, mirroring the right rail's treatment.
     color: Theme.bg
-    // Polish — single-edge divider on the right rather than a
-    // 4-sided frame; keeps the rail / centerStage seam at 1 px.
+    // Right-edge seam — COLLAPSED state only. When expanded, the
+    // HResizeHandle beside the rail is itself a 1-px divider line
+    // (accent on hover), so drawing this too rendered a 2-px double
+    // border. Collapsed hides the handle, so the rail carries its
+    // own seam against the viewport there.
     Rectangle {
+        visible: root.collapsed
         anchors.right:  parent.right
         anchors.top:    parent.top
         anchors.bottom: parent.bottom
-        width:  1
+        // One device pixel — matches HResizeHandle's seam so the
+        // line doesn't change weight between collapsed / expanded
+        // at fractional display scales.
+        width:  1 / Screen.devicePixelRatio
         color:  Theme.divider
         z: 100
     }
@@ -869,13 +876,8 @@ Rectangle {
                     Layout.rightMargin: Theme.padding
                 }
             }
-            Rectangle {
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                anchors.bottom: parent.bottom
-                height: Theme.dividerWidth
-                color:  Theme.divider
-            }
+            // No bottom divider — the toolbar strip's tone against
+            // the rail well below is the separation.
         }
 
         // ---- Scrollable body. Bin list + inspector + future panels
@@ -933,9 +935,12 @@ Rectangle {
                 Rectangle {
                     id: mediaCard
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.padding
-                    Layout.rightMargin: Theme.padding
-                    Layout.topMargin: Theme.padding
+                    // Tight float (margins pass 2, user-tuned): 4px
+                    // rail-edge gap — cards still read as planes
+                    // without spending 8px per side.
+                    Layout.leftMargin: Theme.paddingTight
+                    Layout.rightMargin: Theme.paddingTight
+                    Layout.topMargin: Theme.paddingTight
                     color: Theme.card
                     radius: Theme.radiusBase
                     clip: true
@@ -1013,8 +1018,11 @@ Rectangle {
             anchors.top: mediaCardHeader.bottom
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.leftMargin: Theme.padding
-            anchors.rightMargin: Theme.padding
+            // Tight inner inset (margins pass 2) — the outer
+            // rail→card inset carries the plane look; every inner
+            // pixel here comes straight out of filename width.
+            anchors.leftMargin: Theme.paddingTight
+            anchors.rightMargin: Theme.paddingTight
             // Grow with content — no max cap. A tall bin extends the
             // bodyColumn and the rail's own ScrollView (bodyScroll)
             // scrolls it; the inner ListView is sized to its full
@@ -1165,9 +1173,9 @@ Rectangle {
             id: dualViewsCard
             visible: root.dualViewItems.length > 0
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.padding
-            Layout.rightMargin: Theme.padding
-            Layout.topMargin: Theme.padding
+            Layout.leftMargin: Theme.paddingTight
+            Layout.rightMargin: Theme.paddingTight
+            Layout.topMargin: Theme.paddingTight
             color: Theme.card
             radius: Theme.radiusBase
             clip: true
@@ -1237,8 +1245,8 @@ Rectangle {
                 anchors.top: dualViewsHeader.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: Theme.padding
-                anchors.rightMargin: Theme.padding
+                anchors.leftMargin: Theme.paddingTight
+                anchors.rightMargin: Theme.paddingTight
                 height: bodyColumn.dualViewsExpanded
                             && root.dualViewItems.length > 0
                         ? dualViewsCol.height + 4 : 0
@@ -1272,9 +1280,9 @@ Rectangle {
         Rectangle {
             id: playlistsCard
             Layout.fillWidth: true
-            Layout.leftMargin: Theme.padding
-            Layout.rightMargin: Theme.padding
-            Layout.topMargin: Theme.padding
+            Layout.leftMargin: Theme.paddingTight
+            Layout.rightMargin: Theme.paddingTight
+            Layout.topMargin: Theme.paddingTight
             color: Theme.card
             radius: Theme.radiusBase
             clip: true
@@ -1376,8 +1384,8 @@ Rectangle {
                 anchors.top: playlistsHeader.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.leftMargin: Theme.padding
-                anchors.rightMargin: Theme.padding
+                anchors.leftMargin: Theme.paddingTight
+                anchors.rightMargin: Theme.paddingTight
                 height: bodyColumn.playlistsExpanded
                             && root.playlistItems.length > 0
                         ? playlistsCol.height + 4 : 0
@@ -1413,8 +1421,8 @@ Rectangle {
                     expanded: false
 
                     ColumnLayout {
-                        x: Theme.padding
-                        width: parent ? parent.width - 2 * Theme.padding : 0
+                        x: Theme.paddingTight
+                        width: parent ? parent.width - 2 * Theme.paddingTight : 0
                         spacing: Theme.spacingLoose
 
                         // Shared label column (Theme.labelColWidth)
@@ -1855,8 +1863,8 @@ Rectangle {
                     }
 
                     ColumnLayout {
-                        x: Theme.padding
-                        width: parent ? parent.width - 2 * Theme.padding : 0
+                        x: Theme.paddingTight
+                        width: parent ? parent.width - 2 * Theme.paddingTight : 0
                         spacing: Theme.spacingLoose
 
                         GroupHeader { label: qsTr("Performance") }

@@ -47,13 +47,16 @@ Pane {
         // inside read as raised against this; was the flat #1c1c1c
         // shared with the left rail.
         color: Theme.bg
-        // Polish — single-edge divider on the left rather than a
-        // 4-sided frame.
+        // Left-edge seam — COLLAPSED state only; when expanded the
+        // HResizeHandle beside the rail is the (single) 1-px line.
+        // See LeftRail's matching comment.
         Rectangle {
+            visible: root.collapsed
             anchors.left:   parent.left
             anchors.top:    parent.top
             anchors.bottom: parent.bottom
-            width:  1
+            // One device pixel — see LeftRail's matching seam.
+            width:  1 / Screen.devicePixelRatio
             color:  Theme.divider
         }
     }
@@ -145,13 +148,8 @@ Pane {
                     }
                 }
             }
-            Rectangle {
-                anchors.left:   parent.left
-                anchors.right:  parent.right
-                anchors.bottom: parent.bottom
-                height: Theme.dividerWidth
-                color:  Theme.divider
-            }
+            // No bottom divider — the toolbar strip's tone against
+            // the rail well below is the separation.
         }
 
         // ---- Inspector + Image Sequence -------------------------
@@ -186,9 +184,9 @@ Pane {
                     Layout.fillWidth: true
                     // Inset to match the InspectorCards above (the
                     // panel is itself a card plane now).
-                    Layout.leftMargin: Theme.padding
-                    Layout.rightMargin: Theme.padding
-                    Layout.bottomMargin: visible ? Theme.padding : 0
+                    Layout.leftMargin: Theme.paddingTight
+                    Layout.rightMargin: Theme.paddingTight
+                    Layout.bottomMargin: visible ? Theme.paddingTight : 0
                     item: inspectorPanel.displayedItem
                     side: inspectorPanel.dualActive
                           ? inspectorPanel.inspectedSide
@@ -211,9 +209,9 @@ Pane {
                 Rectangle {
                     id: keyboardShortcutsSection
                     Layout.fillWidth: true
-                    Layout.leftMargin: Theme.padding
-                    Layout.rightMargin: Theme.padding
-                    Layout.bottomMargin: Theme.padding
+                    Layout.leftMargin: Theme.paddingTight
+                    Layout.rightMargin: Theme.paddingTight
+                    Layout.bottomMargin: Theme.paddingTight
                     color: Theme.card
                     radius: Theme.radiusBase
                     clip: true
@@ -298,6 +296,7 @@ Pane {
                                 { label: "Right Rail",          keysWin: "Ctrl+2",       keysMac: "⌘2"     },
                                 { label: "Color Panel",         keysWin: "Ctrl+3",       keysMac: "⌘3"     },
                                 { label: "Notes Panel",         keysWin: "Ctrl+4",       keysMac: "⌘4"     },
+                                { label: "Status Bar",          keysWin: "Ctrl+5",       keysMac: "⌘5"     },
                                 { label: "Keyboard Shortcuts",  keysWin: "Ctrl+/",       keysMac: "⌘/"     },
                                 { label: "Settings",            keysWin: "Ctrl+,",       keysMac: "⌘,"     },
                                 { label: "Fullscreen",          keys: "F"   },
@@ -374,8 +373,8 @@ Pane {
                         anchors.top: shortcutsHeader.bottom
                         anchors.left: parent.left
                         anchors.right: parent.right
-                        anchors.leftMargin: Theme.padding
-                        anchors.rightMargin: Theme.padding
+                        anchors.leftMargin: Theme.paddingTight
+                        anchors.rightMargin: Theme.paddingTight
                         visible: keyboardShortcutsSection.expanded
                         spacing: 0
 

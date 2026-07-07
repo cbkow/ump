@@ -25,9 +25,11 @@ Pane {
 
     padding: 0
     Layout.fillWidth: true
-    Layout.leftMargin: Theme.padding
-    Layout.rightMargin: Theme.padding
-    Layout.topMargin: Theme.padding
+    // Tight float (margins pass 2): 4px rail-edge gap, matching the
+    // other rail cards.
+    Layout.leftMargin: Theme.paddingTight
+    Layout.rightMargin: Theme.paddingTight
+    Layout.topMargin: Theme.paddingTight
 
     background: Rectangle {
         color: Theme.card

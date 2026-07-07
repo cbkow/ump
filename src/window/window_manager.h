@@ -793,6 +793,13 @@ public:
     // desktop (panel_timeline.cpp screenshot calls).
     Q_INVOKABLE bool screenshotToClipboard();
     Q_INVOKABLE bool screenshotToFile();
+
+    // Transient outcome feedback — routed to Main.qml's Toast via
+    // toastRequested. The app's single voice for operations that
+    // previously succeeded / failed silently on the console. Kinds:
+    // 0 = success, 1 = warning, 2 = error.
+    Q_INVOKABLE void toast(const QString &message, int kind = 0);
+
     Q_INVOKABLE void closeMedia();
 
     // ---- Phase 3.H.6 Stage B — notes panel surface for QML. ----
@@ -961,6 +968,11 @@ signals:
     // ok == false on failure. General enough for future exports.
     void exportStarted(const QString &label);
     void exportFinished(bool ok, const QString &message);
+    // Toast feedback — see toast() above. Main.qml hosts the Toast
+    // item and connects here; exportFinished ALSO feeds the toast
+    // (the StatusStrip chip it used to drive is hidden by default
+    // now that the strip is an opt-in panel).
+    void toastRequested(const QString &message, int kind);
     void audioSyncOffsetMsChanged();
     void dualAudioSyncOffsetMsChanged();
     // Fires when audioRoutingScopeMediaItemId() may return a

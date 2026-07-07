@@ -1548,6 +1548,7 @@ Pane {
                               ? trackAData.clips.length : 0;
                     }
 
+                    let skippedAudio = 0;
                     for (let i = 0; i < drop.urls.length; ++i) {
                         // Centralized URL→OS-path on WindowManager.
                         // Handles file:///C:/… (Win), file:///path
@@ -1567,10 +1568,10 @@ Pane {
                         // VideoDecoder and has no audio-only path.
                         // The audio item still lands in the Audio bin
                         // (addMediaFile completed); just don't put it
-                        // on the timeline.
+                        // on the timeline. Counted for the toast below
+                        // — silently vanishing files read as a bug.
                         if ((m.type || 0) === 1) {
-                            console.warn("playlist drop: skipping audio media:",
-                                         path);
+                            ++skippedAudio;
                             continue;
                         }
                         const isSeq = (m.type || 0) === 3;
@@ -1601,6 +1602,15 @@ Pane {
                         }
                         ctl.insertClipAtIndex(trackId, idx, spec);
                         idx += 1;
+                    }
+                    if (skippedAudio > 0) {
+                        WindowManager.toast(
+                            skippedAudio === 1
+                            ? qsTr("Audio files can't be added to playlists "
+                                 + "— added to the Audio bin instead")
+                            : qsTr("%1 audio files can't be added to "
+                                 + "playlists — added to the Audio bin "
+                                 + "instead").arg(skippedAudio), 1);
                     }
                     drop.accept();
                     root.playlistContentDropped();

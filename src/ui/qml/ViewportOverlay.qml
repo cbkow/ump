@@ -23,14 +23,9 @@ Pane {
     padding: 0
 
     background: Rectangle {
+        // No bottom divider — the toolbar tone against the viewport
+        // is the separation (borders pass, 2026-07-07).
         color: Theme.toolbar
-        Rectangle {
-            anchors.left:   parent.left
-            anchors.right:  parent.right
-            anchors.bottom: parent.bottom
-            height: Theme.dividerWidth
-            color:  Theme.divider
-        }
     }
 
     // Phase 7.8 Stage F — inline "Save Dual View" mode. When true, the
@@ -79,10 +74,11 @@ Pane {
         if (name.length === 0) return;
         const id = WindowManager.saveCurrentDualView(name);
         if (id && id.length > 0) {
-            console.log("DualView saved:", id);
             root.saveMode = false;
+            WindowManager.toast(qsTr("Dual view saved: %1").arg(name), 0);
         } else {
             console.warn("DualView save failed");
+            WindowManager.toast(qsTr("Couldn't save dual view"), 2);
         }
     }
 
@@ -96,11 +92,12 @@ Pane {
     // name prompt — that's the whole point of Update vs Save As New.
     function commitUpdate() {
         if (!root.isSavedDualView) return;
-        if (WindowManager.updateDualView(WindowManager.activeDualViewId))
-            console.log("DualView updated:",
-                        WindowManager.activeDualViewId);
-        else
+        if (WindowManager.updateDualView(WindowManager.activeDualViewId)) {
+            WindowManager.toast(qsTr("Dual view updated"), 0);
+        } else {
             console.warn("DualView update failed");
+            WindowManager.toast(qsTr("Couldn't update dual view"), 2);
+        }
     }
 
     // A/B side-marker color — matches Track A / B accentBorder
@@ -239,19 +236,17 @@ Pane {
             DropArea {
                 id: aDrop
                 anchors.fill: parent
-                onEntered: (drag) => {
-                    console.log("aDrop: entered, hasUrls=", drag.hasUrls);
-                }
                 onDropped: (drop) => {
-                    console.log("aDrop: dropped, hasUrls=", drop.hasUrls,
-                                "project=", !!WindowManager.project);
                     if (!drop.hasUrls || !WindowManager.project) return;
                     const u = WindowManager.urlToOsPath(drop.urls[0]);
                     if (!u) return;
-                    console.log("aDrop: addMediaFile(", u, ")");
                     const id = WindowManager.project.addMediaFile(u);
-                    console.log("aDrop: -> id=", id);
-                    if (id) WindowManager.project.setActiveItem(id);
+                    if (id) {
+                        WindowManager.project.setActiveItem(id);
+                    } else {
+                        WindowManager.toast(
+                            qsTr("Couldn't load that file"), 1);
+                    }
                     drop.accept();
                 }
             }
@@ -328,6 +323,8 @@ Pane {
                     if (!u) return;
                     if (!WindowManager.setBSource(u)) {
                         console.warn("ViewportOverlay: setBSource failed:", u);
+                        WindowManager.toast(
+                            qsTr("Couldn't load that file as Source B"), 1);
                     }
                     drop.accept();
                 }

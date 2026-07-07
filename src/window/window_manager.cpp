@@ -5202,6 +5202,7 @@ bool WindowManager::screenshotToClipboard()
     QImage img = pw->renderer()->captureScreenshot();
     if (img.isNull()) {
         qWarning("WindowManager: screenshot capture returned empty");
+        toast(tr("Nothing to capture — load media first"), 1);
         return false;
     }
     QGuiApplication::clipboard()->setImage(img);
@@ -5223,12 +5224,14 @@ bool WindowManager::screenshotToFile()
     QImage img = pw->renderer()->captureScreenshot();
     if (img.isNull()) {
         qWarning("WindowManager: screenshot capture returned empty");
+        toast(tr("Nothing to capture — load media first"), 1);
         return false;
     }
     const QString desktop =
         QStandardPaths::writableLocation(QStandardPaths::DesktopLocation);
     if (desktop.isEmpty()) {
         qWarning("WindowManager: no DesktopLocation");
+        toast(tr("Couldn't resolve the Desktop folder"), 2);
         return false;
     }
     // Resolve the user-chosen export format. This affects ONLY this
@@ -6389,6 +6392,11 @@ void WindowManager::clearHoverThumbnail()
     m_hoverPathB.clear();
     m_hoverFrameB = 0;
     pushHoverThumbToRenderer();
+}
+
+void WindowManager::toast(const QString &message, int kind)
+{
+    emit toastRequested(message, kind);
 }
 
 void WindowManager::dropTextInputFocus()

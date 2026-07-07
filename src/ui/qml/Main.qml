@@ -269,6 +269,23 @@ ApplicationWindow {
         // popup wiring + accelerator state).
         height: root.inFullscreen ? 0 : implicitHeight
         visible: !root.inFullscreen
+        // Windows renders this QML menu bar in-window (macOS uses
+        // the native top-of-screen bar, which ignores this).
+        // surfaceRecess tone (user-tuned) + a bottom hairline: the
+        // bar sits directly against the toolbar strips below (rail
+        // headers / dual-view bar), and per the borders rule a seam
+        // between same-family tones keeps its line. One device
+        // pixel, matching the rail seams.
+        background: Rectangle {
+            color: Theme.surfaceRecess
+            Rectangle {
+                anchors.left:   parent.left
+                anchors.right:  parent.right
+                anchors.bottom: parent.bottom
+                height: 1 / Screen.devicePixelRatio
+                color: Theme.divider
+            }
+        }
         // All menus use ThemedMenu — it sets popupType: Popup.Window
         // (required so the popup z-orders above the player child HWND
         // on Windows, per F.2.1) and recolors the popup to our Theme
@@ -484,6 +501,11 @@ ApplicationWindow {
                 shortcut: "Ctrl+4"
                 onTriggered: root.notesPanelVisible = !root.notesPanelVisible
             }
+            Action {
+                text: qsTr("Status Bar")
+                shortcut: "Ctrl+5"
+                onTriggered: root.statusStripVisible = !root.statusStripVisible
+            }
         }
         // Tools menu — section reveals + shortcut viewer +
         // settings. Split out from View so the macOS native
@@ -590,7 +612,12 @@ ApplicationWindow {
     property bool rightRailVisible:   true
     property bool timelineVisible:    true
     property bool transportVisible:   true
-    property bool statusStripVisible: true
+    // Product pass 2026-07-07: the status strip is an opt-in
+    // diagnostics readout now — hidden by default (and in Minimal
+    // mode), toggled via View ▸ Status Bar (Ctrl+5). Outcome
+    // feedback that used to live in its export chip moved to the
+    // Toast.
+    property bool statusStripVisible: false
     property bool colorPanelVisible:  false
     // Phase 3.H.6 Stage B — bottom notes filmstrip. Default off
     // (most sessions don't need it); user toggles via Ctrl+5 or
@@ -730,13 +757,21 @@ ApplicationWindow {
         Layout.fillHeight: true
         signal dragged(real dx)
         Rectangle {
-            anchors.fill: parent
-            // Solid Theme.divider at rest so the 1-px slot
-            // doesn't show the ApplicationWindow background
-            // through it. Sits flush next to the rail's own
-            // edge divider — together they read as a single
-            // 2-px seam (acceptable; was 1 px solid + 1 px
-            // transparent gap before).
+            // Exactly one DEVICE pixel wide. At fractional display
+            // scales (125% = 1 logical px → 1.25 physical) a
+            // 1-logical-px line rasterizes to 1 OR 2 physical px
+            // depending on where the (drag-resized) rail edge lands
+            // — so the left and right rail seams could render at
+            // different thicknesses. 1/devicePixelRatio is always
+            // crisp and symmetric.
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            width: 1 / Screen.devicePixelRatio
+            // This IS the rail seam now (borders pass) — the rails'
+            // own edge dividers only render while collapsed, when
+            // this handle is hidden. Accent on hover doubles as the
+            // "this edge is draggable" affordance.
             color: ma.pressed || ma.containsMouse
                    ? Theme.accent : Theme.divider
         }
@@ -762,7 +797,11 @@ ApplicationWindow {
         Layout.preferredHeight: 1
         signal dragged(real dy)
         Rectangle {
-            anchors.fill: parent
+            // One device pixel — see HResizeHandle.
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: 1 / Screen.devicePixelRatio
             color: ma.pressed || ma.containsMouse
                    ? Theme.accent : Theme.divider
         }
@@ -809,7 +848,7 @@ ApplicationWindow {
         root.rightRailCollapsed = true;
         root.timelineVisible    = true;
         root.transportVisible   = true;
-        root.statusStripVisible = true;
+        root.statusStripVisible = false;
         root.colorPanelVisible  = false;
     }
     function viewAllPanels() {
@@ -1229,17 +1268,15 @@ ApplicationWindow {
 
         // ---- Bottom band 0: Timeline status row (frame / TC / fps).
         // Sits between the viewport area and the transport row, keeping
-        // the readouts next to the controls that drive them. (Formerly
-        // also a buffer for in-scene transport tooltips — moot now that
-        // tooltips are Popup.Window OS popups, clamped to the screen.)
+        // the readouts next to the controls that drive them. Always on
+        // outside fullscreen — these are core playback readouts, NOT
+        // part of the opt-in statusStripVisible diagnostics bar (that
+        // flag gates the decoder-chips StatusStrip at the very bottom).
         TimelineStatus {
             Layout.fillWidth: true
             // Thin readout row (matches the bottom StatusStrip's 22px).
-            // Previously toolStripHeight (32, button height) to give
-            // transport tooltips headroom; trimmed now that tooltips are
-            // Popup.Window OS popups that don't need the buffer.
-            Layout.preferredHeight: root.fxStatusStrip ? 22 : 0
-            visible: root.fxStatusStrip
+            Layout.preferredHeight: root.inFullscreen ? 0 : 22
+            visible: !root.inFullscreen
         }
 
         // ---- Bottom band 1: Transport
@@ -1322,13 +1359,14 @@ ApplicationWindow {
             }
         }
 
-        // ---- Status strip (very bottom). Hidden during fullscreen
-        // so the very last horizontal sliver doesn't block the
-        // viewport from filling.
+        // ---- Status strip (very bottom). Opt-in diagnostics readout
+        // (mode / codec / pixfmt / hwaccel chips) — hidden by default
+        // and in Minimal mode, toggled via View ▸ Status Bar (Ctrl+5).
+        // Also hidden during fullscreen like the rest of the chrome.
         StatusStrip {
             Layout.fillWidth: true
-            Layout.preferredHeight: root.inFullscreen ? 0 : 22
-            visible: !root.inFullscreen
+            Layout.preferredHeight: root.fxStatusStrip ? 22 : 0
+            visible: root.fxStatusStrip
         }
     }
 
@@ -1378,6 +1416,31 @@ ApplicationWindow {
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.WordWrap
+        }
+    }
+
+    // ---- Toast — transient outcome feedback (product pass) --------
+    // Top-right of the viewport. That region is the native player
+    // HWND (composites above the QML scene on Windows), so Toast is
+    // a popupType: Popup.Window OS popup — same trick as FlatToolTip
+    // / ThemedMenu. Parented to centerStage; x/y are in its coords.
+    Toast {
+        id: outcomeToast
+        parent: centerStage
+        x: parent ? parent.width - width - 12 : 0
+        y: 12
+    }
+    Connections {
+        target: WindowManager
+        function onToastRequested(message, kind) {
+            outcomeToast.show(message, kind);
+        }
+        // The async export pipeline (screenshot save) reported to the
+        // StatusStrip's chip; the strip is opt-in now, so mirror its
+        // completion into the toast. Start events are short-lived —
+        // only the outcome is worth a toast.
+        function onExportFinished(ok, message) {
+            outcomeToast.show(message, ok ? 0 : 2);
         }
     }
 

@@ -95,9 +95,11 @@ Rectangle {
 
     // Inspector is now always expanded — the rail's own header
     // already says "Inspector", so the inner accordion shell was
-    // redundant. Height is just whatever the body needs.
+    // redundant. Height is just whatever the body needs. The tail
+    // pad is the gap to the next card below (Image Sequence panel)
+    // — paddingTight to match the 4px inter-card rhythm.
     implicitHeight: visible
-        ? (content.y + content.implicitHeight + 8)
+        ? (content.y + content.implicitHeight + Theme.paddingTight)
         : 0
 
     function typeLabel(t) {
@@ -155,8 +157,9 @@ Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.leftMargin: Theme.padding
-        anchors.rightMargin: Theme.padding
+        // Match the cards' 4px rail inset below.
+        anchors.leftMargin: Theme.paddingTight
+        anchors.rightMargin: Theme.paddingTight
         height: hasContent ? 22 : 0
         readonly property bool hasContent:
             root.dualActive || root.hasActive
@@ -231,8 +234,10 @@ Rectangle {
         anchors.topMargin: headerStrip.visible ? 4 : 0
         anchors.left: parent.left
         anchors.right: parent.right
-        anchors.margins: Theme.padding
-        spacing: Theme.padding
+        // Tight float (margins pass 2): 4px rail-edge insets + 4px
+        // gaps between cards, matching the left rail.
+        anchors.margins: Theme.paddingTight
+        spacing: Theme.paddingTight
 
         // ---- File section ----
         InspectorCard {

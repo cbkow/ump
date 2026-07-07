@@ -102,8 +102,10 @@ Pane {
             const err = WindowManager.ocio.exportLut(path, 65);
             if (err && err.length > 0) {
                 console.warn("Export LUT failed:", err);
+                WindowManager.toast(qsTr("Export LUT failed — %1").arg(err), 2);
             } else {
-                console.log("Export LUT: wrote", path);
+                WindowManager.toast(
+                    qsTr("LUT exported: %1").arg(root.basenameOf(path)), 0);
             }
         }
     }
@@ -180,9 +182,13 @@ Pane {
             if (!name) return;
             if (WindowManager.presets.saveAs(name)) {
                 close();
+                WindowManager.toast(qsTr("Preset saved: %1").arg(name), 0);
+            } else {
+                // Dialog stays open so the user can pick another name.
+                WindowManager.toast(
+                    qsTr("Couldn't save preset “%1” — try another name")
+                        .arg(name), 2);
             }
-            // saveAs logs a warning on failure; user can pick another
-            // name. Inline error surface is a polish step.
         }
     }
 
@@ -298,7 +304,11 @@ Pane {
                          && WindowManager.presets.activePresetName.length > 0
                          && !WindowManager.presets.activeIsBuiltIn()
                          && WindowManager.presets.modified
-                onClicked: WindowManager.presets.saveCurrent()
+                onClicked: {
+                    const name = WindowManager.presets.activePresetName;
+                    WindowManager.presets.saveCurrent();
+                    WindowManager.toast(qsTr("Preset saved: %1").arg(name), 0);
+                }
             }
             FlatButton {
                 variant: "raised"
@@ -323,7 +333,11 @@ Pane {
                 tooltipText: enabled
                              ? qsTr("Delete the active user preset")
                              : qsTr("Select a user preset to delete")
-                onClicked: WindowManager.presets.deleteCurrent()
+                onClicked: {
+                    const name = WindowManager.presets.activePresetName;
+                    WindowManager.presets.deleteCurrent();
+                    WindowManager.toast(qsTr("Preset deleted: %1").arg(name), 1);
+                }
             }
             }
         }
