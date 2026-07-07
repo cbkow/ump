@@ -684,9 +684,11 @@ void D3D11PlayerRenderer::applyPendingResizeIfNeeded()
     }
     // After a real resize, give DComp a freshly-presented back buffer
     // at the new dims immediately — don't wait for the next wake-cv
-    // tick. Seed with #1b1b1b (27/255 = 0.1059) to match the QML
-    // centerStage Rectangle and WindowManager's WM_ERASEBKGND fill,
-    // so the 1-frame seam during rail-collapse animations blends in.
+    // tick. Seed with #161616 (22/255 = 0.0863 — Theme.bg) to match
+    // the QML centerStage Rectangle and WindowManager's
+    // WM_ERASEBKGND fill, so the 1-frame seam during rail-collapse
+    // animations blends in. All three seam fills + the Dark Gray
+    // viewport bg mode move together — change one, change all.
     // The normal drawFrame() right after this will overlay the real
     // content.
     auto *rtv       = static_cast<ID3D11RenderTargetView *>(m_impl->hdrSwapchain.rtv());
@@ -694,7 +696,7 @@ void D3D11PlayerRenderer::applyPendingResizeIfNeeded()
     if (sizeActuallyChanged && rtv && swapchain) {
         auto *ctx = static_cast<ID3D11DeviceContext *>(
             D3D11DeviceManager::instance().context());
-        const float seed[4] = {0.1059f, 0.1059f, 0.1059f, 1.f};
+        const float seed[4] = {0.0863f, 0.0863f, 0.0863f, 1.f};
         ctx->ClearRenderTargetView(rtv, seed);
         swapchain->Present(0, 0);
         m_pendingDraw.store(true, std::memory_order_release);

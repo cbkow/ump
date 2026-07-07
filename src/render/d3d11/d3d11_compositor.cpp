@@ -38,7 +38,9 @@ VsOut VSMain(uint vid : SV_VertexID)
 // paints background only; hasSrc=1 samples src inside fitRect and
 // falls back to background outside. bgMode picks which fill.
 //   0 = Black                  (0.000, 0.000, 0.000)
-//   1 = DarkGray   ≈ 27/255    (0.106, 0.106, 0.106)
+//   1 = DarkGray   ≈ 22/255    (0.0863 — #161616, Theme.bg / the
+//                               rails' well tone; keep matched with
+//                               the three rail-collapse seam fills)
 //   2 = DarkCheckerboard       (#1f1f1f / #2e2e2e)
 //   3 = LightCheckerboard      (#b3b3b3 / #cccccc)
 constexpr const char *kPsHlsl = R"(
@@ -68,7 +70,7 @@ struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 float4 backgroundColor(float2 fragPx)
 {
     if (bgMode == 1) {
-        return float4(0.106, 0.106, 0.106, 1.0);
+        return float4(0.0863, 0.0863, 0.0863, 1.0);
     } else if (bgMode == 2) {
         // Dark checkerboard — 32 px squares.
         int2 cell = int2(fragPx) / 32;
@@ -151,7 +153,7 @@ struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 SpinPSMain(VsOut input) : SV_TARGET
 {
-    float4 bg = float4(0.1058, 0.1058, 0.1058, 1.0);   // #1B1B1B
+    float4 bg = float4(0.0863, 0.0863, 0.0863, 1.0);   // #161616 (Theme.bg)
     float2 px = input.uv * spinDstSize;
     float2 c  = spinDstSize * 0.5;
     float  r  = min(spinDstSize.x, spinDstSize.y) * 0.03;

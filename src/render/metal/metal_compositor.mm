@@ -209,8 +209,9 @@ fragment float4 bg_fs(VsOut in [[stage_in]],
         return float4(0.0, 0.0, 0.0, 1.0);
     }
     if (u.mode == 1) {
-        // 27/255 = 0.1058 — old app DEFAULT
-        return float4(0.1058, 0.1058, 0.1058, 1.0);
+        // 22/255 = 0.0863 — #161616, Theme.bg (the rails' well tone;
+        // was 27/255 #1B1B1B, the old app default)
+        return float4(0.0863, 0.0863, 0.0863, 1.0);
     }
 
     // Checkerboard — pixel-coord based so tile size is constant

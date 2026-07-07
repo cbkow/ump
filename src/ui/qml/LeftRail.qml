@@ -839,6 +839,9 @@ Rectangle {
                     visible: !root.collapsed
                     Layout.preferredWidth: Theme.iconSizeToolbar
                     Layout.preferredHeight: Theme.iconSizeToolbar
+                    // Breathing room from the rail-collapse toggle
+                    // in the gutter to its left.
+                    Layout.leftMargin: Theme.padding
                     Layout.rightMargin: Theme.spacing
                     name: "folders"
                     size: Theme.iconSizeToolbar
@@ -1567,7 +1570,9 @@ Rectangle {
                                 { id: 0, label: qsTr("Black"),       checker: false,
                                   c1: "#000000", c2: "#000000" },
                                 { id: 1, label: qsTr("Dark Gray"),   checker: false,
-                                  c1: "#1B1B1B", c2: "#1B1B1B" },
+                                  // #161616 = Theme.bg; keep matched
+                                  // with the compositors' bgMode 1.
+                                  c1: "#161616", c2: "#161616" },
                                 { id: 2, label: qsTr("Dark Check"),  checker: true,
                                   // 30/255 vs 20/255, matching the
                                   // shader's sRGB output in

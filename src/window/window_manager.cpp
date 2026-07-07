@@ -1210,14 +1210,14 @@ bool WindowManager::initialize()
 
 #if defined(Q_OS_WIN)
     // Subclass the UI window's WNDPROC to paint WM_ERASEBKGND with
-    // #1b1b1b. WNDCLASS background brush is ignored on Qt Quick
-    // windows because QWindowsWindow handles WM_ERASEBKGND via the
-    // GDI default proc → DefWindowProc paints with the class brush,
-    // but Qt's window is created with hbrBackground=null. Subclassing
-    // and painting the fill ourselves is what reliably hits this
-    // surface. Companion fills (D3D11 seed-present, QML centerStage
-    // Rectangle) are also #1b1b1b so all three blend during the
-    // 1-frame seams during rail-collapse animations.
+    // #161616 (Theme.bg). WNDCLASS background brush is ignored on Qt
+    // Quick windows because QWindowsWindow handles WM_ERASEBKGND via
+    // the GDI default proc → DefWindowProc paints with the class
+    // brush, but Qt's window is created with hbrBackground=null.
+    // Subclassing and painting the fill ourselves is what reliably
+    // hits this surface. Companion fills (D3D11 seed-present, QML
+    // centerStage Rectangle) are also #161616 so all three blend
+    // during the 1-frame seams during rail-collapse animations.
     {
         HWND hwnd = reinterpret_cast<HWND>(m_uiWindow->winId());
         if (hwnd) {
@@ -1230,7 +1230,7 @@ bool WindowManager::initialize()
                         HDC hdc = reinterpret_cast<HDC>(wp);
                         RECT rc;
                         GetClientRect(h, &rc);
-                        HBRUSH fill = CreateSolidBrush(RGB(27, 27, 27));
+                        HBRUSH fill = CreateSolidBrush(RGB(22, 22, 22));
                         FillRect(hdc, &rc, fill);
                         DeleteObject(fill);
                         return 1;
@@ -1244,7 +1244,7 @@ bool WindowManager::initialize()
     // Reveal the window now that the dark WM_ERASEBKGND subclass is
     // bound. Main.qml starts it hidden on Windows (visible bound to
     // non-windows); winId() above already forced HWND creation while
-    // hidden, so the very first paint erases to #1b1b1b instead of the
+    // hidden, so the very first paint erases to #161616 instead of the
     // default white flash. No-op if QML somehow already showed it.
     if (m_uiWindow) m_uiWindow->setVisible(true);
 #endif

@@ -1019,13 +1019,16 @@ ApplicationWindow {
                         // Sits UNDER the D3D11 child HWND. Peeks through
                         // whenever the child can't keep up with QML
                         // layout changes (e.g. rail-collapse animation).
-                        // Matched to #1b1b1b along with the WM_ERASEBKGND
-                        // fill in window_manager.cpp and the D3D11
-                        // seed-present in d3d11_player_renderer.cpp, so
-                        // the three seam surfaces blend into one tone.
+                        // Matched to #161616 (Theme.bg — the rails' well
+                        // tone AND the compositors' Dark Gray bg mode)
+                        // along with the WM_ERASEBKGND fill in
+                        // window_manager.cpp and the D3D11 seed-present
+                        // in d3d11_player_renderer.cpp, so the three
+                        // seam surfaces blend into one tone. Change one,
+                        // change all (the C++ fills can't read Theme).
                         // macOS Metal renderer clears to black, so keep
                         // that match on that platform.
-                        color: Qt.platform.os === "osx" ? "black" : "#1b1b1b"
+                        color: Qt.platform.os === "osx" ? "black" : Theme.bg
 
                         Item {
                             id: centerStage

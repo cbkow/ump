@@ -110,16 +110,23 @@ Pane {
     readonly property color sideAColor: "#446a90"
     readonly property color sideBColor: "#a0664a"
 
+    // Open-rail button width. A double-width experiment read as too
+    // chunky — back to the gutter width so the button sits exactly
+    // where the rail edge was. (Kept as a property: the chip-row
+    // margins below derive from it.)
+    readonly property int openBtnW: Theme.gutterWidth
+
     RowLayout {
         anchors.fill: parent
-        // The open buttons sit in the gutterWidth gutters; when one is
-        // showing, add a little breathing room so its inner divider
-        // isn't flush against the neighbour (A chip / mode toggles).
+        // With a rail closed, clear its open button + breathing room;
+        // with the rail open, just the standard inset (the old
+        // gutterWidth inset left the A chip floating too far from
+        // the rail seam).
         anchors.leftMargin:  root.leftRailClosed
-            ? Theme.gutterWidth + Theme.spacing
-            : Theme.gutterWidth
+            ? root.openBtnW + Theme.padding
+            : Theme.padding
         anchors.rightMargin: root.rightRailClosed
-            ? Theme.gutterWidth + Theme.spacing
+            ? root.openBtnW + Theme.padding
             : Theme.padding
         // Toolstrip flow — chips and buttons butt up. Tiny gap so
         // filled buttons (danger / primary save form) don't visually
@@ -194,13 +201,19 @@ Pane {
                     Layout.preferredHeight: 18
                     Icon {
                         anchors.centerIn: parent
-                        name: (WindowManager.dualController
-                               && WindowManager.dualController.audio
-                               && WindowManager.dualController.audio.mutedA)
-                              ? "speaker-x" : "speaker-high"
+                        readonly property bool sideMuted:
+                            WindowManager.dualController
+                            && WindowManager.dualController.audio
+                            && WindowManager.dualController.audio.mutedA
+                        name: sideMuted ? "speaker-x" : "speaker-high"
                         size: Theme.iconSizeSmall
+                        // Muted fades to the muted-text tone so the
+                        // A/B toggle states read at a glance; hover
+                        // lifts to bright either way.
                         color: aMuteMa.containsMouse
-                               ? Theme.textBright : Theme.textPrimary
+                               ? Theme.textBright
+                               : (sideMuted ? Theme.textMuted
+                                            : Theme.textPrimary)
                     }
                     MouseArea {
                         id: aMuteMa
@@ -355,13 +368,17 @@ Pane {
                     Layout.preferredHeight: 18
                     Icon {
                         anchors.centerIn: parent
-                        name: (WindowManager.dualController
-                               && WindowManager.dualController.audio
-                               && WindowManager.dualController.audio.mutedB)
-                              ? "speaker-x" : "speaker-high"
+                        readonly property bool sideMuted:
+                            WindowManager.dualController
+                            && WindowManager.dualController.audio
+                            && WindowManager.dualController.audio.mutedB
+                        name: sideMuted ? "speaker-x" : "speaker-high"
                         size: Theme.iconSizeSmall
+                        // Faded when muted — see the A chip's icon.
                         color: bMuteMa.containsMouse
-                               ? Theme.textBright : Theme.textPrimary
+                               ? Theme.textBright
+                               : (sideMuted ? Theme.textMuted
+                                            : Theme.textPrimary)
                     }
                     MouseArea {
                         id: bMuteMa
@@ -631,7 +648,7 @@ Pane {
         anchors.left:   parent.left
         anchors.top:    parent.top
         anchors.bottom: parent.bottom
-        width: Theme.gutterWidth
+        width: root.openBtnW
         Rectangle {
             anchors.fill: parent
             color: leftOpenMa.containsMouse ? Theme.affordanceHover
@@ -668,7 +685,7 @@ Pane {
         anchors.right:  parent.right
         anchors.top:    parent.top
         anchors.bottom: parent.bottom
-        width: Theme.gutterWidth
+        width: root.openBtnW
         Rectangle {
             anchors.fill: parent
             color: rightOpenMa.containsMouse ? Theme.affordanceHover

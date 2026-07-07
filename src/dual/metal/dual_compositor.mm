@@ -199,8 +199,8 @@ fragment float4 spin_fs(VsOut in [[stage_in]],
                         constant SpinUBO &u [[buffer(0)]])
 {
     // Background fill — match the player's default DarkGray
-    // (#1B1B1B / 0.1058 linear-ish 27/255).
-    float4 bg = float4(0.1058, 0.1058, 0.1058, 1.0);
+    // (#161616 / 0.0863, 22/255 — Theme.bg).
+    float4 bg = float4(0.0863, 0.0863, 0.0863, 1.0);
 
     const float2 px = in.uv * u.dstSize;
     const float2 c  = u.dstSize * 0.5;
