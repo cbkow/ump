@@ -5441,6 +5441,55 @@ bool WindowManager::eventFilter(QObject *watched, QEvent *event)
         return QObject::eventFilter(watched, event);
     }
 
+    // Click-away releases text-editor focus, app-wide. QML's
+    // MouseArea-based surfaces (timeline scrub, bin rows, the
+    // viewport) never TAKE focus on click, so a focused note
+    // TextArea kept activeFocus after the user clicked away — and
+    // the text-item bail below then routed every transport key INTO
+    // the note as typed text. Any press outside the focused editor's
+    // (clip-chain-visible) bounds drops its focus BEFORE the press
+    // is delivered; the editor's own onActiveFocusChanged commit
+    // handlers fire (note text save, rename commit, spinbox
+    // editingFinished), and whatever was clicked can then claim
+    // focus normally. Presses INSIDE the editor pass through
+    // untouched (caret placement / text selection).
+    if (t == QEvent::MouseButtonPress) {
+        auto *win = qobject_cast<QQuickWindow *>(watched);
+        if (win) {
+            if (QObject *focused = QGuiApplication::focusObject()) {
+                const bool isTextItem =
+                    focused->property("cursorPosition").isValid()
+                    && focused->property("selectionStart").isValid();
+                auto *qitem = qobject_cast<QQuickItem *>(focused);
+                if (isTextItem && qitem) {
+                    bool inside = false;
+                    if (qitem->window() == win) {
+                        const auto *me = static_cast<QMouseEvent *>(event);
+                        // Editor bounds in scene coords, intersected
+                        // with every clipping ancestor (a long note
+                        // TextArea extends past its ScrollView's
+                        // viewport — the unclipped rect would claim
+                        // clicks on content visually below it).
+                        QRectF sceneRect = qitem->mapRectToScene(
+                            QRectF(0, 0, qitem->width(), qitem->height()));
+                        for (QQuickItem *p = qitem->parentItem(); p;
+                             p = p->parentItem()) {
+                            if (p->clip()) {
+                                sceneRect &= p->mapRectToScene(
+                                    QRectF(0, 0, p->width(), p->height()));
+                            }
+                        }
+                        inside = sceneRect.contains(me->scenePosition());
+                    }
+                    if (!inside) {
+                        qitem->setFocus(false, Qt::MouseFocusReason);
+                    }
+                }
+            }
+        }
+        return QObject::eventFilter(watched, event);
+    }
+
     if (t != QEvent::KeyPress && t != QEvent::KeyRelease) {
         return QObject::eventFilter(watched, event);
     }
