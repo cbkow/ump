@@ -2,8 +2,9 @@
 //
 // Owns two AudioDecoder instances (one per dual side) feeding a
 // single CoreAudioDevice via a per-frame mix in the render callback.
-// Mirrors the qcv_audio/AudioPlayer pattern but with two decoders +
-// independent mute / volume controls per side.
+// Mirrors the qcv_audio/AudioPlayer pattern but with two decoders,
+// independent per-side mutes, and a master volume/mute mirrored from
+// the transport bar (no per-side gains — sides mix at unity).
 //
 // Sample-rate matching is automatic: AudioDecoder always resamples
 // to 48kHz / stereo / float32 (its SwrContext target), so a 44.1kHz
@@ -86,6 +87,15 @@ public:
               int audioStreamCountHintB = -1);
     void close();
 
+    // Hot-swap the B side's audio to a new path (empty = clear B)
+    // WITHOUT touching A — the video-side swapB path. A full open()
+    // would close + reopen A's decoder for an audible blip. The
+    // fresh decoder is flagged in-gap so the next updatePerSide tick
+    // re-seeks it to the current translated position (or the servo's
+    // discontinuity tier catches it). m_pathB updates so the next
+    // shuttle gesture grains the NEW file.
+    void swapSideB(const QString &path, int audioStreamCountHint = -1);
+
     // Transport. play() spins up the decode threads; pause() halts
     // the device callback (ring buffers stay primed). seek(seconds)
     // re-seeks both decoders to the same position — used for the
@@ -118,6 +128,14 @@ public:
 
     void setMutedA(bool m);
     void setMutedB(bool m);
+
+    // Master volume / mute — mirrors the transport bar's controls
+    // (WindowManager forwards AudioPlayer's volume/muted here so M
+    // and the volume slider work in dual mode too). Applied to the
+    // summed output in BOTH callback branches (normal + shuttle),
+    // after the per-side mutes and consumption accounting.
+    void setMasterVolume(float v);
+    void setMasterMuted(bool m);
 
     // A/V sync compensation. Same semantic as AudioPlayer::
     // setSyncOffsetMs — positive = audio plays LATER, applied at
@@ -245,6 +263,10 @@ private:
     // Single A/V-sync offset shared by both sides (matches the
     // global slider). Applied internally at every seek call site.
     std::atomic<int>    m_syncOffsetMs{0};
+
+    // Master gain / mute (transport bar), applied post-sum.
+    std::atomic<float>  m_masterVolume{1.0f};
+    std::atomic<bool>   m_masterMuted{false};
 };
 
 } // namespace qcv::dual

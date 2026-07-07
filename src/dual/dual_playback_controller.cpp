@@ -355,7 +355,10 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
     }
     if (path.isEmpty()) {
         // Cleared B — render-side will see hasFrame=false and draw
-        // transparent on that side. No scrub decoder rebuild.
+        // transparent on that side. No scrub decoder rebuild. The
+        // audio mixer's B side clears too — it used to leak the old
+        // decoder here and keep playing the closed source's sound.
+        if (m_audio) m_audio->swapSideB(QString());
         emit frameCountChanged();
         emit hwAccelChanged();
         return true;
@@ -381,6 +384,19 @@ bool DualPlaybackController::swapB(const QString &path, DualSourceKind kind)
             qWarning("DualPlaybackController::swapB: scrub B open failed");
             m_scrubB.reset();
         }
+    }
+
+    // Keep the audio mixer's B side in lockstep with the video swap.
+    // This was the missing half of swapB: without it the mixer kept
+    // the OLD B file's audio decoder (and stale shuttle path), so a
+    // hot-swapped B played the prior source's sound and its mute
+    // chip appeared to control "A" whenever both sides shared a
+    // soundtrack. Video-kind check mirrors open()'s: only video
+    // sides feed audio; image-seq B clears the audio side.
+    if (m_audio) {
+        const bool bIsVideo =
+            dynamic_cast<DualVideoDecoder *>(m_sourceB.get()) != nullptr;
+        m_audio->swapSideB(bIsVideo ? path : QString());
     }
 
     // Recompute master frame count (might extend past prior max).

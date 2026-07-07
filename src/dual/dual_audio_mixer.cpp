@@ -185,6 +185,38 @@ void DualAudioMixer::close()
     emit hasAudioChanged();
 }
 
+void DualAudioMixer::swapSideB(const QString &path, int audioStreamCountHint)
+{
+    if (!m_initialized) return;
+    // Hot-swap B only — A keeps streaming uninterrupted. This is the
+    // audio counterpart of DualPlaybackController::swapB; before it
+    // existed, a video-side B swap leaked the OLD B file's audio
+    // decoder, so the swapped side kept playing the prior source's
+    // sound (and its mute chip read as controlling "A" whenever both
+    // sides shared a soundtrack).
+    if (m_decoderB) m_decoderB->close();
+    m_decoderB.reset();
+    m_pathB = path;
+    if (!path.isEmpty()) {
+        m_decoderB = makeDecoderForPath(path, this, audioStreamCountHint);
+        if (m_decoderB && m_decoderB->open(path)) {
+            m_decoderB->start();
+        } else {
+            m_decoderB.reset();
+            qWarning("DualAudioMixer::swapSideB: open failed for %s",
+                     qPrintable(path));
+        }
+    }
+    // Flag B in-gap so the next updatePerSide tick runs the
+    // gap→clip re-seek at the current translated position (or the
+    // servo's discontinuity tier catches it) — either way the fresh
+    // decoder lands on the playhead within a tick or two instead of
+    // playing from file start.
+    m_inGapB.store(true);
+    reanchorSide(m_syncB, 0.0);
+    emit hasAudioChanged();
+}
+
 void DualAudioMixer::play()
 {
     if (!hasAudioA() && !hasAudioB()) return;
@@ -425,6 +457,18 @@ void DualAudioMixer::setMutedB(bool m)
     emit mutedBChanged();
 }
 
+void DualAudioMixer::setMasterVolume(float v)
+{
+    if (v < 0.0f) v = 0.0f;
+    if (v > 2.0f) v = 2.0f;
+    m_masterVolume.store(v, std::memory_order_relaxed);
+}
+
+void DualAudioMixer::setMasterMuted(bool m)
+{
+    m_masterMuted.store(m, std::memory_order_relaxed);
+}
+
 void DualAudioMixer::setTempoBoth(double tempo)
 {
     if (m_decoderA) m_decoderA->setTempo(tempo);
@@ -538,14 +582,31 @@ void DualAudioMixer::processAudio(float *output, uint32_t frameCount)
         static thread_local std::vector<float> shuttleBuf;
         if (shuttleBuf.size() < samples) shuttleBuf.resize(samples);
         auto mixEngine = [&](ShuttleAudioEngine *e, bool muted) {
-            if (!e || muted) return;
+            if (!e) return;
+            // Muted sides still drain their grain ring — same rule
+            // as the normal path's "muted sides still consume"
+            // below. Skipping the read let the ring hit the 40 ms
+            // back-pressure cap and stall the grain producer, so a
+            // mid-shuttle unmute (possible during held-key FF/RW,
+            // where the mouse is free to hit the A/B chip mutes)
+            // played a stale burst from when the mute began. Drain
+            // always; only the accumulate is gated on mute.
             e->read(shuttleBuf.data(), frameCount);
+            if (muted) return;
             for (size_t i = 0; i < samples; ++i) {
                 output[i] += shuttleBuf[i];
             }
         };
         mixEngine(m_shuttleA.get(), m_mutedA.load());
         mixEngine(m_shuttleB.get(), m_mutedB.load());
+        // Master mute/volume — AFTER the engines drained (their
+        // rings must keep consuming; see the muted-sides rule).
+        if (m_masterMuted.load(std::memory_order_relaxed)) {
+            std::memset(output, 0, samples * sizeof(float));
+            return;
+        }
+        const float shuttleVol =
+            m_masterVolume.load(std::memory_order_relaxed);
         auto softLimitShuttle = [](float x) noexcept -> float {
             constexpr float threshold = 0.8f;
             if (x >  threshold) {
@@ -561,7 +622,7 @@ void DualAudioMixer::processAudio(float *output, uint32_t frameCount)
             return x;
         };
         for (size_t i = 0; i < samples; ++i) {
-            output[i] = softLimitShuttle(output[i]);
+            output[i] = softLimitShuttle(output[i] * shuttleVol);
         }
         return;
     }
@@ -607,9 +668,17 @@ void DualAudioMixer::processAudio(float *output, uint32_t frameCount)
     pullAndMix(m_decoderA.get(), m_syncA, m_mutedA.load(), m_inGapA.load());
     pullAndMix(m_decoderB.get(), m_syncB, m_mutedB.load(), m_inGapB.load());
 
+    // Master mute — AFTER consuming (mirrors AudioPlayer: the sides
+    // keep advancing with the clock so unmute plays current audio).
+    if (m_masterMuted.load(std::memory_order_relaxed)) {
+        std::memset(output, 0, samples * sizeof(float));
+        return;
+    }
+
     // Soft limit on the sum so two unity-gain sources mixing to
     // ±2.0 don't hard-clip the device. Same shape as
-    // AudioPlayer::processAudio.
+    // AudioPlayer::processAudio; master volume applied inside.
+    const float vol = m_masterVolume.load(std::memory_order_relaxed);
     auto softLimit = [](float x) noexcept -> float {
         constexpr float threshold = 0.8f;
         if (x >  threshold) {
@@ -622,7 +691,9 @@ void DualAudioMixer::processAudio(float *output, uint32_t frameCount)
         }
         return x;
     };
-    for (size_t i = 0; i < samples; ++i) output[i] = softLimit(output[i]);
+    for (size_t i = 0; i < samples; ++i) {
+        output[i] = softLimit(output[i] * vol);
+    }
 }
 
 } // namespace qcv::dual

@@ -69,6 +69,18 @@ Pane {
     readonly property bool inOutSet: WindowManager.inPoint >= 0
                                   || WindowManager.outPoint >= 0
 
+    // Any audible source, either flow. In dual mode the single-flow
+    // AudioPlayer is closed (hasAudio false) but its volume/muted
+    // properties remain the master controls — WindowManager mirrors
+    // them into the DualAudioMixer — so the mute button + slider
+    // must light up when EITHER dual side carries audio.
+    readonly property bool anyAudio:
+        (WindowManager.audio && WindowManager.audio.hasAudio)
+        || (WindowManager.dualController
+            && WindowManager.dualController.audio
+            && (WindowManager.dualController.audio.hasAudioA
+                || WindowManager.dualController.audio.hasAudioB))
+
     // Playlist mode: loop in/out is non-functional in playlist mode
     // (the timer-level wrap is disabled because the orchestrator
     // handles playlist-level wrap instead). Grey out the In/Out
@@ -396,7 +408,7 @@ Pane {
                 WindowManager.audio && WindowManager.audio.muted
             iconName: isMuted ? "speaker-x" : "speaker-high"
             variant: isMuted ? "danger" : "default"
-            enabled: WindowManager.audio && WindowManager.audio.hasAudio
+            enabled: root.anyAudio
             tooltipText: isMuted ? qsTr("Unmute (M)") : qsTr("Mute (M)")
             onClicked: {
                 if (WindowManager.audio) {
@@ -413,7 +425,7 @@ Pane {
             from: 0.0
             to: 1.0
             value: WindowManager.audio ? WindowManager.audio.volume : 1.0
-            enabled: WindowManager.audio && WindowManager.audio.hasAudio
+            enabled: root.anyAudio
                      && !(WindowManager.audio && WindowManager.audio.muted)
             onMoved: WindowManager.audio.volume = value
             FlatToolTip {

@@ -1943,6 +1943,25 @@ void WindowManager::setCompositorMode(int mode)
                 m_dualController->audio()->setSyncOffsetMs(
                     dualAudioSyncOffsetMs());
             }
+            // Master volume / mute — the transport bar's controls
+            // keep binding to the (persisting) single-flow
+            // AudioPlayer; mirror its state into the dual mixer so
+            // M and the volume slider work in dual mode too. The
+            // mixer is the connection context, so these disconnect
+            // automatically when the dual island tears down.
+            if (m_dualController->audio() && m_audio) {
+                auto *mix = m_dualController->audio();
+                mix->setMasterVolume(m_audio->volume());
+                mix->setMasterMuted(m_audio->muted());
+                connect(m_audio, &qcv::AudioPlayer::volumeChanged, mix,
+                        [this, mix] {
+                    mix->setMasterVolume(m_audio->volume());
+                });
+                connect(m_audio, &qcv::AudioPlayer::mutedChanged, mix,
+                        [this, mix] {
+                    mix->setMasterMuted(m_audio->muted());
+                });
+            }
             if (m_project && m_dualController->audio()) {
                 if (const MediaItem *itA =
                         m_project->findItem(m_project->activeItemId())) {
@@ -4710,6 +4729,14 @@ bool WindowManager::setBSource(const QString &path)
                     [r] { r->requestUpdate(); });
             }
         }
+        // Re-apply the new B item's saved audio routing mode — swapB
+        // rebuilt the mixer's B decoder, which starts at Auto.
+        if (m_dualController->audio()) {
+            if (const MediaItem *itB = m_project->findItem(id)) {
+                m_dualController->audio()->setRoutingModeB(
+                    static_cast<int>(itB->audioRoutingMode));
+            }
+        }
         if (m_timeline) {
             if (auto *src = m_dualController->sourceB()) {
                 const double fps = src->fps();
@@ -4830,6 +4857,17 @@ bool WindowManager::enterDualTestMode(const QString &pathA,
     }
     if (m_dualController->audio()) {
         m_dualController->audio()->setSyncOffsetMs(dualAudioSyncOffsetMs());
+        // Master volume/mute mirror — same wiring as the real dual
+        // entry in setCompositorMode.
+        if (m_audio) {
+            auto *mix = m_dualController->audio();
+            mix->setMasterVolume(m_audio->volume());
+            mix->setMasterMuted(m_audio->muted());
+            connect(m_audio, &qcv::AudioPlayer::volumeChanged, mix,
+                    [this, mix] { mix->setMasterVolume(m_audio->volume()); });
+            connect(m_audio, &qcv::AudioPlayer::mutedChanged, mix,
+                    [this, mix] { mix->setMasterMuted(m_audio->muted()); });
+        }
     }
 
     // Wire renderer: switch to DualFlow + plant the controller pointer
