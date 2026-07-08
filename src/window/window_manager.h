@@ -1497,6 +1497,10 @@ private:
     int                                   m_lastBufferedBehind  = -1;
     int                                   m_lastBufferSize      = -1;
     int                                   m_lastFailedFrameCount = -1;
+    // Rebuffer brake (2026-07-08 EXR perf audit): true while the
+    // playback timer is held because the image-seq cache starved.
+    // pollImageSeqBufferStatus owns the engage/resume hysteresis.
+    bool                                  m_imageSeqRebuffering = false;
     // Dual-mode per-side image-seq cache stats — populated by
     // pollImageSeqBufferStatus when m_dualController is alive.
     // -1 sentinel for delta detection on first poll.

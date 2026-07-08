@@ -2831,6 +2831,7 @@ void WindowManager::startImageSequence(
     // Prime: position the playhead at frame 0 so the next render
     // tick picks the right frame to pull from the cache.
     if (m_imageSeqCache) m_imageSeqCache->updatePlayhead(0, /*force_seek=*/true);
+    m_imageSeqRebuffering = false;   // fresh media, fresh brake state
 
     // Mismatched-clip-length: if Source B is already loaded when a
     // sequence is loaded into A, override timer.duration to the
@@ -2857,6 +2858,49 @@ void WindowManager::pollImageSeqBufferStatus()
             m_lastBufferSize       = newSize;
             m_lastFailedFrameCount = newFailed;
             emit imageSeqBufferStatusChanged();
+        }
+
+        // ---- Rebuffer brake (2026-07-08 EXR perf audit). ----
+        // When the playhead reaches the cache edge and keeps moving,
+        // the keep-window slides with it — and every in-flight decode
+        // (16 × ~250 ms deep on 4K DWAB) completes into a position
+        // that is already behind the window and is EVICTED ON
+        // ARRIVAL. All workers burn at 100% while effective refill
+        // drops to ~2 fps; the cache can never catch a moving
+        // playhead again. Holding the timer freezes the window, the
+        // same workers refill at full rate, and playback resumes
+        // with ~2/3 s of runway. (This is the overrun handling the
+        // old app had; the port carried only a write-only flag.)
+        PlaybackTimer *timer =
+            (m_timeline && !m_dualController) ? m_timeline->timer()
+                                              : nullptr;
+        if (timer) {
+            constexpr int kEngageAhead = 2;   // starved
+            constexpr int kResumeAhead = 24;  // ~1 s @ 24 fps
+            if (!m_imageSeqRebuffering) {
+                // Near-end guard: a non-looping playhead approaching
+                // the final frames legitimately has no read-ahead.
+                const int playhead   = m_imageSeqCache->currentPlayhead();
+                const int frameCount = m_imageSeqCache->frameCount();
+                const bool nearEnd = !m_loopEnabled
+                    && playhead >= frameCount - kEngageAhead - 2;
+                if (timer->isPlaying() && !nearEnd
+                    && newAhead <= kEngageAhead) {
+                    m_imageSeqRebuffering = true;
+                    timer->pause();
+                    qInfo("WindowManager: image-seq rebuffer HOLD "
+                          "(ahead=%d playhead=%d)", newAhead, playhead);
+                }
+            } else if (!m_userWantsPlayback) {
+                // User paused during the hold — playback is theirs
+                // again; don't auto-resume.
+                m_imageSeqRebuffering = false;
+            } else if (newAhead >= kResumeAhead) {
+                m_imageSeqRebuffering = false;
+                timer->play();
+                qInfo("WindowManager: image-seq rebuffer RESUME "
+                      "(ahead=%d)", newAhead);
+            }
         }
     }
 

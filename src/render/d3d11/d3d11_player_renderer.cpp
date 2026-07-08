@@ -490,6 +490,7 @@ bool D3D11PlayerRenderer::init(PlayerWindow *window)
             [upload](int frame) { upload->evictFrame(frame); });
         m_impl->cacheBoundToUpload = m_cache;
         m_impl->lastCacheGen       = m_cache->requestGeneration();
+        m_impl->upload.setGeneration(m_impl->lastCacheGen);
         qInfo("D3D11PlayerRenderer::init: rebound cache callbacks for "
               "pre-init image-sequence (gen=%d)", m_impl->lastCacheGen);
     }
@@ -1930,6 +1931,10 @@ void D3D11PlayerRenderer::setImageSeqCache(ImageSequenceCache *c)
             [upload](int frame) { upload->evictFrame(frame); });
         m_impl->cacheBoundToUpload = c;
         m_impl->lastCacheGen       = c->requestGeneration();
+        // Reset the upload thread's epoch to the new cache's — its
+        // generation gate would otherwise judge the new cache's
+        // items against the previous bind's counter.
+        m_impl->upload.setGeneration(m_impl->lastCacheGen);
     }
 
     requestUpdate();

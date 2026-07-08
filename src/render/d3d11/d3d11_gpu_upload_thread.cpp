@@ -5,6 +5,7 @@
 #include <QtLogging>
 
 #include <chrono>
+#include <vector>
 
 namespace qcv {
 
@@ -44,8 +45,31 @@ void D3D11GpuUploadThread::enqueue(int frame,
 
 void D3D11GpuUploadThread::setGeneration(int generation)
 {
-    m_generation.store(generation);
-    clearAll();
+    // Prune, don't clearAll: new-generation textures uploaded before
+    // the render thread noticed the bump must survive (the express
+    // seek-target frame is decoded and pushed within ~70 ms — often
+    // beating the render thread here). Stale-generation entries are
+    // content from a different epoch and are dropped.
+    if (m_generation.exchange(generation) == generation) return;
+    pruneToGeneration(generation);
+}
+
+void D3D11GpuUploadThread::pruneToGeneration(int gen)
+{
+    std::vector<D3D11TexturePool::Handle> dead;
+    {
+        std::unique_lock lock(m_textureMapMutex);
+        for (auto it = m_textureMap.begin(); it != m_textureMap.end();) {
+            if (it->second.generation != gen) {
+                if (it->second.handle) dead.push_back(it->second.handle);
+                it = m_textureMap.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    auto &pool = D3D11TexturePool::instance();
+    for (auto h : dead) pool.queueDelete(h);
 }
 
 D3D11GpuUploadThread::GpuTexture
@@ -136,9 +160,28 @@ void D3D11GpuUploadThread::threadProc()
             Item &item = items[i];
             if (!m_running.load()) break;
 
+            // Generation gate (2026-07-08 audit). Stale-epoch items
+            // drop; a NEWER-epoch item means the cache seeked before
+            // the render thread told us — self-synchronize so the
+            // fresh upload isn't misjudged stale later. The cache's
+            // generation is monotonic within a bind; rebinds reset
+            // us via setGeneration.
+            {
+                const int cur = m_generation.load();
+                if (item.generation < cur) continue;
+                if (item.generation > cur) {
+                    m_generation.store(item.generation);
+                    pruneToGeneration(item.generation);
+                }
+            }
+
             {
                 std::shared_lock lock(m_textureMapMutex);
-                if (m_textureMap.count(item.frame)) continue;
+                const auto it = m_textureMap.find(item.frame);
+                if (it != m_textureMap.end()
+                    && it->second.generation >= item.generation) {
+                    continue;   // same/fresher content already up
+                }
             }
 
             if (++uploadsThisCycle > kMaxUploadsPerCycle) break;
@@ -164,8 +207,16 @@ void D3D11GpuUploadThread::threadProc()
                 continue;
             }
 
-            std::unique_lock lock(m_textureMapMutex);
-            m_textureMap[item.frame] = {h, width, height, true};
+            D3D11TexturePool::Handle replaced = 0;
+            {
+                std::unique_lock lock(m_textureMapMutex);
+                auto &slot = m_textureMap[item.frame];
+                if (slot.handle && slot.handle != h) replaced = slot.handle;
+                slot = {h, width, height, true, item.generation};
+            }
+            if (replaced) {
+                D3D11TexturePool::instance().queueDelete(replaced);
+            }
         }
 
         if (i < items.size()) {

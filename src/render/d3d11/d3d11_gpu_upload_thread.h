@@ -38,6 +38,13 @@ public:
         int                      width  = 0;
         int                      height = 0;
         bool                     valid  = false;
+        // Cache generation the pixels were pushed under — lets
+        // setGeneration() prune ONLY stale-content textures instead
+        // of wiping the map (2026-07-08 audit: the wholesale
+        // clearAll raced fresh post-seek uploads and stranded the
+        // seek-target frame: pixels cached, texture gone, never
+        // re-decoded).
+        int                      generation = 0;
     };
 
     D3D11GpuUploadThread();
@@ -64,6 +71,10 @@ public:
 
 private:
     void threadProc();
+
+    // Drop every texture whose generation != gen (content from a
+    // different epoch: pre-seek window or pre-layer-swap pixels).
+    void pruneToGeneration(int gen);
 
     static int poolFormatForPixelFormat(int pixelFormatEnum);
 

@@ -275,6 +275,17 @@ void ImageSequenceCache::updatePlayhead(int frame_number, bool force_seek)
             std::lock_guard<std::mutex> lk(m_ioMutex);
             m_videoRequests.clear();
         }
+        // Failed-frame amnesty (2026-07-08 audit): transient decode
+        // failures (network-mount hiccups) used to blacklist frames
+        // PERMANENTLY — nothing short of a reload or layer swap
+        // cleared m_failedFrames, so sequences on flaky shares
+        // "rotted" over a session. A user seek is a natural retry
+        // boundary: clear the list and let genuinely-broken frames
+        // re-flag within one window rebuild.
+        {
+            std::lock_guard<std::mutex> lk(m_failedMutex);
+            m_failedFrames.clear();
+        }
         // Wake CacheThread to re-evaluate window + queue.
         m_cacheCv.notify_one();
     }
@@ -438,8 +449,25 @@ void ImageSequenceCache::setGpuPushCallback(GpuPushCallback cb)
 
 void ImageSequenceCache::setFrameEvictedCallback(FrameEvictedCallback cb)
 {
-    std::lock_guard<std::mutex> lk(m_frameEvictedCallbackMutex);
-    m_frameEvictedCallback = std::move(cb);
+    {
+        std::lock_guard<std::mutex> lk(m_frameEvictedCallbackMutex);
+        m_frameEvictedCallback = std::move(cb);
+    }
+    // Byte-budget evictions inside SimpleLRU::add bypassed the
+    // explicit window-eviction path, orphaning the evicted frames'
+    // GPU textures in the upload thread's map (2026-07-08 audit).
+    // Route them to the same sink. The LRU invokes this after its
+    // internal bookkeeping; the sink (upload evictFrame) takes only
+    // its own locks, so there is no lock cycle back into the cache.
+    m_pixelCache.setEvictionCallback(
+        [this](const int &frame, const std::shared_ptr<PixelData> &) {
+            FrameEvictedCallback sink;
+            {
+                std::lock_guard<std::mutex> lk(m_frameEvictedCallbackMutex);
+                sink = m_frameEvictedCallback;
+            }
+            if (sink) sink(frame);
+        });
 }
 
 // ---------------------------------------------------------------------------
@@ -918,6 +946,12 @@ void ImageSequenceCache::ioWorkerLoop()
 
             std::shared_ptr<PixelData> pd = r.pixels;
             if (!pd) {
+                // Decode failures used to be completely silent —
+                // keep this audible (2026-07-08 audit): a frame
+                // going dark should leave a trace.
+                qWarning("ImageSequenceCache: decode failed for "
+                         "frame %d — blacklisted until next seek",
+                         r.frame);
                 pd = MakeBrokenSentinel(m_width, m_height);
                 std::lock_guard<std::mutex> lk(m_failedMutex);
                 m_failedFrames.insert(r.frame);
