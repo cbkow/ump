@@ -58,6 +58,13 @@ public:
         int                      width  = 0;
         int                      height = 0;
         bool                     valid  = false;
+        // Cache generation the pixels were pushed under — lets
+        // setGeneration() prune ONLY stale-content textures instead
+        // of wiping the map (2026-07-08 audit: the wholesale
+        // clearAll raced fresh post-seek uploads and stranded the
+        // seek-target frame: pixels cached, texture gone, never
+        // re-decoded).
+        int                      generation = 0;
     };
 
     MetalGpuUploadThread();
@@ -78,8 +85,9 @@ public:
                  int generation);
 
     // Bumps the active generation. Items in the queue with older
-    // generations are skipped on dequeue. Also clears the texture
-    // map (the renderer will see "not ready" until uploads catch up).
+    // generations are skipped on dequeue; textures already in the
+    // map whose generation doesn't match are pruned (fresh
+    // same-generation uploads survive — see GpuTexture::generation).
     void setGeneration(int generation);
 
     // Renderer-thread query. Returns {valid=false} if the frame's
@@ -99,6 +107,10 @@ public:
 
 private:
     void threadProc();
+
+    // Drop every texture whose generation != gen (content from a
+    // different epoch: pre-seek window or pre-layer-swap pixels).
+    void pruneToGeneration(int gen);
 
     static int poolFormatForPixelFormat(int pixelFormatEnum);
 

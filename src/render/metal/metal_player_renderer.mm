@@ -396,6 +396,7 @@ bool MetalPlayerRenderer::init(PlayerWindow *window)
             [upload](int frame) { upload->evictFrame(frame); });
         m_cacheBoundToUpload = m_cache;
         m_lastCacheGen       = m_cache->requestGeneration();
+        m_impl->upload.setGeneration(m_lastCacheGen);
     }
 
     m_impl->frameCount = 0;
@@ -590,6 +591,10 @@ void MetalPlayerRenderer::setImageSeqCache(ImageSequenceCache *c)
             [upload](int frame) { upload->evictFrame(frame); });
         m_cacheBoundToUpload = c;
         m_lastCacheGen       = c->requestGeneration();
+        // Reset the upload thread's epoch to the new cache's — its
+        // generation gate would otherwise judge the new cache's
+        // items against the previous bind's counter.
+        m_impl->upload.setGeneration(m_lastCacheGen);
     }
     // If !running, init() will rewire when it starts up.
 }
@@ -1214,12 +1219,14 @@ void MetalPlayerRenderer::drawFrame()
         // generation on user seeks beyond the small-rewind threshold
         // and when the EXR layer is swapped. Mirror that to the
         // upload thread so any pre-seek items still in its queue are
-        // dropped + the texture map is wiped (avoids "scrubbed past
-        // a frame, scrubbed back, saw the post-seek-but-stale
-        // texture" flicker).
+        // dropped + stale-epoch textures are pruned from the map
+        // (avoids "scrubbed past a frame, scrubbed back, saw the
+        // post-seek-but-stale texture" flicker). Fresh current-gen
+        // uploads survive the prune — see GpuTexture::generation.
         const int curGen = m_cache->requestGeneration();
         if (curGen != m_lastCacheGen) {
             m_lastCacheGen = curGen;
+            m_impl->upload.setGeneration(curGen);
             // Hold last-good across seeks (and stride misses): old
             // app's GetTexture (direct_exr_cache.cpp:457-484) only
             // resets last_good_texture_ on Shutdown — never on seek.

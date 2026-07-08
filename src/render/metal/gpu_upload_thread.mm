@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <pthread.h>
+#include <vector>
 
 namespace qcv {
 
@@ -52,14 +53,33 @@ void MetalGpuUploadThread::enqueue(int frame,
     m_queueCv.notify_one();
 }
 
-void MetalGpuUploadThread::setGeneration(int /*generation*/)
+void MetalGpuUploadThread::setGeneration(int generation)
 {
-    // Generation tracking lives on the cache side now. Upload thread
-    // accepts whatever it's enqueued with and trusts the cache's
-    // I/O worker (which filters stale results before they reach the
-    // push callback) + the eviction callback (which prunes the
-    // textureMap as the cache window slides) to keep state coherent.
-    // Kept as a no-op to preserve the IPlayerRenderer-side hook.
+    // Prune, don't clearAll: new-generation textures uploaded before
+    // the render thread noticed the bump must survive (the express
+    // seek-target frame is decoded and pushed within ~70 ms — often
+    // beating the render thread here). Stale-generation entries are
+    // content from a different epoch and are dropped.
+    if (m_generation.exchange(generation) == generation) return;
+    pruneToGeneration(generation);
+}
+
+void MetalGpuUploadThread::pruneToGeneration(int gen)
+{
+    std::vector<MetalTexturePool::Handle> dead;
+    {
+        std::unique_lock<std::shared_mutex> lock(m_textureMapMutex);
+        for (auto it = m_textureMap.begin(); it != m_textureMap.end();) {
+            if (it->second.generation != gen) {
+                if (it->second.handle) dead.push_back(it->second.handle);
+                it = m_textureMap.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    auto &pool = MetalTexturePool::instance();
+    for (auto h : dead) pool.queueDelete(h);
 }
 
 MetalGpuUploadThread::GpuTexture
@@ -151,16 +171,28 @@ void MetalGpuUploadThread::threadProc()
             Item &item = items[i];
             if (!m_running.load()) break;
 
-            // No generation filtering here — the cache's I/O worker
-            // already drops stale results before they reach the
-            // push callback (image_sequence_cache.cpp ~line 614).
-            // Anything that lands in our queue is current-gen by
-            // construction.
+            // Generation gate (2026-07-08 audit). Stale-epoch items
+            // drop; a NEWER-epoch item means the cache seeked before
+            // the render thread told us — self-synchronize so the
+            // fresh upload isn't misjudged stale later. The cache's
+            // generation is monotonic within a bind; rebinds reset
+            // us via setGeneration.
+            {
+                const int cur = m_generation.load();
+                if (item.generation < cur) continue;
+                if (item.generation > cur) {
+                    m_generation.store(item.generation);
+                    pruneToGeneration(item.generation);
+                }
+            }
 
-            // Already have a texture for this frame? Skip.
             {
                 std::shared_lock<std::shared_mutex> lock(m_textureMapMutex);
-                if (m_textureMap.count(item.frame)) continue;
+                const auto it = m_textureMap.find(item.frame);
+                if (it != m_textureMap.end()
+                    && it->second.generation >= item.generation) {
+                    continue;   // same/fresher content already up
+                }
             }
 
             // Cap uploads per cycle so a heavy seek doesn't starve
@@ -188,8 +220,16 @@ void MetalGpuUploadThread::threadProc()
                 continue;
             }
 
-            std::unique_lock<std::shared_mutex> lock(m_textureMapMutex);
-            m_textureMap[item.frame] = {h, width, height, true};
+            MetalTexturePool::Handle replaced = 0;
+            {
+                std::unique_lock<std::shared_mutex> lock(m_textureMapMutex);
+                auto &slot = m_textureMap[item.frame];
+                if (slot.handle && slot.handle != h) replaced = slot.handle;
+                slot = {h, width, height, true, item.generation};
+            }
+            if (replaced) {
+                MetalTexturePool::instance().queueDelete(replaced);
+            }
         }
 
         // Re-queue anything we didn't get to (cap-hit case).
