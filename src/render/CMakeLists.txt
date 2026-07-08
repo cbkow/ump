@@ -15,6 +15,10 @@ qt_add_qml_module(qcv_render
     SOURCES
         player_rhi_item.cpp
         player_rhi_item.h
+        # Timeline waveform experiment — viewport-sized lazy peak
+        # strip (first QQuickPaintedItem in the app).
+        waveform_strip.cpp
+        waveform_strip.h
         test_textures.cpp
         test_textures.h
         ocio_shader_builder.cpp
@@ -267,6 +271,7 @@ target_link_libraries(qcv_render
         Qt6::GuiPrivate           # rhi/qrhi.h — renderer methods (beginPass, etc.)
         Qt6::ShaderToolsPrivate   # rhi/qshaderbaker.h — Phase 2.3 OCIO shader baking
         PkgConfig::OPENCOLORIO    # OCIO C++ API in OcioShaderBuilder
+        qcv_audio                 # WaveformStrip → WaveformProbeEngine
 )
 
 # qcv_dual link is Apple-only. MetalPlayerRenderer's dual-flow drawFrame

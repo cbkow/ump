@@ -7337,6 +7337,22 @@ void WindowManager::setTimelineHoverThumbsEnabled(bool on)
     emit timelineHoverThumbsEnabledChanged();
 }
 
+bool WindowManager::timelineWaveformsEnabled() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("ui/timelineWaveforms"), true).toBool();
+}
+
+void WindowManager::setTimelineWaveformsEnabled(bool on)
+{
+    QSettings s;
+    const bool prev =
+        s.value(QStringLiteral("ui/timelineWaveforms"), true).toBool();
+    if (prev == on) return;
+    s.setValue(QStringLiteral("ui/timelineWaveforms"), on);
+    emit timelineWaveformsEnabledChanged();
+}
+
 bool WindowManager::alwaysOpenMinimal() const
 {
     QSettings s;

@@ -19,6 +19,10 @@ set(QCV_AUDIO_SOURCES
     audio_routing_matrix.h
     audio_chunk_reader.h
     audio_chunk_reader.cpp
+    # Timeline waveform experiment — lazy screen-space peak probing
+    # over AudioChunkReader (see waveform_probe_engine.h).
+    waveform_probe_engine.h
+    waveform_probe_engine.cpp
     shuttle_audio_engine.h
     shuttle_audio_engine.cpp
     tempo_stage.h

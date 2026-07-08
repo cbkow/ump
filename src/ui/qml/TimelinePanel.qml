@@ -25,6 +25,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Qcv
+import Qcv.Render   // WaveformStrip (waveform experiment)
 
 Pane {
     id: root
@@ -1349,6 +1350,60 @@ Pane {
                     visibleGate: loaded && hasTrackB
                     clipModel: modelData
                 }
+            }
+
+            // ---- Waveform strips (EXPERIMENT 2026-07-08) ----
+            // Lazy screen-space audio peaks over the clip bodies —
+            // repaints per vantage from the probe memo; decoding
+            // chases the vantage after it settles and pauses during
+            // playback. Single-clip rows only (single video, audio-
+            // only, dual sides); playlists sit this round out.
+            WaveformStrip {
+                readonly property var clip:
+                    trackAData && trackAData.clips
+                    && trackAData.clips.length === 1
+                        ? trackAData.clips[0] : null
+                x: 0
+                width: parent.width
+                y: 4
+                height: kRowHA - 8
+                active: !!clip && !!clip.hasAudio && root.loaded
+                        && WindowManager.timelineWaveformsEnabled
+                visible: active
+                sourcePath: clip ? (clip.mediaPath || "") : ""
+                clipStart: clip ? clip.startTime : 0
+                clipDuration: clip ? clip.duration : 0
+                sourceIn: clip ? clip.sourceIn : 0
+                windowStart: root.pps > 0 ? root.scrollX / root.pps : 0
+                windowEnd: root.pps > 0
+                    ? (root.scrollX + trackArea.width) / root.pps : 0
+                playing: root.playbackActive
+                // Steel-tinted, translucent — sits over the A clip
+                // body + name text without drowning either.
+                waveColor: Qt.rgba(0.80, 0.88, 1.0, 0.28)
+            }
+            WaveformStrip {
+                readonly property var clip:
+                    hasTrackB && trackBData && trackBData.clips
+                    && trackBData.clips.length === 1
+                        ? trackBData.clips[0] : null
+                x: 0
+                width: parent.width
+                y: kRowHA + 3
+                height: kRowHB - 6
+                active: !!clip && !!clip.hasAudio && root.loaded
+                          && hasTrackB
+                          && WindowManager.timelineWaveformsEnabled
+                visible: active
+                sourcePath: clip ? (clip.mediaPath || "") : ""
+                clipStart: clip ? clip.startTime : 0
+                clipDuration: clip ? clip.duration : 0
+                sourceIn: clip ? clip.sourceIn : 0
+                windowStart: root.pps > 0 ? root.scrollX / root.pps : 0
+                windowEnd: root.pps > 0
+                    ? (root.scrollX + trackArea.width) / root.pps : 0
+                playing: root.playbackActive
+                waveColor: Qt.rgba(1.0, 0.85, 0.75, 0.28)   // rust tint
             }
 
             // ---- Phase 3.H.4 Stage B — reorder drag ghost ----

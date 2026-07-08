@@ -98,6 +98,10 @@ class WindowManager : public QObject
                READ timelineHoverThumbsEnabled
                WRITE setTimelineHoverThumbsEnabled
                NOTIFY timelineHoverThumbsEnabledChanged)
+    Q_PROPERTY(bool timelineWaveformsEnabled
+               READ timelineWaveformsEnabled
+               WRITE setTimelineWaveformsEnabled
+               NOTIFY timelineWaveformsEnabledChanged)
     // When true, the app forces Minimal Mode on launch (overriding the
     // remembered rail/panel layout). Persisted to QSettings; read by
     // Main.qml at startup. Off by default.
@@ -531,6 +535,13 @@ public:
     // every throttled hover request.
     bool timelineHoverThumbsEnabled() const;
     void setTimelineHoverThumbsEnabled(bool on);
+
+    // Timeline audio waveform overlay (2026-07-08 experiment).
+    // Read live — the strips' `active` gate binds to it, so turning
+    // it off hides the strips AND stops all probing immediately.
+    // Default ON.
+    bool timelineWaveformsEnabled() const;
+    void setTimelineWaveformsEnabled(bool on);
 
     // Always-open-in-minimal-mode preference (see Q_PROPERTY above).
     bool alwaysOpenMinimal() const;
@@ -975,6 +986,7 @@ signals:
     void loopEnabledChanged();
     void reviewSpeedChanged();
     void timelineHoverThumbsEnabledChanged();
+    void timelineWaveformsEnabledChanged();
     void alwaysOpenMinimalChanged();
     void screenshotFormatChanged();
     // User-facing export feedback, surfaced by the StatusStrip.

@@ -1693,6 +1693,7 @@ Rectangle {
                     readonly property int  kImageSeqAheadDefault:   72
                     readonly property int  kFFmpegThreadsDefault:    0
                     readonly property bool kHoverThumbsDefault:   true
+                    readonly property bool kWaveformsDefault:     true
                     readonly property bool kHwDecodeEnabledDefault: true
                     readonly property bool kHwScrubInterDefault:  false
                     readonly property int  kScrubCacheMBDefault:    512
@@ -1769,6 +1770,8 @@ Rectangle {
                                 settingsSection.kScrubCacheMBDefault;
                             WindowManager.timelineHoverThumbsEnabled =
                                 settingsSection.kHoverThumbsDefault;
+                            WindowManager.timelineWaveformsEnabled =
+                                settingsSection.kWaveformsDefault;
                             Qt.quit();
                         }
                     }
@@ -2127,6 +2130,36 @@ Rectangle {
                                     onClicked: {
                                         WindowManager.timelineHoverThumbsEnabled =
                                             settingsSection.kHoverThumbsDefault;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Timeline audio waveforms (2026-07-08
+                        // experiment). Gate binds live — off hides
+                        // the strips AND stops probing immediately.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel {
+                                    text: qsTr("Timeline audio waveforms")
+                                    help: qsTr("Draw an audio waveform over timeline clips. Peaks decode lazily in the background for the visible range and pause during playback.")
+                                }
+                                SlotSwitch {
+                                    checked: WindowManager.timelineWaveformsEnabled
+                                    onToggled: {
+                                        WindowManager.timelineWaveformsEnabled = checked;
+                                    }
+                                }
+                                RevertBtn {
+                                    dirty: WindowManager.timelineWaveformsEnabled
+                                           !== settingsSection.kWaveformsDefault
+                                    onClicked: {
+                                        WindowManager.timelineWaveformsEnabled =
+                                            settingsSection.kWaveformsDefault;
                                     }
                                 }
                             }
