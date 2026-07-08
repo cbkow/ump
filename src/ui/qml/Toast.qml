@@ -27,11 +27,32 @@ Popup {
     function show(message, kind) {
         toastText.text = message;
         root.kind = (kind === undefined) ? 0 : kind;
+        root.actionLabel = "";
+        root.actionId = "";
+        hideTimer.interval = 3400;
+        root.open();
+        hideTimer.restart();
+    }
+
+    // Toast with one action button (e.g. "Undo" on the delete
+    // toasts). actionId is opaque — clicking the button emits
+    // actionTriggered(actionId) and the host routes it (Main.qml →
+    // WindowManager.invokeToastAction). Lingers longer than a
+    // passive toast so there's time to react.
+    function showAction(message, kind, actionLabel, actionId) {
+        toastText.text = message;
+        root.kind = (kind === undefined) ? 0 : kind;
+        root.actionLabel = actionLabel || "";
+        root.actionId = actionId || "";
+        hideTimer.interval = 5600;
         root.open();
         hideTimer.restart();
     }
 
     property int kind: 0
+    property string actionLabel: ""
+    property string actionId: ""
+    signal actionTriggered(string actionId)
 
     readonly property string iconName:
         kind === 2 ? "x-circle"
@@ -81,6 +102,16 @@ Popup {
         implicitWidth: row.implicitWidth + 2 * Theme.paddingLoose
         implicitHeight: 32
 
+        // Dismiss-on-click. Declared BEFORE the content row so the
+        // action button (when present) stacks above it and wins the
+        // click; text/icon don't accept mouse, so clicks anywhere
+        // else still fall through here.
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: root.close()
+        }
+
         RowLayout {
             id: row
             anchors.centerIn: parent
@@ -96,12 +127,19 @@ Popup {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.fontSizeBase
             }
-        }
-
-        MouseArea {
-            anchors.fill: parent
-            cursorShape: Qt.PointingHandCursor
-            onClicked: root.close()
+            // Action button (undo toasts). Raised + rounded — it
+            // carries a text label, so it keeps radiusBase per the
+            // corner rule (only icon-only inline buttons square off).
+            FlatButton {
+                visible: root.actionLabel.length > 0
+                variant: "raised"
+                text: root.actionLabel
+                Layout.preferredHeight: 22
+                onClicked: {
+                    root.actionTriggered(root.actionId);
+                    root.close();
+                }
+            }
         }
     }
 }

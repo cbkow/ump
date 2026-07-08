@@ -1429,11 +1429,18 @@ ApplicationWindow {
         parent: centerStage
         x: parent ? parent.width - width - 12 : 0
         y: 12
+        // Action button clicks (undo toasts) route back into C++ —
+        // WindowManager owns the undo buffers and the outcome toast.
+        onActionTriggered: (actionId) =>
+            WindowManager.invokeToastAction(actionId)
     }
     Connections {
         target: WindowManager
         function onToastRequested(message, kind) {
             outcomeToast.show(message, kind);
+        }
+        function onToastActionRequested(message, kind, actionLabel, actionId) {
+            outcomeToast.showAction(message, kind, actionLabel, actionId);
         }
         // The async export pipeline (screenshot save) reported to the
         // StatusStrip's chip; the strip is opt-in now, so mirror its

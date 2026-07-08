@@ -465,12 +465,16 @@ bool PresetManager::deleteCurrent()
         return false;
     }
 
-    // Snapshot for rollback on disk-write failure.
+    // Snapshot for rollback on disk-write failure — and, on success,
+    // for the undo-toast (undoDeleteLast).
     const Preset removed = m_presets.takeAt(idx);
     if (!writeUserPresetsToDisk()) {
         m_presets.insert(idx, removed);
         return false;
     }
+    m_lastDeleted      = removed;
+    m_lastDeletedIndex = idx;
+    m_hasLastDeleted   = true;
 
     m_activePresetName.clear();
     emit presetsChanged();
@@ -480,6 +484,43 @@ bool PresetManager::deleteCurrent()
         emit modifiedChanged();
     }
     return true;
+}
+
+QString PresetManager::undoDeleteLast()
+{
+    if (!m_hasLastDeleted) return {};
+    if (findByName(m_lastDeleted.name)) {
+        // The name was reused since the delete (re-save / save-as) —
+        // restoring would collide. The newer preset wins; drop the
+        // snapshot for good.
+        qWarning("PresetManager::undoDeleteLast: '%s' exists again — "
+                 "not restoring", qPrintable(m_lastDeleted.name));
+        m_hasLastDeleted = false;
+        return {};
+    }
+
+    const int idx = qBound(0, m_lastDeletedIndex,
+                           static_cast<int>(m_presets.size()));
+    m_presets.insert(idx, m_lastDeleted);
+    if (!writeUserPresetsToDisk()) {
+        m_presets.removeAt(idx);   // keep the snapshot — retry possible
+        return {};
+    }
+    m_hasLastDeleted = false;
+
+    // Reinstate the pre-delete selection. deleteCurrent never touched
+    // the live OCIO chain, so don't re-apply — just recompute whether
+    // the chain still matches (the user may have tweaked reels in
+    // between, which correctly reads as "modified").
+    m_activePresetName = m_lastDeleted.name;
+    emit presetsChanged();
+    emit activePresetChanged();
+    const bool nowModified = !currentMatchesPreset(m_lastDeleted);
+    if (m_modified != nowModified) {
+        m_modified = nowModified;
+        emit modifiedChanged();
+    }
+    return m_lastDeleted.name;
 }
 
 QString PresetManager::userPresetsFilePath() const

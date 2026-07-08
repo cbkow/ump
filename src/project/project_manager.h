@@ -230,7 +230,27 @@ public:
                                           const QVariantList &entries);
 
     // Remove an item from media_pool + every bin that references it.
+    // Delegates to removeMediaItems so the single-item path shares
+    // the undo snapshot.
     Q_INVOKABLE bool removeMediaItem(const QString &id);
+
+    // Batch remove (bin multi-select Del). Snapshots every removed
+    // MediaItem — full struct, pool index, per-bin positions — into
+    // a one-slot undo buffer (each new batch overwrites the last)
+    // so the undo-toast can restore a delete verbatim, including
+    // per-item state a path re-add would lose (in/out range, seq
+    // layer, playlist entries, PAR / range / routing overrides).
+    // Emits binsChanged once for the whole batch. Returns the number
+    // of items actually removed (unknown ids are skipped).
+    Q_INVOKABLE int removeMediaItems(const QStringList &ids);
+
+    // Undo the last removeMediaItems batch: re-insert every snapshot
+    // at its original pool + bin position. Restores bin rows only —
+    // active / B-source selection is NOT re-bound (the viewer stays
+    // on whatever the user is looking at now). Clears the buffer.
+    // Returns the restored items' names (empty = nothing to restore,
+    // e.g. after a project switch cleared the buffer).
+    QStringList restoreLastRemovedItems();
 
     // Mark the given item as the active selection. Emits
     // activeItemIdChanged so consumers (WindowManager) can load the
@@ -428,8 +448,24 @@ private:
                                     int     &outPadding,
                                     QList<int> *outMissingFrames = nullptr);
 
+    // One removed item inside the last removeMediaItems batch. The
+    // indices are valid in the pool/bin state *immediately before
+    // that item's own removal* — the batch removes sequentially, so
+    // restore must re-insert in REVERSE batch order for the stored
+    // indices to reconstruct the original layout exactly.
+    struct RemovedItemSnapshot {
+        MediaItem item;
+        int       poolIndex = -1;
+        // (bin index, position within that bin's itemIds)
+        QList<QPair<int, int>> binPositions;
+    };
+
     QList<MediaItem>  m_mediaPool;
     QList<ProjectBin> m_bins;
+    // Undo buffer for the last removeMediaItems batch. Cleared on
+    // newProject / applyLoadedState — stale snapshots must never
+    // leak into a different project.
+    QList<RemovedItemSnapshot> m_lastRemoval;
     QString           m_activeItemId;
     // Phase 7.7 Stage 5 — B-source ref. Empty = unset.
     QString           m_bSourceMediaId;

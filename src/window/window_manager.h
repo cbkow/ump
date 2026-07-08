@@ -495,12 +495,15 @@ public:
 
     QString activeDualViewId() const { return m_activeDualViewId; }
 
-    // Delete a MediaItem from the project pool. If the item is the
-    // active source, tears down playback first (closeActiveMedia /
-    // dual-mode exit) so the player doesn't keep streaming a file
-    // that's no longer in the project. If it's the B source in a
-    // dual session, clears B. Returns true on success.
-    Q_INVOKABLE bool    deleteMediaItem(const QString &id);
+    // Delete MediaItems from the project pool (bin Del, multi-select
+    // aware). For any item that is the active source, tears down
+    // playback first (closeActiveMedia / dual-mode exit) so the
+    // player doesn't keep streaming a file that's no longer in the
+    // project; if one is the B source in a dual session, clears B.
+    // Fires the undo-toast ("Removed … · Undo") — the snapshot lives
+    // in ProjectManager and is restored via invokeToastAction.
+    // Returns true if anything was removed.
+    Q_INVOKABLE bool    deleteMediaItems(const QStringList &ids);
 
     ScrubDecoder *scrubDecoder() const { return m_scrubDecoder; }
     OCIOConfigManager *ocio() const { return m_ocio; }
@@ -800,6 +803,19 @@ public:
     // 0 = success, 1 = warning, 2 = error.
     Q_INVOKABLE void toast(const QString &message, int kind = 0);
 
+    // Toast with a single action button (currently: Undo on the
+    // delete toasts). `actionId` names what the button does; the
+    // Toast hands it back via invokeToastAction when clicked. Kept
+    // as an opaque string so the Toast item stays generic.
+    Q_INVOKABLE void toastAction(const QString &message, int kind,
+                                 const QString &actionLabel,
+                                 const QString &actionId);
+    // Dispatch a toast action button click. Known ids:
+    //   "undo-media-delete"  — restore the last bin delete batch
+    //   "undo-preset-delete" — restore the last deleted color preset
+    // Each outcome reports back through a plain toast.
+    Q_INVOKABLE void invokeToastAction(const QString &actionId);
+
     Q_INVOKABLE void closeMedia();
 
     // ---- Phase 3.H.6 Stage B — notes panel surface for QML. ----
@@ -973,6 +989,10 @@ signals:
     // (the StatusStrip chip it used to drive is hidden by default
     // now that the strip is an opt-in panel).
     void toastRequested(const QString &message, int kind);
+    // Action-carrying variant (undo toasts) — see toastAction().
+    void toastActionRequested(const QString &message, int kind,
+                              const QString &actionLabel,
+                              const QString &actionId);
     void audioSyncOffsetMsChanged();
     void dualAudioSyncOffsetMsChanged();
     // Fires when audioRoutingScopeMediaItemId() may return a

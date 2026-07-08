@@ -115,6 +115,15 @@ public:
     // read-only). On success, clears the active selection and
     // persists the user-presets file. Returns true on success.
     Q_INVOKABLE bool deleteCurrent();
+    // Undo the last successful deleteCurrent (undo-toast). Re-inserts
+    // the snapshotted preset at its old list position, restores it as
+    // the active preset (the delete didn't touch the OCIO chain, so
+    // modified-state is recomputed rather than the preset re-applied),
+    // and persists. Returns the restored preset's name; empty when
+    // there is nothing to restore, the name has been reused since
+    // (a re-save under the same name wins), or the disk write fails
+    // (snapshot kept — the toast action can be retried).
+    Q_INVOKABLE QString undoDeleteLast();
 
 signals:
     void presetsChanged();
@@ -139,6 +148,11 @@ private:
     QList<Preset>      m_presets;
     QString            m_activePresetName;
     bool               m_modified = false;
+    // One-slot undo buffer for deleteCurrent (each delete overwrites
+    // the last). Index is the preset's old position in m_presets.
+    Preset             m_lastDeleted;
+    int                m_lastDeletedIndex = -1;
+    bool               m_hasLastDeleted   = false;
     // Set true while applyPreset runs so the chain-change signals
     // fired by each setActiveX call don't trip the modified-detection
     // logic. Manual reel edits go through the same setters but with

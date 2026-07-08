@@ -5064,30 +5064,43 @@ bool WindowManager::loadDualView(const QString &dualPairId)
     return true;
 }
 
-bool WindowManager::deleteMediaItem(const QString &id)
+bool WindowManager::deleteMediaItems(const QStringList &ids)
 {
     if (!m_project) return false;
-    const MediaItem *item = m_project->findItem(id);
-    if (!item) return false;
 
-    const bool isActive  = (id == m_project->activeItemId());
-    const bool isBSource = (id == m_project->bSourceMediaId());
+    QStringList valid;
+    QString firstName;
+    for (const QString &id : ids) {
+        const MediaItem *item = m_project->findItem(id);
+        if (!item) continue;
+        if (valid.isEmpty()) firstName = item->name;
 
-    // If the user is deleting the currently-displayed item, tear down
-    // playback first so we don't leave the decoder streaming a file
-    // that no longer exists in the project. In dual mode, exit dual
-    // back to single (matches the loadRequested behavior on click).
-    if (isActive) {
-        if (m_compositorMode != 0) {
-            setCompositorMode(0);
+        // If the user is deleting the currently-displayed item, tear
+        // down playback first so we don't leave the decoder streaming
+        // a file that no longer exists in the project. In dual mode,
+        // exit dual back to single (matches the loadRequested
+        // behavior on click).
+        if (id == m_project->activeItemId()) {
+            if (m_compositorMode != 0) {
+                setCompositorMode(0);
+            }
+            closeActiveMedia();
         }
-        closeActiveMedia();
-    }
-    if (isBSource) {
-        clearBSource();
+        if (id == m_project->bSourceMediaId()) {
+            clearBSource();
+        }
+        valid << id;
     }
 
-    return m_project->removeMediaItem(id);
+    const int removed = m_project->removeMediaItems(valid);
+    if (removed <= 0) return false;
+
+    const QString msg = (removed == 1)
+        ? tr("Removed %1").arg(firstName)
+        : tr("Removed %1 items").arg(removed);
+    toastAction(msg, 1, tr("Undo"),
+                QStringLiteral("undo-media-delete"));
+    return true;
 }
 
 // Phase 7.8 Stage A verification — hand-mutates the timeline so we
@@ -6397,6 +6410,42 @@ void WindowManager::clearHoverThumbnail()
 void WindowManager::toast(const QString &message, int kind)
 {
     emit toastRequested(message, kind);
+}
+
+void WindowManager::toastAction(const QString &message, int kind,
+                                const QString &actionLabel,
+                                const QString &actionId)
+{
+    emit toastActionRequested(message, kind, actionLabel, actionId);
+}
+
+void WindowManager::invokeToastAction(const QString &actionId)
+{
+    if (actionId == QLatin1String("undo-media-delete")) {
+        const QStringList names =
+            m_project ? m_project->restoreLastRemovedItems()
+                      : QStringList{};
+        if (names.isEmpty()) {
+            // Buffer gone — project switched under the toast, or a
+            // double-fire. Rare; say so rather than silently no-op.
+            toast(tr("Nothing to restore"), 1);
+        } else if (names.size() == 1) {
+            toast(tr("Restored %1").arg(names.first()), 0);
+        } else {
+            toast(tr("Restored %1 items").arg(names.size()), 0);
+        }
+    } else if (actionId == QLatin1String("undo-preset-delete")) {
+        const QString name =
+            m_presets ? m_presets->undoDeleteLast() : QString();
+        if (name.isEmpty()) {
+            toast(tr("Nothing to restore"), 1);
+        } else {
+            toast(tr("Preset restored: %1").arg(name), 0);
+        }
+    } else {
+        qWarning("WindowManager::invokeToastAction: unknown action '%s'",
+                 qPrintable(actionId));
+    }
 }
 
 void WindowManager::dropTextInputFocus()

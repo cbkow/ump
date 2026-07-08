@@ -88,6 +88,7 @@ void ProjectManager::newProject()
     // Pool + selection wipe. Bin shells stay (their accept-types
     // are part of the canonical layout); only item_ids reset.
     m_mediaPool.clear();
+    m_lastRemoval.clear();
     for (ProjectBin &bin : m_bins) {
         bin.itemIds.clear();
     }
@@ -181,6 +182,7 @@ void ProjectManager::applyLoadedState(QList<MediaItem>  pool,
     m_bins           = std::move(bins);
     m_activeItemId   = std::move(activeId);
     m_bSourceMediaId = std::move(bSourceId);
+    m_lastRemoval.clear();
 
     m_projectUuid       = uuid.isEmpty()
         ? QUuid::createUuid().toString(QUuid::WithoutBraces)
@@ -1062,23 +1064,81 @@ bool ProjectManager::detectImageSequence(const QString &filePath,
 
 bool ProjectManager::removeMediaItem(const QString &id)
 {
-    const int idx = findIndexInPool(id);
-    if (idx < 0) return false;
-    m_mediaPool.removeAt(idx);
-    for (ProjectBin &bin : m_bins) {
-        bin.itemIds.removeAll(id);
+    return removeMediaItems({id}) > 0;
+}
+
+int ProjectManager::removeMediaItems(const QStringList &ids)
+{
+    QList<RemovedItemSnapshot> batch;
+    bool activeCleared = false;
+    bool bCleared      = false;
+
+    for (const QString &id : ids) {
+        const int idx = findIndexInPool(id);
+        if (idx < 0) continue;
+
+        RemovedItemSnapshot snap;
+        snap.item      = m_mediaPool.at(idx);
+        snap.poolIndex = idx;
+        for (int b = 0; b < m_bins.size(); ++b) {
+            const int pos = m_bins[b].itemIds.indexOf(id);
+            if (pos >= 0) snap.binPositions.append({b, pos});
+        }
+
+        m_mediaPool.removeAt(idx);
+        for (ProjectBin &bin : m_bins) {
+            bin.itemIds.removeAll(id);
+        }
+        if (m_activeItemId == id) {
+            m_activeItemId.clear();
+            activeCleared = true;
+        }
+        if (m_bSourceMediaId == id) {
+            m_bSourceMediaId.clear();
+            bCleared = true;
+        }
+        batch.append(std::move(snap));
     }
-    if (m_activeItemId == id) {
-        m_activeItemId.clear();
-        emit activeItemIdChanged();
-    }
-    if (m_bSourceMediaId == id) {
-        m_bSourceMediaId.clear();
-        emit bSourceChanged();
-    }
+
+    if (batch.isEmpty()) return 0;
+    m_lastRemoval = std::move(batch);
+
+    if (activeCleared) emit activeItemIdChanged();
+    if (bCleared)      emit bSourceChanged();
     markDirty();
     emit binsChanged();
-    return true;
+    return static_cast<int>(m_lastRemoval.size());
+}
+
+QStringList ProjectManager::restoreLastRemovedItems()
+{
+    if (m_lastRemoval.isEmpty()) return {};
+
+    QStringList names;
+    // Reverse batch order — see RemovedItemSnapshot: each snapshot's
+    // indices are valid in the state just before its own removal, so
+    // unwinding back-to-front lands every item exactly where it was.
+    for (int i = m_lastRemoval.size() - 1; i >= 0; --i) {
+        const RemovedItemSnapshot &snap = m_lastRemoval.at(i);
+        if (findIndexInPool(snap.item.id) >= 0) continue;
+
+        const int poolPos =
+            qBound(0, snap.poolIndex, static_cast<int>(m_mediaPool.size()));
+        m_mediaPool.insert(poolPos, snap.item);
+        for (const auto &bp : snap.binPositions) {
+            if (bp.first < 0 || bp.first >= m_bins.size()) continue;
+            QStringList &list = m_bins[bp.first].itemIds;
+            list.insert(qBound(0, bp.second, static_cast<int>(list.size())),
+                        snap.item.id);
+        }
+        names.prepend(snap.item.name);
+    }
+    m_lastRemoval.clear();
+
+    if (names.isEmpty()) return {};
+    markDirty();
+    emit binsChanged();
+    return names;
 }
 
 void ProjectManager::setActiveItem(const QString &id)

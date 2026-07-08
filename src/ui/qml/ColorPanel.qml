@@ -335,8 +335,11 @@ Pane {
                              : qsTr("Select a user preset to delete")
                 onClicked: {
                     const name = WindowManager.presets.activePresetName;
-                    WindowManager.presets.deleteCurrent();
-                    WindowManager.toast(qsTr("Preset deleted: %1").arg(name), 1);
+                    if (WindowManager.presets.deleteCurrent()) {
+                        WindowManager.toastAction(
+                            qsTr("Preset deleted: %1").arg(name), 1,
+                            qsTr("Undo"), "undo-preset-delete");
+                    }
                 }
             }
             }

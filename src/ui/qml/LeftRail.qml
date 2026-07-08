@@ -185,10 +185,10 @@ Rectangle {
 
     function deleteSelectedItems() {
         if (!WindowManager.project) return;
-        const ids = root.selectedItemIds.slice();
-        for (let i = 0; i < ids.length; ++i) {
-            WindowManager.deleteMediaItem(ids[i]);
-        }
+        // One batch call — WindowManager tears down playback for any
+        // active/B item, snapshots the batch for the undo-toast
+        // ("Removed … · Undo"), and toasts.
+        WindowManager.deleteMediaItems(root.selectedItemIds.slice());
         root.clearSelection();
     }
 
