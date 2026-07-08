@@ -321,79 +321,112 @@ Rectangle {
             font.pixelSize: Theme.fontSizeTiny
             visible: content.isEXR
         }
-        ColumnLayout {
+        GridLayout {
             id: layerList
             Layout.fillWidth: true
-            spacing: 1
+            columns: 2
+            columnSpacing: Theme.paddingTight
+            rowSpacing: Theme.paddingTight
             visible: content.isEXR
 
             readonly property var entries:
                 seq && seq.availableLayers ? seq.availableLayers : []
             readonly property string currentLayer:
                 seq && seq.layer ? seq.layer : ""
+            // Every tile shows the sequence's first frame at that
+            // layer, decoded off-thread by ThumbnailImageProvider
+            // (spinner while pending — the load itself never blocks).
+            readonly property string frameBase:
+                seq && seq.firstFramePath
+                    ? "image://thumb/"
+                      + encodeURIComponent(seq.firstFramePath)
+                    : ""
+            // Sequence aspect for the tile wells; 16:9 until probed.
+            readonly property real tileAspect:
+                seq && seq.width > 0 && seq.height > 0
+                    ? seq.height / seq.width : 9 / 16
 
             Repeater {
                 model: layerList.entries
-                Item {
+                ColumnLayout {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 20
+                    spacing: 2
                     readonly property string layerName: String(modelData)
                     readonly property bool isCurrent:
                         layerName === layerList.currentLayer
 
                     Rectangle {
-                        anchors.fill: parent
-                        color: layerMa.containsMouse ? Theme.surfaceHover : "transparent"
-                        radius: 2
-                    }
-                    // Bullet — filled circle when selected, hollow ring
-                    // otherwise. Sized to align with 11 px label
-                    // baselines so the row looks deliberate.
-                    Rectangle {
-                        id: bullet
-                        anchors.left: parent.left
-                        anchors.leftMargin: 4
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 9; height: 9
-                        radius: 5
-                        color: parent.isCurrent ? Theme.accent : "transparent"
-                        border.color: parent.isCurrent ? Theme.accent : Theme.textMuted
-                        border.width: 1
+                        id: layerTile
+                        Layout.fillWidth: true
+                        Layout.preferredHeight:
+                            Math.round(width * layerList.tileAspect)
+                        radius: Theme.radiusSmall
+                        color: Theme.surfaceRecess
+                        clip: true
+                        // Selection voice: accent rule (2px) beats the
+                        // idle hairline; hover brightens the hairline.
+                        border.width: isCurrent ? 2 : 1
+                        border.color: isCurrent
+                            ? Theme.accent
+                            : (layerMa.containsMouse
+                               ? Theme.textMuted : Theme.borderStrong)
+
+                        Image {
+                            id: layerImage
+                            anchors.fill: parent
+                            anchors.margins: layerTile.border.width
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            source: layerList.frameBase.length > 0
+                                ? layerList.frameBase + "?layer="
+                                  + encodeURIComponent(layerName)
+                                : ""
+                            sourceSize.width: 240
+                        }
+                        Icon {
+                            anchors.centerIn: parent
+                            visible: layerImage.status === Image.Error
+                            name: "image"
+                            size: Theme.iconSizeToolbar
+                            color: Theme.textMuted
+                        }
+                        MiniSpinner {
+                            anchors.centerIn: parent
+                            running: layerImage.status === Image.Loading
+                        }
+                        MouseArea {
+                            id: layerMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            // In dual mode dispatch to the per-side
+                            // dual setter (which flushes the matching
+                            // DualImageSeqSource's cache + bumps the
+                            // compositor generation). In single mode
+                            // fall through to the original
+                            // setImageSeqLayer that drives
+                            // ImageSequenceCache.
+                            onClicked: {
+                                const dualMode =
+                                    WindowManager.compositorMode !== 0;
+                                if (dualMode && root.side.length > 0) {
+                                    WindowManager.setDualImageSeqLayer(
+                                        root.side, layerName);
+                                } else {
+                                    WindowManager.setImageSeqLayer(
+                                        layerName);
+                                }
+                            }
+                        }
                     }
                     Text {
-                        anchors.left: bullet.right
-                        anchors.leftMargin: Theme.padding
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: parent.layerName
-                        color: parent.isCurrent ? Theme.textBright : Theme.textPrimary
+                        Layout.fillWidth: true
+                        text: layerName
+                        horizontalAlignment: Text.AlignHCenter
+                        color: isCurrent ? Theme.textBright : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeMono
                         font.family: Theme.monoFamily
                         elide: Text.ElideMiddle
-                    }
-                    MouseArea {
-                        id: layerMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        // In dual mode dispatch to the per-side
-                        // dual setter (which flushes the matching
-                        // DualImageSeqSource's cache + bumps the
-                        // compositor generation). In single mode
-                        // fall through to the original
-                        // setImageSeqLayer that drives
-                        // ImageSequenceCache.
-                        onClicked: {
-                            const dualMode =
-                                WindowManager.compositorMode !== 0;
-                            if (dualMode && root.side.length > 0) {
-                                WindowManager.setDualImageSeqLayer(
-                                    root.side, parent.layerName);
-                            } else {
-                                WindowManager.setImageSeqLayer(
-                                    parent.layerName);
-                            }
-                        }
                     }
                 }
             }

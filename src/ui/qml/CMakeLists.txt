@@ -30,6 +30,7 @@ set(QCVIEW_QML_FILES
     KvRow.qml
     KvChipRow.qml
     FlatChip.qml
+    MiniSpinner.qml
     NotesPanel.qml
     ColorPickerInline.qml
     Theme.qml
@@ -95,6 +96,7 @@ qt_add_qml_module(qcview
         ${CMAKE_CURRENT_SOURCE_DIR}/KvRow.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/KvChipRow.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/FlatChip.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/MiniSpinner.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/NotesPanel.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/ColorPickerInline.qml
         ${CMAKE_CURRENT_SOURCE_DIR}/Theme.qml

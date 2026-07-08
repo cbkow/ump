@@ -113,6 +113,20 @@ Rectangle {
         return qsTr("Media");
     }
 
+    // Same slugs as LeftRail's bin rows — the hero thumbnail's type
+    // badge and the icon-only placeholder both use it.
+    function typeIconName(t) {
+        switch (t) {
+        case 0: return "video";
+        case 1: return "music-notes";
+        case 2: return "image";
+        case 3: return "film-strip";
+        case 4: return "playlist";
+        case 5: return "frame-corners";
+        }
+        return "file";
+    }
+
     function basename(path) {
         if (!path) return "";
         const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
@@ -249,6 +263,92 @@ Rectangle {
             // both are pure pool aggregates with no path.
             readonly property bool hasOnDiskPath:
                 root.itemType !== 4 && root.itemType !== 5
+
+            // Hero thumbnail — full-width preview of the displayed
+            // item (A or B follows the side picker via displayedItem).
+            // Decoded off-thread by ThumbnailImageProvider; the tile
+            // shows a spinner while pending and falls back to a
+            // centered type icon for sources with no picture (audio,
+            // playlist, dual pair) or failed decodes.
+            Rectangle {
+                id: heroThumb
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.round(width * 9 / 16)
+                Layout.bottomMargin: 2
+                visible: root.hasActive
+                radius: Theme.radiusSmall
+                color: Theme.surfaceRecess
+                clip: true
+
+                readonly property string thumbUrl: {
+                    if (!root.hasActive) return "";
+                    const item = root.displayedItem;
+                    if (root.itemType === 0 && item.path) {
+                        // Video → mid-clip poster (first frames are
+                        // routinely black leaders).
+                        return "image://thumb/"
+                            + encodeURIComponent(item.path)
+                            + "?frame=mid";
+                    }
+                    if (root.itemType === 2 && item.path) {
+                        return "image://thumb/"
+                            + encodeURIComponent(item.path);
+                    }
+                    if (root.itemType === 3 && item.imageSeq
+                            && item.imageSeq.firstFramePath) {
+                        let u = "image://thumb/" + encodeURIComponent(
+                            item.imageSeq.firstFramePath);
+                        if (item.imageSeq.layer) {
+                            u += "?layer=" + encodeURIComponent(
+                                item.imageSeq.layer);
+                        }
+                        return u;
+                    }
+                    return "";   // audio / playlist / dual pair
+                }
+                readonly property bool hasPicture:
+                    heroImage.status === Image.Ready
+
+                Image {
+                    id: heroImage
+                    anchors.fill: parent
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    source: heroThumb.thumbUrl
+                    sourceSize.width: 480
+                }
+
+                // No-picture placeholder (also covers decode errors).
+                Icon {
+                    anchors.centerIn: parent
+                    visible: !heroThumb.hasPicture
+                             && heroImage.status !== Image.Loading
+                    name: root.typeIconName(root.itemType)
+                    size: Theme.iconSizeLarge
+                    color: Theme.textMuted
+                }
+                MiniSpinner {
+                    anchors.centerIn: parent
+                    running: heroImage.status === Image.Loading
+                }
+
+                // Media-type badge — bottom-right over the picture.
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: 4
+                    width: 22; height: 22
+                    radius: Theme.radiusSmall
+                    color: Qt.rgba(0, 0, 0, 0.55)
+                    visible: heroThumb.hasPicture
+                    Icon {
+                        anchors.centerIn: parent
+                        name: root.typeIconName(root.itemType)
+                        size: 14
+                        color: Theme.textPrimary
+                    }
+                }
+            }
 
             // Name (editable later in 3.D when MediaModel::update lands)
             Text {

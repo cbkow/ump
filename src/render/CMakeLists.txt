@@ -29,6 +29,10 @@ qt_add_qml_module(qcv_render
         # see the UI-over-viewport framework in window_manager.cpp.
         backdrop_image_provider.cpp
         backdrop_image_provider.h
+        # Inspector media thumbnails (image://thumb/...) — runs the
+        # decode loaders' loadThumbnail fast paths on provider threads.
+        thumbnail_image_provider.cpp
+        thumbnail_image_provider.h
         # Phase 7.5 A.3 — native QWindow + IPlayerRenderer skeleton.
         # Always compiled; runtime selection via QCV_NATIVE_PLAYER
         # define + WindowManager wiring (see src/window/window_manager.cpp).

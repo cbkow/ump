@@ -1325,6 +1325,19 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
             QVariant::fromValue(it.imageSeq.availableLayers);
         seq[QStringLiteral("compression")] = it.imageSeq.compression;
         seq[QStringLiteral("audioFile")]  = it.imageSeq.audioFile;
+        // Resolved first-frame file — the Inspector thumbnail keys
+        // image://thumb/ requests off it (pattern is printf-style,
+        // same snprintf expansion the hover-thumbnail resolver uses).
+        if (!it.imageSeq.pattern.isEmpty()
+            && !it.imageSeq.directory.isEmpty()) {
+            char fileName[1024];
+            std::snprintf(fileName, sizeof(fileName),
+                          it.imageSeq.pattern.toStdString().c_str(),
+                          it.imageSeq.startFrame);
+            seq[QStringLiteral("firstFramePath")] =
+                it.imageSeq.directory + QLatin1Char('/')
+                + QString::fromUtf8(fileName);
+        }
         out[QStringLiteral("imageSeq")]   = seq;
     }
     if (it.type == MediaType::Playlist) {

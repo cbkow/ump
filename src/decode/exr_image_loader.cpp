@@ -428,6 +428,177 @@ EXRImageLoader::discoverLayers(const std::string &path)
     }
 }
 
+std::map<std::string, std::shared_ptr<PixelData>>
+EXRImageLoader::loadThumbnailsAllLayers(const std::string &path,
+                                        int max_size)
+{
+    if (max_size <= 0) max_size = 480;
+    std::map<std::string, std::shared_ptr<PixelData>> out;
+
+    try {
+        auto stream = std::make_unique<MemoryMappedIStream>(path);
+        Imf::MultiPartInputFile file(*stream);
+        // Multi-part: each part is compressed independently, so a
+        // one-pass sweep buys nothing over per-layer loadThumbnail
+        // calls. Signal "not applicable" and let the caller fan out.
+        if (file.parts() != 1) return out;
+
+        const Imf::Header &header = file.header(0);
+        const Imath::Box2i dispWin = header.displayWindow();
+        const int fullW = dispWin.max.x - dispWin.min.x + 1;
+        const int fullH = dispWin.max.y - dispWin.min.y + 1;
+        if (fullW <= 0 || fullH <= 0) return out;
+
+        const int maxDim = std::max(fullW, fullH);
+        const int skip   = std::max(1, maxDim / max_size);
+        const int thumbW = std::max(1, fullW / skip);
+        const int thumbH = std::max(1, fullH / skip);
+
+        // Layer discovery — same rules as discoverLayers' single-part
+        // branch (prefix before the LAST dot, crypto filtered, bare
+        // channels bucketed under "default").
+        const Imf::ChannelList &channels = header.channels();
+        std::vector<std::string> layerNames;
+        bool sawBare = false;
+        for (auto it = channels.begin(); it != channels.end(); ++it) {
+            const std::string n = it.name();
+            const std::size_t dot = n.find_last_of('.');
+            if (dot == std::string::npos) { sawBare = true; continue; }
+            const std::string prefix = n.substr(0, dot);
+            if (isCryptomatte(prefix)) continue;
+            if (std::find(layerNames.begin(), layerNames.end(), prefix)
+                == layerNames.end()) {
+                layerNames.push_back(prefix);
+            }
+        }
+        if (sawBare) layerNames.insert(layerNames.begin(), "default");
+        if (layerNames.empty()) layerNames.push_back("default");
+
+        // Per-layer channel resolution, deduplicated: layers whose
+        // prefixed R/G/B don't exist (data AOVs like "depth" whose
+        // only channel is depth.Z) fall back to the bare-RGB image —
+        // several layers may therefore resolve to the SAME channels,
+        // and Imf::FrameBuffer keys slices by channel name, so each
+        // distinct channel set gets ONE scanline buffer + one dst;
+        // aliases share the resulting PixelData.
+        struct LayerRead {
+            std::string rName, gName, bName, aName; // aName empty = opaque
+            std::vector<Imath::half> scanline;      // fullW * 4
+            std::shared_ptr<PixelData> dst;
+        };
+        std::vector<LayerRead> reads;
+        // layer name → index into `reads`
+        std::map<std::string, std::size_t> layerToRead;
+        std::map<std::string, std::size_t> channelKeyToRead;
+
+        for (const std::string &layer : layerNames) {
+            const std::string prefix =
+                (layer == "default") ? std::string() : layer + ".";
+            std::string nR = prefix + "R", nG = prefix + "G",
+                        nB = prefix + "B", nA = prefix + "A";
+            if (!channels.findChannel(nR.c_str())) {
+                nR = "R"; nG = "G"; nB = "B"; nA = "A";
+            }
+            if (!channels.findChannel(nR.c_str())
+                || !channels.findChannel(nG.c_str())
+                || !channels.findChannel(nB.c_str())) {
+                continue;   // no displayable channels anywhere
+            }
+            const bool hasAlpha =
+                channels.findChannel(nA.c_str()) != nullptr;
+
+            const std::string key = nR;   // R name identifies the set
+            auto found = channelKeyToRead.find(key);
+            if (found != channelKeyToRead.end()) {
+                layerToRead[layer] = found->second;
+                continue;
+            }
+
+            LayerRead lr;
+            lr.rName = nR; lr.gName = nG; lr.bName = nB;
+            lr.aName = hasAlpha ? nA : std::string();
+            lr.scanline.resize(static_cast<std::size_t>(fullW) * 4);
+            lr.dst = std::make_shared<PixelData>();
+            lr.dst->width  = thumbW;
+            lr.dst->height = thumbH;
+            lr.dst->setFormat(PixelFormat::RGBA16F);
+            lr.dst->pipeline_mode = PipelineMode::ULTRA_HIGH_RES;
+            lr.dst->pixels.resize(
+                static_cast<std::size_t>(thumbW) * thumbH * 4
+                * sizeof(Imath::half));
+            reads.push_back(std::move(lr));
+            channelKeyToRead[key] = reads.size() - 1;
+            layerToRead[layer]    = reads.size() - 1;
+        }
+        if (reads.empty()) return out;
+
+        // One FrameBuffer carrying every distinct channel set —
+        // OpenEXR decompresses each block once and fills all slices.
+        // Slice bases offset by -dispWin.min.x*cb so source pixel
+        // x=dispWin.min.x lands at scanline[0] (same trick as
+        // loadThumbnail).
+        const std::size_t channelBytes = sizeof(Imath::half);
+        const std::size_t cb = 4 * channelBytes;
+        Imf::FrameBuffer fb;
+        for (LayerRead &lr : reads) {
+            char *base = reinterpret_cast<char *>(lr.scanline.data());
+            fb.insert(lr.rName.c_str(), Imf::Slice(
+                Imf::HALF, base - dispWin.min.x * cb,
+                cb, 0, 1, 1, 0.0f));
+            fb.insert(lr.gName.c_str(), Imf::Slice(
+                Imf::HALF, base + 1 * channelBytes - dispWin.min.x * cb,
+                cb, 0, 1, 1, 0.0f));
+            fb.insert(lr.bName.c_str(), Imf::Slice(
+                Imf::HALF, base + 2 * channelBytes - dispWin.min.x * cb,
+                cb, 0, 1, 1, 0.0f));
+            if (!lr.aName.empty()) {
+                fb.insert(lr.aName.c_str(), Imf::Slice(
+                    Imf::HALF, base + 3 * channelBytes - dispWin.min.x * cb,
+                    cb, 0, 1, 1, 0.0f));
+            }
+        }
+
+        Imf::InputPart part(file, 0);
+        part.setFrameBuffer(fb);
+
+        for (int ty = 0; ty < thumbH; ++ty) {
+            const int sy = dispWin.min.y + ty * skip;
+            if (sy > dispWin.max.y) break;
+            part.readPixels(sy, sy);
+
+            for (LayerRead &lr : reads) {
+                Imath::half *dst =
+                    reinterpret_cast<Imath::half *>(lr.dst->pixels.data());
+                const bool hasAlpha = !lr.aName.empty();
+                for (int tx = 0; tx < thumbW; ++tx) {
+                    const int sx = tx * skip;
+                    if (sx >= fullW) break;
+                    const std::size_t srcIdx =
+                        static_cast<std::size_t>(sx) * 4;
+                    const std::size_t dstIdx =
+                        (static_cast<std::size_t>(ty) * thumbW + tx) * 4;
+                    dst[dstIdx + 0] = lr.scanline[srcIdx + 0];
+                    dst[dstIdx + 1] = lr.scanline[srcIdx + 1];
+                    dst[dstIdx + 2] = lr.scanline[srcIdx + 2];
+                    dst[dstIdx + 3] = hasAlpha
+                                      ? lr.scanline[srcIdx + 3]
+                                      : Imath::half(1.0f);
+                }
+            }
+        }
+
+        for (const auto &[layer, readIdx] : layerToRead) {
+            out[layer] = reads[readIdx].dst;
+        }
+        return out;
+
+    } catch (const std::exception &e) {
+        qWarning("EXRImageLoader::loadThumbnailsAllLayers: '%s' — %s",
+                 path.c_str(), e.what());
+        return {};
+    }
+}
+
 std::string
 EXRImageLoader::compressionName(const std::string &path)
 {

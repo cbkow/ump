@@ -34,6 +34,7 @@
 
 #include "window/window_manager.h"
 #include "render/backdrop_image_provider.h"
+#include "render/thumbnail_image_provider.h"
 #include "window/sparkle_updater_macos.h"
 
 #if defined(Q_OS_WIN)
@@ -419,6 +420,11 @@ int main(int argc, char *argv[])
     auto *backdropProvider = new qcv::BackdropImageProvider();
     engine.addImageProvider(QStringLiteral("qcv"), backdropProvider);
     windowManager.setBackdropImageProvider(backdropProvider);
+
+    // Inspector media thumbnails (image://thumb/<path>?layer=&frame=).
+    // Async-forced — decode always runs on provider worker threads.
+    engine.addImageProvider(QStringLiteral("thumb"),
+                            new qcv::ThumbnailImageProvider());
 
     engine.loadFromModule(QStringLiteral("Qcv"), QStringLiteral("Main"));
     if (engine.rootObjects().isEmpty()) {

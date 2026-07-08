@@ -21,6 +21,8 @@
 
 #include "image_loader.h"
 
+#include <map>
+
 namespace qcv {
 
 class EXRImageLoader : public IImageLoader {
@@ -47,6 +49,25 @@ public:
                        int &width, int &height) override;
 
     std::string loaderName() const override { return "EXR"; }
+
+    // Contact-sheet batch: thumbnail EVERY layer of a SINGLE-PART
+    // multi-layer EXR in one scanline sweep. In a single-part file
+    // all channels live interleaved in the same compression blocks,
+    // so decoding layers one request at a time re-decompresses the
+    // whole file once PER LAYER — OpenEXR fills every slice
+    // registered in the FrameBuffer during one readPixels pass, so
+    // this turns N decompress passes into 1 (the Inspector's layer
+    // grid went from seconds to one pass this way). Layers whose
+    // prefixed R/G/B channels don't exist (data AOVs like depth.Z)
+    // fall back to the bare-RGB image, matching loadThumbnail's
+    // per-layer fallback.
+    //
+    // Returns an empty map for multi-part files (each part is
+    // compressed independently there, so per-layer loadThumbnail
+    // calls do no duplicate work — run those instead) and on any
+    // read error.
+    static std::map<std::string, std::shared_ptr<PixelData>>
+    loadThumbnailsAllLayers(const std::string &path, int max_size = 480);
 
     // Phase 7.4.b layer-discovery. Returns the list of selectable
     // layer names for `path`, in canonical order:
