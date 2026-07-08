@@ -48,6 +48,11 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.2.0
+- added a thumbnail contact sheet to the EXR layer picker in the Inspector panel
+- fixed a few bugs around EXR loading and playback
+- added a waveform audio visual to the timeline and a setting to toggle it
+
 What’s new in 2.1.10
 - UI tweaks and bug fixes
 
