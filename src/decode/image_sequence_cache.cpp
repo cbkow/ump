@@ -805,17 +805,33 @@ void ImageSequenceCache::ioWorkerLoop()
         // Cap at `threadCount` (default 16, old app direct_exr_cache.h:72)
         // — NOT `readAheadFrames` which the 7.4.b.3 port wrongly used,
         // pinning fill rate at ~16 fps via 8-thread saturation.
-        struct SpawnItem { int frame; uint64_t generation; std::string path; };
+        struct SpawnItem {
+            int frame; uint64_t generation; std::string path;
+            bool express = false;
+        };
         std::vector<SpawnItem> spawnBatch;
         const std::size_t threadCap =
             static_cast<std::size_t>(std::max(1, m_config.threadCount));
+        // EXR perf audit 2026-07-08: the frame the user just seeked
+        // to gets an EXPRESS LANE — it may exceed the worker cap by
+        // one. Without it, a seek that lands while all workers are
+        // mid-decode on now-stale frames (~250 ms each on 4K DWAB)
+        // waits for the first one to finish before its own decode
+        // even STARTS. Results of the stale decodes still discard
+        // via the generation check; this only stops them from
+        // gatekeeping the one frame the user is looking at.
+        const int seekFrame =
+            m_lastSeekFrame.load(std::memory_order_acquire);
         {
             std::unique_lock<std::mutex> lk(m_ioMutex);
             while (!m_videoRequests.empty() &&
-                   m_inFlight.size() + spawnBatch.size() < threadCap &&
                    m_inFlight.size() + spawnBatch.size()
                        < static_cast<std::size_t>(kMaxConcurrentReqs)) {
-                int frame = m_videoRequests.front();
+                const int frame = m_videoRequests.front();
+                const bool express = (frame == seekFrame);
+                const std::size_t cap = express ? threadCap + 1
+                                                : threadCap;
+                if (m_inFlight.size() + spawnBatch.size() >= cap) break;
                 m_videoRequests.pop_front();
                 if (m_inFlight.count(frame)) continue;
                 if (m_pixelCache.contains(frame)) continue;
@@ -823,6 +839,7 @@ void ImageSequenceCache::ioWorkerLoop()
                 item.frame      = frame;
                 item.generation = m_requestGeneration.load();
                 item.path       = framePath(frame);
+                item.express    = express;
                 spawnBatch.push_back(std::move(item));
             }
         }
@@ -832,9 +849,10 @@ void ImageSequenceCache::ioWorkerLoop()
         for (auto &item : spawnBatch) {
             const std::string layer = m_exrLayer;
             const PipelineMode mode = m_pipelineMode;
+            const bool express = item.express;
             std::future<std::shared_ptr<PixelData>> fut =
                 std::async(std::launch::async,
-                    [path = item.path, layer, mode, ext]()
+                    [path = item.path, layer, mode, ext, express]()
                     -> std::shared_ptr<PixelData> {
                         try {
                             std::error_code ec;
@@ -843,6 +861,12 @@ void ImageSequenceCache::ioWorkerLoop()
                             }
                             auto loader = createLoaderForExtension(ext);
                             if (!loader) return nullptr;
+                            // Express (seek-target) frames decode
+                            // with OpenEXR's internal pool — 4K DWAB
+                            // drops ~225→~56 ms. Read-ahead stays
+                            // synchronous: the worker pool already
+                            // saturates cores frame-parallel.
+                            if (express) loader->setDecodeThreads(8);
                             return loader->loadFrame(path, layer, mode);
                         } catch (...) {
                             return nullptr;

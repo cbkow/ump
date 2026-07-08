@@ -10,11 +10,14 @@
 #include <OpenEXR/ImfInputFile.h>
 #include <OpenEXR/ImfInputPart.h>
 #include <OpenEXR/ImfMultiPartInputFile.h>
+#include <OpenEXR/ImfThreading.h>
 
 #include <QtLogging>
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 namespace qcv {
@@ -37,6 +40,39 @@ int partIndexForLayer(const Imf::MultiPartInputFile &file,
     return 0;
 }
 
+// Lazily size OpenEXR's global worker pool the first time a
+// latency-tier decode asks for it. IMPORTANT side effect: once the
+// pool exists, any Imf file opened WITHOUT an explicit numThreads
+// would default to it — which is why every open in this file passes
+// its thread count explicitly (0 = synchronous, the playback
+// default). 8 threads is probe-validated on 4K DWAB (225→56 ms);
+// clamped for small machines.
+void ensureDecodePool()
+{
+    static std::once_flag once;
+    std::call_once(once, []() {
+        const unsigned hw = std::thread::hardware_concurrency();
+        Imf::setGlobalThreadCount(
+            static_cast<int>(std::clamp(hw / 2, 2u, 8u)));
+    });
+}
+
+// First layer prefix owning an R channel. Fallback for empty-layer
+// reads of files whose channels are ALL prefixed — e.g. Blender
+// multi-part renders name part 0's channels "ViewLayer.Combined.R",
+// so the bare "R/G/B" probe finds nothing and, before this
+// fallback, loadFrame failed outright (2026-07-08 audit find).
+std::string firstPrefixedLayer(const Imf::ChannelList &channels)
+{
+    for (auto it = channels.begin(); it != channels.end(); ++it) {
+        const std::string n = it.name();
+        if (n.size() > 2 && n.compare(n.size() - 2, 2, ".R") == 0) {
+            return n.substr(0, n.size() - 2);
+        }
+    }
+    return {};
+}
+
 } // namespace
 
 std::shared_ptr<PixelData> EXRImageLoader::loadFrame(
@@ -53,8 +89,11 @@ std::shared_ptr<PixelData> EXRImageLoader::loadFrame(
         // sequential prefetch) instead of plain read syscalls.
         // 4K/8K EXRs would otherwise saturate the syscall path
         // before the disk's actual throughput.
+        if (m_decodeThreads > 0) ensureDecodePool();
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::MultiPartInputFile file(*stream);
+        // Explicit thread count — see ensureDecodePool. 0 keeps the
+        // playback path synchronous even after the pool exists.
+        Imf::MultiPartInputFile file(*stream, m_decodeThreads);
 
         const int targetPart = partIndexForLayer(file, layer);
         const Imf::Header &header = file.header(targetPart);
@@ -97,6 +136,20 @@ std::shared_ptr<PixelData> EXRImageLoader::loadFrame(
             cG = channels.findChannel("G");
             cB = channels.findChannel("B");
             cA = channels.findChannel("A");
+        }
+        if (!cR && layer.empty()) {
+            // No bare R/G/B and no layer requested — files whose
+            // channels are all prefixed (Blender multi-part) land
+            // here. Fall back to the first image-bearing prefix.
+            const std::string fb = firstPrefixedLayer(channels);
+            if (!fb.empty()) {
+                nR = fb + ".R"; nG = fb + ".G";
+                nB = fb + ".B"; nA = fb + ".A";
+                cR = channels.findChannel(nR.c_str());
+                cG = channels.findChannel(nG.c_str());
+                cB = channels.findChannel(nB.c_str());
+                cA = channels.findChannel(nA.c_str());
+            }
         }
         if (!cR || !cG || !cB) {
             qWarning("EXRImageLoader: missing RGB channels in '%s' "
@@ -221,7 +274,7 @@ std::shared_ptr<PixelData> EXRImageLoader::loadThumbnail(
 
     try {
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::MultiPartInputFile file(*stream);
+        Imf::MultiPartInputFile file(*stream, /*numThreads=*/0);
 
         const int targetPart = partIndexForLayer(file, m_layer);
         const Imf::Header &header = file.header(targetPart);
@@ -265,6 +318,18 @@ std::shared_ptr<PixelData> EXRImageLoader::loadThumbnail(
             cG = channels.findChannel("G");
             cB = channels.findChannel("B");
             cA = channels.findChannel("A");
+        }
+        if (!cR && m_layer.empty()) {
+            // Same all-channels-prefixed fallback as loadFrame.
+            const std::string fb = firstPrefixedLayer(channels);
+            if (!fb.empty()) {
+                nR = fb + ".R"; nG = fb + ".G";
+                nB = fb + ".B"; nA = fb + ".A";
+                cR = channels.findChannel(nR.c_str());
+                cG = channels.findChannel(nG.c_str());
+                cB = channels.findChannel(nB.c_str());
+                cA = channels.findChannel(nA.c_str());
+            }
         }
         if (!cR || !cG || !cB) {
             qWarning("EXRImageLoader::loadThumbnail: missing RGB "
@@ -346,7 +411,7 @@ bool EXRImageLoader::getDimensions(const std::string &path,
 {
     try {
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::InputFile file(*stream);
+        Imf::InputFile file(*stream, /*numThreads=*/0);
         const Imath::Box2i dw = file.header().displayWindow();
         width  = dw.max.x - dw.min.x + 1;
         height = dw.max.y - dw.min.y + 1;
@@ -376,7 +441,7 @@ EXRImageLoader::discoverLayers(const std::string &path)
     std::vector<std::string> out;
     try {
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::MultiPartInputFile file(*stream);
+        Imf::MultiPartInputFile file(*stream, /*numThreads=*/0);
         const int parts = file.parts();
 
         // Multi-part path. Each part's name() identifies the layer
@@ -437,7 +502,7 @@ EXRImageLoader::loadThumbnailsAllLayers(const std::string &path,
 
     try {
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::MultiPartInputFile file(*stream);
+        Imf::MultiPartInputFile file(*stream, /*numThreads=*/0);
         // Multi-part: each part is compressed independently, so a
         // one-pass sweep buys nothing over per-layer loadThumbnail
         // calls. Signal "not applicable" and let the caller fan out.
@@ -604,7 +669,7 @@ EXRImageLoader::compressionName(const std::string &path)
 {
     try {
         auto stream = std::make_unique<MemoryMappedIStream>(path);
-        Imf::MultiPartInputFile file(*stream);
+        Imf::MultiPartInputFile file(*stream, /*numThreads=*/0);
         if (file.parts() <= 0) return {};
         // First part's compression. Multi-part files can vary per part
         // in theory, but in practice review deliverables use the same

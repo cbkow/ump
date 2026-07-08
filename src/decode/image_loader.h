@@ -108,6 +108,15 @@ public:
         return loadFrame(path, std::string(), PipelineMode::NORMAL);
     }
 
+    // Latency-tier decode hint (2026-07-08 EXR perf audit). N > 0
+    // asks the loader to parallelize a SINGLE frame's decode across
+    // N internal threads — for latency-critical frames only (seek
+    // target, first frame). Read-ahead/playback callers leave it 0:
+    // the worker pool already saturates cores frame-parallel, and
+    // sharing an internal pool there would cut throughput. Default
+    // no-op; only formats with chunked decoders (EXR) implement it.
+    virtual void setDecodeThreads(int n) { (void)n; }
+
     // Fast metadata read — width/height without decoding pixels.
     virtual bool getDimensions(const std::string &path,
                                int &width, int &height) = 0;

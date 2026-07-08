@@ -32,6 +32,15 @@ public:
     void setLayer(const std::string &layer) { m_layer = layer; }
     const std::string &layer() const { return m_layer; }
 
+    // Latency-tier decode (EXR perf audit 2026-07-08): N > 0 makes
+    // loadFrame's readPixels parallelize chunk decompression across
+    // OpenEXR's global pool (lazily sized on first use). Measured on
+    // 4K DWAB: 225 ms single → 56 ms at 8. Only loadFrame benefits —
+    // the thumbnail paths read one scanline per call, which has no
+    // chunk parallelism to exploit. Keep 0 on playback/read-ahead
+    // paths (the cache's 16 workers already saturate cores).
+    void setDecodeThreads(int n) override { m_decodeThreads = n; }
+
     std::shared_ptr<PixelData> loadFrame(
         const std::string &path,
         const std::string &layer,           // overrides setLayer if non-empty
@@ -89,6 +98,7 @@ public:
 
 private:
     std::string m_layer;
+    int         m_decodeThreads = 0;
 };
 
 } // namespace qcv
