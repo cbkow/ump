@@ -110,6 +110,7 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("sarNum")]              = v.sarNum;
     o[QStringLiteral("sarDen")]              = v.sarDen;
     o[QStringLiteral("isAnamorphic")]        = v.isAnamorphic;
+    o[QStringLiteral("rotationDeg")]         = v.rotationDeg;
     o[QStringLiteral("unsupportedCodec")]    = v.unsupportedCodec;
     o[QStringLiteral("cameraVendor")]        = v.cameraVendor;
     o[QStringLiteral("cameraModel")]         = v.cameraModel;
@@ -150,6 +151,14 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     v.sarDen              = o.value(QStringLiteral("sarDen")).toInt(1);
     if (v.sarNum <= 0 || v.sarDen <= 0) { v.sarNum = 1; v.sarDen = 1; }
     v.isAnamorphic        = (v.sarNum != v.sarDen);
+    // −1 = unknown: the cache predates the field. ProjectManager
+    // schedules a header-only re-probe on load; Auto treats <0 as 0
+    // meanwhile. Sanitize to the quarter-turn set.
+    v.rotationDeg         = o.value(QStringLiteral("rotationDeg")).toInt(-1);
+    if (v.rotationDeg != 0 && v.rotationDeg != 90 &&
+        v.rotationDeg != 180 && v.rotationDeg != 270) {
+        v.rotationDeg = -1;
+    }
     v.unsupportedCodec    = o.value(QStringLiteral("unsupportedCodec")).toBool();
     v.cameraVendor        = o.value(QStringLiteral("cameraVendor")).toString();
     v.cameraModel         = o.value(QStringLiteral("cameraModel")).toString();
@@ -372,6 +381,7 @@ QJsonObject mediaItemToJson(const MediaItem &it, const QString &projectDir)
         static_cast<int>(it.pixelAspectMode);
     o[QStringLiteral("customParNum")]  = it.customParNum;
     o[QStringLiteral("customParDen")]  = it.customParDen;
+    o[QStringLiteral("rotationOverride")] = it.rotationOverride;
     o[QStringLiteral("audioRoutingMode")] =
         static_cast<int>(it.audioRoutingMode);
     o[QStringLiteral("dualPair")]      = dualPairToJson(it.dualPair);
@@ -406,6 +416,13 @@ MediaItem mediaItemFromJson(const QJsonObject &o, const QString &projectDir)
     it.customParDen = o.value(QStringLiteral("customParDen")).toInt(1);
     if (it.customParNum <= 0 || it.customParDen <= 0) {
         it.customParNum = 1; it.customParDen = 1;
+    }
+    // Default −1 (Auto = follow detected rotation) when missing.
+    it.rotationOverride =
+        o.value(QStringLiteral("rotationOverride")).toInt(-1);
+    if (it.rotationOverride != 0 && it.rotationOverride != 90 &&
+        it.rotationOverride != 180 && it.rotationOverride != 270) {
+        it.rotationOverride = -1;
     }
     // Default Auto (0) when missing — matches the struct's default
     // and what the FFmpeg-extractor would have set on a new add.

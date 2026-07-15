@@ -11,6 +11,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/dict.h>
+#include <libavutil/display.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/pixfmt.h>
 }
@@ -145,6 +146,24 @@ QString nclcTagFromIndices(int p, int t, int m)
     return QStringLiteral("%1-%2-%3").arg(p).arg(t).arg(m);
 }
 
+// Display-matrix rotation → clockwise display degrees {0,90,180,270}.
+// av_display_rotation_get reports counter-clockwise degrees and real
+// phone files land near-quarter (−89.97…), so negate then snap.
+int rotationFromStream(const AVStream *stream)
+{
+    const AVCodecParameters *cp = stream->codecpar;
+    const AVPacketSideData *sd = av_packet_side_data_get(
+        cp->coded_side_data, cp->nb_coded_side_data,
+        AV_PKT_DATA_DISPLAYMATRIX);
+    if (!sd || sd->size < 9 * sizeof(int32_t)) return 0;
+    const double theta =
+        av_display_rotation_get(reinterpret_cast<const int32_t *>(sd->data));
+    if (std::isnan(theta)) return 0;
+    int rot = static_cast<int>(std::lround(-theta)) % 360;
+    if (rot < 0) rot += 360;
+    return ((rot + 45) / 90 * 90) % 360;
+}
+
 QString readEmbeddedTimecode(AVFormatContext *ctx, AVStream *videoStream)
 {
     if (!ctx) return {};
@@ -191,6 +210,11 @@ void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
         m.sarDen = sar.den;
     }
     m.isAnamorphic = (m.sarNum != m.sarDen);
+
+    // Display-matrix rotation. Detection only; the applied rotation
+    // is the per-clip MediaItem::rotationOverride (defaults Auto =
+    // this value).
+    m.rotationDeg = rotationFromStream(stream);
 
     AVRational fr = stream->r_frame_rate;
     if (fr.num == 0 || fr.den == 0) fr = stream->avg_frame_rate;
@@ -361,6 +385,19 @@ VideoMetadata FFmpegMetadataExtractor::extract(const QString &filePath)
           qPrintable(trimmedName), m.width, m.height,
           m.audioChannels, m.audioStreamCount);
     return m;
+}
+
+int FFmpegMetadataExtractor::probeRotation(const QString &filePath)
+{
+    if (filePath.isEmpty()) return -1;
+    AVFormatContext *ctx = nullptr;
+    if (!openFile(filePath, &ctx)) return -1;
+    int rot = -1;
+    const int idx =
+        av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (idx >= 0) rot = rotationFromStream(ctx->streams[idx]);
+    avformat_close_input(&ctx);
+    return rot;
 }
 
 double FFmpegMetadataExtractor::probeDuration(const QString &filePath)

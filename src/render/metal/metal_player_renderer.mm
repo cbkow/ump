@@ -682,6 +682,20 @@ void MetalPlayerRenderer::setPixelAspectB(int num, int den)
     if (m_impl) m_impl->dualCompositor.setPixelAspectB(num, den);
 }
 
+void MetalPlayerRenderer::setRotationA(int deg)
+{
+    const int q = (deg == 90) ? 1 : (deg == 180) ? 2 : (deg == 270) ? 3 : 0;
+    m_rotQA.store(q, std::memory_order_relaxed);
+    if (m_impl) m_impl->dualCompositor.setRotationA(q);
+}
+
+void MetalPlayerRenderer::setRotationB(int deg)
+{
+    const int q = (deg == 90) ? 1 : (deg == 180) ? 2 : (deg == 270) ? 3 : 0;
+    m_rotQB.store(q, std::memory_order_relaxed);
+    if (m_impl) m_impl->dualCompositor.setRotationB(q);
+}
+
 void MetalPlayerRenderer::setRendererMode(RendererMode m)
 {
     m_rendererMode.store(static_cast<int>(m), std::memory_order_release);
@@ -1010,18 +1024,28 @@ void MetalPlayerRenderer::drawFrame()
                     if (n > d) return { w * n / d, h };
                     return { w, h * d / n };
                 };
-                const qreal rawAW = srcA ? srcA->width()  : 0.0;
-                const qreal rawAH = srcA ? srcA->height() : 0.0;
-                const qreal rawBW = srcB ? srcB->width()  : 0.0;
-                const qreal rawBH = srcB ? srcB->height() : 0.0;
-                const auto [sAW, sAH] = effD(
+                // Display rotation swaps both the effective dims
+                // (fit) and the raw dims (meshForImage source fit)
+                // per side — the guides frame the upright image,
+                // matching the dual compositor's swapped srcSize.
+                const int rotA = m_rotQA.load(std::memory_order_relaxed);
+                const int rotB = m_rotQB.load(std::memory_order_relaxed);
+                qreal rawAW = srcA ? srcA->width()  : 0.0;
+                qreal rawAH = srcA ? srcA->height() : 0.0;
+                qreal rawBW = srcB ? srcB->width()  : 0.0;
+                qreal rawBH = srcB ? srcB->height() : 0.0;
+                auto [sAW, sAH] = effD(
                     rawAW, rawAH,
                     m_parNumA.load(std::memory_order_relaxed),
                     m_parDenA.load(std::memory_order_relaxed));
-                const auto [sBW, sBH] = effD(
+                auto [sBW, sBH] = effD(
                     rawBW, rawBH,
                     m_parNumB.load(std::memory_order_relaxed),
                     m_parDenB.load(std::memory_order_relaxed));
+                if (rotA & 1) { std::swap(sAW, sAH);
+                                std::swap(rawAW, rawAH); }
+                if (rotB & 1) { std::swap(sBW, sBH);
+                                std::swap(rawBW, rawBH); }
 
                 // Mode 1 = SBS: A in left half, B in right half.
                 // Mode 2 = Wipe: both at full drawable; v1 draws
@@ -1442,10 +1466,20 @@ void MetalPlayerRenderer::drawFrame()
             return { static_cast<int>(std::lround(double(w) * num / den)), h };
         return { w, static_cast<int>(std::lround(double(h) * den / num)) };
     };
-    const auto [effSourceW, effSourceH] = effDim(
+    const auto [effSourceW0, effSourceH0] = effDim(
         sourceW, sourceH,
         m_parNumA.load(std::memory_order_relaxed),
         m_parDenA.load(std::memory_order_relaxed));
+
+    // Display rotation for source A, in quarter-turns CW. Applied
+    // AFTER the un-squeeze (PAR acts in stored space): 90/270 swap
+    // the effective dims so the letterbox fits the upright image,
+    // and the compositor MSL inverse-rotates its sampling. Every
+    // consumer below (compositor, imgFit rect, annotator, safety,
+    // capture) sees display-orientation dims.
+    const int rotQA = m_rotQA.load(std::memory_order_relaxed);
+    const int effSourceW = (rotQA & 1) ? effSourceH0 : effSourceW0;
+    const int effSourceH = (rotQA & 1) ? effSourceW0 : effSourceH0;
 
     // (cb was created right after nextDrawable; YUV uploads above
     //  already encoded their compute passes into it.)
@@ -1494,14 +1528,18 @@ void MetalPlayerRenderer::drawFrame()
         int   srcBH   = sourceH;
         int   parNumB = m_parNumA.load(std::memory_order_relaxed);
         int   parDenB = m_parDenA.load(std::memory_order_relaxed);
+        int   rotQB   = rotQA;   // mirror A's rotation with A's frame
         if (m_decoderB && m_impl->videoFrameRgbaB) {
             srcBTex = (__bridge void *)m_impl->videoFrameRgbaB;
             srcBW   = m_impl->videoFrameWB;
             srcBH   = m_impl->videoFrameHB;
             parNumB = m_parNumB.load(std::memory_order_relaxed);
             parDenB = m_parDenB.load(std::memory_order_relaxed);
+            rotQB   = m_rotQB.load(std::memory_order_relaxed);
         }
-        const auto [effBW, effBH] = effDim(srcBW, srcBH, parNumB, parDenB);
+        const auto [effBW0, effBH0] = effDim(srcBW, srcBH, parNumB, parDenB);
+        const int effBW = (rotQB & 1) ? effBH0 : effBW0;
+        const int effBH = (rotQB & 1) ? effBW0 : effBH0;
 
         MTLRenderPassDescriptor *rawRpd =
             [MTLRenderPassDescriptor renderPassDescriptor];
@@ -1525,7 +1563,8 @@ void MetalPlayerRenderer::drawFrame()
             srcBTex,        effBW,      effBH,
             m_impl->compositeW, m_impl->compositeH,
             static_cast<int>(m_compMode), m_splitPos,
-            aAct, bAct);
+            aAct, bAct,
+            rotQA, rotQB);
         // Phase 3.H.5 — hover-thumbnail corner overlays. Drawn into
         // compositeRaw BEFORE OCIO so they share the main image's
         // color treatment. A in BL, B in BR (B only populated in
@@ -1539,17 +1578,22 @@ void MetalPlayerRenderer::drawFrame()
             const auto *meta = MetalTexturePool::thumbnailInstance()
                                    .texture(thumbHandleA);
             if (meta && meta->valid && meta->texture) {
+                // Un-squeeze first (stored space), then swap for odd
+                // quarters — same order as the main fit.
+                const int tw = parThumbW(
+                    meta->width,
+                    m_parNumA.load(std::memory_order_relaxed),
+                    m_parDenA.load(std::memory_order_relaxed));
                 m_impl->compositor.renderCornerOverlay(
                     (__bridge void *)rawEnc,
                     meta->texture,
-                    parThumbW(meta->width,
-                              m_parNumA.load(std::memory_order_relaxed),
-                              m_parDenA.load(std::memory_order_relaxed)),
-                    meta->height,
+                    (rotQA & 1) ? meta->height : tw,
+                    (rotQA & 1) ? tw : meta->height,
                     m_impl->compositeW, m_impl->compositeH,
                     /*corner=*/0,
                     /*overlayFrac=*/0.18f,
-                    /*marginPx=*/12.0f);
+                    /*marginPx=*/12.0f,
+                    rotQA);
             }
         }
         const unsigned long long thumbHandleB =
@@ -1558,17 +1602,21 @@ void MetalPlayerRenderer::drawFrame()
             const auto *meta = MetalTexturePool::thumbnailInstance()
                                    .texture(thumbHandleB);
             if (meta && meta->valid && meta->texture) {
+                const int rqB = m_rotQB.load(std::memory_order_relaxed);
+                const int tw = parThumbW(
+                    meta->width,
+                    m_parNumB.load(std::memory_order_relaxed),
+                    m_parDenB.load(std::memory_order_relaxed));
                 m_impl->compositor.renderCornerOverlay(
                     (__bridge void *)rawEnc,
                     meta->texture,
-                    parThumbW(meta->width,
-                              m_parNumB.load(std::memory_order_relaxed),
-                              m_parDenB.load(std::memory_order_relaxed)),
-                    meta->height,
+                    (rqB & 1) ? meta->height : tw,
+                    (rqB & 1) ? tw : meta->height,
                     m_impl->compositeW, m_impl->compositeH,
                     /*corner=*/1,
                     /*overlayFrac=*/0.18f,
-                    /*marginPx=*/12.0f);
+                    /*marginPx=*/12.0f,
+                    rqB);
             }
         }
         [rawEnc endEncoding];
@@ -1721,10 +1769,15 @@ void MetalPlayerRenderer::drawFrame()
         // (square) source dims, so it stretches with the picture under
         // pixel-aspect un-squeeze. Falls back to a uniform drawable fit
         // when no source is loaded (guide preview on an empty viewport).
+        // Rotation swaps the raw dims too — the guide frames the
+        // upright image (imgFit* already embeds the swap via
+        // effSourceW/H).
+        const double rawGuideW = (rotQA & 1) ? sourceH : sourceW;
+        const double rawGuideH = (rotQA & 1) ? sourceW : sourceH;
         const TessellatedMesh safetyMesh = haveImgRect
             ? m_safety->meshForImage(QPointF(imgFitX, imgFitY),
                                      QSizeF(imgFitW, imgFitH),
-                                     double(sourceW), double(sourceH))
+                                     rawGuideW, rawGuideH)
             : m_safety->mesh(QPointF(0, 0), QSizeF(dstW, dstH));
         if (!safetyMesh.vertices.empty()) {
             m_impl->annotations.drawMesh(
@@ -1787,8 +1840,19 @@ void MetalPlayerRenderer::drawFrame()
         && m_impl->lastSourceW > 0
         && m_impl->lastSourceH > 0) {
         @autoreleasepool {
-            const int srcW = m_impl->lastSourceW;
-            const int srcH = m_impl->lastSourceH;
+            // Capture at display orientation — 90/270 swap the output
+            // dims so the PNG is upright (1080×1920 for rotated phone
+            // footage). The swapped dims also key the capture-texture
+            // realloc, so a live rotation change reallocates. Strokes
+            // are normalized to display space (the live imgFit rect is
+            // display-orientation), so the pass-3 bake maps straight
+            // onto the rotated frame.
+            const int capRotQ =
+                m_rotQA.load(std::memory_order_relaxed);
+            const int srcW = (capRotQ & 1) ? m_impl->lastSourceH
+                                           : m_impl->lastSourceW;
+            const int srcH = (capRotQ & 1) ? m_impl->lastSourceW
+                                           : m_impl->lastSourceH;
 
             // Lazy-init the capture compositor at RGBA8Unorm.
             constexpr int kCaptureFmt =
@@ -1845,13 +1909,16 @@ void MetalPlayerRenderer::drawFrame()
                 id<MTLRenderCommandEncoder> p1Enc =
                     [capCb renderCommandEncoderWithDescriptor:rpd1];
                 if (m_impl->compositor.isInitialized()) {
-                    // src dims == dst dims = source dims → aspect-fit
-                    // collapses to full fill, preserving every pixel.
+                    // src dims == dst dims = display dims → aspect-fit
+                    // collapses to full fill, preserving every pixel;
+                    // the MSL rotates its sampling from the stored-
+                    // orientation texture.
                     m_impl->compositor.renderSource(
                         (__bridge void *)p1Enc,
                         m_impl->lastSourceTexture,
                         srcW, srcH, srcW, srcH,
-                        MetalCompositor::Single, 0.5f);
+                        MetalCompositor::Single, 0.5f,
+                        capRotQ);
                 }
                 [p1Enc endEncoding];
             }

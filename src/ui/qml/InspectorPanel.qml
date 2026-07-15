@@ -285,10 +285,20 @@ Rectangle {
                     const item = root.displayedItem;
                     if (root.itemType === 0 && item.path) {
                         // Video → mid-clip poster (first frames are
-                        // routinely black leaders).
-                        return "image://thumb/"
+                        // routinely black leaders). Effective display
+                        // rotation rides along so the poster is upright
+                        // for display-matrix phone footage.
+                        let u = "image://thumb/"
                             + encodeURIComponent(item.path)
                             + "?frame=mid";
+                        const ov = item.rotationOverride !== undefined
+                            ? item.rotationOverride : -1;
+                        const det = (item.video
+                                     && item.video.rotationDeg > 0)
+                            ? item.video.rotationDeg : 0;
+                        const rot = ov >= 0 ? ov : det;
+                        if (rot > 0) u += "&rot=" + rot;
+                        return u;
                     }
                     if (root.itemType === 2 && item.path) {
                         return "image://thumb/"
@@ -516,7 +526,7 @@ Rectangle {
         // pickable rules; setPixelAspect persists + pushes live.
         InspectorCard {
             id: parSection
-            title: qsTr("Pixel Aspect")
+            title: qsTr("Geometry")
             bodySpacing: 4
             visible: content.videoLoaded && content.vmeta
                      && content.vmeta.width > 0
@@ -569,6 +579,21 @@ Rectangle {
                 ? (storageW * curParNum) / (storageH * curParDen) : 0.0
             readonly property int effW:
                 Math.round(storageW * (curParDen > 0 ? curParNum / curParDen : 1))
+
+            // Display rotation — detected (display matrix; <0 =
+            // unknown/probe pending reads as none) + the per-clip
+            // override (−1 = Auto). Effective = what the renderer
+            // applies.
+            readonly property int detRot:
+                content.vmeta && content.vmeta.rotationDeg > 0
+                ? content.vmeta.rotationDeg : 0
+            readonly property int rotOverride:
+                parTargetItem && parTargetItem.rotationOverride !== undefined
+                ? parTargetItem.rotationOverride : -1
+            readonly property int effRot: rotOverride >= 0 ? rotOverride : detRot
+            readonly property bool rotSwapsDims: effRot === 90 || effRot === 270
+            readonly property string rotAutoLabel:
+                detRot > 0 ? qsTr("Auto (") + detRot + "°)" : qsTr("Auto")
 
             // Mode pill row — Square / Detected (R:R) / Custom.
             KvChipRow {
@@ -624,10 +649,50 @@ Rectangle {
             }
             KvRow {
                 label: qsTr("Display")
-                value: parSection.curDar > 0
-                    ? parSection.curDar.toFixed(3) + ":1   ("
-                      + parSection.effW + " × " + parSection.storageH + ")"
-                    : ""
+                value: {
+                    if (!(parSection.curDar > 0)) return "";
+                    // 90/270 swap the displayed dims (and invert the
+                    // aspect) — the readout tracks what the viewport
+                    // actually shows.
+                    const dw = parSection.rotSwapsDims
+                        ? parSection.storageH : parSection.effW;
+                    const dh = parSection.rotSwapsDims
+                        ? parSection.effW : parSection.storageH;
+                    const dar = parSection.rotSwapsDims
+                        ? (1.0 / parSection.curDar) : parSection.curDar;
+                    return dar.toFixed(3) + ":1   (" + dw + " × " + dh + ")";
+                }
+            }
+
+            // Rotation pill row — Auto (detected display matrix) or a
+            // forced quarter-turn. Auto labels itself with the detected
+            // value ("Auto (90°)") the same way the Range pill does.
+            KvChipRow {
+                label: qsTr("Rotation")
+                Layout.topMargin: 4
+                Repeater {
+                    model: [
+                        { key: -1,  useDetected: true,  label: qsTr("Auto") },
+                        { key: 0,   useDetected: false, label: "0°" },
+                        { key: 90,  useDetected: false, label: "90°" },
+                        { key: 180, useDetected: false, label: "180°" },
+                        { key: 270, useDetected: false, label: "270°" },
+                    ]
+                    FlatChip {
+                        required property var modelData
+                        active: modelData.key === parSection.rotOverride
+                        interactive: parSection.parPickable
+                        label: modelData.useDetected
+                            ? parSection.rotAutoLabel : modelData.label
+                        onClicked: {
+                            if (!parSection.parTargetItemId
+                                || !WindowManager.project) return;
+                            WindowManager.project.setRotationOverride(
+                                parSection.parTargetItemId,
+                                modelData.key);
+                        }
+                    }
+                }
             }
 
             // Custom entry — pixel-aspect scalar (AE term) and a

@@ -164,6 +164,15 @@ struct VideoMetadata {
     int         sarNum = 1;
     int         sarDen = 1;
     bool        isAnamorphic = false;
+    // Container display-matrix rotation, normalized to clockwise
+    // degrees needed to display the stored frame upright: 0/90/180/
+    // 270. Phone footage records landscape and stamps the tkhd
+    // matrix (e.g. −90 CCW from av_display_rotation_get → 90 here).
+    // −1 = unknown (project cache predates the field); the loader
+    // schedules a header-only re-probe and Auto resolution treats
+    // <0 as 0 until it lands. Detection only — the applied rotation
+    // is MediaItem::rotationOverride (default Auto = this value).
+    int         rotationDeg = 0;
     // True when the container has a video stream but FFmpeg has no
     // decoder for it (videoCodec == "unknown") — e.g. ARRIRAW camera
     // raw. Drives the in-viewport "can't play this" notice instead of
@@ -341,6 +350,15 @@ struct MediaItem {
     PixelAspectMode         pixelAspectMode = PixelAspectMode::Square;
     int                     customParNum = 1;
     int                     customParDen = 1;
+
+    // Per-clip display-rotation override. −1 = Auto (apply the
+    // detected video.rotationDeg); 0/90/180/270 force that clockwise
+    // display rotation regardless of container metadata (covers
+    // sideways-mounted cameras with no display matrix). Mutated via
+    // `ProjectManager::setRotationOverride`; WindowManager pushes the
+    // effective quarter-turn to the renderer live (no re-decode),
+    // riding the pixel-aspect rails. Persisted with the project.
+    int                     rotationOverride = -1;
 
     // Per-clip audio channel routing for broadcast deliverables.
     // Mutated via `ProjectManager::setAudioRoutingMode`; the

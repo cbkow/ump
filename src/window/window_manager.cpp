@@ -308,6 +308,14 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
                 regenerateNoteThumbnailsForActiveClip();
             }
         });
+        // A real per-clip rotation edit. Unconditional re-push (cheap
+        // atomics) — the mutator's activeItemIdChanged nudge doesn't
+        // fire in playlist mode, where the edited clip's id is the
+        // playing clip inside the playlist, not the active item.
+        connect(m_project, &ProjectManager::rotationOverrideChanged, this,
+                [this](const QString &, int) {
+            applyPixelAspectToRenderer();
+        });
 
         // Per-clip audio routing changes — the inspector pill in
         // ImageSequenceInspector / InspectorPanel calls
@@ -1730,6 +1738,18 @@ std::pair<int, int> effectivePixelAspectFor(const qcv::MediaItem &it)
     }
 }
 
+// Resolve a MediaItem's applied display rotation to clockwise
+// degrees {0, 90, 180, 270}. Override −1 = Auto → the detected
+// display-matrix rotation (video.rotationDeg; <0 = unknown/pre-
+// feature cache → 0 until the migration probe lands). Used to drive
+// the renderer's per-side quarter-turn.
+int effectiveRotationFor(const qcv::MediaItem &it)
+{
+    const int deg = (it.rotationOverride >= 0) ? it.rotationOverride
+                                               : it.video.rotationDeg;
+    return (deg == 90 || deg == 180 || deg == 270) ? deg : 0;
+}
+
 // Cast the controller's side to DualImageSeqSource, or nullptr if
 // the side isn't an image sequence (or the controller is null).
 // Used by both the dualImageSeq* Q_PROPERTY getters and the
@@ -2572,10 +2592,12 @@ void WindowManager::applyPixelAspectToRenderer()
     const std::pair<int, int> pa =
         a ? effectivePixelAspectFor(*a) : std::pair<int, int>{ 1, 1 };
     r->setPixelAspectA(pa.first, pa.second);
+    r->setRotationA(a ? effectiveRotationFor(*a) : 0);
     const MediaItem *b = m_project->findItem(m_project->bSourceMediaId());
     const std::pair<int, int> pb =
         b ? effectivePixelAspectFor(*b) : std::pair<int, int>{ 1, 1 };
     r->setPixelAspectB(pb.first, pb.second);
+    r->setRotationB(b ? effectiveRotationFor(*b) : 0);
     r->requestUpdate();
 }
 

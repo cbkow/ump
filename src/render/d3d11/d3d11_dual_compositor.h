@@ -74,6 +74,11 @@ public:
     // lands on the corrected display aspect. 1/1 (default) = square.
     void setPixelAspectA(int num, int den);
     void setPixelAspectB(int num, int den);
+    // Per-side display rotation in quarter-turns CW {0..3}. Applied
+    // after the un-squeeze: odd quarters swap the effective srcSize
+    // and the shader inverse-rotates its sampling.
+    void setRotationA(int quarters);
+    void setRotationB(int quarters);
 
     // Pull both sides' frames at the current master frame, drop
     // cache on seek/gen/past-end, UpdateSubresource into per-slot

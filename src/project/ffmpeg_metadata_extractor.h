@@ -24,6 +24,13 @@ public:
     // Fast container-only duration probe (~5–20ms, no codec init).
     // Returns 0.0 on failure.
     static double probeDuration(const QString &filePath);
+
+    // Header-only display-matrix rotation probe for project caches
+    // that predate VideoMetadata::rotationDeg. Returns 0/90/180/270
+    // (clockwise display degrees), or -1 when the file can't be
+    // opened (offline volume) so the caller keeps the unknown
+    // sentinel and retries next launch.
+    static int probeRotation(const QString &filePath);
 };
 
 } // namespace qcv

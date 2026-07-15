@@ -58,6 +58,8 @@ public:
     void setSourceActivity(bool aActive, bool bActive) override;
     void setPixelAspectA(int num, int den) override;
     void setPixelAspectB(int num, int den) override;
+    void setRotationA(int deg) override;
+    void setRotationB(int deg) override;
     void setOcio(OCIOConfigManager *o) override;
     void setCompositorMode(CompositorMode mode) override;
     void setSplitPos(float pos) override;
@@ -102,6 +104,12 @@ private:
     std::atomic<int>    m_parDenA{1};
     std::atomic<int>    m_parNumB{1};
     std::atomic<int>    m_parDenB{1};
+    // Per-side display rotation in quarter-turns CW {0..3}
+    // (setRotationA/B convert from degrees). Swaps the effective fit
+    // dims for odd quarters; the compositor MSL inverse-rotates its
+    // sampling. Same GUI-sets / render-reads idiom as PAR.
+    std::atomic<int>    m_rotQA{0};
+    std::atomic<int>    m_rotQB{0};
     ImageSequenceCache *m_cache     = nullptr;
     VideoDecoder       *m_decoderB  = nullptr;
     // Tracks the cache the upload thread is bound to + its last-seen

@@ -36,6 +36,8 @@ struct UBO {
     int    bActive;
     float  seamHighlight;  // split seam: 0 = faint grey, 1 = white
     float  diffGain;       // Difference mode: amplify abs(A-B)
+    int    rotA;           // per-side display rotation, quarter-turns
+    int    rotB;           //   CW {0..3}; srcSize arrives display-swapped
 };
 
 struct VsOut {
@@ -64,7 +66,8 @@ static inline float4 sampleFit(texture2d<float, access::sample> src,
                                float2 dstPx,
                                float2 rectOrigin,
                                float2 rectSize,
-                               float2 srcSize)
+                               float2 srcSize,
+                               int rot)
 {
     float2 rectPxPos = dstPx - rectOrigin;
     if (rectPxPos.x < 0.0 || rectPxPos.x >= rectSize.x ||
@@ -79,7 +82,13 @@ static inline float4 sampleFit(texture2d<float, access::sample> src,
         inSrcPx.y < 0.0 || inSrcPx.y >= srcSize.y) {
         return float4(0.0);
     }
-    return src.sample(smp, inSrcPx / srcSize);
+    // srcSize arrives display-swapped for odd quarter-turns; inverse-
+    // rotate the normalized display UV back onto the stored texture.
+    float2 t = inSrcPx / srcSize;
+    if (rot == 1)      t = float2(t.y, 1.0 - t.x);          //  90 CW
+    else if (rot == 2) t = float2(1.0 - t.x, 1.0 - t.y);    // 180
+    else if (rot == 3) t = float2(1.0 - t.y, t.x);          // 270 CW
+    return src.sample(smp, t);
 }
 
 fragment float4 dual_fs(VsOut in [[stage_in]],
@@ -101,14 +110,14 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
                 : sampleFit(srcA, smp, dstPx,
                             float2(0.0, 0.0),
                             float2(halfW, u.dstSize.y),
-                            u.srcSizeA);
+                            u.srcSizeA, u.rotA);
         } else {
             color = (u.bActive == 0)
                 ? float4(0.0)
                 : sampleFit(srcB, smp, dstPx,
                             float2(halfW, 0.0),
                             float2(halfW, u.dstSize.y),
-                            u.srcSizeB);
+                            u.srcSizeB, u.rotB);
         }
         // Faint grey divider between the two sides.
         if (abs(uv.x - 0.5) * u.dstSize.x < 1.0) {
@@ -120,13 +129,13 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
                 ? float4(0.0)
                 : sampleFit(srcA, smp, dstPx,
                             float2(0.0, 0.0),
-                            u.dstSize, u.srcSizeA);
+                            u.dstSize, u.srcSizeA, u.rotA);
         } else {
             color = (u.bActive == 0)
                 ? float4(0.0)
                 : sampleFit(srcB, smp, dstPx,
                             float2(0.0, 0.0),
-                            u.dstSize, u.srcSizeB);
+                            u.dstSize, u.srcSizeB, u.rotB);
         }
         // Split seam — faint grey at rest, full white on hover/drag.
         if (abs(uv.x - u.splitPos) * u.dstSize.x < 1.0) {
@@ -141,11 +150,13 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
         float4 ca = (u.aActive == 0)
             ? float4(0.0)
             : sampleFit(srcA, smp, dstPx,
-                        float2(0.0, 0.0), u.dstSize, u.srcSizeA);
+                        float2(0.0, 0.0), u.dstSize, u.srcSizeA,
+                        u.rotA);
         float4 cb = (u.bActive == 0)
             ? float4(0.0)
             : sampleFit(srcB, smp, dstPx,
-                        float2(0.0, 0.0), u.dstSize, u.srcSizeB);
+                        float2(0.0, 0.0), u.dstSize, u.srcSizeB,
+                        u.rotB);
         color = float4(abs(ca.rgb - cb.rgb) * u.diffGain,
                        max(ca.a, cb.a));
     } else {
@@ -153,7 +164,7 @@ fragment float4 dual_fs(VsOut in [[stage_in]],
             ? float4(0.0)
             : sampleFit(srcA, smp, dstPx,
                         float2(0.0, 0.0),
-                        u.dstSize, u.srcSizeA);
+                        u.dstSize, u.srcSizeA, u.rotA);
     }
 
     if (color.a == 0.0) discard_fragment();
@@ -751,6 +762,8 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
         int   bActive;
         float seamHighlight;
         float diffGain;
+        int   rotA;
+        int   rotB;
     };
     UBO ubo;
     ubo.dstSize[0]  = static_cast<float>(dstWidth);
@@ -772,10 +785,15 @@ void DualCompositor::renderFrame(void *encoderPtr, int dstWidth, int dstHeight)
                                        m_parNumA, m_parDenA);
     const auto [effBW, effBH] = effDim(m_impl->srcBW, m_impl->srcBH,
                                        m_parNumB, m_parDenB);
-    ubo.srcSizeA[0] = static_cast<float>(effAW);
-    ubo.srcSizeA[1] = static_cast<float>(effAH);
-    ubo.srcSizeB[0] = static_cast<float>(effBW);
-    ubo.srcSizeB[1] = static_cast<float>(effBH);
+    // Display rotation: un-squeeze first (stored space), then swap
+    // the effective dims for odd quarter-turns so each side's fit
+    // frames the upright image. dual_fs inverse-rotates its sampling.
+    ubo.srcSizeA[0] = static_cast<float>((m_rotQA & 1) ? effAH : effAW);
+    ubo.srcSizeA[1] = static_cast<float>((m_rotQA & 1) ? effAW : effAH);
+    ubo.srcSizeB[0] = static_cast<float>((m_rotQB & 1) ? effBH : effBW);
+    ubo.srcSizeB[1] = static_cast<float>((m_rotQB & 1) ? effBW : effBH);
+    ubo.rotA        = m_rotQA;
+    ubo.rotB        = m_rotQB;
     ubo.mode        = static_cast<int>(m_mode);
     ubo.splitPos    = m_splitPos;
     ubo.aActive     = aActive ? 1 : 0;

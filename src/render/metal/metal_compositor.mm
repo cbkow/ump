@@ -34,6 +34,8 @@ struct UBO {
     float  borderR;      // edge frame color (used when borderPx > 0)
     float  borderG;
     float  borderB;
+    int    rotA;         // per-side display rotation, quarter-turns CW
+    int    rotB;         //   {0..3}; srcSize arrives display-swapped
 };
 
 struct VsOut {
@@ -66,7 +68,8 @@ static inline float4 sampleFit(texture2d<float, access::sample> src,
                                float2 dstPx,
                                float2 rectOrigin,
                                float2 rectSize,
-                               float2 srcSize)
+                               float2 srcSize,
+                               int rot)
 {
     float2 rectPxPos = dstPx - rectOrigin;
     if (rectPxPos.x < 0.0 || rectPxPos.x >= rectSize.x ||
@@ -81,7 +84,13 @@ static inline float4 sampleFit(texture2d<float, access::sample> src,
         inSrcPx.y < 0.0 || inSrcPx.y >= srcSize.y) {
         return float4(0.0);
     }
-    return src.sample(smp, inSrcPx / srcSize);
+    // srcSize arrives display-swapped for odd quarter-turns; inverse-
+    // rotate the normalized display UV back onto the stored texture.
+    float2 t = inSrcPx / srcSize;
+    if (rot == 1)      t = float2(t.y, 1.0 - t.x);          //  90 CW
+    else if (rot == 2) t = float2(1.0 - t.x, 1.0 - t.y);    // 180
+    else if (rot == 3) t = float2(1.0 - t.y, t.x);          // 270 CW
+    return src.sample(smp, t);
 }
 
 fragment float4 fs_main(VsOut in [[stage_in]],
@@ -114,14 +123,14 @@ fragment float4 fs_main(VsOut in [[stage_in]],
                 : sampleFit(srcA, smp, dstPx,
                             float2(0.0, 0.0),
                             float2(halfW, u.dstSize.y),
-                            u.srcSizeA);
+                            u.srcSizeA, u.rotA);
         } else {
             color = (u.bActive == 0)
                 ? float4(0.0)
                 : sampleFit(srcB, smp, dstPx,
                             float2(halfW, 0.0),
                             float2(halfW, u.dstSize.y),
-                            u.srcSizeB);
+                            u.srcSizeB, u.rotB);
         }
     } else if (u.mode == 2) {
         // Split-Wipe — full canvas; uv.x < splitPos picks A, else
@@ -133,13 +142,13 @@ fragment float4 fs_main(VsOut in [[stage_in]],
                 ? float4(0.0)
                 : sampleFit(srcA, smp, dstPx,
                             float2(0.0, 0.0),
-                            u.dstSize, u.srcSizeA);
+                            u.dstSize, u.srcSizeA, u.rotA);
         } else {
             color = (u.bActive == 0)
                 ? float4(0.0)
                 : sampleFit(srcB, smp, dstPx,
                             float2(0.0, 0.0),
-                            u.dstSize, u.srcSizeB);
+                            u.dstSize, u.srcSizeB, u.rotB);
         }
         if (abs(uv.x - u.splitPos) * u.dstSize.x < 1.0) {
             return float4(1.0, 1.0, 1.0, 1.0);
@@ -150,7 +159,7 @@ fragment float4 fs_main(VsOut in [[stage_in]],
             ? float4(0.0)
             : sampleFit(srcA, smp, dstPx,
                         float2(0.0, 0.0),
-                        u.dstSize, u.srcSizeA);
+                        u.dstSize, u.srcSizeA, u.rotA);
     }
 
     // Letterbox / pillarbox / outside source area. Normally discard
@@ -475,7 +484,8 @@ void MetalCompositor::renderSources(void *encoderPtr,
                                     void *srcBPtr, int srcBW, int srcBH,
                                     int dstWidth, int dstHeight,
                                     int mode, float splitPos,
-                                    bool aActive, bool bActive)
+                                    bool aActive, bool bActive,
+                                    int rotA, int rotB)
 {
     if (!isInitialized() || !encoderPtr) return;
     if (dstWidth <= 0 || dstHeight <= 0) return;
@@ -506,6 +516,7 @@ void MetalCompositor::renderSources(void *encoderPtr,
     if (!texA && texB && aActive) {
         texA = texB;
         srcAW = srcBW; srcAH = srcBH;
+        rotA = rotB;   // mirrored image keeps its own rotation
     } else if (!texA) {
         // Bind B (or any non-nil texture) to texA's slot so the
         // pipeline isn't fed a nil sampler argument; the shader
@@ -516,6 +527,7 @@ void MetalCompositor::renderSources(void *encoderPtr,
     if (!texB && texA && bActive) {
         texB = texA;
         srcBW = srcAW; srcBH = srcAH;
+        rotB = rotA;   // mirrored image keeps its own rotation
     } else if (!texB) {
         texB = texA;
         srcBW = std::max(srcBW, 1); srcBH = std::max(srcBH, 1);
@@ -536,6 +548,7 @@ void MetalCompositor::renderSources(void *encoderPtr,
         float brightness;
         float borderPx;
         float borderR, borderG, borderB;
+        int   rotA, rotB;
     } ubo = {
         static_cast<float>(dstWidth),  static_cast<float>(dstHeight),
         static_cast<float>(srcAW),     static_cast<float>(srcAH),
@@ -546,6 +559,7 @@ void MetalCompositor::renderSources(void *encoderPtr,
         m_impl->brightness,
         /*borderPx=*/0.0f,
         0.0f, 0.0f, 0.0f,
+        rotA & 3, rotB & 3,
     };
 
     [enc setRenderPipelineState:m_impl->pipeline];
@@ -562,7 +576,8 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
                                            int dstWidth, int dstHeight,
                                            int corner,
                                            float overlayFrac,
-                                           float marginPx)
+                                           float marginPx,
+                                           int rotQuarters)
 {
     // Reuses the same composite pipeline + Single-mode shader path.
     // We set the Metal viewport to the corner rect; the shader sees
@@ -625,6 +640,7 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
         float brightness;
         float borderPx;
         float borderR, borderG, borderB;
+        int   rotA, rotB;
     } ubo = {
         boxW, boxH,
         static_cast<float>(thumbW), static_cast<float>(thumbH),
@@ -640,6 +656,7 @@ void MetalCompositor::renderCornerOverlay(void *encoderPtr,
         // thumbnails (corners 0/1) keep the 2 px frame.
         /*borderPx=*/(corner == 2 ? 0.0f : 2.0f),
         /*borderRGB ≈ #474747=*/0.28f, 0.28f, 0.28f,
+        rotQuarters & 3, rotQuarters & 3,
     };
 
     [enc setRenderPipelineState:m_impl->pipeline];

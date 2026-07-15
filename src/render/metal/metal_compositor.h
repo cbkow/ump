@@ -87,6 +87,10 @@ public:
     // skip the mirror-into-other-slot fallback so its region stays
     // transparent rather than showing the other source. Defaults
     // true so single-source callers don't notice.
+    // `rotA` / `rotB` — per-side display rotation in quarter-turns CW
+    // {0..3}. Callers pass src dims already SWAPPED for odd quarters
+    // (display-orientation dims drive the fit); the MSL inverse-
+    // rotates its sampling so the stored texture reads upright.
     void renderSources(void *encoder,
                        void *srcATexture, int srcAWidth, int srcAHeight,
                        void *srcBTexture, int srcBWidth, int srcBHeight,
@@ -94,7 +98,9 @@ public:
                        int mode = Single,
                        float splitPos = 0.5f,
                        bool aActive = true,
-                       bool bActive = true);
+                       bool bActive = true,
+                       int rotA = 0,
+                       int rotB = 0);
 
     // Convenience for solo / final-blit callers — passes the same
     // texture as both A and B. Mode defaults to Single but the
@@ -103,11 +109,13 @@ public:
                       int srcWidth, int srcHeight,
                       int dstWidth, int dstHeight,
                       int mode = Single,
-                      float splitPos = 0.5f)
+                      float splitPos = 0.5f,
+                      int rot = 0)
     {
         renderSources(encoder, sourceTexture, srcWidth, srcHeight,
                       sourceTexture, srcWidth, srcHeight,
-                      dstWidth, dstHeight, mode, splitPos);
+                      dstWidth, dstHeight, mode, splitPos,
+                      true, true, rot, rot);
     }
     void renderSingle(void *encoder, void *sourceTexture,
                       int srcWidth, int srcHeight,
@@ -134,13 +142,16 @@ public:
     // `overlayFrac` controls the corner box's width relative to dst
     // (height follows aspect). `marginPx` is the inset from each
     // edge. No-op if thumbTexture is null.
+    // `rotQuarters` — display rotation for the thumb, quarter-turns
+    // CW; thumbW/H arrive display-swapped like renderSources' dims.
     void renderCornerOverlay(void *encoder,
                               void *thumbTexture,
                               int   thumbW, int thumbH,
                               int   dstWidth, int dstHeight,
                               int   corner       = 0,
                               float overlayFrac  = 0.18f,
-                              float marginPx     = 12.0f);
+                              float marginPx     = 12.0f,
+                              int   rotQuarters  = 0);
 
     // Viewport background fill — old QCView's DrawVideoBackground.
     // Drawn before the source pass so letterbox/pillarbox area

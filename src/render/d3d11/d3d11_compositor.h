@@ -57,6 +57,11 @@ public:
     //                  for the centered viewport-notice card so its rounded
     //                  corners reveal the viewport background (parity with
     //                  the macOS present compositor). Default false.
+    // `rotQuarters` — display rotation in quarter-turns CW {0..3}. The
+    //                  caller passes srcW/H already SWAPPED for odd
+    //                  quarters (display-orientation dims drive the fit);
+    //                  the shader inverse-rotates its sampling so the
+    //                  stored texture reads upright.
     void renderSingle(void *ctx,
                        void *srcSrv,
                        int   dstW, int dstH,
@@ -66,7 +71,8 @@ public:
                        float borderR = 0.0f,
                        float borderG = 0.0f,
                        float borderB = 0.0f,
-                       bool  overlayBlend = false);
+                       bool  overlayBlend = false,
+                       int   rotQuarters = 0);
 
     // Phase F.2.8 follow-up — uniform output multiplier applied to
     // the final pixel before write. 1.0 = identity. Stored as state;
@@ -96,13 +102,17 @@ public:
     //   overlayFrac  — fraction of dstW the box width occupies;
     //                  clamped to [0.05, 0.5].
     //   marginPx     — inset from the canvas edges.
+    //   rotQuarters  — display rotation for the thumb source, quarter-
+    //                  turns CW; srcW/H arrive display-swapped like
+    //                  renderSingle's.
     void renderCornerOverlay(void *ctx,
                               void *srcSrv,
                               int   srcW, int srcH,
                               int   dstW, int dstH,
                               int   corner,
                               float overlayFrac,
-                              float marginPx);
+                              float marginPx,
+                              int   rotQuarters = 0);
 
     // Loading spinner — full-viewport dark fill + rotating accent dots.
     // No source texture. `timeSeconds` drives the animation (render

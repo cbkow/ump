@@ -73,6 +73,8 @@ ProjectManager::ProjectManager(QObject *parent)
             this, &ProjectManager::onVideoMetadataReady);
     connect(m_metadataService, &MetadataService::adobeMetadataReady,
             this, &ProjectManager::onAdobeMetadataReady);
+    connect(m_metadataService, &MetadataService::rotationProbed,
+            this, &ProjectManager::onRotationProbed);
 
     // Phase 7.6 — generate identity + timestamps so the manager is
     // never in an undefined "pre-newProject" state. Done after the
@@ -231,6 +233,22 @@ void ProjectManager::applyLoadedState(QList<MediaItem>  pool,
     // toggle. Emit here so cold-open lands in the viewport directly.
     if (activeIdx >= 0) {
         emit loadRequested(m_mediaPool[activeIdx]);
+    }
+
+    // Project caches that predate VideoMetadata::rotationDeg load
+    // with the −1 sentinel — schedule a header-only display-matrix
+    // probe for each so Auto rotation lights up without re-running
+    // the full extraction (which could clobber good cached metadata
+    // if the volume is offline). Result patches the single field via
+    // onRotationProbed; no markDirty (the key persists on the next
+    // natural save).
+    if (m_metadataService) {
+        for (const MediaItem &it : m_mediaPool) {
+            if (it.type == MediaType::Video && it.video.loaded
+                && it.video.rotationDeg < 0) {
+                m_metadataService->requestRotationProbe(it.id, it.path);
+            }
+        }
     }
 }
 
@@ -876,6 +894,32 @@ bool ProjectManager::setVideoRangeOverride(const QString &itemId, int range)
     return true;
 }
 
+bool ProjectManager::setRotationOverride(const QString &itemId, int deg)
+{
+    const int idx = findIndexInPool(itemId);
+    if (idx < 0) return false;
+    MediaItem &it = m_mediaPool[idx];
+    // Video and image sequences — the force-rotate case (sideways-
+    // mounted camera) applies to sequences too even though they never
+    // carry a display matrix.
+    if (it.type != MediaType::Video && it.type != MediaType::ImageSequence)
+        return false;
+    const int next = (deg == 0 || deg == 90 || deg == 180 || deg == 270)
+        ? deg : -1;   // anything else = Auto
+    if (it.rotationOverride == next) return true;
+    it.rotationOverride = next;
+    markDirty();
+    // Dedicated change signal — WindowManager hooks it to push the
+    // effective quarter-turn into the live renderer (single-flow A OR
+    // dual per-side) without a reopen. Mirrors pixelAspectChanged.
+    emit rotationOverrideChanged(itemId, next);
+    if (m_activeItemId == itemId || m_bSourceMediaId == itemId) {
+        emit activeItemIdChanged();
+        emit bSourceChanged();
+    }
+    return true;
+}
+
 bool ProjectManager::setPixelAspect(const QString &itemId, int mode,
                                     int parNum, int parDen)
 {
@@ -1222,6 +1266,12 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
     out[QStringLiteral("customParNum")] = it.customParNum;
     out[QStringLiteral("customParDen")] = it.customParDen;
 
+    // Per-clip display-rotation override (−1 = Auto, else 0/90/180/
+    // 270 clockwise). Top-level like pixelAspectMode so the chip row
+    // highlights before metadata loads; the detected rotation lives
+    // in the `video` sub-map.
+    out[QStringLiteral("rotationOverride")] = it.rotationOverride;
+
     // Per-clip audio routing mode (0 = Auto, 1 = 5.1 Downmix,
     // 2 = Stereo 7-8). Inspector pill row binds to this for the
     // active-pill highlight; setAudioRoutingMode mutates and emits.
@@ -1249,6 +1299,10 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("sarNum")]           = it.video.sarNum;
         v[QStringLiteral("sarDen")]           = it.video.sarDen;
         v[QStringLiteral("isAnamorphic")]     = it.video.isAnamorphic;
+        // Detected display-matrix rotation (clockwise display
+        // degrees). −1 = unknown (pre-feature cache, re-probe
+        // pending); QML treats <0 as 0.
+        v[QStringLiteral("rotationDeg")]      = it.video.rotationDeg;
         if (it.video.height > 0 && it.video.sarDen > 0) {
             v[QStringLiteral("displayAspect")] =
                 (static_cast<double>(it.video.width) * it.video.sarNum)
@@ -1458,6 +1512,24 @@ void ProjectManager::onVideoMetadataReady(const QString &mediaId,
     emit binsChanged();
     if (m_activeItemId == mediaId) {
         emit activeItemIdChanged();   // re-fire so QML rebinds activeItem
+    }
+}
+
+void ProjectManager::onRotationProbed(const QString &mediaId, int rotationDeg)
+{
+    if (rotationDeg < 0) return;   // open failed; keep the sentinel,
+                                   // retry next launch
+    const int idx = findIndexInPool(mediaId);
+    if (idx < 0) return;
+    MediaItem &it = m_mediaPool[idx];
+    if (it.video.rotationDeg == rotationDeg) return;
+    it.video.rotationDeg = rotationDeg;
+    // Deliberately no markDirty — a migration probe on open shouldn't
+    // make a freshly-opened project read as edited.
+    emit binsChanged();
+    if (m_activeItemId == mediaId || m_bSourceMediaId == mediaId) {
+        emit activeItemIdChanged();
+        emit bSourceChanged();
     }
 }
 

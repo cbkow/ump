@@ -191,18 +191,26 @@ private:
 class ThumbRunnable final : public QRunnable {
 public:
     ThumbRunnable(ThumbnailImageProvider *provider, ThumbResponse *response,
-                  QString path, QString layer, QString frame, QSize req)
+                  QString path, QString layer, QString frame, QSize req,
+                  int rotDeg)
         : m_provider(provider), m_response(response)
         , m_path(std::move(path)), m_layer(std::move(layer))
-        , m_frame(std::move(frame)), m_req(req) {}
+        , m_frame(std::move(frame)), m_req(req), m_rotDeg(rotDeg) {}
 
     void run() override {
         if (m_response->isCancelled()) {
             m_response->resolve(QImage());
             return;
         }
-        const QImage master =
+        QImage master =
             m_provider->masterFor(m_path, m_layer, m_frame);
+        // Display rotation (container display matrix / user override,
+        // via the `rot` query param). Applied AFTER the cache lookup
+        // so cached masters stay orientation-neutral, and BEFORE the
+        // downscale so KeepAspectRatio fits the rotated shape.
+        if (m_rotDeg > 0 && !master.isNull()) {
+            master = master.transformed(QTransform().rotate(m_rotDeg));
+        }
         m_response->resolve(scaleForRequest(master, m_req));
     }
 
@@ -211,6 +219,7 @@ private:
     ThumbResponse *m_response;
     QString m_path, m_layer, m_frame;
     QSize m_req;
+    int m_rotDeg = 0;
 };
 
 } // namespace
@@ -244,6 +253,7 @@ QQuickImageResponse *ThumbnailImageProvider::requestImageResponse(
     QString path  = id;
     QString layer;
     QString frame;
+    int rotDeg = 0;
     const int qPos = id.indexOf(QLatin1Char('?'));
     if (qPos >= 0) {
         path = id.left(qPos);
@@ -252,6 +262,13 @@ QQuickImageResponse *ThumbnailImageProvider::requestImageResponse(
                                      QUrl::FullyDecoded);
         frame = query.queryItemValue(QStringLiteral("frame"),
                                      QUrl::FullyDecoded);
+        // Display rotation (clockwise degrees) — MP4 display-matrix
+        // footage or a user override; the renderer rotates at sample
+        // time but this provider returns raw QImages, so it rotates
+        // its own output to match.
+        const int rot = query.queryItemValue(
+            QStringLiteral("rot")).toInt();
+        if (rot == 90 || rot == 180 || rot == 270) rotDeg = rot;
     }
     if (path.contains(QLatin1Char('%'))) {
         const QString decoded =
@@ -262,7 +279,7 @@ QQuickImageResponse *ThumbnailImageProvider::requestImageResponse(
 
     auto *response = new ThumbResponse;
     m_pool.start(new ThumbRunnable(this, response, path, layer, frame,
-                                   requestedSize));
+                                   requestedSize, rotDeg));
     return response;
 }
 

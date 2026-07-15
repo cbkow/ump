@@ -197,6 +197,15 @@ public:
     Q_INVOKABLE bool setPixelAspect(const QString &itemId, int mode,
                                     int parNum, int parDen);
 
+    // Per-clip display-rotation override. `deg` is −1 for Auto
+    // (follow the detected display-matrix rotation) or 0/90/180/270
+    // clockwise; anything else coerces to Auto. Mirrors
+    // setPixelAspect: mutates the pool entry, emits
+    // rotationOverrideChanged + activeItemIdChanged / bSourceChanged
+    // when the id matches A or B. The render-side apply is
+    // WindowManager's job. Video and ImageSequence items.
+    Q_INVOKABLE bool setRotationOverride(const QString &itemId, int deg);
+
     // Set the per-clip audio routing mode. `mode` is a
     // `qcv::AudioRoutingMode` cast to int (0 = Auto, 1 = Downmix5_1,
     // 2 = Stereo7_8). Mirrors setVideoRangeOverride: mutates the
@@ -378,6 +387,12 @@ signals:
     void pixelAspectChanged(const QString &itemId, int mode,
                             int parNum, int parDen);
 
+    // Per-clip display-rotation override changed (−1 = Auto, else
+    // 0/90/180/270 clockwise). WindowManager hooks this to push the
+    // effective quarter-turn into the live renderer without a
+    // reopen. Mirrors pixelAspectChanged.
+    void rotationOverrideChanged(const QString &itemId, int deg);
+
     // Phase 7.6 — `.qcvproj` save/load + dirty tracking.
     void projectFileChanged();
     void projectDirtyChanged();
@@ -490,6 +505,7 @@ private:
                               const VideoMetadata &metadata);
     void onAdobeMetadataReady(const QString &mediaId,
                               const AdobeMetadata &metadata);
+    void onRotationProbed(const QString &mediaId, int rotationDeg);
 };
 
 } // namespace qcv

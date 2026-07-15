@@ -1031,6 +1031,16 @@ void D3D11PlayerRenderer::drawFrame()
         m_parNumA.load(std::memory_order_relaxed),
         m_parDenA.load(std::memory_order_relaxed));
 
+    // Display rotation for source A, in quarter-turns CW. Applied
+    // AFTER the un-squeeze (PAR acts in stored space): 90/270 swap
+    // the effective dims so the letterbox fits the upright image,
+    // and the compositor rotates its sampling to match. Every
+    // consumer below (fit rect, annotator, safety, capture) sees
+    // display-orientation dims.
+    const int rotQA = m_rotQA.load(std::memory_order_relaxed);
+    const int dispAW = (rotQA & 1) ? effAH : effAW;
+    const int dispAH = (rotQA & 1) ? effAW : effAH;
+
     if (useOcio) {
         // Lazy (re)create the RGBA16F intermediate at swapchain size.
         if (!m_impl->compositeTex ||
@@ -1078,28 +1088,45 @@ void D3D11PlayerRenderer::drawFrame()
     // A in BL, B in BR (B only populated in dual mode by
     // WindowManager). 0 = no overlay.
     auto drawHoverThumbs = [&](int dstW, int dstH) {
+        // Per-side PAR + rotation so the thumb box matches the main
+        // image's display orientation (un-squeeze first, then swap
+        // for odd quarters — same order as the main fit).
+        auto thumbDims = [](int w, int h, int parNum, int parDen,
+                            int rotQ) -> std::pair<int, int> {
+            const int ew = parThumbW(w, parNum, parDen);
+            return (rotQ & 1) ? std::pair<int, int>{ h, ew }
+                              : std::pair<int, int>{ ew, h };
+        };
         const unsigned long long hA = m_hoverThumbHandle.load();
         if (hA != 0) {
             const auto *t = D3D11TexturePool::thumbnailInstance().texture(hA);
             if (t && t->srv) {
+                const int rq = m_rotQA.load(std::memory_order_relaxed);
+                const auto [tw, th] = thumbDims(
+                    t->width, t->height,
+                    m_parNumA.load(), m_parDenA.load(), rq);
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    parThumbW(t->width, m_parNumA.load(), m_parDenA.load()),
-                    t->height,
+                    tw, th,
                     dstW, dstH,
-                    /*corner=*/0, /*overlayFrac=*/0.18f, /*marginPx=*/12.0f);
+                    /*corner=*/0, /*overlayFrac=*/0.18f, /*marginPx=*/12.0f,
+                    rq);
             }
         }
         const unsigned long long hB = m_hoverThumbHandleB.load();
         if (hB != 0) {
             const auto *t = D3D11TexturePool::thumbnailInstance().texture(hB);
             if (t && t->srv) {
+                const int rq = m_rotQB.load(std::memory_order_relaxed);
+                const auto [tw, th] = thumbDims(
+                    t->width, t->height,
+                    m_parNumB.load(), m_parDenB.load(), rq);
                 m_impl->compositor.renderCornerOverlay(
                     ctx, t->srv,
-                    parThumbW(t->width, m_parNumB.load(), m_parDenB.load()),
-                    t->height,
+                    tw, th,
                     dstW, dstH,
-                    /*corner=*/1, 0.18f, 12.0f);
+                    /*corner=*/1, 0.18f, 12.0f,
+                    rq);
             }
         }
     };
@@ -1118,8 +1145,11 @@ void D3D11PlayerRenderer::drawFrame()
             ctx,
             m_impl->videoA.srv.Get(),
             W, H,
-            effAW, effAH,
-            m_bgMode.load());
+            dispAW, dispAH,
+            m_bgMode.load(),
+            /*borderPx=*/0.0f, 0.0f, 0.0f, 0.0f,
+            /*overlayBlend=*/false,
+            rotQA);
 
         // Thumbs into intermediate so OCIO processes them too.
         drawHoverThumbs(W, H);
@@ -1144,8 +1174,11 @@ void D3D11PlayerRenderer::drawFrame()
             ctx,
             m_impl->videoA.srv.Get(),
             W, H,
-            effAW, effAH,
-            m_bgMode.load());
+            dispAW, dispAH,
+            m_bgMode.load(),
+            /*borderPx=*/0.0f, 0.0f, 0.0f, 0.0f,
+            /*overlayBlend=*/false,
+            rotQA);
 
         // No OCIO either way — thumbs into swapchain at the same
         // place the video pixels landed, so they share whatever
@@ -1171,10 +1204,11 @@ void D3D11PlayerRenderer::drawFrame()
         const float dstWf = static_cast<float>(W);
         const float dstHf = static_cast<float>(H);
         float fitW = dstWf, fitH = dstHf;
-        // Pixel-aspect-corrected dims so strokes + safety guides frame
-        // the un-squeezed image (matches the compositor's effective fit).
-        const int srcW = effAW;
-        const int srcH = effAH;
+        // Display-orientation dims (pixel-aspect-corrected + rotation-
+        // swapped) so strokes + safety guides frame the upright image
+        // (matches the compositor's effective fit).
+        const int srcW = dispAW;
+        const int srcH = dispAH;
         if (m_impl->videoA.srv && srcW > 0 && srcH > 0) {
             const float srcAspect = static_cast<float>(srcW) / srcH;
             const float dstAspect = dstWf / dstHf;
@@ -1244,11 +1278,16 @@ void D3D11PlayerRenderer::drawFrame()
             // fitW/fitH is the displayed (pixel-aspect-corrected) image
             // rect; the RAW square dims drive meshForImage's source fit
             // so the guide stretches with the picture under un-squeeze.
+            // Rotation swaps the raw dims too — the guide frames the
+            // upright image.
+            const double rawW = (rotQA & 1) ? m_impl->videoA.height
+                                            : m_impl->videoA.width;
+            const double rawH = (rotQA & 1) ? m_impl->videoA.width
+                                            : m_impl->videoA.height;
             TessellatedMesh mesh = haveSource
                 ? m_safety->meshForImage(QPointF(fitX, fitY),
                                          QSizeF(fitW, fitH),
-                                         double(m_impl->videoA.width),
-                                         double(m_impl->videoA.height))
+                                         rawW, rawH)
                 : m_safety->mesh(QPointF(0, 0), QSizeF(dstWf, dstHf));
             if (!mesh.vertices.empty()) {
                 m_impl->annotations.drawMesh(ctx, mesh, W, H);
@@ -1607,12 +1646,20 @@ void D3D11PlayerRenderer::drawDualFrame()
                 if (n > d) return { w * n / d, h };
                 return { w, h * float(d) / n };
             };
-            const float rawAW = src ? static_cast<float>(src->sourceWidth('A'))  : 0.0f;
-            const float rawAH = src ? static_cast<float>(src->sourceHeight('A')) : 0.0f;
-            const float rawBW = src ? static_cast<float>(src->sourceWidth('B'))  : 0.0f;
-            const float rawBH = src ? static_cast<float>(src->sourceHeight('B')) : 0.0f;
-            const auto [sAW, sAH] = effF(rawAW, rawAH, m_parNumA.load(), m_parDenA.load());
-            const auto [sBW, sBH] = effF(rawBW, rawBH, m_parNumB.load(), m_parDenB.load());
+            // Display rotation swaps both the effective dims (fit) and
+            // the raw dims (meshForImage source fit) per side — the
+            // guides frame the upright image, matching the dual
+            // compositor's own swapped srcSize.
+            const int rotA = m_rotQA.load(std::memory_order_relaxed);
+            const int rotB = m_rotQB.load(std::memory_order_relaxed);
+            float rawAW = src ? static_cast<float>(src->sourceWidth('A'))  : 0.0f;
+            float rawAH = src ? static_cast<float>(src->sourceHeight('A')) : 0.0f;
+            float rawBW = src ? static_cast<float>(src->sourceWidth('B'))  : 0.0f;
+            float rawBH = src ? static_cast<float>(src->sourceHeight('B')) : 0.0f;
+            auto [sAW, sAH] = effF(rawAW, rawAH, m_parNumA.load(), m_parDenA.load());
+            auto [sBW, sBH] = effF(rawBW, rawBH, m_parNumB.load(), m_parDenB.load());
+            if (rotA & 1) { std::swap(sAW, sAH); std::swap(rawAW, rawAH); }
+            if (rotB & 1) { std::swap(sBW, sBH); std::swap(rawBW, rawBH); }
 
             // The canvas (where the compositor draws) is the fitW x fitH
             // rect inside the swapchain RTV; safety must fit inside THAT,
@@ -1661,9 +1708,19 @@ void D3D11PlayerRenderer::serviceScreenshotRequest()
     // dims) so NotesPanel + exports match the on-disk frame.
 
     if (!m_impl->videoA.srv) { deliver(QImage()); return; }
-    const int srcW = m_impl->videoA.width;
-    const int srcH = m_impl->videoA.height;
-    if (srcW <= 0 || srcH <= 0) { deliver(QImage()); return; }
+    const int rawW = m_impl->videoA.width;
+    const int rawH = m_impl->videoA.height;
+    if (rawW <= 0 || rawH <= 0) { deliver(QImage()); return; }
+    // Capture at display orientation — 90/270 swap the output dims so
+    // the PNG is upright (1080×1920 for rotated phone footage). The
+    // swapped dims also key the capture-texture realloc below, so a
+    // live rotation change reallocates instead of rendering into a
+    // stale-shaped target. Strokes are normalized to display space
+    // (the live viewport rect is display-orientation), so the pass-3
+    // bake maps them straight onto the rotated frame.
+    const int rotQ = m_rotQA.load(std::memory_order_relaxed);
+    const int srcW = (rotQ & 1) ? rawH : rawW;
+    const int srcH = (rotQ & 1) ? rawW : rawH;
 
     auto *device = static_cast<ID3D11Device *>(
         D3D11DeviceManager::instance().device());
@@ -1751,7 +1808,10 @@ void D3D11PlayerRenderer::serviceScreenshotRequest()
         m_impl->compositor.renderSingle(
             ctx, m_impl->videoA.srv.Get(),
             srcW, srcH, srcW, srcH,
-            /*bgMode=*/0 /*Black — screenshots never need checker*/);
+            /*bgMode=*/0 /*Black — screenshots never need checker*/,
+            /*borderPx=*/0.0f, 0.0f, 0.0f, 0.0f,
+            /*overlayBlend=*/false,
+            rotQ);
     }
 
     // ---- Pass 2: OCIO if engaged, else compositor passthrough ----
@@ -1974,6 +2034,18 @@ void D3D11PlayerRenderer::setPixelAspectA(int num, int den) {
 void D3D11PlayerRenderer::setPixelAspectB(int num, int den) {
     m_parNumB.store(num > 0 ? num : 1); m_parDenB.store(den > 0 ? den : 1);
     if (m_impl) m_impl->dualCompositor.setPixelAspectB(num, den);
+    requestUpdate();
+}
+void D3D11PlayerRenderer::setRotationA(int deg) {
+    const int q = (deg == 90) ? 1 : (deg == 180) ? 2 : (deg == 270) ? 3 : 0;
+    m_rotQA.store(q);
+    if (m_impl) m_impl->dualCompositor.setRotationA(q);
+    requestUpdate();
+}
+void D3D11PlayerRenderer::setRotationB(int deg) {
+    const int q = (deg == 90) ? 1 : (deg == 180) ? 2 : (deg == 270) ? 3 : 0;
+    m_rotQB.store(q);
+    if (m_impl) m_impl->dualCompositor.setRotationB(q);
     requestUpdate();
 }
 void D3D11PlayerRenderer::setOcio(OCIOConfigManager *o)   { m_ocio = o; requestUpdate(); }

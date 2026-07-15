@@ -43,12 +43,20 @@ public:
     // it in parallel and emit a separate signal.
     void requestAdobeExtraction(const QString &mediaId, const QString &path);
 
+    // Header-only display-matrix probe for project caches that
+    // predate VideoMetadata::rotationDeg. Patches a single field
+    // rather than re-running the full extraction so an offline
+    // volume can't clobber good cached metadata. Result lands on
+    // rotationProbed(); deg is -1 when the file couldn't be opened.
+    void requestRotationProbe(const QString &mediaId, const QString &path);
+
 Q_SIGNALS:
     // Fired on the owning thread when an extraction completes.
     // `metadata.loaded` is true on success; false means the file
     // couldn't be opened / probed.
     void metadataReady(const QString &mediaId, const VideoMetadata &metadata);
     void adobeMetadataReady(const QString &mediaId, const AdobeMetadata &metadata);
+    void rotationProbed(const QString &mediaId, int rotationDeg);
 
 private:
     Q_DISABLE_COPY(MetadataService)

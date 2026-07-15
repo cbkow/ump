@@ -92,6 +92,12 @@ public:
                                              m_parDenA = den > 0 ? den : 1; }
     void setPixelAspectB(int num, int den) { m_parNumB = num > 0 ? num : 1;
                                              m_parDenB = den > 0 ? den : 1; }
+    // Per-side display rotation in quarter-turns CW {0..3}. Applied
+    // after the un-squeeze: odd quarters swap the effective srcSize
+    // and dual_fs inverse-rotates its sampling. Same contract as
+    // setPixelAspectA/B.
+    void setRotationA(int quarters) { m_rotQA = quarters & 3; }
+    void setRotationB(int quarters) { m_rotQB = quarters & 3; }
     Mode mode() const                 { return m_mode; }
     float splitPos() const            { return m_splitPos; }
 
@@ -133,6 +139,8 @@ private:
     int   m_parDenA   = 1;
     int   m_parNumB   = 1;
     int   m_parDenB   = 1;
+    int   m_rotQA     = 0;
+    int   m_rotQB     = 0;
 };
 
 } // namespace qcv::dual

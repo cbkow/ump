@@ -57,7 +57,7 @@ cbuffer Constants : register(b0) {
                            //     transparent outside the source rect (the
                            //     viewport notice card; mirrors Metal's
                            //     present-compositor src-over + discard).
-    int    _pad1;
+    int    rotQ;           // display rotation, quarter-turns CW {0..3}
     float  brightness;     // post-composite multiplier; 1.0 = identity
     float3 borderColor;    // RGB of the edge frame (used when borderPx > 0)
 };
@@ -66,6 +66,18 @@ Texture2D    src       : register(t0);
 SamplerState srcSamp   : register(s0);
 
 struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
+
+// Display→stored UV for the quarter-turn rotation. `p` is the
+// normalized position inside the (display-orientation) fit rect;
+// the fit was computed from swapped dims for odd quarters, so the
+// inverse rotation here lands back on the stored texture upright.
+float2 rotatedSrcUv(float2 p)
+{
+    if (rotQ == 1) return float2(p.y, 1.0 - p.x);          //  90 CW
+    if (rotQ == 2) return float2(1.0 - p.x, 1.0 - p.y);    // 180
+    if (rotQ == 3) return float2(1.0 - p.y, p.x);          // 270 CW
+    return p;
+}
 
 float4 backgroundColor(float2 fragPx)
 {
@@ -104,7 +116,7 @@ float4 PSMain(VsOut input) : SV_TARGET
             fragPx.y >= fitRectMin.y && fragPx.y < fitRectMin.y + fitRectSize.y)
         {
             float2 srcUv = (fragPx - fitRectMin) / fitRectSize;
-            float4 v = src.Sample(srcSamp, srcUv);
+            float4 v = src.Sample(srcSamp, rotatedSrcUv(srcUv));
             return float4(v.rgb * brightness, v.a);
         }
         return float4(0.0, 0.0, 0.0, 0.0);   // leave RTV untouched
@@ -124,7 +136,7 @@ float4 PSMain(VsOut input) : SV_TARGET
         fragPx.y >= fitRectMin.y && fragPx.y <  fitRectMin.y + fitRectSize.y)
     {
         float2 srcUv = (fragPx - fitRectMin) / fitRectSize;
-        float4 v = src.Sample(srcSamp, srcUv);
+        float4 v = src.Sample(srcSamp, rotatedSrcUv(srcUv));
         // Source-over-alpha composite onto the bg fill, then write
         // fully-opaque to the swapchain so DComp doesn't compose
         // transparent video pixels against whatever's underneath the
@@ -214,7 +226,7 @@ struct CompositorCB {
     int   hasSrc;         // 36
     int   bgMode;         // 40
     int   overlayMode;    // 44  (0 = bg-fill composite; 1 = src-over the RTV)
-    int   pad1;           // 48
+    int   rotQ;           // 48  display rotation, quarter-turns CW {0..3}
     float brightness;     // 52
     float borderColor[3]; // 64
 };
@@ -378,7 +390,8 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
                                      int bgMode,
                                      float borderPx,
                                      float borderR, float borderG, float borderB,
-                                     bool overlayBlend)
+                                     bool overlayBlend,
+                                     int rotQuarters)
 {
     if (!m_impl || !m_impl->initialized) return;
     if (dstW <= 0 || dstH <= 0) return;
@@ -419,6 +432,7 @@ void D3D11Compositor::renderSingle(void *ctxVoid, void *srcSrvVoid,
     cb.hasSrc     = srcSrv ? 1 : 0;
     cb.bgMode     = bgMode;
     cb.overlayMode = overlayBlend ? 1 : 0;
+    cb.rotQ       = rotQuarters & 3;
     cb.brightness = m_impl->brightness;
     cb.borderPx       = borderPx;
     cb.borderColor[0] = borderR;
@@ -457,7 +471,8 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
                                             int dstW, int dstH,
                                             int corner,
                                             float overlayFrac,
-                                            float marginPx)
+                                            float marginPx,
+                                            int rotQuarters)
 {
     if (!m_impl || !m_impl->initialized) return;
     if (!ctxVoid || !srcSrvVoid) return;
@@ -525,7 +540,8 @@ void D3D11Compositor::renderCornerOverlay(void *ctxVoid, void *srcSrvVoid,
                  // Notice card (corner==2): src-over the live viewport
                  // background so its rounded corners stay transparent —
                  // matches macOS. Hover thumbs stay opaque tiles.
-                 /*overlayBlend=*/(corner == 2));
+                 /*overlayBlend=*/(corner == 2),
+                 rotQuarters);
 
     ctx->RSSetViewports(1, &prev);
 }

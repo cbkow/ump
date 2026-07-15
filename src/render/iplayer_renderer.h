@@ -174,6 +174,18 @@ public:
     virtual void setPixelAspectA(int /*num*/, int /*den*/) {}
     virtual void setPixelAspectB(int /*num*/, int /*den*/) {}
 
+    // Per-clip display rotation for each source, in clockwise degrees
+    // {0, 90, 180, 270} (the resolved value — Auto is resolved to the
+    // detected display-matrix rotation upstream). Applied display-
+    // only, downstream of decode: 90/270 swap the effective source
+    // dims for the letterbox fit (after the pixel-aspect un-squeeze,
+    // which acts in stored space) and the compositor rotates its
+    // sampling to match, so every overlay rect tracks the upright
+    // image. WindowManager pushes these alongside setPixelAspectA/B.
+    // Default no-op so stub / not-yet-wired platforms still link.
+    virtual void setRotationA(int /*deg*/) {}
+    virtual void setRotationB(int /*deg*/) {}
+
     // Phase 7.7 — top-level flow selector. Default SingleFlow keeps
     // existing behavior unchanged; DualFlow routes drawFrame to the
     // dual-island compositor. Default no-op for stub renderers.

@@ -65,7 +65,8 @@ cbuffer Constants : register(b0) {
     float2 dstSize;       // 8
     float2 srcSizeA;      // 16
     float2 srcSizeB;      // 24
-    float2 _pad0;         // 32
+    int    rotA;          // 28 — per-side display rotation, quarter-
+    int    rotB;          // 32   turns CW {0..3}
     int    mode;          // 36
     float  splitPos;      // 40
     int    aActive;       // 44
@@ -82,7 +83,7 @@ struct VsOut { float4 pos : SV_POSITION; float2 uv : TEXCOORD0; };
 
 float4 sampleFit(Texture2D src, SamplerState s,
                  float2 dstPx, float2 rectOrigin,
-                 float2 rectSize, float2 srcSize)
+                 float2 rectSize, float2 srcSize, int rot)
 {
     float2 rectPxPos = dstPx - rectOrigin;
     if (rectPxPos.x < 0.0 || rectPxPos.x >= rectSize.x ||
@@ -97,7 +98,13 @@ float4 sampleFit(Texture2D src, SamplerState s,
         inSrcPx.y < 0.0 || inSrcPx.y >= srcSize.y) {
         return float4(0, 0, 0, 0);
     }
-    return src.Sample(s, inSrcPx / srcSize);
+    // srcSize arrives display-swapped for odd quarter-turns; inverse-
+    // rotate the normalized display UV back onto the stored texture.
+    float2 t = inSrcPx / srcSize;
+    if (rot == 1)      t = float2(t.y, 1.0 - t.x);          //  90 CW
+    else if (rot == 2) t = float2(1.0 - t.x, 1.0 - t.y);    // 180
+    else if (rot == 3) t = float2(1.0 - t.y, t.x);          // 270 CW
+    return src.Sample(s, t);
 }
 
 float4 PSMain(VsOut input) : SV_TARGET
@@ -113,12 +120,12 @@ float4 PSMain(VsOut input) : SV_TARGET
             color = (aActive == 0)
                 ? float4(0, 0, 0, 0)
                 : sampleFit(srcA, smp, dstPx, float2(0, 0),
-                            float2(halfW, dstSize.y), srcSizeA);
+                            float2(halfW, dstSize.y), srcSizeA, rotA);
         } else {
             color = (bActive == 0)
                 ? float4(0, 0, 0, 0)
                 : sampleFit(srcB, smp, dstPx, float2(halfW, 0),
-                            float2(halfW, dstSize.y), srcSizeB);
+                            float2(halfW, dstSize.y), srcSizeB, rotB);
         }
         // Faint grey divider between the two sides.
         if (abs(uv.x - 0.5) * dstSize.x < 1.0) {
@@ -129,12 +136,12 @@ float4 PSMain(VsOut input) : SV_TARGET
             color = (aActive == 0)
                 ? float4(0, 0, 0, 0)
                 : sampleFit(srcA, smp, dstPx, float2(0, 0),
-                            dstSize, srcSizeA);
+                            dstSize, srcSizeA, rotA);
         } else {
             color = (bActive == 0)
                 ? float4(0, 0, 0, 0)
                 : sampleFit(srcB, smp, dstPx, float2(0, 0),
-                            dstSize, srcSizeB);
+                            dstSize, srcSizeB, rotB);
         }
         // Split seam — faint grey at rest, full white on hover/drag.
         if (abs(uv.x - splitPos) * dstSize.x < 1.0) {
@@ -148,16 +155,18 @@ float4 PSMain(VsOut input) : SV_TARGET
         // output |A - B| per channel * gain. Aligned same-res pair -> black.
         float4 ca = (aActive == 0)
             ? float4(0, 0, 0, 0)
-            : sampleFit(srcA, smp, dstPx, float2(0, 0), dstSize, srcSizeA);
+            : sampleFit(srcA, smp, dstPx, float2(0, 0), dstSize, srcSizeA,
+                        rotA);
         float4 cb = (bActive == 0)
             ? float4(0, 0, 0, 0)
-            : sampleFit(srcB, smp, dstPx, float2(0, 0), dstSize, srcSizeB);
+            : sampleFit(srcB, smp, dstPx, float2(0, 0), dstSize, srcSizeB,
+                        rotB);
         color = float4(abs(ca.rgb - cb.rgb) * diffGain, max(ca.a, cb.a));
     } else {
         color = (aActive == 0)
             ? float4(0, 0, 0, 0)
             : sampleFit(srcA, smp, dstPx, float2(0, 0),
-                        dstSize, srcSizeA);
+                        dstSize, srcSizeA, rotA);
     }
 
     if (color.a == 0.0) discard;
@@ -186,7 +195,8 @@ struct DualCB {
     float dstSize[2];     // 0  : 8
     float srcSizeA[2];    // 8  : 16
     float srcSizeB[2];    // 16 : 24
-    float pad0[2];        // 24 : 32
+    int   rotA;           // 24 : 28 — quarter-turns CW
+    int   rotB;           // 28 : 32
     int   mode;           // 32 : 36
     float splitPos;       // 36 : 40
     int   aActive;        // 40 : 44
@@ -320,6 +330,10 @@ struct D3D11DualCompositor::Impl {
     // effective srcSize fed to the shader; 1/1 = square (default).
     int   parNumA = 1, parDenA = 1;
     int   parNumB = 1, parDenB = 1;
+    // Per-side display rotation in quarter-turns CW {0..3}. Swaps the
+    // effective srcSize for odd quarters; the shader inverse-rotates
+    // its sampling to match.
+    int   rotQA = 0, rotQB = 0;
 
     // Prepare → render handoff state. Set in prepareFrames, consumed
     // (and cleared) in renderFrame.
@@ -499,6 +513,18 @@ void D3D11DualCompositor::setPixelAspectB(int num, int den)
     if (!m_impl) return;
     m_impl->parNumB = num > 0 ? num : 1;
     m_impl->parDenB = den > 0 ? den : 1;
+}
+
+void D3D11DualCompositor::setRotationA(int quarters)
+{
+    if (!m_impl) return;
+    m_impl->rotQA = quarters & 3;
+}
+
+void D3D11DualCompositor::setRotationB(int quarters)
+{
+    if (!m_impl) return;
+    m_impl->rotQB = quarters & 3;
 }
 
 void D3D11DualCompositor::prepareFrames(void *ctxVoid)
@@ -686,10 +712,17 @@ void D3D11DualCompositor::renderFrame(void *ctxVoid, int dstW, int dstH)
                                        m_impl->parNumA, m_impl->parDenA);
     const auto [effBW, effBH] = effDim(m_impl->srcBW, m_impl->srcBH,
                                        m_impl->parNumB, m_impl->parDenB);
-    cb.srcSizeA[0] = static_cast<float>(effAW);
-    cb.srcSizeA[1] = static_cast<float>(effAH);
-    cb.srcSizeB[0] = static_cast<float>(effBW);
-    cb.srcSizeB[1] = static_cast<float>(effBH);
+    // Display rotation: un-squeeze first (stored space), then swap
+    // the effective dims for odd quarter-turns so each side's fit
+    // frames the upright image. The shader inverse-rotates sampling.
+    const int rotA = m_impl->rotQA;
+    const int rotB = m_impl->rotQB;
+    cb.srcSizeA[0] = static_cast<float>((rotA & 1) ? effAH : effAW);
+    cb.srcSizeA[1] = static_cast<float>((rotA & 1) ? effAW : effAH);
+    cb.srcSizeB[0] = static_cast<float>((rotB & 1) ? effBH : effBW);
+    cb.srcSizeB[1] = static_cast<float>((rotB & 1) ? effBW : effBH);
+    cb.rotA        = rotA;
+    cb.rotB        = rotB;
     cb.mode        = m_impl->mode;
     cb.splitPos    = m_impl->splitPos;
     cb.aActive     = m_impl->aActive ? 1 : 0;

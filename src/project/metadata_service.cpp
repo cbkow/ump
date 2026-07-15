@@ -49,6 +49,22 @@ void MetadataService::requestVideoExtraction(const QString &mediaId,
     });
 }
 
+void MetadataService::requestRotationProbe(const QString &mediaId,
+                                           const QString &path)
+{
+    if (mediaId.isEmpty() || path.isEmpty()) return;
+
+    QPointer<MetadataService> guard(this);
+    QThreadPool::globalInstance()->start([guard, mediaId, path]() {
+        const int deg = FFmpegMetadataExtractor::probeRotation(path);
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(), [guard, mediaId, deg]() {
+            if (!guard) return;
+            Q_EMIT guard->rotationProbed(mediaId, deg);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void MetadataService::requestAdobeExtraction(const QString &mediaId,
                                              const QString &path)
 {
