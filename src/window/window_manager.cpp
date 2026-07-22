@@ -5684,10 +5684,13 @@ bool WindowManager::eventFilter(QObject *watched, QEvent *event)
                         || mods == Qt::KeypadModifier);
 
     if (plain) {
-        // Q/E step by one frame — allow auto-repeat for hold-to-step.
+        // Q/E (and ←/→) step by one frame — allow auto-repeat for
+        // hold-to-step.
         switch (ke->key()) {
-        case Qt::Key_Q: stepFrames(-1); return true;
-        case Qt::Key_E: stepFrames(1);  return true;
+        case Qt::Key_Q:
+        case Qt::Key_Left:  stepFrames(-1); return true;
+        case Qt::Key_E:
+        case Qt::Key_Right: stepFrames(1);  return true;
         default: break;
         }
         if (ke->isAutoRepeat()) {

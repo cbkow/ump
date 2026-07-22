@@ -307,8 +307,8 @@ Pane {
                             heading: "Transport",
                             items: [
                                 { label: "Play / Pause",            keys: "Space, W, S, K"  },
-                                { label: "Previous Frame",          keys: "Q"               },
-                                { label: "Next Frame",              keys: "E"               },
+                                { label: "Previous Frame",          keys: "Q, ←"            },
+                                { label: "Next Frame",              keys: "E, →"            },
                                 { label: "Rewind (hold)",           keys: "A, J"            },
                                 { label: "Fast Forward (hold)",     keys: "D, L"            },
                                 { label: "Seek to Start",           keys: "Home"            },
