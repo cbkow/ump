@@ -23,8 +23,9 @@ import Qcv
 Rectangle {
     id: root
 
-    // No top divider — the strip's tone against the viewport above
-    // is the separation (borders pass, 2026-07-07).
+    // Tone plus a faint top edge (below) separate the strip from the
+    // viewport — the bottom-band framing pass added the edge over
+    // the earlier tone-only rule (borders pass, 2026-07-07).
     color: Theme.bgAlt
 
     // Phase 3.H.3 — playlist mode shows seconds-based readouts;
@@ -51,10 +52,45 @@ Rectangle {
         return min + ":" + ss + "." + f3;
     }
 
+    // Faint top edge — encloses the bottom-band unit against the
+    // viewport above. Half-opacity divider tone: a full-strength
+    // line here outweighed the gutter lines it joins (the tone step
+    // used to be the only separation; see borders pass 2026-07-07).
+    Rectangle {
+        anchors.left:  parent.left
+        anchors.right: parent.right
+        anchors.top:   parent.top
+        height: Theme.dividerWidth
+        color: Theme.divider
+        opacity: 0.5
+    }
+
+    // Gutter dividers — continue the timeline's side-column edges up
+    // through this row (the strip is already the timeline's bgAlt
+    // tone, so only the 1px lines are needed; see TransportBar's
+    // gutter caps for the toolbar-toned row below).
+    Rectangle {
+        x: Theme.gutterWidth - 1
+        anchors.top:    parent.top
+        anchors.bottom: parent.bottom
+        width: 1
+        color: Theme.divider
+    }
+    Rectangle {
+        x: parent.width - Theme.gutterWidth
+        anchors.top:    parent.top
+        anchors.bottom: parent.bottom
+        width: 1
+        color: Theme.divider
+    }
+
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.padding
-        anchors.rightMargin: Theme.padding
+        // Inset to the timeline's gutter columns so this row, the
+        // transport row, and the timeline share one content edge
+        // (see TransportBar's matching margins).
+        anchors.leftMargin: Theme.gutterWidth
+        anchors.rightMargin: Theme.gutterWidth
         spacing: Theme.paddingLoose
 
         // ---- Frame counter / playlist seconds --------------------
@@ -224,6 +260,8 @@ Rectangle {
 
         // ---- fps -------------------------------------------------
         Text {
+            // Breathing room against the right gutter divider.
+            Layout.rightMargin: Theme.padding
             visible: !root.isPlaylistMode
             text: {
                 // Show the active clock's fps. In dual that's the

@@ -32,6 +32,38 @@ Pane {
 
     background: Rectangle {
         color: Theme.toolbar
+        // Gutter caps — continue the timeline's side columns up
+        // through this row: timeline tone + the same 1px inner-edge
+        // divider its gutters use, so the three bottom bands frame
+        // as one unit (margins experiment, second step).
+        Rectangle {
+            anchors.left:   parent.left
+            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
+            width: Theme.gutterWidth
+            color: Theme.bgAlt
+            Rectangle {
+                anchors.right:  parent.right
+                anchors.top:    parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.divider
+            }
+        }
+        Rectangle {
+            anchors.right:  parent.right
+            anchors.top:    parent.top
+            anchors.bottom: parent.bottom
+            width: Theme.gutterWidth
+            color: Theme.bgAlt
+            Rectangle {
+                anchors.left:   parent.left
+                anchors.top:    parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: Theme.divider
+            }
+        }
         Rectangle {
             anchors.left:   parent.left
             anchors.right:  parent.right
@@ -92,11 +124,12 @@ Pane {
 
     RowLayout {
         anchors.fill: parent
-        // Flush left/right — the row sits flat top-to-bottom in
-        // the bottom band, so the buttons run all the way to the
-        // panel edges with no inset.
-        anchors.leftMargin:  0
-        anchors.rightMargin: 0
+        // Inset to the timeline's gutter columns (track signifiers
+        // left, edit toggles right) so the status row, transport
+        // row, and timeline read as one unit with a shared content
+        // edge. Same alignment the bottom StatusStrip uses.
+        anchors.leftMargin:  Theme.gutterWidth
+        anchors.rightMargin: Theme.gutterWidth
         // Tiny inter-button gap so filled buttons (the danger ✕
         // clear, the accent-checked In/Out) don't visually merge
         // with their neighbors.
