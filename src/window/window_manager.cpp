@@ -7,6 +7,7 @@
 #include "sparkle_updater_macos.h"
 #include "native_fullscreen_win.h"
 #include "audio/audio_player.h"
+#include "audio/shuttle_audio_engine.h"
 #include "color/ocio_config_manager.h"
 #include "color/preset_manager.h"
 #include "decode/frame_handle.h"
@@ -109,6 +110,10 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
     if (!m_audio->initialize()) {
         qWarning("WindowManager: AudioPlayer init failed — playback will be silent");
     }
+
+    // Seed the process-wide scrub-audio mute from the persisted
+    // setting — the engines only re-check the flag, never QSettings.
+    ShuttleAudioEngine::setGlobalMute(scrubAudioMuted());
 
     // Restore persisted display brightness (default 1.0 = identity).
     // Renderer setBrightness fires later when the renderer is wired
@@ -7542,6 +7547,27 @@ void WindowManager::setDualAudioSyncOffsetMs(int ms)
         m_dualController->audio()->setSyncOffsetMs(ms);
     }
     emit dualAudioSyncOffsetMsChanged();
+}
+
+bool WindowManager::scrubAudioMuted() const
+{
+    QSettings s;
+    return s.value(QStringLiteral("audio/scrubMuted"), false).toBool();
+}
+
+void WindowManager::setScrubAudioMuted(bool muted)
+{
+    QSettings s;
+    const bool prev =
+        s.value(QStringLiteral("audio/scrubMuted"), false).toBool();
+    if (prev == muted) return;
+    s.setValue(QStringLiteral("audio/scrubMuted"), muted);
+
+    // One process-wide flag reaches all engines (single AudioPlayer +
+    // dual mixer's two); a gesture in flight goes silent/audible on
+    // the grain thread's next loop iteration.
+    ShuttleAudioEngine::setGlobalMute(muted);
+    emit scrubAudioMutedChanged();
 }
 
 QString WindowManager::audioRoutingScopeMediaItemId() const

@@ -86,6 +86,16 @@ public:
     // Stop + join the grain thread, clear the ring.
     void end();
 
+    // Process-wide scrub/shuttle audio mute (Settings toggle). The
+    // gesture machinery must keep running when the user opts out of
+    // audible feedback — dual relies on shuttle-active to suppress
+    // per-side seeks, and a live un-mute mid-gesture should resume
+    // seamlessly — so muting reuses the gap/hold idle path (silence,
+    // cursor keeps tracking) instead of skipping begin(). Static: one
+    // flag covers every engine (AudioPlayer's one, DualAudioMixer's
+    // two) with no plumbing through their owners.
+    static void setGlobalMute(bool muted);
+
     bool active() const { return m_active.load(); }
 
     // Device render callback: drain up to `frames` stereo f32 frames.
@@ -95,6 +105,8 @@ public:
 
 private:
     void grainThreadFn();
+
+    static std::atomic<bool> s_globalMute;
 
     // ---- Transport-side state (atomics / mutex) ----
     std::atomic<bool>     m_running{false};

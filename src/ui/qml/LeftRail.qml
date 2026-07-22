@@ -1772,6 +1772,7 @@ Rectangle {
                                 settingsSection.kHoverThumbsDefault;
                             WindowManager.timelineWaveformsEnabled =
                                 settingsSection.kWaveformsDefault;
+                            WindowManager.scrubAudioMuted = false;
                             Qt.quit();
                         }
                     }
@@ -2315,6 +2316,37 @@ Rectangle {
                                     onClicked:
                                         WindowManager.dualAudioSyncOffsetMs =
                                             WindowManager.dualAudioSyncOffsetMsDefault
+                                }
+                            }
+                        }
+
+                        // Scrub-audio mute. Applies live (mid-gesture
+                        // included) — the shuttle engines keep running
+                        // and just idle silent.
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                spacing: Theme.spacing
+                                RowLabel {
+                                    text: qsTr("Mute scrub audio")
+                                    help: qsTr("Silence the audio feedback while "
+                                             + "dragging the timeline or holding "
+                                             + "fast-forward/rewind. Scrubbing "
+                                             + "itself is unaffected.")
+                                }
+                                SlotSwitch {
+                                    checked: WindowManager.scrubAudioMuted
+                                    onToggled: {
+                                        WindowManager.scrubAudioMuted = checked;
+                                    }
+                                }
+                                RevertBtn {
+                                    dirty: WindowManager.scrubAudioMuted
+                                    onClicked: {
+                                        WindowManager.scrubAudioMuted = false;
+                                    }
                                 }
                             }
                         }

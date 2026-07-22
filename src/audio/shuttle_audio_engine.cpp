@@ -52,6 +52,13 @@ int64_t nowMs()
 }
 }
 
+std::atomic<bool> ShuttleAudioEngine::s_globalMute{false};
+
+void ShuttleAudioEngine::setGlobalMute(bool muted)
+{
+    s_globalMute.store(muted, std::memory_order_relaxed);
+}
+
 ShuttleAudioEngine::ShuttleAudioEngine() = default;
 
 ShuttleAudioEngine::~ShuttleAudioEngine() { end(); }
@@ -229,17 +236,20 @@ void ShuttleAudioEngine::grainThreadFn()
             needFadeIn = true;
         }
 
-        // ---- Idle states: gap side, no source, or held still ----
+        // ---- Idle states: muted, gap side, no source, held still ----
         // Hold = |speed| under the threshold OR the target hasn't
         // moved for kHoldTimeoutMs (stationary drag-scrub mouse,
         // shuttle clamped at the media edge). Cursor keeps tracking
-        // so resuming motion is seamless.
+        // so resuming motion is seamless. The global mute (Settings
+        // "Mute scrub audio") rides the same path: gesture machinery
+        // untouched, grains just never produced.
         const bool held =
             std::abs(m_signedSpeed.load(std::memory_order_relaxed))
                 < kHoldSpeedThreshold
             || (nowMs() - m_lastTargetMoveMs.load(std::memory_order_relaxed))
                 > kHoldTimeoutMs;
-        if (m_inGap.load(std::memory_order_relaxed) || !reader || held) {
+        if (s_globalMute.load(std::memory_order_relaxed)
+            || m_inGap.load(std::memory_order_relaxed) || !reader || held) {
             cursor = m_targetSrcSec.load(std::memory_order_relaxed);
             needFadeIn = true;
             std::this_thread::sleep_for(std::chrono::milliseconds(5));

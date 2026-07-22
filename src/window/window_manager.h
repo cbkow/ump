@@ -145,6 +145,14 @@ class WindowManager : public QObject
     Q_PROPERTY(int dualAudioSyncOffsetMsDefault
                READ dualAudioSyncOffsetMsDefault
                CONSTANT)
+    // Settings toggle: silence the grain audio during drag-scrub and
+    // FF/RW shuttle (default OFF = audible). The gesture machinery is
+    // untouched — the shuttle engines run but idle silent — so dual's
+    // per-side-seek suppression and mid-gesture un-mute keep working.
+    Q_PROPERTY(bool scrubAudioMuted
+               READ scrubAudioMuted
+               WRITE setScrubAudioMuted
+               NOTIFY scrubAudioMutedChanged)
     Q_PROPERTY(int  inPoint  READ inPoint  NOTIFY inOutPointsChanged)
     Q_PROPERTY(int  outPoint READ outPoint NOTIFY inOutPointsChanged)
     Q_PROPERTY(bool hasInOutRange READ hasInOutRange NOTIFY inOutPointsChanged)
@@ -567,6 +575,12 @@ public:
     int  dualAudioSyncOffsetMs() const;
     void setDualAudioSyncOffsetMs(int ms);
     int  dualAudioSyncOffsetMsDefault() const;
+
+    // Scrub/shuttle audio mute. Persisted under audio/scrubMuted;
+    // pushed to ShuttleAudioEngine's process-wide flag (constructor
+    // seeds it, setter updates it live — mid-gesture included).
+    bool scrubAudioMuted() const;
+    void setScrubAudioMuted(bool muted);
 
     // The MediaItem.id whose audioRoutingMode is the source of truth
     // for whatever audio is playing right now. In playlist mode this
@@ -1007,6 +1021,7 @@ signals:
                               const QString &actionId);
     void audioSyncOffsetMsChanged();
     void dualAudioSyncOffsetMsChanged();
+    void scrubAudioMutedChanged();
     // Fires when audioRoutingScopeMediaItemId() may return a
     // different value: activeItemId switches, OR (in playlist mode)
     // the active playlist clip transitions. Bound by the inspector
