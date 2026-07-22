@@ -31,6 +31,13 @@ public:
     // opened (offline volume) so the caller keeps the unknown
     // sentinel and retries next launch.
     static int probeRotation(const QString &filePath);
+
+    // Header-only codec-profile probe for project caches that predate
+    // VideoMetadata::codecProfile. Returns the display name ("ProRes
+    // 422 HQ"), empty (non-null) when the stream carries no profile,
+    // or a null QString when the file can't be opened (offline
+    // volume) so the caller skips the patch and retries next launch.
+    static QString probeCodecProfile(const QString &filePath);
 };
 
 } // namespace qcv

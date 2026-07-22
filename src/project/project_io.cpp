@@ -104,6 +104,7 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("totalFrames")]         = v.totalFrames;
     o[QStringLiteral("duration")]            = v.duration;
     o[QStringLiteral("videoCodec")]          = v.videoCodec;
+    o[QStringLiteral("codecProfile")]        = v.codecProfile;
     o[QStringLiteral("pixelFormat")]         = v.pixelFormat;
     o[QStringLiteral("bitDepth")]            = v.bitDepth;
     o[QStringLiteral("hasAlpha")]            = v.hasAlpha;
@@ -141,6 +142,9 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     v.totalFrames         = o.value(QStringLiteral("totalFrames")).toInt();
     v.duration            = o.value(QStringLiteral("duration")).toDouble();
     v.videoCodec          = o.value(QStringLiteral("videoCodec")).toString();
+    // Empty for caches saved before the field existed — the
+    // Inspector row hides; no re-probe (cosmetic only).
+    v.codecProfile        = o.value(QStringLiteral("codecProfile")).toString();
     v.pixelFormat         = o.value(QStringLiteral("pixelFormat")).toString();
     v.bitDepth            = o.value(QStringLiteral("bitDepth")).toInt(8);
     v.hasAlpha            = o.value(QStringLiteral("hasAlpha")).toBool();

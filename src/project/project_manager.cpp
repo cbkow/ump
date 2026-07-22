@@ -75,6 +75,8 @@ ProjectManager::ProjectManager(QObject *parent)
             this, &ProjectManager::onAdobeMetadataReady);
     connect(m_metadataService, &MetadataService::rotationProbed,
             this, &ProjectManager::onRotationProbed);
+    connect(m_metadataService, &MetadataService::codecProfileProbed,
+            this, &ProjectManager::onCodecProfileProbed);
 
     // Phase 7.6 — generate identity + timestamps so the manager is
     // never in an undefined "pre-newProject" state. Done after the
@@ -243,10 +245,25 @@ void ProjectManager::applyLoadedState(QList<MediaItem>  pool,
     // onRotationProbed; no markDirty (the key persists on the next
     // natural save).
     if (m_metadataService) {
+        // Same migration for VideoMetadata::codecProfile, gated to
+        // codecs that actually carry a profile — an empty profile on
+        // e.g. v210 / qtrle is the correct final answer, and probing
+        // those every launch would never converge.
+        static const QStringList kProfileBearingCodecs = {
+            QStringLiteral("prores"), QStringLiteral("h264"),
+            QStringLiteral("hevc"),   QStringLiteral("av1"),
+            QStringLiteral("vp9"),    QStringLiteral("mpeg2video"),
+            QStringLiteral("mpeg4"),  QStringLiteral("vc1"),
+            QStringLiteral("dnxhd"),  QStringLiteral("jpeg2000"),
+        };
         for (const MediaItem &it : m_mediaPool) {
-            if (it.type == MediaType::Video && it.video.loaded
-                && it.video.rotationDeg < 0) {
+            if (it.type != MediaType::Video || !it.video.loaded) continue;
+            if (it.video.rotationDeg < 0) {
                 m_metadataService->requestRotationProbe(it.id, it.path);
+            }
+            if (it.video.codecProfile.isEmpty()
+                && kProfileBearingCodecs.contains(it.video.videoCodec)) {
+                m_metadataService->requestCodecProfileProbe(it.id, it.path);
             }
         }
     }
@@ -593,6 +610,16 @@ QString ProjectManager::addMediaFile(const QString &path)
     // same file is a usability footgun (same name twice in a bin).
     for (const MediaItem &existing : m_mediaPool) {
         if (existing.path == abs) {
+            // Re-adding a cached item is a natural moment to backfill
+            // codecProfile on pre-field caches — cheaper than waiting
+            // for the next project open (single header probe, async).
+            if (m_metadataService
+                && existing.type == MediaType::Video
+                && existing.video.loaded
+                && existing.video.codecProfile.isEmpty()) {
+                m_metadataService->requestCodecProfileProbe(existing.id,
+                                                           existing.path);
+            }
             return existing.id;
         }
     }
@@ -1290,6 +1317,7 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("totalFrames")]      = it.video.totalFrames;
         v[QStringLiteral("duration")]         = it.video.duration;
         v[QStringLiteral("videoCodec")]       = it.video.videoCodec;
+        v[QStringLiteral("codecProfile")]     = it.video.codecProfile;
         v[QStringLiteral("pixelFormat")]      = it.video.pixelFormat;
         v[QStringLiteral("bitDepth")]         = it.video.bitDepth;
         v[QStringLiteral("hasAlpha")]         = it.video.hasAlpha;
@@ -1526,6 +1554,26 @@ void ProjectManager::onRotationProbed(const QString &mediaId, int rotationDeg)
     it.video.rotationDeg = rotationDeg;
     // Deliberately no markDirty — a migration probe on open shouldn't
     // make a freshly-opened project read as edited.
+    emit binsChanged();
+    if (m_activeItemId == mediaId || m_bSourceMediaId == mediaId) {
+        emit activeItemIdChanged();
+        emit bSourceChanged();
+    }
+}
+
+void ProjectManager::onCodecProfileProbed(const QString &mediaId,
+                                          const QString &profile)
+{
+    // Null = open failed (offline volume) → retry next launch.
+    // Empty = probed, stream carries no profile → nothing to patch
+    // (and the codec gate at scheduling keeps that case rare).
+    if (profile.isEmpty()) return;
+    const int idx = findIndexInPool(mediaId);
+    if (idx < 0) return;
+    MediaItem &it = m_mediaPool[idx];
+    if (it.video.codecProfile == profile) return;
+    it.video.codecProfile = profile;
+    // No markDirty — same rationale as onRotationProbed.
     emit binsChanged();
     if (m_activeItemId == mediaId || m_bSourceMediaId == mediaId) {
         emit activeItemIdChanged();

@@ -189,6 +189,40 @@ QString readEmbeddedTimecode(AVFormatContext *ctx, AVStream *videoStream)
     return {};
 }
 
+// Display-ready codec flavor. ProRes: the MOV fourcc is the
+// authoritative variant marker and is present even when the header
+// probe leaves codecpar->profile unset; map it to Apple's marketing
+// names (the strings users know from export menus). ProRes-in-MXF
+// carries no fourcc — fall back to the stream profile, which FFmpeg's
+// probe fills from the frame header. Other codecs: FFmpeg's profile
+// name when the container declares one ("High 4:2:2", "Main 10");
+// empty otherwise and the Inspector row hides.
+QString codecProfileName(const AVCodecParameters *cp)
+{
+    if (cp->codec_id == AV_CODEC_ID_PRORES) {
+        switch (cp->codec_tag) {
+            case MKTAG('a','p','c','o'): return QStringLiteral("ProRes 422 Proxy");
+            case MKTAG('a','p','c','s'): return QStringLiteral("ProRes 422 LT");
+            case MKTAG('a','p','c','n'): return QStringLiteral("ProRes 422");
+            case MKTAG('a','p','c','h'): return QStringLiteral("ProRes 422 HQ");
+            case MKTAG('a','p','4','h'): return QStringLiteral("ProRes 4444");
+            case MKTAG('a','p','4','x'): return QStringLiteral("ProRes 4444 XQ");
+            default: break;
+        }
+        switch (cp->profile) {
+            case AV_PROFILE_PRORES_PROXY:    return QStringLiteral("ProRes 422 Proxy");
+            case AV_PROFILE_PRORES_LT:       return QStringLiteral("ProRes 422 LT");
+            case AV_PROFILE_PRORES_STANDARD: return QStringLiteral("ProRes 422");
+            case AV_PROFILE_PRORES_HQ:       return QStringLiteral("ProRes 422 HQ");
+            case AV_PROFILE_PRORES_4444:     return QStringLiteral("ProRes 4444");
+            case AV_PROFILE_PRORES_XQ:       return QStringLiteral("ProRes 4444 XQ");
+            default:                         return QStringLiteral("ProRes");
+        }
+    }
+    const char *profile = avcodec_profile_name(cp->codec_id, cp->profile);
+    return profile ? QString::fromUtf8(profile) : QString{};
+}
+
 void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
 {
     int idx = av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
@@ -234,6 +268,7 @@ void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
     const AVCodec *codec = avcodec_find_decoder(cp->codec_id);
     m.videoCodec = codec ? QString::fromUtf8(codec->name)
                          : QStringLiteral("unknown");
+    m.codecProfile = codecProfileName(cp);
     // No decoder for a present video stream = we can't play it (e.g.
     // ARRIRAW camera raw). The viewport surfaces a notice instead of
     // a black frame; see WindowManager load-failure handling.
@@ -398,6 +433,22 @@ int FFmpegMetadataExtractor::probeRotation(const QString &filePath)
     if (idx >= 0) rot = rotationFromStream(ctx->streams[idx]);
     avformat_close_input(&ctx);
     return rot;
+}
+
+QString FFmpegMetadataExtractor::probeCodecProfile(const QString &filePath)
+{
+    if (filePath.isEmpty()) return {};
+    AVFormatContext *ctx = nullptr;
+    if (!openFile(filePath, &ctx)) return {};
+    QString profile = QStringLiteral("");   // non-null: probed, none found
+    const int idx =
+        av_find_best_stream(ctx, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (idx >= 0) {
+        profile = codecProfileName(ctx->streams[idx]->codecpar);
+        if (profile.isNull()) profile = QStringLiteral("");
+    }
+    avformat_close_input(&ctx);
+    return profile;
 }
 
 double FFmpegMetadataExtractor::probeDuration(const QString &filePath)

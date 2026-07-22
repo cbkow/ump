@@ -495,6 +495,16 @@ Rectangle {
                 label: qsTr("Codec")
                 value: content.vmeta ? content.vmeta.videoCodec : ""
             }
+            // Codec flavor in export-menu terms ("ProRes 422 HQ",
+            // "High 4:2:2"). Hidden when the container doesn't say
+            // — including caches saved before the field existed.
+            KvRow {
+                visible: content.vmeta !== undefined
+                         && content.vmeta !== null
+                         && (content.vmeta.codecProfile || "").length > 0
+                label: qsTr("Profile")
+                value: content.vmeta ? content.vmeta.codecProfile : ""
+            }
             KvRow {
                 label: qsTr("Pixel format")
                 value: content.vmeta ? content.vmeta.pixelFormat : ""

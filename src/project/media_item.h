@@ -152,6 +152,14 @@ struct VideoMetadata {
     int         totalFrames = 0;
     double      duration = 0.0;       // seconds
     QString     videoCodec;
+    // Display-ready codec flavor — "ProRes 422 HQ", "ProRes 4444",
+    // h264 "High 4:2:2", etc. ProRes maps the MOV fourcc / stream
+    // profile to Apple's marketing names (what export menus say);
+    // other codecs use FFmpeg's profile name. Empty when the
+    // container doesn't carry one (also: caches saved before this
+    // field — no re-probe, the row just stays hidden until the
+    // media is re-added).
+    QString     codecProfile;
     QString     pixelFormat;          // e.g. "yuv422p10le"
     int         bitDepth = 8;         // detected from pixelFormat
     bool        hasAlpha = false;

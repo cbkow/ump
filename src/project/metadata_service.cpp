@@ -65,6 +65,23 @@ void MetadataService::requestRotationProbe(const QString &mediaId,
     });
 }
 
+void MetadataService::requestCodecProfileProbe(const QString &mediaId,
+                                               const QString &path)
+{
+    if (mediaId.isEmpty() || path.isEmpty()) return;
+
+    QPointer<MetadataService> guard(this);
+    QThreadPool::globalInstance()->start([guard, mediaId, path]() {
+        const QString profile =
+            FFmpegMetadataExtractor::probeCodecProfile(path);
+        if (!guard) return;
+        QMetaObject::invokeMethod(guard.data(), [guard, mediaId, profile]() {
+            if (!guard) return;
+            Q_EMIT guard->codecProfileProbed(mediaId, profile);
+        }, Qt::QueuedConnection);
+    });
+}
+
 void MetadataService::requestAdobeExtraction(const QString &mediaId,
                                              const QString &path)
 {
