@@ -126,7 +126,8 @@ private:
     void teardownSession(AVFormatContext **fmt, AVCodecContext **cctx,
                          SwsContext **sws);
     void publishFrame(AVFrame *frame, AVCodecContext *cctx,
-                      SwsContext **sws, const AVRational &tb);
+                      SwsContext **sws, const AVRational &tb,
+                      const char *srcLabel = "sw→RGBA");
     void setStatus(Status s);
     void setSessionMetadata(int w, int h, const QString &codec,
                             const QString &pixFmt, bool hasAudio);

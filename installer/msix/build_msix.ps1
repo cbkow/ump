@@ -120,6 +120,15 @@ Write-Host "Staging files into $staging ..."
 # Executable, every DLL next to it, the assets/ tree, and Qt plugin subfolders.
 Copy-Item -Path $exe -Destination $staging
 Get-ChildItem -Path $BuildDir -Filter "*.dll" | Copy-Item -Destination $staging
+
+# FFmpeg CLI helpers (v2.2.3 live-SRT toolbox): staged next to qcview.exe
+# by src/app/CMakeLists.txt; writeToolboxManifest() resolves them at
+# <appdir>/ffmpeg.exe. They share the av*.dlls already staged above.
+foreach ($tool in @("ffmpeg.exe", "ffprobe.exe")) {
+    $toolPath = Join-Path $BuildDir $tool
+    if (Test-Path $toolPath) { Copy-Item -Path $toolPath -Destination $staging }
+    else { Write-Warning "$tool not found in $BuildDir -- toolbox.json will omit it in packaged installs." }
+}
 foreach ($subdir in @("assets", "platforms", "imageformats", "tls", "iconengines",
                        "qmltooling", "qml", "networkinformation", "generic")) {
     $src = Join-Path $BuildDir $subdir

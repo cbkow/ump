@@ -2,11 +2,13 @@
 #include "video_decoder.h"
 
 #include <QImage>
+#include <QSettings>
 #include <QtLogging>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
+#include <libavutil/hwcontext.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/opt.h>
 #include <libswscale/swscale.h>
@@ -34,6 +36,14 @@ AVPixelFormat liveGetFormat(AVCodecContext *, const AVPixelFormat *fmts)
 {
     for (int i = 0; fmts[i] != AV_PIX_FMT_NONE; ++i) {
         if (fmts[i] == AV_PIX_FMT_VIDEOTOOLBOX) return fmts[i];
+    }
+    return fmts[0];
+}
+#elif defined(Q_OS_WIN)
+AVPixelFormat liveGetFormat(AVCodecContext *, const AVPixelFormat *fmts)
+{
+    for (int i = 0; fmts[i] != AV_PIX_FMT_NONE; ++i) {
+        if (fmts[i] == AV_PIX_FMT_D3D11) return fmts[i];
     }
     return fmts[0];
 }
@@ -251,9 +261,24 @@ bool LiveStreamDecoder::connectOnce()
         cctx->hw_device_ctx = hwDev;   // cctx takes the ref
         cctx->get_format    = liveGetFormat;
     }
+#elif defined(Q_OS_WIN)
+    // D3D11VA — same routing as VideoDecoder's H.264/HEVC file path
+    // (Vulkan stays ProRes-only on Windows; live streams are inter
+    // codecs). GPU decode + NV12 readback in the receive loop below;
+    // silent SW fallback via get_format when the codec has no d3d11va
+    // support. Respects the same hardwareDecodeEnabled escape hatch
+    // as file playback.
+    if (QSettings().value(
+            QStringLiteral("performance/hardwareDecodeEnabled"),
+            true).toBool()) {
+        AVBufferRef *hwDev = nullptr;
+        if (av_hwdevice_ctx_create(&hwDev, AV_HWDEVICE_TYPE_D3D11VA,
+                                   nullptr, nullptr, 0) == 0) {
+            cctx->hw_device_ctx = hwDev;   // cctx takes the ref
+            cctx->get_format    = liveGetFormat;
+        }
+    }
 #endif
-    // Windows/Linux v1: software decode. The BtbN build has no cost
-    // barrier here — d3d11va wiring can ride a later Windows pass.
 
     if (avcodec_open2(cctx, codec, nullptr) < 0) {
         qWarning("LiveStreamDecoder: avcodec_open2 failed for %s",
@@ -273,8 +298,9 @@ bool LiveStreamDecoder::connectOnce()
           codec->name, vs->codecpar->width, vs->codecpar->height,
           pixName, sawAudio ? "yes" : "no", qPrintable(m_url));
 
-    AVPacket *pkt   = av_packet_alloc();
-    AVFrame  *frame = av_frame_alloc();
+    AVPacket *pkt     = av_packet_alloc();
+    AVFrame  *frame   = av_frame_alloc();
+    AVFrame  *swFrame = av_frame_alloc();  // landing pad for hw → cpu transfer
     bool waitingForKeyframe = true;
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
@@ -309,11 +335,31 @@ bool LiveStreamDecoder::connectOnce()
             continue;   // isolated bad packet; keep the session
         }
         while (avcodec_receive_frame(cctx, frame) == 0) {
+#if defined(Q_OS_WIN)
+            if (frame->format == AV_PIX_FMT_D3D11 && swFrame) {
+                // GPU-decoded frame: NV12 readback, then the shared
+                // sws path — mirrors VideoDecoder's D3D11VA branch.
+                if (av_hwframe_transfer_data(swFrame, frame, 0) >= 0) {
+                    swFrame->pts                   = frame->pts;
+                    swFrame->best_effort_timestamp = frame->best_effort_timestamp;
+                    swFrame->colorspace            = frame->colorspace;
+                    swFrame->color_range           = frame->color_range;
+                    swFrame->color_primaries       = frame->color_primaries;
+                    swFrame->color_trc             = frame->color_trc;
+                    publishFrame(swFrame, cctx, &sws, vs->time_base,
+                                 "d3d11va→RGBA");
+                    av_frame_unref(swFrame);
+                }
+                av_frame_unref(frame);
+                continue;
+            }
+#endif
             publishFrame(frame, cctx, &sws, vs->time_base);
             av_frame_unref(frame);
         }
     }
 
+    av_frame_free(&swFrame);
     av_frame_free(&frame);
     av_packet_free(&pkt);
     teardownSession(&fmt, &cctx, &sws);
@@ -321,7 +367,8 @@ bool LiveStreamDecoder::connectOnce()
 }
 
 void LiveStreamDecoder::publishFrame(AVFrame *frame, AVCodecContext *cctx,
-                                     SwsContext **sws, const AVRational &tb)
+                                     SwsContext **sws, const AVRational &tb,
+                                     const char *srcLabel)
 {
     VideoDecoder *sink = m_sink;
     if (!sink) return;
@@ -366,9 +413,9 @@ void LiveStreamDecoder::publishFrame(AVFrame *frame, AVCodecContext *cctx,
         qInfo("LiveStreamDecoder: LIVE — first frame published (%s, %dx%d)",
 #if defined(Q_OS_MACOS)
               frame->format == AV_PIX_FMT_VIDEOTOOLBOX
-                  ? "videotoolbox zero-copy" : "sw→RGBA",
+                  ? "videotoolbox zero-copy" : srcLabel,
 #else
-              "sw→RGBA",
+              srcLabel,
 #endif
               frame->width, frame->height);
         m_liveSinceMs.store(
