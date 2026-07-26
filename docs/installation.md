@@ -48,6 +48,19 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.2.3
+- Added framework to support SRT streaming
+
+What’s new in 2.2.2
+- Added a setting to disable audio when scrubbing
+- Added a metadata field in the Inspector to show codec specifics such as "ProRes 422 LT"
+- Margin tweaks on a few panels
+- Added left/right arrow as ALT keyboard shortcuts for previous/next frame
+
+What’s new in 2.2.1
+- Automatically rotates mobile videos with portrait orientation metadata
+- Added a new option in the inspector panel to manually rotate videos
+
 What’s new in 2.2.0
 - added a thumbnail contact sheet to the EXR layer picker in the Inspector panel
 - fixed a few bugs around EXR loading and playback
