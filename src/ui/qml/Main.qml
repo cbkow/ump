@@ -209,6 +209,104 @@ ApplicationWindow {
         }
     }
 
+    // Open Stream… — v2.2.3. Adds a live srt:// MediaItem. The URL is
+    // the item (passphrase / latency ride in the query string as SRT
+    // defines them); bare host:port is promoted to srt:// and the
+    // sender-contract default latency (300 ms) is appended when the
+    // user didn't specify one.
+    ModalHost {
+        id: openStreamModal
+        title: qsTr("Open Stream")
+        panelWidth: 480
+        onClosed: root.reclaimKeyboardFocus()
+        onOpenedChanged: if (opened) {
+            streamUrlField.text = "";
+            streamNameField.text = "";
+            streamPassField.text = "";
+            streamUrlField.forceActiveFocus();
+        }
+
+        function composeUrl() {
+            var url = streamUrlField.text.trim();
+            if (!url) return "";
+            if (url.indexOf("://") < 0) url = "srt://" + url;
+            var sep = url.indexOf("?") >= 0 ? "&" : "?";
+            if (url.indexOf("latency=") < 0) {
+                url += sep + "latency=300000";
+                sep = "&";
+            }
+            var pass = streamPassField.text;
+            if (pass.length > 0 && url.indexOf("passphrase=") < 0) {
+                url += sep + "passphrase=" + encodeURIComponent(pass)
+                     + "&pbkeylen=16";
+            }
+            return url;
+        }
+        function connectStream() {
+            const url = composeUrl();
+            if (!url || !WindowManager.project) return;
+            const id = WindowManager.project.addLiveStream(
+                url, streamNameField.text.trim());
+            if (id) WindowManager.project.setActiveItem(id);
+            openStreamModal.close();
+        }
+
+        ColumnLayout {
+            width: parent.width
+            spacing: Theme.spacing
+
+            Text {
+                text: qsTr("Stream URL")
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+            FlatTextField {
+                id: streamUrlField
+                Layout.fillWidth: true
+                placeholderText: "srt://host:9998?mode=caller"
+                onAccepted: openStreamModal.connectStream()
+            }
+            Text {
+                text: qsTr("Name (optional)")
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+            FlatTextField {
+                id: streamNameField
+                Layout.fillWidth: true
+                placeholderText: qsTr("defaults to host:port")
+                onAccepted: openStreamModal.connectStream()
+            }
+            Text {
+                text: qsTr("Passphrase (optional)")
+                color: Theme.textMuted
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeSmall
+            }
+            FlatTextField {
+                id: streamPassField
+                Layout.fillWidth: true
+                echoMode: TextInput.Password
+                onAccepted: openStreamModal.connectStream()
+            }
+        }
+        RowLayout {
+            width: parent.width
+            Item { Layout.fillWidth: true }
+            FlatButton {
+                text: qsTr("Cancel")
+                onClicked: openStreamModal.close()
+            }
+            FlatButton {
+                text: qsTr("Connect")
+                enabled: streamUrlField.text.trim().length > 0
+                onClicked: openStreamModal.connectStream()
+            }
+        }
+    }
+
     // About box — second ModalHost consumer. Opened from the About
     // menu; renders over the dimmed, frozen viewport.
     ModalHost {
@@ -297,6 +395,10 @@ ApplicationWindow {
                 text: qsTr("Open Media…")
                 shortcut: StandardKey.Open
                 onTriggered: openMediaDialog.open()
+            }
+            Action {
+                text: qsTr("Open Stream…")
+                onTriggered: openStreamModal.opened = true
             }
             ThemedMenu {
                 id: recentMediaMenu
@@ -649,8 +751,15 @@ ApplicationWindow {
         borderlessFs || visibility === ApplicationWindow.FullScreen
     readonly property bool fxLeftRail:    leftRailVisible    && !inFullscreen
     readonly property bool fxRightRail:   rightRailVisible   && !inFullscreen
+    // Live mode swaps the timeline/transport rows for the LiveStrip —
+    // nothing to scrub, no frame count; a disabled transport would
+    // read as broken rather than live.
     readonly property bool fxTimeline:    timelineVisible    && !inFullscreen
+                                          && !WindowManager.liveActive
     readonly property bool fxTransport:   transportVisible   && !inFullscreen
+                                          && !WindowManager.liveActive
+    readonly property bool fxLiveStrip:   WindowManager.liveActive
+                                          && !inFullscreen
     readonly property bool fxStatusStrip: statusStripVisible && !inFullscreen
     readonly property bool fxColorPanel:  colorPanelVisible  && !inFullscreen
     readonly property bool fxNotesPanel:
@@ -1275,8 +1384,18 @@ ApplicationWindow {
         TimelineStatus {
             Layout.fillWidth: true
             // Thin readout row (matches the bottom StatusStrip's 22px).
-            Layout.preferredHeight: root.inFullscreen ? 0 : 22
-            visible: !root.inFullscreen
+            Layout.preferredHeight:
+                (root.inFullscreen || WindowManager.liveActive) ? 0 : 22
+            visible: !root.inFullscreen && !WindowManager.liveActive
+        }
+
+        // ---- Bottom band (live mode): the LiveStrip replaces the
+        // status/transport/timeline rows while a stream is active.
+        LiveStrip {
+            Layout.fillWidth: true
+            Layout.preferredHeight:
+                root.fxLiveStrip ? Theme.toolStripHeight : 0
+            visible: root.fxLiveStrip
         }
 
         // ---- Bottom band 1: Transport

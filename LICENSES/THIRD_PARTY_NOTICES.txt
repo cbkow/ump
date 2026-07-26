@@ -69,9 +69,18 @@ MEDIA / DECODE
                                  patent grant   https://gitlab.com/AOMediaCodec/SVT-AV1
      - libmp3lame (MP3 encode) — LGPL v2        https://lame.sourceforge.io/
      - libopus (Opus)          — BSD-3-Clause   https://opus-codec.org/
+     - libsrt (SRT transport)  — MPL 2.0        https://github.com/Haivision/srt
+     - Mbed TLS (crypto backend
+       for libsrt encryption)  — Apache 2.0     https://github.com/Mbed-TLS/mbedtls
    AAC is handled by FFmpeg's native LGPL decoder/encoder and Apple's
    AudioToolbox (--enable-audiotoolbox); no nonfree codec (e.g. FDK-AAC)
    is linked. Hardware decode uses Apple VideoToolbox (system framework).
+
+   Both platforms also ship the ffmpeg command-line tool built from the
+   same sources and linking the same libraries (macOS: self-built, in
+   the app bundle; Windows: the BtbN build's ffmpeg.exe alongside
+   qcview.exe). Its license and notices are identical to entry 2's
+   respective platform terms.
 
 3. libplacebo [Windows]
    Copyright (c) 2017-present Niklas Haas

@@ -14,9 +14,12 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QImage>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <QPixmap>
+#include <QSaveFile>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -150,6 +153,65 @@ void installFileLogger()
     qInfo("File logger installed → %s", qPrintable(logPath));
 }
 
+// QCView is the suite's ffmpeg provider: sister apps (the qcbridge
+// Blender addon's replica) resolve the shipped CLI through a small
+// manifest at a FIXED per-user path — the path is a cross-app contract,
+// so it is built explicitly rather than via QStandardPaths (whose
+// org/app nesting differs per platform):
+//   macOS:   ~/Library/Application Support/QCView/toolbox.json
+//   Windows: %LOCALAPPDATA%\QCView\toolbox.json
+// Only tools that actually resolve on disk are listed. If none do (e.g.
+// a dev build before the FFmpeg CLI staging ran), any existing manifest
+// is left untouched — it may point at an installed copy that works.
+void writeToolboxManifest()
+{
+    const QString appDir = QCoreApplication::applicationDirPath();
+#if defined(Q_OS_MACOS)
+    const QString toolboxDir = QDir::homePath()
+        + QStringLiteral("/Library/Application Support/QCView");
+    const QString ffmpegPath  = appDir + QStringLiteral("/../Helpers/ffmpeg");
+    const QString ffprobePath = appDir + QStringLiteral("/../Helpers/ffprobe");
+#elif defined(Q_OS_WIN)
+    const QString localAppData = qEnvironmentVariable("LOCALAPPDATA");
+    if (localAppData.isEmpty())
+        return;
+    const QString toolboxDir = localAppData + QStringLiteral("/QCView");
+    const QString ffmpegPath  = appDir + QStringLiteral("/ffmpeg.exe");
+    const QString ffprobePath = appDir + QStringLiteral("/ffprobe.exe");
+#else
+    return;
+#endif
+
+    QJsonObject tools;
+    auto addTool = [&tools](const QString &key, const QString &path) {
+        const QFileInfo fi(path);
+        if (fi.exists() && fi.isFile())
+            tools.insert(key, QDir::toNativeSeparators(fi.canonicalFilePath()));
+    };
+    addTool(QStringLiteral("ffmpeg"), ffmpegPath);
+    addTool(QStringLiteral("ffprobe"), ffprobePath);
+    if (tools.isEmpty()) {
+        qInfo("toolbox.json: no shipped tools resolved — manifest not written");
+        return;
+    }
+
+    if (!QDir().mkpath(toolboxDir)) {
+        qWarning("toolbox.json: cannot create %s", qPrintable(toolboxDir));
+        return;
+    }
+    QSaveFile out(toolboxDir + QStringLiteral("/toolbox.json"));
+    if (!out.open(QIODevice::WriteOnly)) {
+        qWarning("toolbox.json: cannot open for write: %s",
+                 qPrintable(out.fileName()));
+        return;
+    }
+    out.write(QJsonDocument(tools).toJson(QJsonDocument::Indented));
+    if (out.commit())
+        qInfo("toolbox.json written → %s", qPrintable(out.fileName()));
+    else
+        qWarning("toolbox.json: commit failed: %s", qPrintable(out.fileName()));
+}
+
 // Per-user named pipe / socket for single-instance handoff. Including
 // the username scopes us to the current login session — a fast-user-
 // switched second account on the same Windows box gets its own primary
@@ -213,6 +275,17 @@ void dispatchOpenArgsOnPrimary(qcv::WindowManager *wm, const QStringList &paths)
     for (const QString &arg : paths) {
         if (arg.startsWith(QStringLiteral("qcview://"), Qt::CaseInsensitive)) {
             wm->openProjectLink(arg);
+            continue;
+        }
+        // v2.2.3 — any other URL-shaped arg is a live stream
+        // (srt:// primarily; file paths never contain "://").
+        if (arg.contains(QLatin1String("://"))) {
+            if (auto *p = wm->project()) {
+                const QString id = p->addLiveStream(arg);
+                if (!id.isEmpty() && firstAdded.isEmpty()) {
+                    firstAdded = id;
+                }
+            }
             continue;
         }
         if (auto *p = wm->project()) {
@@ -292,6 +365,11 @@ int main(int argc, char *argv[])
     // is resolved, but BEFORE anything else that logs, so we capture
     // VulkanDeviceManager init etc.
     installFileLogger();
+
+    // Advertise the shipped ffmpeg CLI to sister apps (qcbridge). After
+    // the logger so the outcome lands in qcview-log.txt; only the
+    // primary instance gets here (secondaries exited above).
+    writeToolboxManifest();
 
     // Window icon — split title-bar vs taskbar/Alt+Tab visuals.
     //

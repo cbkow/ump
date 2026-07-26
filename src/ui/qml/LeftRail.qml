@@ -271,6 +271,7 @@ Rectangle {
         case 3: return qsTr("Image Sequences");
         case 4: return qsTr("Playlists");
         case 5: return qsTr("Dual Views");
+        case 6: return qsTr("Live");
         }
         return "";
     }
@@ -516,6 +517,7 @@ Rectangle {
                     case 3: return "film-strip";
                     case 4: return "playlist";
                     case 5: return "frame-corners";
+                    case 6: return "broadcast";
                 }
                 return "file";
             }
@@ -532,6 +534,18 @@ Rectangle {
                     color: rowItem.isActive
                            ? Theme.accent : Theme.textMuted
                     Layout.alignment: Qt.AlignVCenter
+                }
+                // Live connection dot — only meaningful on the ACTIVE
+                // live item (inactive streams have no receiver). Red =
+                // live, amber = connecting/reconnecting.
+                Rectangle {
+                    visible: rowItem.itemType === 6 && rowItem.isActive
+                             && !!WindowManager.liveDecoder
+                    width: 6; height: 6; radius: 3
+                    Layout.alignment: Qt.AlignVCenter
+                    color: WindowManager.liveDecoder
+                           && WindowManager.liveDecoder.status === 2
+                           ? "#e5484d" : "#e6a23c"
                 }
                 Text {
                     Layout.fillWidth: true

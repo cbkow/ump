@@ -8,6 +8,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
+#include <QUrl>
 #include <QUuid>
 #include <QVariantMap>
 #include <QtLogging>
@@ -64,6 +65,11 @@ ProjectManager::ProjectManager(QObject *parent)
     // route here; only WindowManager::saveCurrentDualView populates
     // this bin via addDualPairItem().
     seed(QStringLiteral("Dual Views"), MediaType::DualPair, false);
+    // v2.2.3 — Live bin. Holds srt:// live-stream items (Blender-bridge
+    // stage 2 / general SRT monitor). Populated only via addLiveStream;
+    // file drag-drop never routes here. Old projects get the shell
+    // appended on load (ProjectIo migration).
+    seed(QStringLiteral("Live"),       MediaType::LiveStream, false);
 
     // Phase 3.B — async metadata extraction. Connects directly into
     // onVideoMetadataReady, which patches the MediaItem and emits
@@ -659,6 +665,65 @@ QString ProjectManager::addMediaFile(const QString &path)
         // forgiving and returns empty for missing keys.
         m_metadataService->requestAdobeExtraction(item.id, abs);
     }
+    return item.id;
+}
+
+QString ProjectManager::addLiveStream(const QString &url, const QString &name)
+{
+    const QString trimmed = url.trimmed();
+    if (!trimmed.contains(QLatin1String("://"))) {
+        qWarning("ProjectManager::addLiveStream: not a URL: '%s'",
+                 qPrintable(trimmed));
+        return {};
+    }
+
+    // Streams join the recent-media list like files do (the recents
+    // open path routes "://" entries back through addLiveStream).
+    emit mediaFileAdded(trimmed);
+
+    // Dedupe by exact URL — same contract as addMediaFile's
+    // dedupe-by-absolute-path.
+    for (const MediaItem &existing : m_mediaPool) {
+        if (existing.type == MediaType::LiveStream
+            && existing.path == trimmed) {
+            return existing.id;
+        }
+    }
+
+    MediaItem item;
+    item.id   = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    item.path = trimmed;
+    item.type = MediaType::LiveStream;
+    if (!name.trimmed().isEmpty()) {
+        item.name = name.trimmed();
+    } else {
+        // Default display name: host:port, falling back to the raw
+        // URL when parsing can't produce one (QUrl handles srt://
+        // fine — it's scheme-agnostic for authority parsing).
+        const QUrl parsed(trimmed);
+        if (!parsed.host().isEmpty()) {
+            item.name = parsed.port() > 0
+                ? QStringLiteral("%1:%2").arg(parsed.host())
+                                         .arg(parsed.port())
+                : parsed.host();
+        } else {
+            item.name = trimmed;
+        }
+    }
+    // duration stays 0 (no duration by definition); hasAudio flips
+    // later if the receiver probes an audio stream in the TS.
+    m_mediaPool.append(item);
+
+    for (ProjectBin &bin : m_bins) {
+        if (bin.accepts == MediaType::LiveStream) {
+            bin.itemIds.append(item.id);
+            break;
+        }
+    }
+    markDirty();
+    emit binsChanged();
+    qInfo("ProjectManager: live stream added — '%s' (%s)",
+          qPrintable(item.name), qPrintable(item.path));
     return item.id;
 }
 

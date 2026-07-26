@@ -72,7 +72,7 @@ FetchContent_Declare(
 | **Pin** | **n8.1.2** (8.1 release branch) — both **macOS (self-built, in-tree at `external/install/`)** and **Windows (`n8.1.2-20260624`)** |
 | **License** | **GPL v3** on both shipped platforms (macOS self-built `--enable-gpl --enable-version3`; Windows BtbN GPL-Shared `--enable-gpl`) |
 | **Verified** | macOS self-built `n8.1.2` (libavcodec 62.28.102 / libavutil 60.26.102 / libavformat 62.12.102) loads + app links/builds clean; Windows build version-checked |
-| **Build flags** | `--enable-videotoolbox --enable-vulkan --enable-libdav1d --enable-libsvtav1 --enable-libopus --disable-x86asm-on-cross` |
+| **Build flags** | `--enable-videotoolbox --enable-vulkan --enable-libdav1d --enable-libsvtav1 --enable-libopus --enable-libsrt --disable-x86asm-on-cross` |
 | **Hwaccels needed** | `videotoolbox` (macOS), `vulkan` (Win+Linux) |
 | **Codecs needed** | H.264, H.265, AV1, ProRes, DNxHR, JPEG (image-sequence fallback) |
 
@@ -156,7 +156,8 @@ PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig" ./configure \
   --enable-gpl --enable-version3 \
   --enable-libx264 --enable-libx265 --enable-libdav1d --enable-libvpx \
   --enable-libmp3lame --enable-libopus --enable-libsvtav1 \
-  --disable-programs --disable-doc --disable-debug --arch=arm64 \
+  --enable-libsrt \
+  --disable-doc --disable-debug --arch=arm64 \
   --extra-cflags="-I$INSTALL/include -mmacosx-version-min=13.0 -arch arm64" \
   --extra-ldflags="-L$INSTALL/lib -mmacosx-version-min=13.0 -arch arm64" \
   --extra-libs=-lc++
@@ -164,12 +165,63 @@ make -j"$(sysctl -n hw.ncpu)" && make install
 # make install leaves the old versioned dylibs behind — prune stale ones:
 #   ls external/install/lib/libav*.*.*.dylib  (keep only the newest micro)
 # Verify: cat external/install/include/libavutil/ffversion.h  → n8.1.2
+#         external/install/bin/ffmpeg -protocols | grep srt   → srt in+out
 ```
 
 **NOTE — no `--enable-nonfree`:** the previous build carried a vestigial
 `--enable-nonfree` (no GPL-incompatible codec was ever linked). It was
 dropped in this rebuild; the binary now matches the
 `LICENSES/THIRD_PARTY_NOTICES.txt` macOS entry exactly.
+
+**NOTE — `--enable-libsrt` + programs (2026-07-26, v2.2.3):** the SRT
+protocol was added for the live `srt://` MediaItem (Blender-bridge
+stage 2), and `--disable-programs` was dropped so the build also produces
+the `ffmpeg` CLI — QCView ships it and acts as the suite's ffmpeg
+provider (see `toolbox.json`). avfoundation input devices ride along via
+libavdevice (autodetected on macOS) for the qcbridge mac-replica encoder
+fallback.
+
+#### macOS: libsrt 1.5.6 + mbedTLS 3.6.7 (vendored static, SRT transport)
+
+Prerequisite for `--enable-libsrt`. Both are static archives in
+`external/install/lib` (same pattern as the codec deps). mbedTLS
+(Apache-2.0, GPLv3-compatible) is the crypto backend for SRT's AES
+passphrase support — chosen over OpenSSL for build weight, over GnuTLS
+for CMake-native static builds.
+
+```bash
+INSTALL="$PWD/external/install"
+# mbedTLS — use the RELEASE TARBALL, not git (git needs the framework
+# submodule + Python codegen; the tarball ships pre-generated files)
+cd external/source
+curl -sL -o mbedtls.tar.bz2 https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+tar xjf mbedtls.tar.bz2 && mv mbedtls-3.6.7 mbedtls && rm mbedtls.tar.bz2
+cd mbedtls
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DENABLE_TESTING=OFF -DENABLE_PROGRAMS=OFF
+cmake --build build -j"$(sysctl -n hw.ncpu)" && cmake --install build
+
+# libsrt
+cd .. && git clone --depth 1 --branch v1.5.6 https://github.com/Haivision/srt.git srt
+cd srt
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$INSTALL" \
+  -DCMAKE_PREFIX_PATH="$INSTALL" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DENABLE_APPS=OFF -DUSE_ENCLIB=mbedtls
+cmake --build build -j"$(sysctl -n hw.ncpu)" && cmake --install build
+```
+
+**Post-install fix-up (required):** FFmpeg's configure calls plain
+`pkg-config` (no `--static`), so the mbedTLS archives listed in
+`srt.pc`'s `Libs.private` never reach the `libavformat` link. Fold them
+into `Libs` in both `external/install/lib/pkgconfig/srt.pc` and
+`haisrt.pc` (append the three `libmbed*.a` absolute paths + `-lc++` to
+the `Libs:` line, blank out `Libs.private:`). Verify the closure before
+running FFmpeg's configure:
+`cc test.c $(pkg-config --cflags --libs srt)` with
+`PKG_CONFIG_PATH=external/install/lib/pkgconfig` must link and run a
+`srt_startup()`/`srt_cleanup()` pair.
 
 ### OCIO (OpenColorIO)
 

@@ -38,6 +38,7 @@ QString mediaTypeToString(MediaType t)
     case MediaType::ImageSequence: return QStringLiteral("ImageSequence");
     case MediaType::Playlist:      return QStringLiteral("Playlist");
     case MediaType::DualPair:      return QStringLiteral("DualPair");
+    case MediaType::LiveStream:    return QStringLiteral("LiveStream");
     }
     return QStringLiteral("Video");
 }
@@ -50,6 +51,7 @@ MediaType mediaTypeFromString(const QString &s)
     if (s == QStringLiteral("ImageSequence")) return MediaType::ImageSequence;
     if (s == QStringLiteral("Playlist"))      return MediaType::Playlist;
     if (s == QStringLiteral("DualPair"))      return MediaType::DualPair;
+    if (s == QStringLiteral("LiveStream"))    return MediaType::LiveStream;
     qWarning("ProjectIo: unknown MediaType '%s' — defaulting to Video",
              qPrintable(s));
     return MediaType::Video;
@@ -62,6 +64,10 @@ MediaType mediaTypeFromString(const QString &s)
 QString collapseProjectDir(const QString &absPath, const QString &projectDir)
 {
     if (absPath.isEmpty() || projectDir.isEmpty()) return absPath;
+    // Live-stream URLs (srt:// etc.) pass through untouched. The
+    // prefix match below can't fire for them today, but make the
+    // intent explicit rather than accidental.
+    if (absPath.contains(QLatin1String("://"))) return absPath;
     const QString normPath = QDir::cleanPath(absPath);
     const QString normDir  = QDir::cleanPath(projectDir);
     // Direct prefix match plus separator — guards against
@@ -81,6 +87,7 @@ QString collapseProjectDir(const QString &absPath, const QString &projectDir)
 QString expandProjectDir(const QString &storedPath, const QString &projectDir)
 {
     if (storedPath.isEmpty()) return storedPath;
+    if (storedPath.contains(QLatin1String("://"))) return storedPath;
     const QString token = QString::fromLatin1(kProjectDirToken);
     if (!storedPath.startsWith(token)) return storedPath;
     const QString remainder = storedPath.mid(token.size());
@@ -613,11 +620,31 @@ bool load(ProjectManager &pm, const QString &filePath, QString *errorOut)
             ProjectBin b; b.name = n; b.accepts = t; b.isOpen = open;
             bins.append(b);
         };
-        seed(QStringLiteral("Videos"),     MediaType::Video,    true);
-        seed(QStringLiteral("Audio"),      MediaType::Audio,    false);
-        seed(QStringLiteral("Images"),     MediaType::Image,    false);
-        seed(QStringLiteral("Playlists"),  MediaType::Playlist, false);
-        seed(QStringLiteral("Dual Views"), MediaType::DualPair, false);
+        seed(QStringLiteral("Videos"),     MediaType::Video,      true);
+        seed(QStringLiteral("Audio"),      MediaType::Audio,      false);
+        seed(QStringLiteral("Images"),     MediaType::Image,      false);
+        seed(QStringLiteral("Playlists"),  MediaType::Playlist,   false);
+        seed(QStringLiteral("Dual Views"), MediaType::DualPair,   false);
+        seed(QStringLiteral("Live"),       MediaType::LiveStream, false);
+    }
+
+    // Migration (v2.2.3): projects saved before the Live bin existed
+    // carry five shells. Append the missing shell so live items have
+    // a routing target — mirrors the header-only re-probes below in
+    // spirit: old files upgrade silently on load.
+    {
+        bool hasLive = false;
+        for (const ProjectBin &b : bins) {
+            if (b.accepts == MediaType::LiveStream) { hasLive = true; break; }
+        }
+        if (!hasLive) {
+            ProjectBin b;
+            b.name    = QStringLiteral("Live");
+            b.accepts = MediaType::LiveStream;
+            b.isOpen  = false;
+            bins.append(b);
+            qInfo("ProjectIo::load: pre-2.2.3 project — appended Live bin shell");
+        }
     }
 
     const QJsonObject ui = root.value(QStringLiteral("ui_state")).toObject();

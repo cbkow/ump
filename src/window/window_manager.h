@@ -20,6 +20,7 @@
 #include "color/ocio_config_manager.h"
 #include "color/preset_manager.h"
 #include "decode/image_sequence_cache.h"
+#include "decode/live_stream_decoder.h"
 #include "decode/scrub_decoder.h"
 #include "decode/video_decoder.h"
 #include "project/project_manager.h"
@@ -276,6 +277,15 @@ class WindowManager : public QObject
     // reflect what's actually happening.
     Q_PROPERTY(bool audioActive READ audioActive
                NOTIFY audioActiveChanged)
+    // v2.2.3 — live srt:// receiver mode. True while a LiveStream
+    // MediaItem is active: no timeline, no seeking, latest-frame
+    // presentation; the bottom band swaps to the live strip. The
+    // decoder itself is exposed (like dualController) so QML binds
+    // status / dims / codec / received pix_fmt / reconnect count
+    // directly; null when live mode is off.
+    Q_PROPERTY(bool liveActive READ liveActive NOTIFY liveActiveChanged)
+    Q_PROPERTY(qcv::LiveStreamDecoder *liveDecoder READ liveDecoder
+               NOTIFY liveDecoderChanged)
     // Phase 7.4.b.4 — pull-model: the cache itself, exposed to QML
     // so the PlayerWindow.qml binding can forward it to
     // PlayerRhiItem::imageSeqCache. Renderer pulls pixels from
@@ -658,6 +668,8 @@ public:
     void   setBrightness(double brightness);
 
     bool imageSeqActive() const { return m_imageSeqActive; }
+    bool liveActive() const { return m_liveActive; }
+    LiveStreamDecoder *liveDecoder() const { return m_liveDecoder.get(); }
     bool audioActive()    const { return m_audioActive; }
     ImageSequenceCache *imageSeqCache() const { return m_imageSeqCache.get(); }
 
@@ -1064,6 +1076,8 @@ signals:
     // bindings re-evaluate together.
     void dualImageSeqStatusChanged();
     void audioActiveChanged();
+    void liveActiveChanged();
+    void liveDecoderChanged();
     // Bumped at ~30 Hz by m_audioMeterTimer when peaks have moved.
     // Inspector level meters bind via Q_PROPERTY notify.
     void audioMetersChanged();
@@ -1105,6 +1119,14 @@ private:
                             std::unique_ptr<ImageSequenceCache>
                                 prewarmedCache = nullptr);
     void stopImageSequence();
+
+    // v2.2.3 — live-stream mode enter/exit. startLiveStream assumes
+    // closeActiveMedia() already ran (loadRequested dispatch order);
+    // stopLiveStream is the closeActiveMedia teardown arm and must
+    // run BEFORE m_videoDecoder->close() clears the publish slot the
+    // live worker feeds.
+    void startLiveStream(const MediaItem &item);
+    void stopLiveStream();
 
     // Phase 3.H.1 — kick a Playlist load. Resolves entries against
     // the pool, builds the playlist timeline, and (for Stage 1) opens
@@ -1545,6 +1567,13 @@ private:
     // wallclock pump (m_imageSeqDriverTimer reused), and transport
     // toggles drive both timer + AudioPlayer directly.
     bool                                  m_audioActive         = false;
+
+    // v2.2.3 — live-stream mode. Owns the receiver; created per
+    // startLiveStream, destroyed in stopLiveStream (close() joins the
+    // worker BEFORE anything downstream tears down — the live worker
+    // publishes into m_videoDecoder's slot, so it must stop first).
+    std::unique_ptr<LiveStreamDecoder>    m_liveDecoder;
+    bool                                  m_liveActive          = false;
 
     // True while startImageSequence is mid-flight (the brief gap
     // where the previous video decoder closes and the new sequence

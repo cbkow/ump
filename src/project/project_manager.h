@@ -121,6 +121,16 @@ public:
     // id (or the existing id if a dupe is detected).
     Q_INVOKABLE QString addMediaFile(const QString &path);
 
+    // v2.2.3 — live srt:// stream as a MediaItem. `url` is stored in
+    // MediaItem::path verbatim (passphrase/latency ride in the query
+    // string as SRT defines them). Dedupe is by exact URL; returns the
+    // existing item's id on a duplicate, the new id otherwise, empty
+    // on rejection (non-URL input). `name` defaults to host:port.
+    // Deliberately separate from addMediaFile, whose existence check
+    // and extension routing are file-oriented.
+    Q_INVOKABLE QString addLiveStream(const QString &url,
+                                      const QString &name = QString());
+
     // Phase 7.4 — same as addMediaFile but lets the caller specify
     // the playback fps for the resulting sequence. Useful for
     // future "Open Image Sequence with FPS…" dialogs. Defaults match

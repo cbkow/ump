@@ -936,6 +936,14 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             startPlaylist(item);
             return;
         }
+        if (item.type == MediaType::LiveStream) {
+            // Live is never dual-capable A in v1 (preserveDual is false
+            // here — the type check above excludes it, so any dual
+            // island was already torn down). No timeline, no audio
+            // path; the receiver feeds m_videoDecoder's publish slot.
+            startLiveStream(item);
+            return;
+        }
         if (!m_videoDecoder) return;
         // ARRIRAW / undecodable raw handling. Two convergent triggers,
         // neither gating the other (see the load-notice design):
@@ -1878,6 +1886,12 @@ void WindowManager::tearDownDualIslandToSingleState()
 void WindowManager::setCompositorMode(int mode)
 {
     if (m_compositorMode == mode) return;
+    // Live A is not dual-capable in v1 — see the setBSource guard.
+    if (mode != 0 && m_liveActive) {
+        qWarning("setCompositorMode: dual modes unavailable while a "
+                 "live stream is active (v1)");
+        return;
+    }
     const bool wasSingle = (m_compositorMode == 0);
     const bool nowSingle = (mode == 0);
     m_compositorMode = mode;
@@ -2635,7 +2649,12 @@ void WindowManager::openMediaPaths(const QStringList &paths)
         QString lastId;
         for (const QString &p : ps) {
             if (p.isEmpty()) continue;
-            const QString id = m_project->addMediaFile(p);
+            // URL-shaped entries (srt:// — recents, dropped links)
+            // route to the live-stream add; file paths never
+            // contain "://".
+            const QString id = p.contains(QLatin1String("://"))
+                                   ? m_project->addLiveStream(p)
+                                   : m_project->addMediaFile(p);
             if (!id.isEmpty()) lastId = id;
         }
         if (!lastId.isEmpty()) m_project->setActiveItem(lastId);
@@ -2650,7 +2669,12 @@ void WindowManager::addMediaPaths(const QStringList &paths)
     const QStringList ps = paths;
     QTimer::singleShot(kOpenDeferMs, this, [this, ps]() {
         for (const QString &p : ps) {
-            if (!p.isEmpty()) m_project->addMediaFile(p);
+            if (p.isEmpty()) continue;
+            if (p.contains(QLatin1String("://"))) {
+                m_project->addLiveStream(p);
+            } else {
+                m_project->addMediaFile(p);
+            }
         }
         setLoadingActive(false);
     });
@@ -3307,6 +3331,13 @@ void WindowManager::closeActiveMedia()
     // subsequent load doesn't inherit the previous gesture's flag.
     stopFastSeek();
 
+    // Live-stream teardown FIRST: the live worker publishes into
+    // m_videoDecoder's slot, so it must be joined before the
+    // m_videoDecoder->close() below clears that slot. Also the
+    // disconnect-on-switch contract: the sender is a one-connection
+    // listener — never hold the socket for a source we're leaving.
+    stopLiveStream();
+
     // Phase 3.H.2 — drop the playlist orchestrator state so the
     // boundary handlers don't re-fire mid-tear-down. closeActiveMedia
     // runs at the start of every load path, so the new load is free
@@ -3799,6 +3830,65 @@ void WindowManager::stopImageSequence()
     if (m_imageSeqActive) {
         m_imageSeqActive = false;
         emit imageSeqActiveChanged();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// v2.2.3 — live srt:// receiver mode (Blender-bridge stage 2).
+// ---------------------------------------------------------------------------
+
+void WindowManager::startLiveStream(const MediaItem &item)
+{
+    qInfo("startLiveStream: '%s' (%s)",
+          qPrintable(item.name), qPrintable(item.path));
+
+    // closeActiveMedia() already ran in the dispatch path; this is
+    // belt-and-braces for any future direct caller.
+    stopLiveStream();
+
+    if (!m_videoDecoder) {
+        qWarning("startLiveStream: no sink VideoDecoder — aborting");
+        return;
+    }
+
+    m_liveDecoder = std::make_unique<LiveStreamDecoder>();
+    m_liveDecoder->setSink(m_videoDecoder);
+
+    // Per-frame renderer nudge. Metal's present loop free-runs and
+    // fetches every vsync, but D3D11 renders on demand — without this
+    // the Windows viewport would only repaint on unrelated UI events.
+    // Same cross-thread contract as the dual sources' frame callback.
+    if (auto *r = fetchActiveRenderer(m_playerWindow.data())) {
+        m_liveDecoder->setFrameCallback([r] { r->requestUpdate(); });
+    }
+
+    if (!m_liveDecoder->open(item.path)) {
+        m_liveDecoder.reset();
+        setViewportNotice(QStringLiteral("Could not open stream\n%1")
+                              .arg(item.path));
+        return;
+    }
+
+    m_liveActive = true;
+    emit liveActiveChanged();
+    emit liveDecoderChanged();
+}
+
+void WindowManager::stopLiveStream()
+{
+    if (!m_liveDecoder) return;
+
+    // close() joins the receive/decode worker, so after this line
+    // nothing publishes into m_videoDecoder's slot. The renderer is
+    // left alone here — closeActiveMedia's clearSourceAState() (or
+    // the next source's first publish) replaces the last frame.
+    m_liveDecoder->close();
+    m_liveDecoder.reset();
+    emit liveDecoderChanged();
+
+    if (m_liveActive) {
+        m_liveActive = false;
+        emit liveActiveChanged();
     }
 }
 
@@ -4760,6 +4850,17 @@ bool WindowManager::setBSource(const QString &path)
     // audio-only B-side has no frames to composite and the dual
     // controller's source machinery doesn't have an audio path.
     // Audio is still fine in the Audio bin and on playlists.
+    // v1 blocks live streams from dual entirely (both sides): the
+    // dual controller is a synced clock pump over two seekable
+    // sources, and a free-running live source breaks that model.
+    // Revisit as a dedicated compositor-pairing mode (live A +
+    // user-scrubbed B) once the live item has matured.
+    if (path.contains(QLatin1String("://"))) {
+        qWarning("setBSource: live streams are not dual-capable in v1 (%s)",
+                 qPrintable(path));
+        return false;
+    }
+
     qcv::MediaType kind = qcv::MediaType::Video;
     qcv::ProjectManager::detectType(path, &kind);
     if (kind == qcv::MediaType::Audio) {
@@ -7606,6 +7707,30 @@ bool WindowManager::openProjectLink(const QString &uri)
     if (body.isEmpty()) {
         qWarning("openProjectLink: empty URI");
         return false;
+    }
+
+    // v2.2.3 — stream form: qcview://stream?url=<pct-encoded>[&name=…].
+    // Adds (dedupes) the live stream into the CURRENT project and
+    // activates it. This is the hook the qcbridge host panel uses for
+    // "open in QCView".
+    if (body.startsWith(QStringLiteral("stream"), Qt::CaseInsensitive)) {
+        const QUrlQuery q(QUrl(uri).query());
+        const QString streamUrl =
+            q.queryItemValue(QStringLiteral("url"),
+                             QUrl::FullyDecoded).trimmed();
+        const QString streamName =
+            q.queryItemValue(QStringLiteral("name"), QUrl::FullyDecoded);
+        if (streamUrl.isEmpty()) {
+            qWarning("openProjectLink: stream link missing url= ('%s')",
+                     qPrintable(uri));
+            return false;
+        }
+        const QString id = m_project->addLiveStream(streamUrl, streamName);
+        if (id.isEmpty()) return false;
+        m_project->setActiveItem(id);
+        qInfo("openProjectLink: live stream via deep link — %s",
+              qPrintable(streamUrl));
+        return true;
     }
     const int slashIdx = body.indexOf(QLatin1Char('/'));
     const QString uuid    = (slashIdx < 0) ? body

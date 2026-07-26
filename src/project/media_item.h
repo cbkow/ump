@@ -30,6 +30,11 @@ enum class MediaType {
     ImageSequence = 3,   // wired in Phase 7.4
     Playlist      = 4,   // wired in Phase 7.5
     DualPair      = 5,   // Phase 7.8 — saved A/B comparison
+    LiveStream    = 6,   // v2.2.3 — live srt:// receiver (Blender-bridge
+                         // stage 2). `path` holds the URL; no duration,
+                         // no seeking, latest-frame presentation. Blocked
+                         // from dual A/B in v1 (free-running source vs.
+                         // DualPlaybackController's synced clock pump).
 };
 
 // Per-clip YUV range override (Phase 3.G, Guide 07 D10). Default Auto

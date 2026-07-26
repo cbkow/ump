@@ -192,6 +192,34 @@ if(APPLE)
         COMMENT "Embedding Sparkle.framework into qcview.app/Contents/Frameworks"
         VERBATIM
     )
+
+    # Ship the ffmpeg/ffprobe CLIs in Contents/Helpers — QCView is the
+    # suite's ffmpeg provider (advertised via toolbox.json; the qcbridge
+    # replica spawns it for capture→encode→SRT). NOT Contents/MacOS:
+    # sign-and-notarize.sh step 0 deletes everything there except the
+    # qcview binary. The vendored CLIs link the external/install dylibs
+    # by absolute path, which resolves on dev machines; the release
+    # pipeline (bundle_dylibs.sh) must rewrite them to @rpath against
+    # Contents/Frameworks and sign them with the hardened runtime.
+    # Guarded on existence so the build stays green before the FFmpeg
+    # rebuild that produces the CLIs (--enable-programs, v2.2.3).
+    foreach(_qcv_tool IN ITEMS ffmpeg ffprobe)
+        if(EXISTS "${CMAKE_SOURCE_DIR}/external/install/bin/${_qcv_tool}")
+            add_custom_command(TARGET qcview POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    "$<TARGET_FILE_DIR:qcview>/../Helpers"
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${CMAKE_SOURCE_DIR}/external/install/bin/${_qcv_tool}"
+                    "$<TARGET_FILE_DIR:qcview>/../Helpers/${_qcv_tool}"
+                COMMENT "Staging ${_qcv_tool} into qcview.app/Contents/Helpers"
+                VERBATIM
+            )
+        else()
+            message(STATUS
+                "QCView: external/install/bin/${_qcv_tool} not found — "
+                "ffmpeg-provider staging skipped for this tool")
+        endif()
+    endforeach()
 endif()
 
 # Phase 2.5: bundle the shipped OCIO configs into the .app's Resources
@@ -333,6 +361,20 @@ if(WIN32)
                     "${QCV_BTBN_FFMPEG_DLL_DIR}/${_dll}"
                     "$<TARGET_FILE_DIR:qcview>/${_dll}"
                 COMMENT "Staging BtbN ${_dll} (overrides vcpkg copy)"
+                VERBATIM
+            )
+        endforeach()
+
+        # Stage the ffmpeg/ffprobe CLIs next to qcview.exe — QCView is
+        # the suite's ffmpeg provider (advertised via toolbox.json; the
+        # qcbridge replica spawns it for capture→encode→SRT). They share
+        # the BtbN DLLs staged above.
+        foreach(_exe IN ITEMS ffmpeg.exe ffprobe.exe)
+            add_custom_command(TARGET qcview POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${QCV_BTBN_FFMPEG_DLL_DIR}/${_exe}"
+                    "$<TARGET_FILE_DIR:qcview>/${_exe}"
+                COMMENT "Staging BtbN ${_exe} (suite ffmpeg provider)"
                 VERBATIM
             )
         endforeach()
