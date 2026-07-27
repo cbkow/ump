@@ -153,6 +153,74 @@ void installFileLogger()
     qInfo("File logger installed → %s", qPrintable(logPath));
 }
 
+#if defined(Q_OS_WIN)
+// MSIX ACLs deny CreateProcess on anything under
+// C:\Program Files\WindowsApps\ — a manifest pointing into the install
+// dir is unspawnable by sister apps (qcbridge got ERROR_ACCESS_DENIED
+// spawning the path the v2.2.x manifest advertised). Mirror the shipped
+// ffmpeg/ffprobe CLIs plus the FFmpeg DLLs they load into
+// %LOCALAPPDATA%\QCView\bin and advertise THAT copy. Version-stamped:
+// refreshed on first launch of a new QCView build, skipped otherwise.
+// Returns true when the mirror is current.
+bool stageSpawnableToolsWin(const QString &appDir, const QString &binDir)
+{
+    const QString stampPath = binDir + QStringLiteral("/.version");
+    const QString version   = QStringLiteral(QCV_VERSION_STR);
+
+    {
+        QFile stamp(stampPath);
+        if (stamp.open(QIODevice::ReadOnly | QIODevice::Text)
+            && QString::fromUtf8(stamp.readAll()).trimmed() == version
+            && QFileInfo::exists(binDir + QStringLiteral("/ffmpeg.exe"))) {
+            return true;
+        }
+    }
+
+    // ffmpeg.exe/ffprobe.exe + the av*/sw* DLLs staged next to
+    // qcview.exe (BtbN set — see src/app/CMakeLists.txt). Globbed by
+    // pattern so an FFmpeg major bump doesn't silently strand a DLL.
+    QDir src(appDir);
+    const QStringList names = src.entryList(
+        { QStringLiteral("ffmpeg.exe"),     QStringLiteral("ffprobe.exe"),
+          QStringLiteral("avcodec-*.dll"),  QStringLiteral("avformat-*.dll"),
+          QStringLiteral("avutil-*.dll"),   QStringLiteral("avfilter-*.dll"),
+          QStringLiteral("avdevice-*.dll"), QStringLiteral("swresample-*.dll"),
+          QStringLiteral("swscale-*.dll"),  QStringLiteral("postproc-*.dll") },
+        QDir::Files);
+    if (!names.contains(QStringLiteral("ffmpeg.exe")))
+        return false;   // nothing shipped (dev build) — nothing to mirror
+
+    if (!QDir().mkpath(binDir)) {
+        qWarning("toolbox.json: cannot create %s", qPrintable(binDir));
+        return false;
+    }
+
+    bool ok = true;
+    for (const QString &name : names) {
+        const QString dst = binDir + QLatin1Char('/') + name;
+        // A stale copy held open by a still-running spawn makes the
+        // remove/copy fail; we then fall back to the app-dir path and
+        // retry the mirror on the next launch.
+        QFile::remove(dst);
+        if (!QFile::copy(appDir + QLatin1Char('/') + name, dst)) {
+            qWarning("toolbox.json: failed to mirror %s into %s",
+                     qPrintable(name), qPrintable(binDir));
+            ok = false;
+        }
+    }
+    if (ok) {
+        QSaveFile stamp(stampPath);
+        ok = stamp.open(QIODevice::WriteOnly)
+             && stamp.write(version.toUtf8()) >= 0
+             && stamp.commit();
+        if (ok)
+            qInfo("toolbox.json: spawnable tool mirror refreshed → %s",
+                  qPrintable(binDir));
+    }
+    return ok;
+}
+#endif
+
 // QCView is the suite's ffmpeg provider: sister apps (the qcbridge
 // Blender addon's replica) resolve the shipped CLI through a small
 // manifest at a FIXED per-user path — the path is a cross-app contract,
@@ -176,8 +244,16 @@ void writeToolboxManifest()
     if (localAppData.isEmpty())
         return;
     const QString toolboxDir = localAppData + QStringLiteral("/QCView");
-    const QString ffmpegPath  = appDir + QStringLiteral("/ffmpeg.exe");
-    const QString ffprobePath = appDir + QStringLiteral("/ffprobe.exe");
+    // Advertise the %LOCALAPPDATA% mirror (MSIX-spawnable) when it is
+    // current; fall back to the app dir (fine for non-MSIX/dev builds,
+    // and qcbridge spawn-verifies each rung anyway).
+    const QString binDir = toolboxDir + QStringLiteral("/bin");
+    QString ffmpegPath  = appDir + QStringLiteral("/ffmpeg.exe");
+    QString ffprobePath = appDir + QStringLiteral("/ffprobe.exe");
+    if (stageSpawnableToolsWin(appDir, binDir)) {
+        ffmpegPath  = binDir + QStringLiteral("/ffmpeg.exe");
+        ffprobePath = binDir + QStringLiteral("/ffprobe.exe");
+    }
 #else
     return;
 #endif
