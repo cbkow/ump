@@ -8,9 +8,9 @@ nav_order: 8
 
 QCView includes a live [OpenColorIO](https://opencolorio.org/) pipeline. Build transform chains in the **Color** panel (`Ctrl + 3`) and see results applied to the viewport in real time.
 
-**Bundled configs:** ACES 2.0, ACES 1.3, Blender 5.1
+**Bundled configs:** ACES 2.0, ACES 1.3, Blender 5.2, Blender 5.1
 
-Both ACES 2.0 and Blender 5.1 are appended with **Linear sRGB EDR** and **Linear P3 EDR** display outputs for macOS Extended Dynamic Range workflows.
+Both ACES 2.0 and the Blender configs are appended with **Linear sRGB EDR** and **Linear P3 EDR** display outputs for macOS Extended Dynamic Range workflows.
 
 ![Color panel reel grid for OCIO chain steps](images/qcv025.jpg)
 
@@ -25,7 +25,7 @@ The Color panel is a **reel grid** — each step in the OCIO chain is a horizont
 Left side (input build-up):
 
 - **Preset** — recall a saved chain
-- **Config** — pick an OCIO config (ACES 2.0 / ACES 1.3 / Blender 5.1)
+- **Config** — pick an OCIO config (ACES 2.0 / ACES 1.3 / Blender 5.2 / Blender 5.1)
 - **Input** — source colorspace
 - **Look** — optional creative look (Blender's AgX, Contrast, Punchy, etc.)
 - **Scene LUT** — optional `.cube` LUT applied in the scene-linear stage

@@ -24,6 +24,7 @@ namespace {
 QString friendlyNameForDir(const QString &dirName)
 {
     static const QHash<QString, QString> table{
+        { QStringLiteral("Blender5.2"), QStringLiteral("Blender 5.2") },
         { QStringLiteral("Blender5.1"), QStringLiteral("Blender 5.1") },
         { QStringLiteral("Blender"),    QStringLiteral("Blender (legacy)") },
         { QStringLiteral("ACES_2.0"),   QStringLiteral("ACES 2.0") },
@@ -115,7 +116,7 @@ OCIOConfigManager::OCIOConfigManager(QObject *parent)
     // the highest-priority entry per Guide 05 §3:
     //   1. Explicit user choice in Settings  (not yet — Phase 7+)
     //   2. $OCIO env var (if set + valid + passes version gate)
-    //   3. Shipped default (Blender 5.1)
+    //   3. Shipped default (Blender 5.2)
     //   4. OCIO library built-in (last-resort)
     enumerateConfigs();
 
@@ -164,7 +165,8 @@ void OCIOConfigManager::enumerateConfigs()
 
     // Bundled configs — scan assets/OCIO/* for any subdir containing
     // a config.ocio. Order is alphabetical by friendly name except
-    // Blender 5.1 is always first (matches old app default).
+    // Blender 5.2 is always first (default config; 5.1 kept for
+    // user presets that reference it by name).
     const QString assetsDir = resolveOcioAssetsDir();
     if (!assetsDir.isEmpty()) {
         QDir d(assetsDir);
@@ -178,9 +180,9 @@ void OCIOConfigManager::enumerateConfigs()
                 bundled.append({ friendlyNameForDir(sub.fileName()), cfg });
             }
         }
-        // Promote Blender 5.1 to the front of the bundled list.
+        // Promote Blender 5.2 to the front of the bundled list.
         for (int i = 0; i < bundled.size(); ++i) {
-            if (bundled[i].displayName == QStringLiteral("Blender 5.1")) {
+            if (bundled[i].displayName == QStringLiteral("Blender 5.2")) {
                 bundled.move(i, 0);
                 break;
             }

@@ -30,7 +30,7 @@ nav_order: 1
 
 ### Color
 - Live [OCIO](https://opencolorio.org/) color correction with a node-based interface
-- Bundled OCIO configs: ACES 2.0, ACES 1.3, Blender 5.1
+- Bundled OCIO configs: ACES 2.0, ACES 1.3, Blender 5.2, Blender 5.1
 - Screenshots and notes exports apply the OCIO transform
 
 ### Review Tools

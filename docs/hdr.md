@@ -33,4 +33,4 @@ With Windows `HDR10` mode enabled, you should use `Rec.2100 PQ` or `PQ BT.2021` 
 
 ### HDR mode (macOS — EDR)
 
-In `Linear P3 EDR` mode you will want to use one the matching output module in ACES 2.0 or Blender 5.1 configs.
+In `Linear P3 EDR` mode you will want to use one the matching output module in ACES 2.0 or Blender 5.2 configs.

@@ -192,7 +192,7 @@ COLOR MANAGEMENT
     - ACES 2.0 / ACES 1.3: Academy Color Encoding System reference configs,
       Academy of Motion Picture Arts and Sciences, BSD-style ACES license.
       https://github.com/AcademySoftwareFoundation/OpenColorIO-Config-ACES
-    - Blender 5.1 config: GPL v3+, Blender Foundation.
+    - Blender 5.2 / 5.1 configs: GPL v3+, Blender Foundation.
       https://projects.blender.org/blender/blender/
 
 ================================================================================

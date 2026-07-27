@@ -58,15 +58,53 @@ void PresetManager::loadBuiltIns()
                        /*displayLutPath*/ {}, /*builtIn*/ true, kind };
     };
 
-    const QString secBuiltIn = QStringLiteral("Built-in");
-    const QString secBlender = QStringLiteral("Blender 5.1");
-    const QString secAces2   = QStringLiteral("ACES 2.0");
-    const QString secAces1   = QStringLiteral("ACES 1.3");
+    const QString secBuiltIn   = QStringLiteral("Built-in");
+    const QString secBlender52 = QStringLiteral("Blender 5.2");
+    const QString secBlender   = QStringLiteral("Blender 5.1");
+    const QString secAces2     = QStringLiteral("ACES 2.0");
+    const QString secAces1     = QStringLiteral("ACES 1.3");
 
     m_presets = {
         // --- Passthrough ---
         Preset{ QStringLiteral("None (Passthrough)"), secBuiltIn,
                 {}, {}, {}, {}, {}, {}, {}, true, Preset::Universal },
+
+        // --- Blender 5.2 SDR ---
+        // Same literals as the 5.1 section below — every referenced
+        // colorspace/display/view name is unchanged between the two
+        // configs. 5.1 sections stay because user presets store raw
+        // configName strings with no migration path.
+        P(QStringLiteral("Rec.709 → sRGB Standard"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Rec.1886"),
+          {}, QStringLiteral("sRGB"), QStringLiteral("Standard")),
+
+        P(QStringLiteral("Linear Rec.709 → sRGB Standard"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Linear Rec.709"),
+          {}, QStringLiteral("sRGB"), QStringLiteral("Standard")),
+
+        P(QStringLiteral("Linear Rec.709 → sRGB AgX"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Linear Rec.709"),
+          {}, QStringLiteral("sRGB"), QStringLiteral("AgX")),
+
+        P(QStringLiteral("Linear Rec.709 → Display P3"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Linear Rec.709"),
+          {}, QStringLiteral("Display P3"), QStringLiteral("Standard"),
+          Preset::SdrP3),
+
+        // --- Blender 5.2 HDR (linear-light EDR) ---
+        // sRGB-primaries variant works on macOS EDR + Windows scRGB.
+        P(QStringLiteral("Rec.709 → EDR sRGB 1000 nits"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Linear Rec.709"),
+          {}, QStringLiteral("Linear sRGB EDR"),
+          QStringLiteral("ACES 2.0 - HDR 1000 nits"),
+          Preset::HdrEdrSrgb),
+
+        // P3-primaries variant — macOS only.
+        P(QStringLiteral("Rec.709 → EDR P3 1000 nits"), secBlender52,
+          QStringLiteral("Blender 5.2"), QStringLiteral("Linear Rec.709"),
+          {}, QStringLiteral("Linear P3 EDR"),
+          QStringLiteral("ACES 2.0 - HDR 1000 nits"),
+          Preset::HdrEdrP3),
 
         // --- Blender 5.1 SDR ---
         P(QStringLiteral("Rec.709 → sRGB Standard"), secBlender,

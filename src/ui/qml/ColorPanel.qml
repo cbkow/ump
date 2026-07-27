@@ -359,8 +359,8 @@ Pane {
             //
             // Preset reel is a custom column (not the generic ReelColumn)
             // because its ListView uses section.property to render
-            // grouped headers (Built-in / Blender 5.1 / ACES 2.0 / ACES
-            // 1.3 / Custom). The model is QVariantList of
+            // grouped headers (Built-in / Blender 5.2 / Blender 5.1 /
+            // ACES 2.0 / ACES 1.3 / Custom). The model is QVariantList of
             // {name, section} maps from PresetManager.
             // Phase 2.5 polish: the Presets column is the entry point
             // into the chain. The body fills with the app's default

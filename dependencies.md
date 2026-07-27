@@ -446,7 +446,8 @@ No additional pinning needed — Qt's `QAudioSink` is the abstraction.
 
 | Config | Source | License | Notes |
 |---|---|---|---|
-| **Blender 5.1** | Blender repo (release v5.1) | CC0 | Default config (Guide 05 §5). Linear sRGB EDR / Linear P3 EDR displays for macOS HDR. |
+| **Blender 5.2** | Blender repo (release v5.2) | CC0 | Default config (Guide 05 §5). Linear sRGB EDR / Linear P3 EDR displays for macOS HDR. Adds Apple Log 2 input + texture-encoding spaces over 5.1. |
+| **Blender 5.1** | Blender repo (release v5.1) | CC0 | Kept alongside 5.2 — user presets store the config name with no migration path. Same EDR display patch. |
 | **Blender 4.5** | Blender repo (release v4.5) | CC0 | Fallback config |
 | **ACES 2.0** | OCIO Configs project (`studio-config-all-views-v4.0.0_aces-v2.0_ocio-v2.5`) | CC0 | **Will be patched at port time** to add EDR display entries (Guide 05 D12) |
 | **ACES 1.3** | OCIO Configs project (`studio-config-v1.0.0_aces-v1.3_ocio-v2.1`) | CC0 | Legacy compatibility |
