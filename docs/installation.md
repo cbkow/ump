@@ -48,6 +48,10 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What’s new in 2.2.4
+- SRT streaming improvements
+- Upgraded the Blender OCIO profile to 5.2 (Includes EDR improvements and several camera profiles to bring it closer to parity with ACES studio packages)
+
 What’s new in 2.2.3
 - Added framework to support SRT streaming
 
