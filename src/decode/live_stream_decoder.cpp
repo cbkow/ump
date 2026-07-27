@@ -31,6 +31,14 @@ namespace {
 constexpr int kBackoffStartMs = 250;
 constexpr int kBackoffCapMs   = 3000;
 
+// Live-edge detection (work order 4c). SRT's TSBPD paces delivery at
+// the receiver, so at the live edge av_read_frame blocks until the
+// next packet's scheduled time (~one frame interval). A read that
+// returns near-instantly is therefore serving backlog, not liveness.
+constexpr int kLiveEdgeBlockMs   = 4;    // read ≥ this ⇒ at the edge
+constexpr int kBurstFastReads    = 3;    // consecutive instant reads ⇒ draining
+constexpr int kDrainKeepaliveMs  = 250;  // publish floor while draining
+
 #if defined(Q_OS_MACOS)
 AVPixelFormat liveGetFormat(AVCodecContext *, const AVPixelFormat *fmts)
 {
@@ -82,6 +90,7 @@ bool LiveStreamDecoder::open(const QString &url)
     m_stopRequested.store(false, std::memory_order_release);
     m_reconnects.store(0, std::memory_order_release);
     m_framesReceived.store(0, std::memory_order_release);
+    m_framesConflated.store(0, std::memory_order_release);
     setStatus(Connecting);
     m_thread = std::thread([this] { workerLoop(); });
     return true;
@@ -232,7 +241,12 @@ bool LiveStreamDecoder::connectOnce()
     for (unsigned i = 0; i < fmt->nb_streams; ++i) {
         if (fmt->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
             sawAudio = true;
-            break;
+        }
+        // v1 plays video only — let the demuxer drop the rest instead
+        // of surfacing packets we'd unref anyway. (Mbps stat becomes
+        // video-only; remove when the live audio engine lands.)
+        if (int(i) != videoIdx) {
+            fmt->streams[i]->discard = AVDISCARD_ALL;
         }
     }
 
@@ -301,9 +315,26 @@ bool LiveStreamDecoder::connectOnce()
     AVPacket *pkt     = av_packet_alloc();
     AVFrame  *frame   = av_frame_alloc();
     AVFrame  *swFrame = av_frame_alloc();  // landing pad for hw → cpu transfer
-    bool waitingForKeyframe = true;
+
+    // 4c receive discipline. Phases: (1) DrainToEdge — the backlog
+    // that piled up behind avformat_find_stream_info reads without
+    // blocking; discard it undecoded so it never becomes standing
+    // latency. (2) WaitKeyframe — the existing mid-GOP join gate,
+    // now anchored at the live edge. (3) Streaming.
+    enum class Phase { DrainToEdge, WaitKeyframe, Streaming };
+    Phase phase = Phase::DrainToEdge;
+    int     fastReads       = 0;      // consecutive non-blocking reads
+    bool    draining        = false;  // steady-state catch-up burst
+    qint64  drainedPackets  = 0;      // discarded pre-join
+    qint64  lastPublishMs   = 0;
+
+    const auto nowMs = [] {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+    };
 
     while (!m_stopRequested.load(std::memory_order_acquire)) {
+        const qint64 readStart = nowMs();
         rc = av_read_frame(fmt, pkt);
         if (rc < 0) {
             // EOF = sender ended the session (listener orphaned us);
@@ -316,17 +347,46 @@ bool LiveStreamDecoder::connectOnce()
             }
             break;
         }
+        const bool blockedRead = (nowMs() - readStart) >= kLiveEdgeBlockMs;
         m_bytesReceived.fetch_add(pkt->size, std::memory_order_acq_rel);
         if (pkt->stream_index != videoIdx) {
             av_packet_unref(pkt);
             continue;
         }
-        if (waitingForKeyframe) {
+
+        if (phase == Phase::DrainToEdge) {
+            if (!blockedRead) {
+                ++drainedPackets;
+                av_packet_unref(pkt);
+                continue;
+            }
+            phase = Phase::WaitKeyframe;
+            if (drainedPackets > 0) {
+                qInfo("LiveStreamDecoder: drained %lld backlog packets "
+                      "to the live edge", (long long)drainedPackets);
+            }
+        }
+        if (phase == Phase::WaitKeyframe) {
             if (!(pkt->flags & AV_PKT_FLAG_KEY)) {
                 av_packet_unref(pkt);
                 continue;
             }
-            waitingForKeyframe = false;
+            phase = Phase::Streaming;
+        }
+
+        // Steady-state burst tracking: a run of non-blocking reads
+        // means we fell behind (receiver stall). Drop non-reference
+        // frames and skip the publish conversion until the reads
+        // block again — that IS the live edge.
+        if (blockedRead) {
+            fastReads = 0;
+            if (draining) {
+                draining = false;
+                cctx->skip_frame = AVDISCARD_DEFAULT;
+            }
+        } else if (++fastReads >= kBurstFastReads && !draining) {
+            draining = true;
+            cctx->skip_frame = AVDISCARD_NONREF;
         }
 
         rc = avcodec_send_packet(cctx, pkt);
@@ -335,6 +395,13 @@ bool LiveStreamDecoder::connectOnce()
             continue;   // isolated bad packet; keep the session
         }
         while (avcodec_receive_frame(cctx, frame) == 0) {
+            const bool publishThis =
+                !draining || (nowMs() - lastPublishMs) >= kDrainKeepaliveMs;
+            if (!publishThis) {
+                m_framesConflated.fetch_add(1, std::memory_order_acq_rel);
+                av_frame_unref(frame);
+                continue;
+            }
 #if defined(Q_OS_WIN)
             if (frame->format == AV_PIX_FMT_D3D11 && swFrame) {
                 // GPU-decoded frame: NV12 readback, then the shared
@@ -348,6 +415,7 @@ bool LiveStreamDecoder::connectOnce()
                     swFrame->color_trc             = frame->color_trc;
                     publishFrame(swFrame, cctx, &sws, vs->time_base,
                                  "d3d11va→RGBA");
+                    lastPublishMs = nowMs();
                     av_frame_unref(swFrame);
                 }
                 av_frame_unref(frame);
@@ -355,8 +423,16 @@ bool LiveStreamDecoder::connectOnce()
             }
 #endif
             publishFrame(frame, cctx, &sws, vs->time_base);
+            lastPublishMs = nowMs();
             av_frame_unref(frame);
         }
+    }
+
+    const qint64 conflated =
+        m_framesConflated.load(std::memory_order_acquire);
+    if (conflated > 0) {
+        qInfo("LiveStreamDecoder: session end — %lld frames conflated "
+              "while draining backlog", (long long)conflated);
     }
 
     av_frame_free(&swFrame);

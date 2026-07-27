@@ -27,6 +27,18 @@
 // it are dropped), which avoids the classic ~1 GOP of benign "missing
 // references" decode-error spam a mid-GOP join produces. Sender GOP is
 // 1 s, so the gate costs at most that.
+//
+// Latency discipline (v2.2.4, bridge work order 4c): arrears must be
+// structurally impossible. Every connect/reconnect first drains the
+// demux backlog to the live edge (packets that read without blocking
+// are pre-join history — discarded undecoded) before the keyframe
+// gate runs, so the backlog accumulated during stream probe never
+// becomes standing latency. In steady state, a burst of non-blocking
+// reads means the receiver fell behind (stall, hiccup); the loop then
+// skips non-reference frames and the publish conversion until it hits
+// the live edge again, publishing at most every 250 ms mid-drain so
+// the image keeps moving. Presentation is latest-wins throughout —
+// frames are never paced by PTS.
 
 #pragma once
 
@@ -112,6 +124,12 @@ public:
     Q_INVOKABLE double statBytesReceived() const {
         return double(m_bytesReceived.load(std::memory_order_acquire));
     }
+    // Frames decoded but not published because the loop was draining
+    // backlog to the live edge. A steadily climbing value means the
+    // receiver can't keep up with the stream in real time.
+    Q_INVOKABLE double statFramesConflated() const {
+        return double(m_framesConflated.load(std::memory_order_acquire));
+    }
     // Seconds since this session went Live; 0 when not live.
     Q_INVOKABLE int statLiveSeconds() const;
 
@@ -149,6 +167,7 @@ private:
     std::atomic<bool>     m_hasAudio{false};
     std::atomic<int>      m_reconnects{0};
     std::atomic<qint64>   m_framesReceived{0};
+    std::atomic<qint64>   m_framesConflated{0};
     std::atomic<qint64>   m_bytesReceived{0};
     std::atomic<qint64>   m_liveSinceMs{0};   // steady_clock ms; 0 = not live
 
