@@ -6,6 +6,8 @@ nav_order: 18
 
 # QCBridge
 
+![QCBridge](images/qcbridge_001.jpg)
+
 [QCBridge](https://github.com/cbkow/QCBridge) is a Blender extension that gives you a remote "beauty window": you work in Blender on your own machine, while a second machine with a bigger GPU mirrors your scene, renders the full Cycles or Eevee preview, and streams it live into QCView. Your local Blender stays perfectly responsive; the remote render catches up to your edits in about a second.
 
 It's one extension with two roles — **Host** (the machine you work on) and **Replica** (the render box) — connected over your LAN or VPN. Sync is strictly one-way: the replica never edits anything and never touches your project files.
@@ -41,6 +43,8 @@ Open **Edit → Preferences → Add-ons → QC Bridge** on each machine.
 
 **On the replica (the render box):**
 
+![QCBridge](images/qcbridge_002.png)
+
 1. Set **Role** to *Replica*.
 2. Set **Bind Address** to the machine's LAN or VPN IP (or leave `0.0.0.0` to listen on all interfaces).
 3. Choose a **Session Token** — any short phrase; both machines must use the same one. It also encrypts the stream.
@@ -48,6 +52,8 @@ Open **Edit → Preferences → Add-ons → QC Bridge** on each machine.
 5. Leave **Kiosk Mode** on — the replica strips itself down to a clean fullscreen viewport when a session runs. (`Ctrl+Alt+K` toggles it manually; `Ctrl+Q` still quits Blender from inside it.)
 
 **On the host (your workstation):**
+
+![QCBridge](images/qcbridge_003.png)
 
 1. Set **Role** to *Host*.
 2. Set **Replica Address** to the replica's IP.
@@ -64,15 +70,19 @@ netsh advfirewall firewall add rule name="QCBridge SRT" dir=in action=allow prot
 
 ## Using it
 
+![QCBridge](images/qcbridge_004.png)
+
 Start Blender on both machines and press **Start Session** in the *QC Bridge* panel (sidebar of the 3D viewport, `N` key) — replica first, then host. The replica automatically loads whatever file the host has open and starts following: camera, timeline, lighting, materials, node edits, visibility — modeling changes take a moment longer. Opening a different project on the host? The replica follows that too. No further touching of the replica machine is needed; ending the session on the host drops the replica to an idle viewport, and the next session picks it back up.
+
+![QCBridge](images/qcbridge_005.png)
 
 From the host panel:
 
 - **Open in QCView** — launches QCView on the live stream, named after your blend file. (Or **Copy Stream URL** for any other SRT-capable player.)
-- **Shot Mode** — locks the replica to the camera frame: fitted to the stream, matted in black, holding steady while you orbit your scene freely. The timeline still follows. This framing matches your render output exactly — it's what makes clean A/B wipes against approved renders work in QCView's [dual view](dual-view).
+- **Shot Mode** — locks the replica to the camera frame: fitted to the stream, matted in black, holding steady while you orbit your scene freely. The timeline still follows. This framing matches your render output.
 - **Replica Zoom −/+/reset** — punches the replica's camera view in or out without changing your own viewport.
 - **Pause Sync** — holds your edits back (queued, not lost) while you try something messy; resume flushes them.
-- **Force Resync** — reships the whole file if the panel ever recommends it.
+- **Force Resync** — resyncs the whole file if something is updating naturally (there is a lot that hasn't been tested yet).
 
 The stream itself always tells you the truth: sync status, a sequence counter, and a clock are burned into the corner of the picture (`● live · seq 42 · 14:03:22.5`), so you can always tell live from stale — and measure your glass-to-glass latency against your own menu-bar clock.
 
