@@ -1293,6 +1293,18 @@ void ProjectManager::setActiveItem(const QString &id)
         return;
     }
     m_activeItemId = id;
+    // Re-activating a pool item (bin click, note jump, dual load) is
+    // "reaching for" that media just as much as a fresh add — feed it
+    // to the recents list through the same signal the add path uses
+    // (sole consumer: WindowManager::addRecentMedia, which bumps to
+    // front). Without this, a video that fell off the 10-cap list
+    // could never return via the bin, only via re-drop/File-Open.
+    // Path-less pool items (playlists, dual pairs) are internal
+    // constructs, not openable files — skip those. Restore-safe: the
+    // project-open path emits loadRequested directly from
+    // applyLoadedState and never lands here.
+    if (!m_mediaPool[idx].path.isEmpty())
+        emit mediaFileAdded(m_mediaPool[idx].path);
     emit activeItemIdChanged();
     emit loadRequested(m_mediaPool[idx]);
 }
