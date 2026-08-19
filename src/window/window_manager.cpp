@@ -5721,6 +5721,29 @@ void WindowManager::saveWindowGeometryNow()
         s.setValue(QStringLiteral("window/screenName"), scr->name());
 }
 
+void WindowManager::resetWindowFrame()
+{
+    if (!m_uiWindow) return;
+    // Un-maximize first so setGeometry targets a normal frame (on
+    // Windows a maximized window would otherwise snap right back).
+    if (m_uiWindow->visibility() == QWindow::Maximized)
+        m_uiWindow->showNormal();
+    QScreen *scr = m_uiWindow->screen();
+    if (!scr) scr = QGuiApplication::primaryScreen();
+    if (!scr) return;
+    // First-run defaults from Main.qml's ApplicationWindow — keep in
+    // sync with the width/height literals there.
+    constexpr int kDefaultW = 1480;
+    constexpr int kDefaultH = 900;
+    const QRect avail = scr->availableGeometry();
+    QRect r(0, 0, qMin(kDefaultW, avail.width()),
+                  qMin(kDefaultH, avail.height()));
+    r.moveCenter(avail.center());
+    m_uiWindow->setGeometry(r);
+    // The geometry signals this fires run the normal capture + save
+    // path, so the reset frame persists like any user move.
+}
+
 void WindowManager::clearSavedWindowGeometry()
 {
     m_windowGeomSaveSuppressed = true;

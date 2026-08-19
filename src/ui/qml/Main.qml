@@ -576,6 +576,17 @@ ApplicationWindow {
                 text: qsTr("Fullscreen")
                 onTriggered: root.toggleFullscreen()
             }
+            Action {
+                // Escape hatch for the persisted window frame —
+                // recenters at the first-run default size on the
+                // current screen. Exit fullscreen first so the
+                // reset applies to a normal frame (and persists).
+                text: qsTr("Default Size && Position")
+                onTriggered: {
+                    if (root.inFullscreen) root.exitFullscreen();
+                    WindowManager.resetWindowFrame();
+                }
+            }
             ThemedMenuSeparator {}
             // Panel toggles — explicitly NOT checkable. macOS
             // native menus reserve a checkmark indicator column

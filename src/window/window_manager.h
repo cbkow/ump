@@ -833,6 +833,12 @@ public:
     // straight back).
     Q_INVOKABLE void clearSavedWindowGeometry();
 
+    // View ▸ Default Size & Position — recenter the UI window at the
+    // first-run default size on its current screen (clamped to the
+    // screen's available area). Leaves maximized state, and the
+    // resulting frame persists through the normal save path.
+    Q_INVOKABLE void resetWindowFrame();
+
     // Screenshots — capture the next-presented frame from the
     // native player surface and either copy to clipboard or save
     // to ~/Desktop/qcview-screenshot-<timestamp>.png. Returns true
