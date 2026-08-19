@@ -64,9 +64,16 @@ Pane {
                 color: Theme.divider
             }
         }
+        // Bottom divider — content span only (TimelinePanel draws no
+        // top divider and relies on this line). Inset to the gutter
+        // columns so the margin areas read as one continuous strip
+        // down the band unit; the insets land flush against the
+        // gutter caps' 1px inner-edge verticals above.
         Rectangle {
             anchors.left:   parent.left
             anchors.right:  parent.right
+            anchors.leftMargin:  Theme.gutterWidth
+            anchors.rightMargin: Theme.gutterWidth
             anchors.bottom: parent.bottom
             height: Theme.dividerWidth
             color: Theme.divider
