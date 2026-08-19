@@ -17,6 +17,7 @@
 // than a coloured bordered rectangle.
 
 import QtQuick
+import QtQuick.Controls.Basic
 import QtQuick.Layouts
 import Qcv
 
@@ -95,13 +96,32 @@ Rectangle {
 
         // ---- Frame counter / playlist seconds --------------------
         // Primary readouts sit in recessed wells (aesthetics pass 3)
-        // — read-only data vocabulary, and the fixed well anchors the
-        // churning digits visually.
+        // — the fixed well anchors the churning digits visually.
+        // Clickable: opens the go-to popup (frame entry, or time
+        // entry in playlist mode). Hover shows a border so the well
+        // reads as interactive without breaking the recessed look.
         Rectangle {
+            id: frameWell
             Layout.preferredWidth: 160
             Layout.preferredHeight: 18
             radius: Theme.radiusSmall
             color: Theme.surfaceRecess
+            border.width: 1
+            border.color: frameWellMa.containsMouse
+                          ? Theme.divider : "transparent"
+            MouseArea {
+                id: frameWellMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: {
+                    if (root.isPlaylistMode) {
+                        goToPopup.openFor("time", frameWell);
+                    } else if (WindowManager.frameCountUnified() > 0) {
+                        goToPopup.openFor("frame", frameWell);
+                    }
+                }
+            }
             Text {
                 anchors.fill: parent
                 anchors.leftMargin: 6
@@ -134,7 +154,21 @@ Rectangle {
             }
         }
         // ---- SMPTE timecode --------------------------------------
+        // Clickable like the frame well — opens the go-to popup in
+        // timecode mode (only visible when an fps clock exists, so
+        // no extra enable guard needed).
         Rectangle {
+            id: tcWell
+            border.width: 1
+            border.color: tcWellMa.containsMouse
+                          ? Theme.divider : "transparent"
+            MouseArea {
+                id: tcWellMa
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: goToPopup.openFor("timecode", tcWell)
+            }
             visible: !root.isPlaylistMode
                      && (WindowManager.dualController
                          ? (WindowManager.dualController.fps > 0)
@@ -284,6 +318,130 @@ Rectangle {
             color: Theme.textSecondary
             font.family: Theme.monoFamily
             font.pixelSize: Theme.fontSizeSmall
+        }
+    }
+
+    // ---- Go-to navigation popup ------------------------------------
+    // Opened by clicking the frame or timecode well. Opens DOWNWARD
+    // (over the transport row) — an in-scene Popup is safe there
+    // because the native player surface only covers the viewport
+    // above; opening upward would z-order under it.
+    Popup {
+        id: goToPopup
+        property string mode: "frame"     // "frame" | "timecode" | "time"
+        property bool entryError: false
+        width: 210
+        padding: Theme.padding
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        background: Rectangle {
+            color: Theme.surface
+            border.width: 1
+            border.color: Theme.divider
+            radius: Theme.radiusSmall
+        }
+
+        function openFor(mode, anchorItem) {
+            goToPopup.mode = mode;
+            goToPopup.parent = anchorItem;
+            goToPopup.x = 0;
+            goToPopup.y = anchorItem.height + 6;
+            goToPopup.entryError = false;
+            goToField.text = "";
+            goToPopup.open();
+        }
+        onOpened: goToField.forceActiveFocus()
+
+        // "90", "1:30", "1:30.5", "01:02:03.250" → seconds; -1 on junk.
+        function flexTimeToSeconds(s) {
+            const parts = s.split(":");
+            if (parts.length < 1 || parts.length > 3) return -1;
+            let secs = 0;
+            for (let i = 0; i < parts.length; ++i) {
+                const p = parts[i].trim();
+                if (!p.length || !/^[0-9]+(\.[0-9]+)?$/.test(p)) return -1;
+                secs = secs * 60 + parseFloat(p);
+            }
+            return secs;
+        }
+
+        function commit() {
+            const s = goToField.text.trim();
+            if (!s.length) { goToPopup.close(); return; }
+            if (mode === "frame") {
+                if (!/^[0-9]+$/.test(s)) { entryError = true; return; }
+                const fc = WindowManager.frameCountUnified();
+                if (fc <= 0) { goToPopup.close(); return; }
+                WindowManager.seekToFrame(
+                    Math.min(parseInt(s, 10), fc - 1));
+            } else if (mode === "timecode") {
+                // Digits-only entry pads right-aligned into TC pairs
+                // (Resolve-style): "1000" → "00:00:10:00".
+                let entry = s;
+                if (/^[0-9]+$/.test(s) && s.length <= 8) {
+                    const p = s.padStart(8, "0");
+                    entry = p.slice(0, 2) + ":" + p.slice(2, 4) + ":"
+                          + p.slice(4, 6) + ":" + p.slice(6, 8);
+                }
+                let f = -1;
+                if (WindowManager.dualController) {
+                    f = WindowManager.dualController.parseTimecode(entry);
+                } else if (WindowManager.videoDecoder) {
+                    f = WindowManager.videoDecoder.parseTimecode(entry);
+                }
+                if (f < 0) { entryError = true; return; }
+                const fc = WindowManager.frameCountUnified();
+                if (fc > 0) f = Math.min(f, fc - 1);
+                WindowManager.seekToFrame(f);
+            } else { // "time" — playlist seconds
+                const secs = flexTimeToSeconds(s);
+                if (secs < 0) { entryError = true; return; }
+                const t = WindowManager.timeline
+                          ? WindowManager.timeline.timer : null;
+                const dur = t ? t.duration : 0;
+                WindowManager.seekToTime(
+                    Math.max(0, Math.min(secs, dur)));
+            }
+            goToPopup.close();
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacing
+            Text {
+                text: goToPopup.mode === "frame"
+                          ? qsTr("GO TO FRAME")
+                      : goToPopup.mode === "timecode"
+                          ? qsTr("GO TO TIMECODE")
+                          : qsTr("GO TO TIME")
+                color: Theme.textSecondary
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.fontSizeTiny
+                font.bold: true
+                font.letterSpacing: 0.5
+            }
+            FlatTextField {
+                id: goToField
+                Layout.fillWidth: true
+                font.family: Theme.monoFamily
+                // Invalid entry: warn-toned digits until the next edit.
+                color: goToPopup.entryError
+                       ? Theme.warn : Theme.textPrimary
+                placeholderText: goToPopup.mode === "frame"
+                                     ? qsTr("frame number")
+                                 : goToPopup.mode === "timecode"
+                                     ? qsTr("HH:MM:SS:FF")
+                                     : qsTr("MM:SS.mmm")
+                onTextEdited: goToPopup.entryError = false
+                onAccepted: goToPopup.commit()
+                // Dismiss on ANY focus loss, not just in-scene
+                // presses (CloseOnPressOutside can't see clicks on
+                // the native player surface — a separate QWindow —
+                // but those clicks move window focus there, which
+                // lands here). Entered text is discarded: navigation
+                // only ever happens on an explicit Enter.
+                onActiveFocusChanged:
+                    if (!activeFocus && goToPopup.opened)
+                        goToPopup.close()
+            }
         }
     }
 }

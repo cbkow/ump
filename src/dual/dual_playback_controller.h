@@ -188,6 +188,13 @@ public:
     // Returns an empty string if fps isn't established yet.
     Q_INVOKABLE QString formatTimecode(int masterFrame) const;
 
+    // Inverse of formatTimecode — parse a user-entered SMPTE
+    // timecode into a master frame number at the master fps (non-DF,
+    // same rules as formatTimecode; no start offset in dual).
+    // Returns -1 when the string does not parse or fps isn't
+    // established (caller clamps the upper bound to frame count).
+    Q_INVOKABLE int parseTimecode(const QString &tc) const;
+
     // Phase 7.8 — pre-warm helper. When the master is in a gap on
     // a side, return the source frame the decoder should buffer
     // around so that when master enters the next clip's range,

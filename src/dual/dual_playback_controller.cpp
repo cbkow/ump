@@ -779,14 +779,15 @@ DualPlaybackController::pullFrameB(int masterFrame) const
     return m_sourceB->getClosestFrame(srcFrame);
 }
 
-QString DualPlaybackController::formatTimecode(int masterFrame) const
+namespace {
+// Pick a (num, den) that approximates the master fps with common
+// video rates. Non-DF — dual mode doesn't carry per-source DF
+// flags. 23.976 → (24000, 1001), 29.97 → (30000, 1001), etc.
+// Shared by formatTimecode and parseTimecode so the two directions
+// can't drift apart.
+TimecodeFormatter masterTcFormatterFor(double fps)
 {
-    if (m_masterFps <= 0.0 || masterFrame < 0) return QString();
-    // Pick a (num, den) that approximates the master fps with
-    // common video rates. Non-DF — dual mode doesn't carry per-
-    // source DF flags. 23.976 → (24000, 1001), 29.97 → (30000,
-    // 1001), etc.
-    const double fps = m_masterFps;
+    if (fps <= 0.0) return TimecodeFormatter();
     int num = 0, den = 1;
     if (std::abs(fps - 23.976) < 0.01)      { num = 24000; den = 1001; }
     else if (std::abs(fps - 29.97)  < 0.01) { num = 30000; den = 1001; }
@@ -794,9 +795,23 @@ QString DualPlaybackController::formatTimecode(int masterFrame) const
     else if (std::abs(fps - 59.94)  < 0.01) { num = 60000; den = 1001; }
     else                                     { num = static_cast<int>(std::lround(fps));
                                                den = 1; }
-    TimecodeFormatter f(num, den, /*dropFrame=*/false);
+    return TimecodeFormatter(num, den, /*dropFrame=*/false);
+}
+} // namespace
+
+QString DualPlaybackController::formatTimecode(int masterFrame) const
+{
+    if (m_masterFps <= 0.0 || masterFrame < 0) return QString();
+    const TimecodeFormatter f = masterTcFormatterFor(m_masterFps);
     if (!f.isValid()) return QString();
     return f.format(masterFrame);
+}
+
+int DualPlaybackController::parseTimecode(const QString &tc) const
+{
+    const TimecodeFormatter f = masterTcFormatterFor(m_masterFps);
+    if (!f.isValid()) return -1;
+    return f.parse(tc);
 }
 
 int DualPlaybackController::translateMasterToSourceFrame(int masterFrame,

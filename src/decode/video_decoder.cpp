@@ -483,6 +483,17 @@ QString VideoDecoder::formatTimecode(int frameNo) const
     return m_tcFormatter.format(absFrame);
 }
 
+int VideoDecoder::parseTimecode(const QString &tc) const
+{
+    if (!m_tcFormatter.isValid()) return -1;
+    const int absFrame = m_tcFormatter.parse(tc);
+    if (absFrame < 0) return -1;
+    const int startFrame =
+        m_currentStartFrame.load(std::memory_order_acquire);
+    const int frame = (startFrame >= 0) ? absFrame - startFrame : absFrame;
+    return std::max(0, frame);
+}
+
 void VideoDecoder::setStartTimecode(const QString &tc)
 {
     if (tc == m_startTimecodeString) return;

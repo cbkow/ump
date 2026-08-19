@@ -146,6 +146,13 @@ public:
     // start offset. Returns an empty string if no source is open.
     Q_INVOKABLE QString formatTimecode(int frameNo) const;
 
+    // Inverse of formatTimecode — parse a user-entered SMPTE
+    // timecode into an internal (0-based) frame number, removing
+    // the same start offset formatTimecode adds. A TC before the
+    // display origin clamps to 0. Returns -1 when the string does
+    // not parse (caller clamps the upper bound to frameCount).
+    Q_INVOKABLE int parseTimecode(const QString &tc) const;
+
     // Phase 3.F — playhead-origin timecode picker. The Inspector's
     // Timecodes section lists multiple TC strings (FFmpeg embedded,
     // QT Start, QT TimeCode, XMP Alt, …). Calling this with one of
