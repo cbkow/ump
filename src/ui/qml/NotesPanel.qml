@@ -63,9 +63,18 @@ Pane {
     // open is in a clean "no tool" state — keeps the QML
     // ToolBtn highlight aligned with the C++ side, which exits
     // annotation mode whenever the panel hides.
+    //
+    // Opening the panel arms Freehand right away — the panel's
+    // whole point is drawing, so the first drag should ink
+    // without a trip to the tool column. (Panel visibility is
+    // gated on annotationsAllowed, so arming here can't fight
+    // the C++ gate.) Guarded on "no tool yet" so a same-frame
+    // visibility bounce can't toggle an armed tool back off.
     onVisibleChanged: {
         if (!visible && root.activeTool !== 0) {
             root.activeTool = 0;
+        } else if (visible && root.activeTool === 0) {
+            root.applyTool(1);   // Freehand
         }
     }
 
@@ -840,7 +849,14 @@ Pane {
                 anchors.fill: parent
                 anchors.margins: 5
                 spacing: Theme.spacing
-                ToolBtn { Layout.alignment: Qt.AlignHCenter; toolId: 0; iconName: "cursor"; tooltipText: qsTr("Deselect (exit drawing mode)") }
+                // Pointer tool (toolId 7 = DrawingTool::Select):
+                // click a stroke to select, drag to move, corner
+                // handles scale, Del removes, Esc deselects. There
+                // is no separate Deselect button — like every tool,
+                // clicking the armed tool again disarms it (toolId 0
+                // still exists internally: applyTool's toggle-off
+                // path and the panel-close reset both use it).
+                ToolBtn { Layout.alignment: Qt.AlignHCenter; toolId: 7; iconName: "cursor"; tooltipText: qsTr("Select (drag to move, corners to scale, Del to remove; click again to exit)") }
                 ToolBtn { Layout.alignment: Qt.AlignHCenter; toolId: 1; iconName: "pencil-simple"; tooltipText: qsTr("Freehand") }
                 ToolBtn { Layout.alignment: Qt.AlignHCenter; toolId: 2; iconName: "rectangle"; tooltipText: qsTr("Rectangle") }
                 ToolBtn { Layout.alignment: Qt.AlignHCenter; toolId: 3; iconName: "circle"; tooltipText: qsTr("Oval") }

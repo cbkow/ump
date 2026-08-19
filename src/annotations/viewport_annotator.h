@@ -135,6 +135,27 @@ public:
         erase_at_cb_ = std::move(cb);
     }
 
+    // Pointer-tool routing (minNotes VideoAnnotator port) — fired
+    // for Press / drag-Move / Release while the active tool is
+    // Select. The callback receives the raw PointerPhase ordinal
+    // (0=Press 1=Move 2=Release) and a normalized (0..1) point in
+    // the viewport's coordinate space. Hover moves (no prior Press)
+    // are not forwarded. WindowManager owns hit-testing, selection
+    // state, move/scale transforms, and the commit — same division
+    // of labor as the Eraser.
+    using SelectPointerCb = std::function<void(int phase, QPointF normalizedPos)>;
+    void setSelectPointerCallback(SelectPointerCb cb) {
+        select_pointer_cb_ = std::move(cb);
+    }
+
+    // Current viewport display rect (screen coords, set by the
+    // renderer each frame via setViewportRect). The select tool's
+    // handle picking needs screen-space distances, so WindowManager
+    // reads these to map normalized ↔ screen with the static
+    // helpers below.
+    QPointF displayPos()  const { return display_pos_; }
+    QSizeF  displaySize() const { return display_size_; }
+
     // Cancel the in-flight stroke (Esc during a drag). Drops
     // active_stroke_ + clears is_drawing_; the finalize callback
     // is NOT fired.
@@ -191,6 +212,7 @@ private:
     StrokeFinalizedCb stroke_finalized_cb_;
     StrokeStartedCb   stroke_started_cb_;
     EraseAtCb         erase_at_cb_;
+    SelectPointerCb   select_pointer_cb_;
 };
 
 } // namespace qcv

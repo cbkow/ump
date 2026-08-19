@@ -14,6 +14,26 @@
 
 namespace qcv {
 
+QRectF strokeBoundsNorm(const ActiveStroke &s)
+{
+    if (s.points.empty()) return {};
+    // Oval encodes {center, radii} — the true box is center ± radii.
+    if (s.tool == DrawingTool::Oval && s.points.size() >= 2) {
+        const QPointF c = s.points[0], r = s.points[1];
+        return QRectF(c.x() - std::abs(r.x()), c.y() - std::abs(r.y()),
+                      2.0 * std::abs(r.x()), 2.0 * std::abs(r.y()));
+    }
+    // Everything else is a list of actual coordinates (freehand /
+    // line / arrow endpoints / rect corners) — bbox of the points.
+    double minX = s.points.front().x(), maxX = minX;
+    double minY = s.points.front().y(), maxY = minY;
+    for (const QPointF &p : s.points) {
+        minX = std::min(minX, p.x()); maxX = std::max(maxX, p.x());
+        minY = std::min(minY, p.y()); maxY = std::max(maxY, p.y());
+    }
+    return QRectF(minX, minY, maxX - minX, maxY - minY);
+}
+
 namespace {
 
 inline QPointF toPx(const QPointF &norm, double w, double h)

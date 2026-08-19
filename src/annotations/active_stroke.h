@@ -33,6 +33,13 @@ enum class DrawingTool {
     // mutation live in WindowManager (it has the AnnotationManager
     // reference); ViewportAnnotator just routes the event.
     Eraser,
+    // Pointer tool (ported from minNotes' VideoAnnotator select
+    // mode) — also not a stroke creator. Pointer events route to a
+    // select callback; WindowManager owns hit-testing, selection,
+    // move/scale transforms, and the commit. Never serialized:
+    // AnnotationSerializer has no string for it and Select never
+    // produces an ActiveStroke that reaches the sidecar.
+    Select,
 };
 
 // A drawing stroke or shape being created. Lives on the CPU side

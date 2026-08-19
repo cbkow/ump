@@ -1355,6 +1355,37 @@ private:
     QList<AnnotationUndoEntry>           m_annotationRedoStack;
     bool                                 m_notesPanelVisible = false;
 
+    // ---- Pointer/select tool state (minNotes VideoAnnotator port).
+    // Selection is (note timecode, stroke index) — strokes hang off
+    // notes and the commit targets the note by timecode, so the
+    // selection stays valid even if the playhead moves mid-gesture
+    // (drags pause playback anyway, matching minNotes). The working
+    // copy holds the note's full stroke list during a move/scale
+    // drag; rebuildStoredAnnotationMesh renders from it instead of
+    // the note's JSON so live feedback doesn't churn the sidecar.
+    QString                              m_annotSelTimecode;
+    int                                  m_annotSelIdx = -1;
+    std::vector<ActiveStroke>            m_annotSelWorking;
+    bool                                 m_annotSelMoving   = false;
+    bool                                 m_annotSelResizing = false;
+    bool                                 m_annotSelDirty    = false;
+    int                                  m_annotSelCorner   = -1;
+    QPointF                              m_annotSelLastNorm;
+    QRectF                               m_annotSelOrigBounds;
+    std::vector<QPointF>                 m_annotSelOrigPoints;
+
+    void onSelectPointer(int phase, QPointF norm);
+    int  annotationHandleAt(QPointF norm) const;
+    void annotationTranslateSelection(QPointF dNorm);
+    void annotationResizeTo(QPointF norm);
+    void clearAnnotationSelection(bool rebuild = true);
+    void deleteSelectedAnnotationStroke();
+    void commitAnnotationSelectionEdit();
+    bool annotationSelectionActive() const {
+        return m_annotSelIdx >= 0 && !m_annotSelTimecode.isEmpty();
+    }
+    QRectF annotationSelectionBoundsNorm() const;
+
     // Phase 7.5 B.6.6 — safety-guide overlay. Owned by WindowManager;
     // wired into the renderer on createPlayerWindow.
     std::unique_ptr<SafetyOverlay>     m_safetyOverlay;

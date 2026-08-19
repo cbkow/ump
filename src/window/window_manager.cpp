@@ -219,6 +219,13 @@ WindowManager::WindowManager(QQmlApplicationEngine *engine, QObject *parent)
             });
         m_annotator->setEraseAtCallback(
             [this](QPointF normPos) { onEraseAt(normPos); });
+        // Pointer/select tool (minNotes VideoAnnotator port): the
+        // annotator routes Press/Move/Release while Select is armed;
+        // hit-test, move/scale transforms, and commit live here.
+        m_annotator->setSelectPointerCallback(
+            [this](int phase, QPointF normPos) {
+                onSelectPointer(phase, normPos);
+            });
         // A new Press cancels any pending debounced annotated-thumb
         // capture. Without this, the 400 ms timer armed by stroke A's
         // release can fire mid-way through stroke B and the
@@ -6122,6 +6129,26 @@ bool WindowManager::eventFilter(QObject *watched, QEvent *event)
         cancelActiveStroke();
         return true;
     }
+    // Esc with the pointer tool's selection active — clear it.
+    // Ordered after the in-flight-stroke branch (mirrors minNotes'
+    // escape ladder: cancel stroke → clear selection → fall through).
+    if (mods == Qt::NoModifier && ke->key() == Qt::Key_Escape
+        && isAnnotationActive() && annotationSelectionActive()) {
+        clearAnnotationSelection();
+        return true;
+    }
+    // Del / Backspace — delete the pointer-tool selection. Consumed
+    // only when a stroke is actually selected, so the bin's own
+    // delete shortcuts keep working otherwise. (Text-input focus
+    // already bailed out above.)
+    if (mods == Qt::NoModifier
+        && (ke->key() == Qt::Key_Delete || ke->key() == Qt::Key_Backspace)
+        && isAnnotationActive() && m_annotator
+        && m_annotator->activeTool() == DrawingTool::Select
+        && annotationSelectionActive()) {
+        deleteSelectedAnnotationStroke();
+        return true;
+    }
 
     return QObject::eventFilter(watched, event);
 }
@@ -6202,6 +6229,9 @@ void WindowManager::setAnnotationActive(bool on)
         return;
     }
     m_annotator->setMode(on ? ViewportMode::Annotation : ViewportMode::Playback);
+    if (!on && annotationSelectionActive()) {
+        clearAnnotationSelection();
+    }
     if (on && m_annotator->activeTool() == DrawingTool::None) {
         // First-time activation defaults to Freehand so the user
         // sees something on first drag without having to set a tool.
@@ -6246,8 +6276,14 @@ void WindowManager::setNotesPanelVisible(bool on)
 void WindowManager::setAnnotationTool(int tool)
 {
     if (!m_annotator) return;
-    if (tool < 0 || tool > 6) return;
-    m_annotator->setActiveTool(static_cast<DrawingTool>(tool));
+    if (tool < 0 || tool > 7) return;   // 7 = Select (pointer tool)
+    const auto t = static_cast<DrawingTool>(tool);
+    // Leaving the pointer tool drops the selection (and its
+    // outline/handles overlay) so the next tool starts clean.
+    if (t != DrawingTool::Select && annotationSelectionActive()) {
+        clearAnnotationSelection();
+    }
+    m_annotator->setActiveTool(t);
 }
 
 void WindowManager::setAnnotationColor(double r, double g, double b, double a)
@@ -7073,23 +7109,16 @@ void WindowManager::onEraseAt(QPointF normalizedPos)
         for (int i = static_cast<int>(strokes.size()) - 1;
              i >= 0; --i) {
             const auto &s = strokes[i];
-            if (s.points.empty()) continue;
-            double minX = s.points.front().x();
-            double maxX = minX;
-            double minY = s.points.front().y();
-            double maxY = minY;
-            for (const QPointF &p : s.points) {
-                minX = std::min(minX, p.x());
-                maxX = std::max(maxX, p.x());
-                minY = std::min(minY, p.y());
-                maxY = std::max(maxY, p.y());
-            }
+            // strokeBoundsNorm is oval-aware ({center, radii} → true
+            // visual box); the old inline point-bbox made ovals
+            // nearly un-erasable away from their center/radius
+            // points. Shared with the select tool's hit test.
+            const QRectF b = strokeBoundsNorm(s);
+            if (b.isNull()) continue;
             const double pad = std::max(tol,
                 static_cast<double>(s.strokeWidth) / 1920.0);
-            if (normalizedPos.x() >= minX - pad
-                && normalizedPos.x() <= maxX + pad
-                && normalizedPos.y() >= minY - pad
-                && normalizedPos.y() <= maxY + pad) {
+            if (b.adjusted(-pad, -pad, pad, pad)
+                    .contains(normalizedPos)) {
                 hitIdx = i;
                 break;
             }
@@ -7116,6 +7145,260 @@ void WindowManager::onEraseAt(QPointF normalizedPos)
         if (m_annotatedSaveTimer) m_annotatedSaveTimer->start();
         return;        // one stroke per pointer event
     }
+}
+
+// ---- Pointer/select tool (minNotes VideoAnnotator port) ------------
+// Interaction contract (kept identical to minNotes so the two apps
+// feel the same): press hits a corner handle → uniform aspect-locked
+// scale about the opposite corner; press hits a stroke → select +
+// arm move; press hits nothing → deselect. Drags clamp the bbox to
+// [0,1]. Release commits once per gesture through the same undo
+// snapshot the draw/erase paths use.
+
+QRectF WindowManager::annotationSelectionBoundsNorm() const
+{
+    if (!annotationSelectionActive()) return {};
+    if (m_annotSelIdx >= static_cast<int>(m_annotSelWorking.size()))
+        return {};
+    return strokeBoundsNorm(
+        m_annotSelWorking[static_cast<size_t>(m_annotSelIdx)]);
+}
+
+int WindowManager::annotationHandleAt(QPointF norm) const
+{
+    if (!m_annotator) return -1;
+    const QRectF b = annotationSelectionBoundsNorm();
+    if (!b.isValid()) return -1;
+    const QPointF dp = m_annotator->displayPos();
+    const QSizeF  ds = m_annotator->displaySize();
+    if (ds.width() <= 0.0 || ds.height() <= 0.0) return -1;
+    // Handle picking is a SCREEN-space distance check so the feel is
+    // zoom-independent. Pointer coords arrive in physical pixels
+    // (PlayerWindow multiplies by devicePixelRatio), so the logical
+    // 9 px tolerance / 3 px inflation scale by dpr.
+    const double dpr = m_uiWindow ? m_uiWindow->devicePixelRatio() : 1.0;
+    const QPointF px = ViewportAnnotator::normalizedToScreen(norm, dp, ds);
+    const QRectF r(dp.x() + b.x() * ds.width(),
+                   dp.y() + b.y() * ds.height(),
+                   b.width()  * ds.width(),
+                   b.height() * ds.height());
+    const QRectF rr = r.adjusted(-3.0 * dpr, -3.0 * dpr,
+                                  3.0 * dpr,  3.0 * dpr);
+    const QPointF cs[4] = { rr.topLeft(), rr.topRight(),
+                            rr.bottomLeft(), rr.bottomRight() };
+    for (int i = 0; i < 4; ++i) {
+        if (std::hypot(px.x() - cs[i].x(), px.y() - cs[i].y())
+            <= 9.0 * dpr) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+void WindowManager::onSelectPointer(int phase, QPointF norm)
+{
+    if (!m_annotationManager) return;
+    if (!annotationsAllowedForCurrentMedia()) return;
+
+    if (phase == 0) {   // Press
+        // Corner handle grab wins over re-hit-testing so a handle
+        // overlapping a neighbouring stroke can't steal the grab.
+        if (annotationSelectionActive()) {
+            const int h = annotationHandleAt(norm);
+            if (h >= 0) {
+                m_annotSelCorner     = h;
+                m_annotSelOrigBounds = annotationSelectionBoundsNorm();
+                if (m_annotSelIdx <
+                        static_cast<int>(m_annotSelWorking.size())) {
+                    m_annotSelOrigPoints =
+                        m_annotSelWorking[static_cast<size_t>(
+                            m_annotSelIdx)].points;
+                }
+                m_annotSelResizing = true;
+                m_annotSelMoving   = false;
+                m_annotSelDirty    = false;
+                // Freeze the frame for the drag (minNotes emits
+                // strokeStarted for the same reason).
+                if (isPlayingUnified()) pause();
+                return;
+            }
+        }
+        // Hit-test stored strokes at the current frame, topmost
+        // (last-drawn) first — same bounds + padding as the eraser.
+        const int frame = currentFrameUnified();
+        const auto notes = m_annotationManager->notes();
+        for (const auto &n : notes) {
+            if (n.frame != frame) continue;
+            if (n.annotation_data.isEmpty()) continue;
+            auto strokes = AnnotationSerializer::jsonStringToStrokes(
+                n.annotation_data);
+            int hit = -1;
+            for (int i = static_cast<int>(strokes.size()) - 1;
+                 i >= 0; --i) {
+                const QRectF b = strokeBoundsNorm(strokes[i]);
+                if (b.isNull()) continue;
+                const double pad = std::max(0.012,
+                    static_cast<double>(strokes[i].strokeWidth) / 1920.0);
+                if (b.adjusted(-pad, -pad, pad, pad).contains(norm)) {
+                    hit = i;
+                    break;
+                }
+            }
+            if (hit < 0) continue;
+            m_annotSelTimecode = n.timecode;
+            m_annotSelIdx      = hit;
+            m_annotSelWorking  = std::move(strokes);
+            m_annotSelMoving   = true;
+            m_annotSelResizing = false;
+            m_annotSelDirty    = false;
+            m_annotSelLastNorm = norm;
+            if (isPlayingUnified()) pause();
+            rebuildStoredAnnotationMesh();
+            return;
+        }
+        clearAnnotationSelection();
+        return;
+    }
+
+    if (phase == 1) {   // Move (drag)
+        if (m_annotSelResizing) { annotationResizeTo(norm); return; }
+        if (!m_annotSelMoving || !annotationSelectionActive()) return;
+        annotationTranslateSelection(norm - m_annotSelLastNorm);
+        m_annotSelLastNorm = norm;
+        return;
+    }
+
+    // Release — commit once per gesture, only if something moved.
+    if (!m_annotSelMoving && !m_annotSelResizing) return;
+    m_annotSelMoving   = false;
+    m_annotSelResizing = false;
+    m_annotSelCorner   = -1;
+    if (!m_annotSelDirty) return;
+    m_annotSelDirty = false;
+    commitAnnotationSelectionEdit();
+}
+
+void WindowManager::annotationTranslateSelection(QPointF dNorm)
+{
+    if (!annotationSelectionActive()) return;
+    if (m_annotSelIdx >= static_cast<int>(m_annotSelWorking.size()))
+        return;
+    const QRectF b = annotationSelectionBoundsNorm();
+    if (!b.isValid()) return;
+    // Clamp the delta so the bbox stays inside [0,1] — matches
+    // minNotes' video annotator (overflow ink is a sketch-canvas
+    // liberty, not a video one).
+    const double dx = std::min(std::max(dNorm.x(), -b.left()),
+                               1.0 - b.right());
+    const double dy = std::min(std::max(dNorm.y(), -b.top()),
+                               1.0 - b.bottom());
+    if (dx == 0.0 && dy == 0.0) return;
+    ActiveStroke &s =
+        m_annotSelWorking[static_cast<size_t>(m_annotSelIdx)];
+    if (s.tool == DrawingTool::Oval && !s.points.empty()) {
+        s.points[0] += QPointF(dx, dy);   // oval = {center, radii}
+    } else {
+        for (QPointF &pt : s.points) pt += QPointF(dx, dy);
+    }
+    m_annotSelDirty = true;
+    rebuildStoredAnnotationMesh();
+}
+
+void WindowManager::annotationResizeTo(QPointF norm)
+{
+    if (!m_annotSelOrigBounds.isValid()) return;
+    if (!annotationSelectionActive()) return;
+    if (m_annotSelIdx >= static_cast<int>(m_annotSelWorking.size()))
+        return;
+    const double L = m_annotSelOrigBounds.left();
+    const double R = m_annotSelOrigBounds.right();
+    const double T = m_annotSelOrigBounds.top();
+    const double B = m_annotSelOrigBounds.bottom();
+    QPointF grab, pivot;
+    switch (m_annotSelCorner) {
+        case 0:  grab = {L, T}; pivot = {R, B}; break;
+        case 1:  grab = {R, T}; pivot = {L, B}; break;
+        case 2:  grab = {L, B}; pivot = {R, T}; break;
+        default: grab = {R, B}; pivot = {L, T}; break;
+    }
+    const double dxs = grab.x() - pivot.x();
+    const double dys = grab.y() - pivot.y();
+    const double origW = std::abs(dxs), origH = std::abs(dys);
+    if (origW <= 0.0 || origH <= 0.0) return;
+    // Uniform scale, aspect locked, pivot at the opposite corner —
+    // proportional to the dominant axis of the drag.
+    double s = std::max(std::abs(norm.x() - pivot.x()) / origW,
+                        std::abs(norm.y() - pivot.y()) / origH);
+    // Minimum size so a stroke can't collapse to a point.
+    s = std::max(s, std::max(0.03 / origW, 0.03 / origH));
+    // Clamp so the scaled bbox stays inside [0,1].
+    const double sMaxX = dxs > 0 ? (1.0 - pivot.x()) / dxs
+                        : (dxs < 0 ? -pivot.x() / dxs : 1e9);
+    const double sMaxY = dys > 0 ? (1.0 - pivot.y()) / dys
+                        : (dys < 0 ? -pivot.y() / dys : 1e9);
+    s = std::min(s, std::min(sMaxX, sMaxY));
+    if (s <= 0.0) return;
+    ActiveStroke &st =
+        m_annotSelWorking[static_cast<size_t>(m_annotSelIdx)];
+    if (m_annotSelOrigPoints.size() != st.points.size()) return;
+    std::vector<QPointF> &pts = st.points;
+    if (st.tool == DrawingTool::Oval && pts.size() >= 2) {
+        pts[0] = pivot + (m_annotSelOrigPoints[0] - pivot) * s;
+        pts[1] = m_annotSelOrigPoints[1] * s;   // radii scale by s
+    } else {
+        for (size_t i = 0; i < pts.size(); ++i) {
+            pts[i] = pivot + (m_annotSelOrigPoints[i] - pivot) * s;
+        }
+    }
+    m_annotSelDirty = true;
+    rebuildStoredAnnotationMesh();
+}
+
+void WindowManager::commitAnnotationSelectionEdit()
+{
+    if (!m_annotationManager || m_annotSelTimecode.isEmpty()) return;
+    const AnnotationNote *note =
+        m_annotationManager->noteAtTimecode(m_annotSelTimecode);
+    if (!note) { clearAnnotationSelection(); return; }
+    AnnotationUndoEntry undo;
+    undo.timecode            = m_annotSelTimecode;
+    undo.priorAnnotationData = note->annotation_data;
+    undo.noteWasNew          = false;
+    m_annotationUndoStack.append(undo);
+    m_annotationRedoStack.clear();
+    const QString json = m_annotSelWorking.empty()
+        ? QString()
+        : AnnotationSerializer::strokesToJsonString(m_annotSelWorking);
+    m_annotationManager->updateNoteAnnotationData(m_annotSelTimecode, json);
+    // Refresh the annotated thumbnail via the shared debounce.
+    m_pendingAnnotatedTimecode = m_annotSelTimecode;
+    if (m_annotatedSaveTimer) m_annotatedSaveTimer->start();
+}
+
+void WindowManager::deleteSelectedAnnotationStroke()
+{
+    if (!annotationSelectionActive()) return;
+    if (m_annotSelIdx >= static_cast<int>(m_annotSelWorking.size())) {
+        clearAnnotationSelection();
+        return;
+    }
+    m_annotSelWorking.erase(m_annotSelWorking.begin() + m_annotSelIdx);
+    m_annotSelDirty = false;
+    commitAnnotationSelectionEdit();   // uses timecode + working copy
+    clearAnnotationSelection();
+}
+
+void WindowManager::clearAnnotationSelection(bool rebuild)
+{
+    const bool had = annotationSelectionActive();
+    m_annotSelTimecode.clear();
+    m_annotSelIdx      = -1;
+    m_annotSelWorking.clear();
+    m_annotSelOrigPoints.clear();
+    m_annotSelOrigBounds = QRectF();
+    m_annotSelMoving = m_annotSelResizing = m_annotSelDirty = false;
+    m_annotSelCorner = -1;
+    if (had && rebuild) rebuildStoredAnnotationMesh();
 }
 
 bool WindowManager::annotationUndo()
@@ -7628,6 +7911,8 @@ void WindowManager::rebuildStoredAnnotationMesh()
     // on the notes-panel visibility — when the panel is closed we
     // push an empty list so the player surface stays clean.
     std::vector<ActiveStroke> strokesForFrame;
+    const bool selDragActive = m_annotSelMoving || m_annotSelResizing;
+    bool selNoteSeen = false;
     if (m_notesPanelVisible
         && m_annotationManager
         && annotationsAllowedForCurrentMedia()) {
@@ -7635,11 +7920,104 @@ void WindowManager::rebuildStoredAnnotationMesh()
         const auto notes = m_annotationManager->notes();
         for (const auto &n : notes) {
             if (n.frame != frame) continue;
+            // Selected note mid-drag: render from the working copy
+            // (live move/scale feedback) instead of the JSON, which
+            // is only rewritten on Release.
+            if (annotationSelectionActive()
+                && n.timecode == m_annotSelTimecode) {
+                selNoteSeen = true;
+                if (selDragActive) {
+                    for (const auto &s : m_annotSelWorking) {
+                        strokesForFrame.push_back(s);
+                    }
+                    continue;
+                }
+                // Idle: refresh the working copy from the JSON so
+                // undo/redo or external edits can't leave the
+                // selection pointing at stale geometry.
+                m_annotSelWorking =
+                    AnnotationSerializer::jsonStringToStrokes(
+                        n.annotation_data);
+                if (m_annotSelIdx >=
+                        static_cast<int>(m_annotSelWorking.size())) {
+                    clearAnnotationSelection(/*rebuild=*/false);
+                }
+                for (const auto &s : m_annotSelWorking) {
+                    strokesForFrame.push_back(s);
+                }
+                continue;
+            }
             if (n.annotation_data.isEmpty()) continue;
             auto fromJson = AnnotationSerializer::jsonStringToStrokes(
                 n.annotation_data);
             for (auto &s : fromJson) {
                 strokesForFrame.push_back(std::move(s));
+            }
+        }
+    }
+
+    // Selection is frame-local: if the selected note isn't at the
+    // current frame anymore (playhead moved while idle), drop it.
+    if (annotationSelectionActive() && !selNoteSeen && !selDragActive) {
+        clearAnnotationSelection(/*rebuild=*/false);
+    }
+
+    // Pointer-tool selection visuals — bbox outline + 4 corner
+    // handles, appended as synthetic strokes so they ride the
+    // existing vertex-color pipeline. Never persisted: they exist
+    // only in this vector.
+    if (annotationSelectionActive()
+        && m_annotator && m_annotator->isAnnotationMode()
+        && m_annotator->activeTool() == DrawingTool::Select) {
+        const QRectF b = annotationSelectionBoundsNorm();
+        const QSizeF ds = m_annotator->displaySize();
+        if (b.isValid() && ds.width() > 16.0 && ds.height() > 16.0) {
+            const double dpr =
+                m_uiWindow ? m_uiWindow->devicePixelRatio() : 1.0;
+            // Screen px → normalized, per axis (fit dims are
+            // physical px, so scale logical px by dpr).
+            const double nx = dpr / ds.width();
+            const double ny = dpr / ds.height();
+            // Stroke widths are SOURCE px (renderer scales by
+            // fitW/srcW); approximate srcW from the active media so
+            // the outline lands near 1.5 logical px on screen.
+            double srcW = 1920.0;
+            if (m_imageSeqActive && m_imageSeqCache
+                && m_imageSeqCache->width() > 0) {
+                srcW = m_imageSeqCache->width();
+            } else if (m_videoDecoder && m_videoDecoder->width() > 0) {
+                srcW = m_videoDecoder->width();
+            }
+            const float outlineW = static_cast<float>(
+                1.5 * dpr * srcW / ds.width());
+            const QColor accent(0x01, 0x89, 0xf1);   // Theme.accent
+
+            const QRectF rb = b.adjusted(-3.0 * nx, -3.0 * ny,
+                                          3.0 * nx,  3.0 * ny);
+            ActiveStroke outline;
+            outline.tool  = DrawingTool::Rectangle;
+            outline.color = accent;
+            outline.strokeWidth = outlineW;
+            outline.points = { rb.topLeft(), rb.topRight(),
+                               rb.bottomRight(), rb.bottomLeft() };
+            strokesForFrame.push_back(std::move(outline));
+
+            const double hx = 4.0 * nx, hy = 4.0 * ny;  // 8px squares
+            const QPointF corners[4] = {
+                rb.topLeft(), rb.topRight(),
+                rb.bottomLeft(), rb.bottomRight() };
+            for (const QPointF &c : corners) {
+                ActiveStroke handle;
+                handle.tool   = DrawingTool::Rectangle;
+                handle.color  = accent;
+                handle.filled = true;
+                handle.strokeWidth = outlineW;
+                handle.points = {
+                    QPointF(c.x() - hx, c.y() - hy),
+                    QPointF(c.x() + hx, c.y() - hy),
+                    QPointF(c.x() + hx, c.y() + hy),
+                    QPointF(c.x() - hx, c.y() + hy) };
+                strokesForFrame.push_back(std::move(handle));
             }
         }
     }

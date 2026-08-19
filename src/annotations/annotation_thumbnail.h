@@ -18,10 +18,19 @@
 #include "active_stroke.h"
 
 #include <QImage>
+#include <QRectF>
 
 #include <vector>
 
 namespace qcv {
+
+// Normalized [0,1] bounding box of a stroke. Handles the shape
+// encodings — an Oval stores {center, radii}, not two corners — so
+// callers (eraser hit-testing, the select tool) get the TRUE visual
+// bounds, not the bbox of the raw points. Ported from minNotes'
+// annotation_thumbnail (their select tool added it); keep the two
+// copies identical — minNotes vendors this file.
+QRectF strokeBoundsNorm(const ActiveStroke &s);
 
 // Recomposite a note's display thumbnail.
 //   cleanSquare : the durable square clean frame (raw storage pixels).

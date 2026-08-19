@@ -153,6 +153,30 @@ bool ViewportAnnotator::onPointerEvent(PointerPhase phase,
             if (erase_at_cb_) erase_at_cb_(norm);
             return true;
         }
+        case DrawingTool::Select: {
+            // Pointer tool: press to hit-test/grab, drag to move or
+            // scale, release to commit. Hover Move (no prior Press)
+            // is ignored — same rationale as the Eraser. Events are
+            // forwarded even when the point is outside the display
+            // area: a press outside deselects, and mid-drag points
+            // may legitimately leave the frame (WindowManager clamps
+            // the transform, mirroring minNotes' VideoAnnotator).
+            if (phase == PointerPhase::Press) {
+                is_drawing_ = true;
+            } else if (phase == PointerPhase::Release) {
+                if (!is_drawing_) return true;
+                is_drawing_ = false;
+            } else if (!is_drawing_) {
+                return true;   // hover / pre-press Move → no-op
+            }
+            const QPointF norm = screenToNormalized(screenPos,
+                                                     display_pos_,
+                                                     display_size_);
+            if (select_pointer_cb_) {
+                select_pointer_cb_(static_cast<int>(phase), norm);
+            }
+            return true;
+        }
         case DrawingTool::None:
         default:                     return false;
     }
