@@ -491,7 +491,7 @@ int VideoDecoder::parseTimecode(const QString &tc) const
     const int startFrame =
         m_currentStartFrame.load(std::memory_order_acquire);
     const int frame = (startFrame >= 0) ? absFrame - startFrame : absFrame;
-    return std::max(0, frame);
+    return frame >= 0 ? frame : 0;
 }
 
 void VideoDecoder::setStartTimecode(const QString &tc)
