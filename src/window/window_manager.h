@@ -826,6 +826,13 @@ public:
     Q_INVOKABLE bool exitBorderlessFullscreen(QWindow *window);
     Q_INVOKABLE bool isBorderlessFullscreen(QWindow *window) const;
 
+    // Window-geometry persistence — drop the saved frame keys and
+    // suppress further saves for the rest of this process. Called by
+    // the reset-all-preferences flow (which quits right after; without
+    // the suppression the aboutToQuit flush would write the keys
+    // straight back).
+    Q_INVOKABLE void clearSavedWindowGeometry();
+
     // Screenshots — capture the next-presented frame from the
     // native player surface and either copy to clipboard or save
     // to ~/Desktop/qcview-screenshot-<timestamp>.png. Returns true
@@ -1104,6 +1111,19 @@ private:
     bool createPlayerWindow();
     void destroyPlayerWindow();
 
+    // ---- Window-geometry persistence (UI window frame) ----------
+    // Restore runs in initialize() while the window is still hidden
+    // (Main.qml starts visible:false on both platforms) so the frame
+    // is applied before first show — no visible jump, and the Metal
+    // layer's contentsScale is read from the correct screen at init.
+    // Saves are debounced writes of the last known *normal* (non-
+    // maximized, non-fullscreen) frame in logical coordinates, plus
+    // a maximized flag and the screen name as a restore hint.
+    void restoreWindowGeometry();
+    void connectWindowGeometryPersistence();
+    void scheduleWindowGeometrySave();
+    void saveWindowGeometryNow();
+
     // Phase 7.4.b.4 — image-sequence playback. Builds an
     // ImageSequenceCache for the given MediaItem; the renderer pulls
     // pixels from it per present (PlayerRhiItem::imageSeqCache).
@@ -1222,6 +1242,21 @@ private:
     QPointer<QQuickItem>   m_centerStage;
     QRect                  m_lastDetachedGeometry;
     bool                   m_detached = false;
+    // ---- Window-geometry persistence state ----
+    QRect   m_normalWindowGeometry;            // last non-maximized frame (logical)
+    bool    m_windowWasMaximized      = false; // stable flag (not read at flush time,
+                                               // when visibility may be Hidden)
+    bool    m_pendingRestoreMaximized = false; // restored maximized → showMaximized()
+    bool    m_windowGeomSaveEnabled   = false; // armed ~1 s after reveal (see
+                                               // layoutSettling precedent in Main.qml)
+    bool    m_windowGeomSaveSuppressed = false; // reset-preferences path
+    // Borderless fullscreen tracked here for BOTH platforms (the
+    // Q_INVOKABLE isBorderlessFullscreen helper is macOS-only) so the
+    // save path never captures a fullscreen frame with stripped
+    // window styles. Set/cleared in the enter/exit wrappers, which
+    // every caller routes through.
+    bool    m_borderlessFsActive      = false;
+    QTimer *m_windowGeomSaveTimer     = nullptr;
     // ---- UI-over-viewport framework state ----
     bool                   m_modalActive      = false;
     bool                   m_modalWasPlaying  = false;   // resume on close

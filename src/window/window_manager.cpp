@@ -69,6 +69,7 @@
 #include <QQmlComponent>
 #include <QQuickItem>
 #include <QQuickWindow>
+#include <QRegion>
 #include <QScreen>
 #include <QSurfaceFormat>
 #include <QTimer>
@@ -1229,6 +1230,15 @@ bool WindowManager::initialize()
     qInfo("WindowManager: UI swapchain colorspace = %s",
           qPrintable(m_uiWindow->format().colorSpace().description()));
 
+    // Apply the saved window frame while the window is still hidden
+    // (Main.qml starts visible:false on both platforms) — validated
+    // against the current screen set, so a monitor that vanished or
+    // changed resolution since last run can't strand the window
+    // off-screen. Must precede the winId() calls below: geometry set
+    // before the platform window exists is applied at creation, which
+    // also lands the Metal layer's contentsScale on the right screen.
+    restoreWindowGeometry();
+
 #if defined(Q_OS_WIN)
     // Subclass the UI window's WNDPROC to paint WM_ERASEBKGND with
     // #161616 (Theme.bg). WNDCLASS background brush is ignored on Qt
@@ -1262,12 +1272,6 @@ bool WindowManager::initialize()
                               reinterpret_cast<LONG_PTR>(subclassProc));
         }
     }
-    // Reveal the window now that the dark WM_ERASEBKGND subclass is
-    // bound. Main.qml starts it hidden on Windows (visible bound to
-    // non-windows); winId() above already forced HWND creation while
-    // hidden, so the very first paint erases to #161616 instead of the
-    // default white flash. No-op if QML somehow already showed it.
-    if (m_uiWindow) m_uiWindow->setVisible(true);
 #endif
 
 #if defined(Q_OS_MACOS)
@@ -1279,6 +1283,21 @@ bool WindowManager::initialize()
     // around this default and restore it cleanly.
     qcv::disableSystemFullscreen(m_uiWindow);
 #endif
+
+    // Reveal — both platforms start hidden (Main.qml visible:false) so
+    // restored geometry lands before first show. On Windows the dark
+    // WM_ERASEBKGND subclass above is bound first, so the very first
+    // paint erases to #161616 instead of the default white flash
+    // (winId() there already forced HWND creation while hidden). A
+    // maximized quit restores maximized, with the saved normal frame
+    // already applied so un-maximizing lands on a sane rect.
+    if (m_pendingRestoreMaximized)
+        m_uiWindow->showMaximized();
+    else
+        m_uiWindow->setVisible(true);
+
+    // Start persisting the frame — connections + settle gate.
+    connectWindowGeometryPersistence();
 
     // Locate the centerStage Item that represents the Player window mount.
     m_centerStage = m_uiWindow->findChild<QQuickItem *>(QStringLiteral("centerStage"));
@@ -5491,26 +5510,37 @@ bool WindowManager::screenshotToFile()
 // have to branch.
 bool WindowManager::enterBorderlessFullscreen(QWindow *window)
 {
+    // Flag BEFORE the helper runs: the resize-to-screen it performs
+    // delivers geometry-change signals (sync or queued) that the
+    // geometry-persistence capture must ignore. Cleared on failure.
+    if (window == m_uiWindow) m_borderlessFsActive = true;
+    bool ok = false;
 #ifdef Q_OS_MACOS
-    return qcv::enterBorderlessFullscreen(window);
+    ok = qcv::enterBorderlessFullscreen(window);
 #elif defined(Q_OS_WIN)
-    return qcv::enterBorderlessFullscreenWin(window);
+    ok = qcv::enterBorderlessFullscreenWin(window);
 #else
     Q_UNUSED(window);
-    return false;
 #endif
+    if (!ok && window == m_uiWindow) m_borderlessFsActive = false;
+    return ok;
 }
 
 bool WindowManager::exitBorderlessFullscreen(QWindow *window)
 {
+    bool ok = false;
 #ifdef Q_OS_MACOS
-    return qcv::exitBorderlessFullscreen(window);
+    ok = qcv::exitBorderlessFullscreen(window);
 #elif defined(Q_OS_WIN)
-    return qcv::exitBorderlessFullscreenWin(window);
+    ok = qcv::exitBorderlessFullscreenWin(window);
 #else
     Q_UNUSED(window);
-    return false;
 #endif
+    // Clear after the helper: the pre-fullscreen frame it restores
+    // fires geometry signals on the next event-loop pass, which the
+    // capture should now accept as the live normal frame again.
+    if (window == m_uiWindow) m_borderlessFsActive = false;
+    return ok;
 }
 
 bool WindowManager::isBorderlessFullscreen(QWindow *window) const
@@ -5521,6 +5551,182 @@ bool WindowManager::isBorderlessFullscreen(QWindow *window) const
     Q_UNUSED(window);
     return false;
 #endif
+}
+
+// ---- Window-geometry persistence -------------------------------
+// Frame saved under window/* in logical (device-independent) points —
+// Qt's coordinate space on both platforms — so a frame saved on a 2×
+// display restores sensibly on a 1× display without any manual DPI
+// math. screenName is a restore hint only; maximized is stored beside
+// the *normal* frame so un-maximizing after a maximized launch lands
+// where the user left the window.
+
+void WindowManager::restoreWindowGeometry()
+{
+    if (!m_uiWindow) return;
+    QSettings s;
+    if (!s.contains(QStringLiteral("window/width"))) return; // first run
+
+    bool okX = false, okY = false, okW = false, okH = false;
+    const int x = s.value(QStringLiteral("window/x")).toInt(&okX);
+    const int y = s.value(QStringLiteral("window/y")).toInt(&okY);
+    const int w = s.value(QStringLiteral("window/width")).toInt(&okW);
+    const int h = s.value(QStringLiteral("window/height")).toInt(&okH);
+    const bool maximized =
+        s.value(QStringLiteral("window/maximized"), false).toBool();
+    const QString savedScreen =
+        s.value(QStringLiteral("window/screenName")).toString();
+    // Degenerate / corrupt values → keep the QML default frame.
+    if (!okX || !okY || !okW || !okH) return;
+    if (w < 480 || h < 320 || w > 16384 || h > 16384) return;
+
+    QRect r(x, y, w, h);
+    const auto screens = QGuiApplication::screens();
+    if (screens.isEmpty()) return;
+
+    // Target screen: saved name if still present, else the screen the
+    // frame overlaps most, else primary. Needed both as the clamp
+    // basis and for setScreen() below.
+    QScreen *target = nullptr;
+    if (!savedScreen.isEmpty()) {
+        for (QScreen *scr : screens)
+            if (scr->name() == savedScreen) { target = scr; break; }
+    }
+    if (!target) {
+        qint64 best = 0;
+        for (QScreen *scr : screens) {
+            const QRect inter = scr->availableGeometry().intersected(r);
+            const qint64 area = qint64(inter.width()) * inter.height();
+            if (area > best) { best = area; target = scr; }
+        }
+    }
+    if (!target) target = QGuiApplication::primaryScreen();
+    if (!target) return;
+
+    // Display-change safety. Accept the frame verbatim only when
+    //   (a) its top "grab strip" (title-bar reach) touches some
+    //       screen's *available* area — the user can always drag it, and
+    //   (b) no part of it hangs into the void between/outside screens
+    //       (full screen rects here, so a frame straddling two monitors
+    //       across a taskbar seam still counts as visible).
+    // Otherwise clamp it into the target screen: size first, then
+    // position — handles "saved on 4K, restoring on laptop" and
+    // "monitor unplugged" in one pass. AppKit does some of this
+    // itself via constrainFrameRect; Windows does none.
+    QRegion desktopFull, desktopAvail;
+    for (QScreen *scr : screens) {
+        desktopFull  += scr->geometry();
+        desktopAvail += scr->availableGeometry();
+    }
+    const QRect grabStrip(r.x(), r.y(), r.width(), 40);
+    const bool anchored  = desktopAvail.intersects(grabStrip);
+    const bool contained = QRegion(r).subtracted(desktopFull).isEmpty();
+    if (!(anchored && contained)) {
+        const QRect avail = target->availableGeometry();
+        if (r.width()  > avail.width())  r.setWidth(avail.width());
+        if (r.height() > avail.height()) r.setHeight(avail.height());
+        if (r.right()  > avail.right())  r.moveRight(avail.right());
+        if (r.bottom() > avail.bottom()) r.moveBottom(avail.bottom());
+        if (r.left()   < avail.left())   r.moveLeft(avail.left());
+        if (r.top()    < avail.top())    r.moveTop(avail.top());
+    }
+
+    // setScreen BEFORE setGeometry: on Windows mixed-DPI layouts the
+    // logical→physical mapping depends on which screen Qt believes
+    // the (still hidden) window is on; associating the screen first
+    // makes the geometry land on the intended monitor at the right
+    // scale factor.
+    m_uiWindow->setScreen(target);
+    m_uiWindow->setGeometry(r);
+    m_normalWindowGeometry    = r;
+    m_windowWasMaximized      = maximized;
+    m_pendingRestoreMaximized = maximized;
+    qInfo("WindowManager: restored window frame %dx%d+%d+%d on \"%s\"%s",
+          r.width(), r.height(), r.x(), r.y(),
+          qPrintable(target->name()), maximized ? " (maximized)" : "");
+}
+
+void WindowManager::connectWindowGeometryPersistence()
+{
+    if (!m_uiWindow) return;
+
+    m_windowGeomSaveTimer = new QTimer(this);
+    m_windowGeomSaveTimer->setSingleShot(true);
+    m_windowGeomSaveTimer->setInterval(500);
+    connect(m_windowGeomSaveTimer, &QTimer::timeout,
+            this, &WindowManager::saveWindowGeometryNow);
+
+    connect(m_uiWindow, &QWindow::xChanged,
+            this, &WindowManager::scheduleWindowGeometrySave);
+    connect(m_uiWindow, &QWindow::yChanged,
+            this, &WindowManager::scheduleWindowGeometrySave);
+    connect(m_uiWindow, &QWindow::widthChanged,
+            this, &WindowManager::scheduleWindowGeometrySave);
+    connect(m_uiWindow, &QWindow::heightChanged,
+            this, &WindowManager::scheduleWindowGeometrySave);
+    connect(m_uiWindow, &QWindow::visibilityChanged,
+            this, &WindowManager::scheduleWindowGeometrySave);
+
+    // Debounce means a move/resize inside the last 500 ms of a session
+    // would otherwise be lost — Main.qml quits via onClosing with no
+    // shutdown hook, so flush the pending write here.
+    connect(qApp, &QCoreApplication::aboutToQuit, this, [this] {
+        if (m_windowGeomSaveTimer && m_windowGeomSaveTimer->isActive()) {
+            m_windowGeomSaveTimer->stop();
+            saveWindowGeometryNow();
+        }
+    });
+
+    // Settle gate — Qt fires geometry signals during initial
+    // placement/reveal; don't let those clobber the stored frame
+    // (same job layoutSettling does for the rail layout in Main.qml).
+    QTimer::singleShot(1000, this, [this] {
+        m_windowGeomSaveEnabled = true;
+    });
+}
+
+void WindowManager::scheduleWindowGeometrySave()
+{
+    if (!m_uiWindow || !m_windowGeomSaveEnabled || m_windowGeomSaveSuppressed)
+        return;
+    if (m_borderlessFsActive) return; // frame is the whole screen right now
+    switch (m_uiWindow->visibility()) {
+    case QWindow::Windowed:
+        m_normalWindowGeometry = m_uiWindow->geometry();
+        m_windowWasMaximized   = false;
+        break;
+    case QWindow::Maximized:
+        // Keep the last normal frame; just remember the state.
+        m_windowWasMaximized = true;
+        break;
+    default:
+        // FullScreen (Qt-fallback path) / Minimized / Hidden — the
+        // reported geometry is not a frame worth remembering.
+        return;
+    }
+    m_windowGeomSaveTimer->start();
+}
+
+void WindowManager::saveWindowGeometryNow()
+{
+    if (!m_uiWindow || m_windowGeomSaveSuppressed) return;
+    if (!m_normalWindowGeometry.isValid()) return;
+    QSettings s;
+    s.setValue(QStringLiteral("window/x"),      m_normalWindowGeometry.x());
+    s.setValue(QStringLiteral("window/y"),      m_normalWindowGeometry.y());
+    s.setValue(QStringLiteral("window/width"),  m_normalWindowGeometry.width());
+    s.setValue(QStringLiteral("window/height"), m_normalWindowGeometry.height());
+    s.setValue(QStringLiteral("window/maximized"), m_windowWasMaximized);
+    if (QScreen *scr = m_uiWindow->screen())
+        s.setValue(QStringLiteral("window/screenName"), scr->name());
+}
+
+void WindowManager::clearSavedWindowGeometry()
+{
+    m_windowGeomSaveSuppressed = true;
+    if (m_windowGeomSaveTimer) m_windowGeomSaveTimer->stop();
+    QSettings s;
+    s.remove(QStringLiteral("window"));
 }
 
 void WindowManager::stopFastSeek()

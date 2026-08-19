@@ -1787,6 +1787,10 @@ Rectangle {
                             WindowManager.timelineWaveformsEnabled =
                                 settingsSection.kWaveformsDefault;
                             WindowManager.scrubAudioMuted = false;
+                            // Drops window/* frame keys AND suppresses
+                            // the aboutToQuit geometry flush, which
+                            // would otherwise write them right back.
+                            WindowManager.clearSavedWindowGeometry();
                             Qt.quit();
                         }
                     }
