@@ -48,6 +48,22 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What's new in 2.2.5
+
+- **Pointer tool for annotations** — select any stroke to move it, scale it
+  from the corner handles, or delete it. Full undo support. Opening the
+  Notes panel now arms the freehand pen automatically.
+- **Go to frame / timecode** — click the frame or timecode readout above
+  the transport bar, type a target, and jump straight there. Accepts
+  drop-frame timecode and bare digits (`1000` → `00:00:10:00`).
+- **Window memory** — QCView now remembers its window size and position
+  across launches, with safe recovery when displays change. View ▸
+  Default Size & Position resets it.
+- Oval annotations can now be erased anywhere on their outline, not just
+  near two spots.
+- Reopening a video from the bin returns it to the top of Open Recent.
+- The timeline toolbar divider no longer cuts across the side margins.
+
 What’s new in 2.2.4
 - SRT streaming improvements
 - Upgraded the Blender OCIO profile to 5.2 (Includes EDR improvements and several camera profiles to bring it closer to parity with ACES studio packages)
