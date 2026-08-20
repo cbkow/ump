@@ -1,5 +1,7 @@
 #include "video_decoder.h"
 
+#include "decode/rgb_range.h"
+
 #include "decoder_cleanup_queue.h"
 
 #include <QDebug>
@@ -1022,48 +1024,25 @@ void VideoDecoder::publishCpuFrame(AVFrame *frame)
               dst, dstStride);
 
     // RGB sources: swscale applies no range handling on an RGB→RGB
-    // conversion (the sws_setColorspaceDetails srcRange above only
-    // feeds YUV→RGB matrices), so the Range pill would be inert here.
-    // Resolve it ourselves with the RGB convention: Auto = follow the
-    // container tag, else full (shown as stored); Limited = expand
-    // video levels 16–235 → 0–255. Same rule the Windows Vulkan
-    // compositor applies in its RGB branch.
-    {
-        const AVPixFmtDescriptor *desc =
-            av_pix_fmt_desc_get(static_cast<AVPixelFormat>(frame->format));
-        const bool srcIsRgb = desc && (desc->flags & AV_PIX_FMT_FLAG_RGB);
-        if (srcIsRgb) {
-            const int rangeOv = m_rangeOverride.load(std::memory_order_acquire);
-            const bool limited = (rangeOv == 2)
-                || (rangeOv == 0 && frame->color_range == AVCOL_RANGE_MPEG);
-            if (limited != m_loggedRgbExpand || !m_loggedRgbExpandOnce) {
-                qInfo("VideoDecoder[%s]: RGB source, legal-range expansion %s "
-                      "(override=%d, frame tag=%s)",
-                      qPrintable(QFileInfo(m_sourcePath).fileName()),
-                      limited ? "ON" : "off", rangeOv,
-                      frame->color_range == AVCOL_RANGE_MPEG ? "limited"
-                      : frame->color_range == AVCOL_RANGE_JPEG ? "full" : "none");
-                m_loggedRgbExpand = limited;
-                m_loggedRgbExpandOnce = true;
-            }
-            if (limited) {
-                static const auto kLut = [] {
-                    std::array<uint8_t, 256> t{};
-                    for (int v = 0; v < 256; ++v) {
-                        const int e = ((v - 16) * 255 + 109) / 219;  // round
-                        t[v] = static_cast<uint8_t>(std::clamp(e, 0, 255));
-                    }
-                    return t;
-                }();
-                for (int y = 0; y < frame->height; ++y) {
-                    uint8_t *row = rgba.scanLine(y);
-                    for (int x = 0; x < frame->width; ++x, row += 4) {
-                        row[0] = kLut[row[0]];
-                        row[1] = kLut[row[1]];
-                        row[2] = kLut[row[2]];
-                    }
-                }
-            }
+    // conversion, so the Range pill would be inert here — apply the
+    // legal→full expansion under the shared rule (decode/rgb_range.h;
+    // same helper the scrub / dual / thumbnail paths use).
+    if (isRgbPixelFormat(frame->format)) {
+        const int rangeOv = m_rangeOverride.load(std::memory_order_acquire);
+        const bool limited = rgbFrameNeedsLegalExpansion(frame, rangeOv);
+        if (limited != m_loggedRgbExpand || !m_loggedRgbExpandOnce) {
+            qInfo("VideoDecoder[%s]: RGB source, legal-range expansion %s "
+                  "(override=%d, frame tag=%s)",
+                  qPrintable(QFileInfo(m_sourcePath).fileName()),
+                  limited ? "ON" : "off", rangeOv,
+                  frame->color_range == AVCOL_RANGE_MPEG ? "limited"
+                  : frame->color_range == AVCOL_RANGE_JPEG ? "full" : "none");
+            m_loggedRgbExpand = limited;
+            m_loggedRgbExpandOnce = true;
+        }
+        if (limited) {
+            expandRgba8LegalToFull(rgba.bits(), frame->width, frame->height,
+                                   static_cast<int>(rgba.bytesPerLine()));
         }
     }
 

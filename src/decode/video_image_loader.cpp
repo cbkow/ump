@@ -3,6 +3,8 @@
 
 #include "video_image_loader.h"
 
+#include "decode/rgb_range.h"
+
 #include <QtLogging>
 
 #include <algorithm>
@@ -358,6 +360,12 @@ bool VideoImageLoader::convertFrameToPixels(
 
     sws_scale(m_swsCtx, frame->data, frame->linesize, 0,
               frame->height, target->data, target->linesize);
+    // RGB sources tagged limited (container or decoder convention):
+    // expand so thumbnails/posters match the viewport. No per-clip
+    // override here — thumbs follow Auto.
+    if (rgbFrameNeedsLegalExpansion(frame, /*rangeOverride=*/0)) {
+        expandRgba8LegalToFull(target->data[0], outW, outH, target->linesize[0]);
+    }
 
     const std::size_t dataSize =
         static_cast<std::size_t>(outW) * outH * kBytesPerPixel;

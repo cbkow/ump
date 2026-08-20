@@ -614,7 +614,10 @@ void ScrubDecoder::publishEntry(const std::shared_ptr<ScrubCacheEntry> &entry)
     // helper — a bare QImage overflows on odd widths (see sws_rgba_image.h).
     AVFrame *yf = entry->yuvFrame();
     if (!yf || !initSwsContext(yf)) return;
-    QImage rgba = swsFrameToRgbaImage(m_sws, yf);
+    QImage rgba = swsFrameToRgbaImage(
+        m_sws, yf,
+        rgbFrameNeedsLegalExpansion(
+            yf, m_rangeOverride.load(std::memory_order_acquire)));
     if (rgba.isNull()) return;
     m_streaming->publishExternalFrame(
         FrameHandle::cpu(std::move(rgba), entry->pts()), entry->pts());

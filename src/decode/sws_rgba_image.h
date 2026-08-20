@@ -20,6 +20,8 @@
 // QImage references the buffer directly. Shared by every scrub publish path
 // (single-flow + dual A/B, Windows + macOS).
 
+#include "decode/rgb_range.h"
+
 #include <QImage>
 
 #include <cstddef>
@@ -33,7 +35,10 @@ extern "C" {
 
 namespace qcv {
 
-inline QImage swsFrameToRgbaImage(SwsContext *sws, const AVFrame *yf)
+// `expandLegalRgb`: apply the RGB legal→full expansion after the scale
+// (see rgb_range.h) — callers pass rgbFrameNeedsLegalExpansion(yf, ov).
+inline QImage swsFrameToRgbaImage(SwsContext *sws, const AVFrame *yf,
+                                  bool expandLegalRgb = false)
 {
     if (!sws || !yf || yf->width <= 0 || yf->height <= 0) return {};
     const int w = yf->width;
@@ -47,6 +52,7 @@ inline QImage swsFrameToRgbaImage(SwsContext *sws, const AVFrame *yf)
     uint8_t *dst[4]  = { buf, nullptr, nullptr, nullptr };
     int dstStride[4] = { stride, 0, 0, 0 };
     sws_scale(sws, yf->data, yf->linesize, 0, h, dst, dstStride);
+    if (expandLegalRgb) expandRgba8LegalToFull(buf, w, h, stride);
 
     return QImage(buf, w, h, stride, QImage::Format_RGBA8888,
                   [](void *p) { av_free(p); }, buf);

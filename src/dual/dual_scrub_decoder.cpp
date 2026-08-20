@@ -495,7 +495,10 @@ void DualScrubDecoder::publishEntry(const std::shared_ptr<DualScrubEntry> &entry
     if (!yf || !initSwsContext(yf)) return;
     // Padded-destination helper — a bare QImage overflows on odd widths
     // (see decode/sws_rgba_image.h).
-    QImage rgba = swsFrameToRgbaImage(m_sws, yf);
+    QImage rgba = swsFrameToRgbaImage(
+        m_sws, yf,
+        rgbFrameNeedsLegalExpansion(
+            yf, m_streaming ? m_streaming->rangeOverride() : 0));
     if (rgba.isNull()) return;
     // rangeOverride baked into the QImage by sws (initSwsContext applied the
     // current override), so the DualFrame carries 0.

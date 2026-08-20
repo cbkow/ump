@@ -514,7 +514,10 @@ void MacDualScrubDecoder::publishEntry(const std::shared_ptr<DualScrubEntry> &en
     if (!yf || !initSwsContext(yf)) return;
     // Padded-destination helper — a bare QImage overflows on odd widths
     // (see decode/sws_rgba_image.h).
-    QImage rgba = swsFrameToRgbaImage(m_sws, yf);
+    QImage rgba = swsFrameToRgbaImage(
+        m_sws, yf,
+        rgbFrameNeedsLegalExpansion(
+            yf, m_streaming ? m_streaming->rangeOverride() : 0));
     if (rgba.isNull()) return;
     m_streaming->publishExternalFrame(
         entry->frameNumber, makeCpuFrame(std::move(rgba), entry->frameNumber));

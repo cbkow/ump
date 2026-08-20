@@ -1,5 +1,7 @@
 #include "dual_video_decoder.h"
 
+#include "decode/rgb_range.h"
+
 #include <QDebug>
 #include <QFileInfo>
 #include <QSettings>
@@ -899,6 +901,13 @@ DualVideoDecoder::convertFrameToRgba(AVFrame *frame, int frameNumber)
     sws_scale(m_sws,
               src->data, src->linesize, 0, src->height,
               dst, dstStride);
+    // RGB sources: swscale did no range work — apply the legal→full
+    // expansion under the same rule as playback / scrub (rgb_range.h).
+    if (rgbFrameNeedsLegalExpansion(
+            src, m_rangeOverride.load(std::memory_order_acquire))) {
+        expandRgba8LegalToFull(out->rgba->bits(), src->width, src->height,
+                               static_cast<int>(out->rgba->bytesPerLine()));
+    }
 
     return out;
 }
