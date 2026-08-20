@@ -1,0 +1,56 @@
+diff --git a/libavformat/mxfdec.c b/libavformat/mxfdec.c
+index 5d62637..d630c5f 100644
+--- a/libavformat/mxfdec.c
++++ b/libavformat/mxfdec.c
+@@ -213,6 +213,14 @@ typedef struct MXFDescriptor {
+     unsigned int black_ref_level;
+     unsigned int white_ref_level;
+     unsigned int color_range;
++    /* RGBA descriptor range metadata (ComponentMaxRef / ComponentMinRef,
++     * SMPTE ST 377-1 G.2.27/28) — the RGB counterpart of the CDCI
++     * black/white ref levels above. *_set tracks presence since 0 is a
++     * legal MinRef. */
++    unsigned int component_max_ref;
++    unsigned int component_min_ref;
++    int component_max_ref_set;
++    int component_min_ref_set;
+     unsigned int horiz_subsampling;
+     unsigned int vert_subsampling;
+     UID *file_descriptors_refs;
+@@ -1434,6 +1442,14 @@ static int mxf_read_generic_descriptor(void *arg, AVIOContext *pb, int tag, int
+     case 0x3401:
+         mxf_read_pixel_layout(pb, descriptor);
+         break;
++    case 0x3406:
++        descriptor->component_max_ref = avio_rb32(pb);
++        descriptor->component_max_ref_set = 1;
++        break;
++    case 0x3407:
++        descriptor->component_min_ref = avio_rb32(pb);
++        descriptor->component_min_ref_set = 1;
++        break;
+     default:
+         /* Private uid used by SONY C0023S01.mxf */
+         if (IS_KLV_KEY(uid, mxf_sony_mpeg4_extradata)) {
+@@ -2545,6 +2561,21 @@ static enum AVColorRange mxf_get_color_range(MXFContext *mxf, MXFDescriptor *des
+                               descriptor->white_ref_level, descriptor->component_depth);
+     }
+ 
++    if (descriptor->component_max_ref_set && descriptor->component_min_ref_set) {
++        /* RGBA range metadata. Full range: MinRef 0, MaxRef 2^n-1.
++         * Legal/video range: MinRef 16<<(n-8), MaxRef 235<<(n-8)
++         * (16/235, 64/940, 256/3760 …) — i.e. Min*235 == Max*16.
++         * Writers that only state one end are treated as unspecified. */
++        const uint64_t mn = descriptor->component_min_ref;
++        const uint64_t mx = descriptor->component_max_ref;
++        if (mn == 0 && mx > 0 && !(mx & (mx + 1)))
++            return AVCOL_RANGE_JPEG;
++        if (mn > 0 && mx > mn && mn * 235 == mx * 16)
++            return AVCOL_RANGE_MPEG;
++        avpriv_request_sample(mxf->fc, "Unrecognized RGBA color range (min ref %d, max ref %d)",
++                              descriptor->component_min_ref, descriptor->component_max_ref);
++    }
++
+     return AVCOL_RANGE_UNSPECIFIED;
+ }
+ 

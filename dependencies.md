@@ -135,6 +135,30 @@ rebuilt from source on each dev machine / version bump.
   (heap OOB write in the MagicYUV decoder; fixed upstream 2026-06-17).
   Sonames unchanged from the prior `n8.1` build (libavcodec 62 /
   libavutil 60 / libavformat 62), so it's an ABI-clean drop-in.
+- **Local patch — DNxHR 444 Adaptive Colour Transform (2026-08-20):**
+  `external/patches/ffmpeg/0001-dnxhd-adaptive-colour-transform.patch`
+  (tracked). Upstream's `dnxhddec.c` reads the per-macroblock ACT flag
+  but never applies a transform, so Avid-encoded DNxHR 444 12/10-bit
+  with the header ACT flag (AE / Media Composer "Avid DNxHR Codec"
+  exports) decoded with green/magenta macroblock speckle and a green
+  border. The patch records each MB's flag and, when a frame mixes
+  modes, converts the YCbCr MBs (full-range BT.709, planes Y/Cb/Cr) and
+  re-orders the RGB MBs (planes R/G/B) into one `gbrp10/12` picture;
+  all-transformed frames (what FFmpeg's own encoder writes) stay
+  `yuv444p10/12` bit-identical to upstream. Derived empirically from
+  boundary fits on Avid material (see the patch header comment).
+  **Re-apply after every FFmpeg clone** (step in the recipe below).
+  The Windows BtbN prebuilt does NOT carry it — Windows still shows the
+  artifacts until the fix is upstreamed or we self-build there.
+- **Local patch — MXF RGBA descriptor range (2026-08-20):**
+  `external/patches/ffmpeg/0002-mxfdec-rgba-component-ref-color-range.patch`
+  (tracked). Upstream mxfdec maps CDCI Black/White ref levels to
+  `color_range` but ignores the RGBA descriptor's ComponentMinRef /
+  ComponentMaxRef (0x3407/0x3406), so RGB essence in MXF (Avid DNxHR
+  444 RGB masters) always probed "unknown". The patch reads them:
+  0 / 2^n−1 → full, 16·2^(n−8) / 235·2^(n−8) → limited. Feeds the
+  Inspector's Range-tag row and the Range pill's Auto. Same Windows
+  caveat as above.
 - **Codec deps** are pre-built **static** archives already in
   `external/install/lib` (`libx264/libx265/libdav1d/libvpx/libmp3lame/`
   `libopus/libSvtAv1Enc.a`) with matching `.pc` files in
@@ -148,6 +172,8 @@ overwrites the `libav*`/`libsw*` dylibs + headers in `external/install/`):
 INSTALL="$PWD/external/install"
 git clone --depth 1 --branch n8.1.2 https://github.com/FFmpeg/FFmpeg.git external/source/ffmpeg
 cd external/source/ffmpeg
+git apply ../../patches/ffmpeg/0001-dnxhd-adaptive-colour-transform.patch   # DNxHR 444 ACT fix (see note above)
+git apply ../../patches/ffmpeg/0002-mxfdec-rgba-component-ref-color-range.patch  # MXF RGBA range tag (see note above)
 PKG_CONFIG_PATH="$INSTALL/lib/pkgconfig" ./configure \
   --prefix="$INSTALL" --enable-shared --disable-static --enable-pthreads \
   --enable-videotoolbox --enable-audiotoolbox \

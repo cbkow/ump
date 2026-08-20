@@ -1,0 +1,231 @@
+diff --git a/libavcodec/dnxhddec.c b/libavcodec/dnxhddec.c
+index 7ec61f9..fb57a25 100644
+--- a/libavcodec/dnxhddec.c
++++ b/libavcodec/dnxhddec.c
+@@ -74,6 +74,17 @@ typedef struct DNXHDContext {
+     int lla;
+     int mbaff;
+     int act;
++    /* Adaptive Colour Transform (4:4:4 frames with the header ACT flag).
++     * Avid's encoder picks RGB or YCbCr per macroblock (the per-MB flag
++     * read in dnxhd_decode_macroblock); act_map records the choice for
++     * every MB of the current frame so dnxhd_act_row() can bring the
++     * whole picture into one colour space after the entropy/IDCT pass.
++     * act_mode: 0 = undecided, 1 = RGB-native (mixed MBs seen → convert
++     * to GBRP), 2 = YCbCr-native (every MB transformed → plain YUV444P,
++     * no conversion; this is what FFmpeg's own encoder emits). */
++    uint8_t *act_map;
++    unsigned act_map_size;
++    int act_mode;
+     int (*decode_dct_block)(const struct DNXHDContext *ctx,
+                             RowContext *row, int n);
+ } DNXHDContext;
+@@ -248,17 +259,31 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
+ 
+     ctx->is_444 = (buf[0x2C] >> 6) & 1;
+     if (ctx->is_444) {
++        /* With the header ACT flag the per-macroblock flags decide: a
++         * frame mixing RGB and YCbCr macroblocks is RGB-native (Avid's
++         * adaptive encoder) and is delivered as GBRP after
++         * dnxhd_act_row(); a frame where every macroblock is transformed
++         * is YCbCr-native and stays YUV444P untouched. The first frame
++         * decides (act_mode) so the pixel format stays stable. */
++        const int yuv = ctx->act &&
++                        (ctx->act_mode == 2 ||
++                         /* undecided (fresh frame-thread worker): follow
++                          * the label the stream already carries so we
++                          * don't flap formats while deciding */
++                         (ctx->act_mode == 0 &&
++                          (ctx->avctx->pix_fmt == AV_PIX_FMT_YUV444P10 ||
++                           ctx->avctx->pix_fmt == AV_PIX_FMT_YUV444P12)));
+         if (bitdepth == 8) {
+             avpriv_request_sample(ctx->avctx, "4:4:4 8 bits");
+             return AVERROR_INVALIDDATA;
+         } else if (bitdepth == 10) {
+             ctx->decode_dct_block = dnxhd_decode_dct_block_10_444;
+-            ctx->pix_fmt = ctx->act ? AV_PIX_FMT_YUV444P10
+-                                    : AV_PIX_FMT_GBRP10;
++            ctx->pix_fmt = yuv ? AV_PIX_FMT_YUV444P10
++                               : AV_PIX_FMT_GBRP10;
+         } else {
+             ctx->decode_dct_block = dnxhd_decode_dct_block_12_444;
+-            ctx->pix_fmt = ctx->act ? AV_PIX_FMT_YUV444P12
+-                                    : AV_PIX_FMT_GBRP12;
++            ctx->pix_fmt = yuv ? AV_PIX_FMT_YUV444P12
++                               : AV_PIX_FMT_GBRP12;
+         }
+     } else if (bitdepth == 12) {
+         ctx->decode_dct_block = dnxhd_decode_dct_block_12;
+@@ -506,6 +531,8 @@ static int dnxhd_decode_macroblock(const DNXHDContext *ctx, RowContext *row,
+         qscale = get_bits(&row->gb, 11);
+     }
+     act = get_bits1(&row->gb);
++    if (ctx->act_map && (unsigned)(y * ctx->mb_width + x) < ctx->act_map_size)
++        ctx->act_map[y * ctx->mb_width + x] = act;
+     if (act) {
+         if (!ctx->act) {
+             static int act_warned;
+@@ -617,6 +644,66 @@ static int dnxhd_decode_row(AVCodecContext *avctx, void *data,
+     return 0;
+ }
+ 
++/* Adaptive Colour Transform fix-up for one macroblock row of a 4:4:4
++ * frame that mixes RGB and YCbCr macroblocks (Avid DNxHR 444 with the
++ * header ACT flag). The IDCT pass left every macroblock in the colour
++ * space it was coded in, with components in bitstream order:
++ *   act = 0  →  (R, G, B)
++ *   act = 1  →  (Y, Cb, Cr), full-range BT.709, chroma offset 2^(depth-1)
++ * (both established empirically against Avid-encoded material: the RGB
++ * macroblocks' component order and the YCbCr matrix/range were fitted
++ * across thousands of RGB/YCbCr macroblock boundaries — BT.709 full
++ * range matches to the quantisation noise floor, limited range / BT.601
++ * / YCoCg do not). Bring every macroblock to GBRP plane order
++ * (G, B, R) so the frame is one consistent RGB picture. */
++static int dnxhd_act_row(AVCodecContext *avctx, void *data,
++                         int rownb, int threadnb)
++{
++    const DNXHDContext *ctx = avctx->priv_data;
++    AVFrame *frame = data;
++    const int maxv = (1 << ctx->bit_depth) - 1;
++    const int off  = 1 << (ctx->bit_depth - 1);
++    const int mb_h = FFMIN(16, (int)ctx->height - rownb * 16);
++    int x, i, j;
++
++    if (mb_h <= 0)
++        return 0;
++
++    for (x = 0; x < ctx->mb_width; x++) {
++        const int act = ctx->act_map[rownb * ctx->mb_width + x];
++        const int mb_w = FFMIN(16, (int)ctx->width - x * 16);
++        for (i = 0; i < mb_h; i++) {
++            uint16_t *p0 = (uint16_t *)(frame->data[0] + (rownb * 16 + i) * frame->linesize[0]) + x * 16;
++            uint16_t *p1 = (uint16_t *)(frame->data[1] + (rownb * 16 + i) * frame->linesize[1]) + x * 16;
++            uint16_t *p2 = (uint16_t *)(frame->data[2] + (rownb * 16 + i) * frame->linesize[2]) + x * 16;
++            if (act) {
++                for (j = 0; j < mb_w; j++) {
++                    const int Y  = p0[j];
++                    const int cb = p1[j] - off;
++                    const int cr = p2[j] - off;
++                    /* BT.709 full range, 16.16 fixed point:
++                     * R = Y + 1.5748 Cr; G = Y - 0.18732 Cb - 0.46812 Cr;
++                     * B = Y + 1.8556 Cb */
++                    const int r = Y + ((103206 * cr + 32768) >> 16);
++                    const int g = Y - ((12276 * cb + 30679 * cr + 32768) >> 16);
++                    const int b = Y + ((121608 * cb + 32768) >> 16);
++                    p0[j] = av_clip(g, 0, maxv);
++                    p1[j] = av_clip(b, 0, maxv);
++                    p2[j] = av_clip(r, 0, maxv);
++                }
++            } else {
++                for (j = 0; j < mb_w; j++) {
++                    const uint16_t r = p0[j], g = p1[j], b = p2[j];
++                    p0[j] = g;
++                    p1[j] = b;
++                    p2[j] = r;
++                }
++            }
++        }
++    }
++    return 0;
++}
++
+ static int dnxhd_decode_frame(AVCodecContext *avctx, AVFrame *picture,
+                               int *got_frame, AVPacket *avpkt)
+ {
+@@ -652,6 +739,20 @@ decode_coding_unit:
+     if (ret < 0)
+         return ret;
+ 
++    if (ctx->act && ctx->is_444) {
++        const unsigned need = (unsigned)ctx->mb_width * ctx->mb_height;
++        if (need > ctx->act_map_size) {
++            av_freep(&ctx->act_map);
++            ctx->act_map = av_calloc(need, 1);
++            if (!ctx->act_map) {
++                ctx->act_map_size = 0;
++                return AVERROR(ENOMEM);
++            }
++            ctx->act_map_size = need;
++        }
++        memset(ctx->act_map, 1, need);
++    }
++
+     if (first_field) {
+         if ((ret = ff_thread_get_buffer(avctx, picture, 0)) < 0)
+             return ret;
+@@ -674,33 +775,40 @@ decode_coding_unit:
+         ctx->rows[i].errors = 0;
+     }
+ 
+-    if (ctx->act) {
+-        static int act_warned;
+-        int format = ctx->rows[0].format;
+-        for (i = 1; i < avctx->thread_count; i++) {
+-            if (ctx->rows[i].format != format &&
+-                ctx->rows[i].format != -1 /* not run */) {
+-                format = 2;
+-                break;
+-            }
+-        }
+-        switch (format) {
+-        case -1:
+-        case 2:
+-            if (!act_warned) {
+-                act_warned = 1;
+-                av_log(ctx->avctx, AV_LOG_ERROR,
+-                       "Unsupported: variable ACT flag.\n");
++    if (ctx->act && ctx->is_444 && ctx->act_map && !ret) {
++        const unsigned n = (unsigned)ctx->mb_width * ctx->mb_height;
++        const enum AVPixelFormat rgb = ctx->bit_depth == 10
++                                     ? AV_PIX_FMT_GBRP10 : AV_PIX_FMT_GBRP12;
++        const enum AVPixelFormat yuv = ctx->bit_depth == 10
++                                     ? AV_PIX_FMT_YUV444P10 : AV_PIX_FMT_YUV444P12;
++        int mixed = 0;
++        unsigned k;
++        for (k = 0; k < n; k++)
++            if (!ctx->act_map[k]) { mixed = 1; break; }
++
++        if (mixed || ctx->act_mode == 1) {
++            /* RGB-native stream: unify to GBRP. A frame whose MBs all
++             * took the transform (a fade to black, say) inside an RGB
++             * stream still needs converting — only the very first
++             * all-transformed frame of a context is read as "this
++             * stream is YCbCr-native". */
++            if (ctx->act_mode != 1) {
++                if (ctx->act_mode == 2)
++                    av_log(avctx, AV_LOG_WARNING,
++                           "ACT: RGB macroblocks in a stream that started "
++                           "YCbCr-only; switching to RGB output.\n");
++                ctx->act_mode = 1;
+             }
+-            break;
+-        case 0:
+-            ctx->pix_fmt = ctx->bit_depth==10
+-                         ? AV_PIX_FMT_GBRP10 : AV_PIX_FMT_GBRP12;
+-            break;
+-        case 1:
+-            ctx->pix_fmt = ctx->bit_depth==10
+-                         ? AV_PIX_FMT_YUV444P10 : AV_PIX_FMT_YUV444P12;
+-            break;
++            avctx->execute2(avctx, dnxhd_act_row, picture, NULL, ctx->mb_height);
++            ctx->pix_fmt = picture->format = rgb;
++        } else {
++            /* Every macroblock transformed and no RGB history:
++             * YCbCr-native, leave as is. The planes already hold
++             * Y/Cb/Cr — only the label changes (same 3-plane 16-bit
++             * layout), and from now on the header allocates YUV444P
++             * directly. */
++            ctx->act_mode = 2;
++            ctx->pix_fmt = picture->format = yuv;
+         }
+     }
+     avctx->pix_fmt = ctx->pix_fmt;
+@@ -717,6 +825,8 @@ static av_cold int dnxhd_decode_close(AVCodecContext *avctx)
+ {
+     DNXHDContext *ctx = avctx->priv_data;
+ 
++    av_freep(&ctx->act_map);
++    ctx->act_map_size = 0;
+     ff_vlc_free(&ctx->ac_vlc);
+     ff_vlc_free(&ctx->dc_vlc);
+     ff_vlc_free(&ctx->run_vlc);
