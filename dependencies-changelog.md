@@ -5,6 +5,51 @@ pin, reason, tested platforms, and anything to watch in production.
 
 ---
 
+## 2026-08-20 — Windows FFmpeg: prebuilt `n8.1.2-20260624` → self-built BtbN recipe `n8.1.2-44-g7c533d0f86-20260820` (local patches)
+
+**Dependency:** FFmpeg, Windows vendored tree `external/ffmpeg-win64/`
+(gitignored).
+
+**Pin:** `n8.1.2-44-g7c533d0f86-20260820` = BtbN `release/8.1` head as
+of 2026-08-20, built with BtbN's own Docker recipe (ghcr.io toolchain
+image, identical configure flags, DLL majors 62/60/62/11/62/6/9 — same
+ABI as the retired official zip) **plus the two tracked local patches**
+in `external/patches/ffmpeg/`:
+
+- `0001-dnxhd-adaptive-colour-transform.patch` — Avid DNxHR 444 ACT
+  decode (fixes green/magenta MB speckle + green border; output becomes
+  `gbrp10/12`) and, v2, untagged DNx 4:4:4 stamped
+  `color_range = limited` (Avid convention; explicit tags win).
+- `0002-mxfdec-rgba-component-ref-color-range.patch` — MXF RGBA
+  descriptor ComponentMax/MinRef → `color_range` (RGB essence probes
+  full/limited instead of unknown).
+
+**Reason:** upstream carries neither patch; the official prebuilt can't.
+macOS has shipped both since v2.2.6/2.2.7 — this brings Windows to
+parity for the 2.2.7 release.
+
+**Build:** WSL2 Ubuntu + Docker on the uniongraphics box; full recipe
+(incl. the build.sh patch-hook injection and the CRLF + WSL-session
+gotchas) in `dependencies.md` §Windows. Patches `git apply --check`
+clean on the `release/8.1` head.
+
+**Tested (Windows, 2026-08-20):** Avid ACT clip probes `gbrp12le` +
+`color_range=tv`, decodes clean (no speckle/green border);
+`-cpuflags 0` framemd5 identical to the macOS arm64 build
+(`d0a389c3f22b…`; default x86 SIMD differs only by pre-existing
+upstream IDCT rounding). FFmpeg-encoded DNxHR 444 (`yuv444p10` +
+`gbrp10`) decodes bit-identical to the stock prebuilt. MXF RGBA
+ComponentRef edit flips probe pc↔tv. `-buildconf` retains
+libplacebo/libshaderc/vulkan (ProRes Vulkan path intact). App runtime
+verified in QCView 2.2.7 (CPU publish path, RGB legal-range expansion
+ON under Auto). Shipped in the 2.2.7 MSIX pair.
+
+**Watch:** every future refresh must re-apply both patches (stock zip
+silently regresses); the framemd5 cross-platform check needs
+`-cpuflags 0` on x86.
+
+---
+
 ## 2026-07-02 — SoundTouch: NEW dependency, commit `0047e0b1` (tag 2.4.1)
 
 **Dependency:** SoundTouch (vendored via FetchContent in

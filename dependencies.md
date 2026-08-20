@@ -69,7 +69,7 @@ FetchContent_Declare(
 
 | | Value |
 |---|---|
-| **Pin** | **n8.1.2** (8.1 release branch) — both **macOS (self-built, in-tree at `external/install/`)** and **Windows (`n8.1.2-20260624`)** |
+| **Pin** | **n8.1.2** (8.1 release branch) — both **macOS (self-built, in-tree at `external/install/`)** and **Windows (self-built BtbN recipe, `n8.1.2-44-g7c533d0f86-20260820`)** — both carry the two local patches in `external/patches/ffmpeg/` |
 | **License** | **GPL v3** on both shipped platforms (macOS self-built `--enable-gpl --enable-version3`; Windows BtbN GPL-Shared `--enable-gpl`) |
 | **Verified** | macOS self-built `n8.1.2` (libavcodec 62.28.102 / libavutil 60.26.102 / libavformat 62.12.102) loads + app links/builds clean; Windows build version-checked |
 | **Build flags** | `--enable-videotoolbox --enable-vulkan --enable-libdav1d --enable-libsvtav1 --enable-libopus --enable-libsrt --disable-x86asm-on-cross` |
@@ -96,30 +96,80 @@ a drop-in for the DLL-copy step in `src/app/CMakeLists.txt`).
   is ~98 MB, and `main` auto-pushes to GitHub which hard-blocks
   ≥100 MB files). The `.pc` files are relocatable
   (`prefix=${pcfiledir}/../..`), so the tree works from any location.
-- **Current build:** `n8.1.2-20260624` — **patches CVE-2026-8461
-  "PixelSmash"** (heap OOB write in the MagicYUV decoder; fixed upstream
-  in FFmpeg 8.1.2, 2026-06-17). Supersedes the prior `n8.1-11-g75d37c499d`
-  winget build, which was vulnerable.
+- **Current build:** `n8.1.2-44-g7c533d0f86-20260820` — **self-built
+  with BtbN's own recipe** (WSL2 + Docker, see below) so it carries the
+  two local patches in `external/patches/ffmpeg/` (DNxHR 444 ACT +
+  MXF RGBA range — see the macOS section for what they do). Same
+  toolchain image, same configure flags, same DLL majors as the
+  official BtbN zip → byte-level drop-in. Retains the CVE-2026-8461
+  "PixelSmash" fix (in 8.1.2) that motivated the previous
+  `n8.1.2-20260624` prebuilt refresh.
 - **Why not winget:** the `BtbN.FFmpeg.GPL.Shared.8.1` winget package was
   still pinned to the vulnerable April build (`8.1-20260430`) with no
-  upgrade available, so we consume BtbN's rolling `latest` release zip
-  directly instead.
+  upgrade available; and since 2026-08-20 the official prebuilts are out
+  entirely — they don't carry our local patches.
 - **Override** with the `BTBN_FFMPEG_DIR` env var (bound by the
   `windows-release` preset) or `-DQCV_BTBN_FFMPEG_DIR=<path>`.
 
-**Re-fetch / refresh** (run from repo root, replacing the contents of
-`external/ffmpeg-win64/`):
+**Rebuild / refresh — patched BtbN-recipe build (2026-08-20).** Both
+patches in `external/patches/ffmpeg/` **must be re-applied on every
+refresh**; a stock BtbN zip loses them (Avid DNxHR 444 ACT speckle
+comes back and MXF RGB range probes unknown). Build runs on this box in
+WSL2 Ubuntu with Docker inside the distro (`wsl --install -d Ubuntu`,
+`apt install docker.io`); the BtbN toolchain image is pulled prebuilt
+from ghcr.io, so a full build is ~5 min on 32 threads:
+
+```bash
+# inside WSL2 Ubuntu (root), one-time setup:
+git clone https://github.com/BtbN/FFmpeg-Builds.git ~/FFmpeg-Builds
+mkdir -p ~/FFmpeg-Builds/ffpatches
+
+# every refresh: copy CURRENT patches in (strip the CRLF the Windows
+# checkout adds — git apply fails on CRLF patches with `?`-suffixed
+# context errors):
+cp /mnt/c/Users/<you>/Documents/GitHub/QCView-Player/external/patches/ffmpeg/*.patch ~/FFmpeg-Builds/ffpatches/
+sed -i 's/\r$//' ~/FFmpeg-Builds/ffpatches/*.patch
+
+# one-time: inject the patch step into build.sh — BtbN has no FFmpeg
+# patch hook (its patches/ dir is deps-only). Two edits:
+#   1. in the BUILD_SCRIPT heredoc, right after `cd ffmpeg`:
+#        for _p in /ffpatches/*.patch; do
+#            git apply --verbose "\$_p"       # note the \$ escape
+#        done
+#   2. add `-v "$PWD/ffpatches":/ffpatches` to the `docker run … bash /build.sh` line
+cd ~/FFmpeg-Builds && ./build.sh win64 gpl-shared 8.1
+# → artifacts/ffmpeg-<ver>-win64-gpl-shared-8.1.zip
+# Log must show BOTH "Applied patch … cleanly." lines before configure.
+```
+
+Gotcha: WSL kills background work when the last `wsl.exe` session
+detaches — run the build inside a session that stays open (or
+`cmd /c wsl …` from a persistent Windows process), not `nohup`/
+`systemd-run`.
+
+Then replace the vendored tree and verify (from repo root, PowerShell):
 
 ```powershell
-$zip = "$env:TEMP\ffmpeg-81.zip"
-Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-gpl-shared-8.1.zip" -OutFile $zip
-Expand-Archive $zip -DestinationPath "$env:TEMP\ffmpeg-extract" -Force
 Remove-Item external\ffmpeg-win64 -Recurse -Force -ErrorAction SilentlyContinue
-Move-Item "$env:TEMP\ffmpeg-extract\ffmpeg-n8.1-latest-win64-gpl-shared-8.1" external\ffmpeg-win64
-# Verify before trusting: expect 8.1.2+ and all three Vulkan deps.
+Expand-Archive <artifact>.zip -DestinationPath $env:TEMP\ffx -Force
+Move-Item "$env:TEMP\ffx\ffmpeg-<ver>-win64-gpl-shared-8.1" external\ffmpeg-win64
+# Verify: 8.1.2+, all three Vulkan deps, and the ACT patch live.
 external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -version | Select-Object -First 1
 external\ffmpeg-win64\bin\ffmpeg.exe -hide_banner -buildconf | Select-String "libplacebo|libshaderc|vulkan"
+# ACT check: an Avid DNxHR 444 ACT clip must probe pix_fmt=gbrp12le
+# (stock says yuv444p12le) and, untagged, color_range=tv.
 ```
+
+Decode-parity note (2026-08-20): the macOS↔Windows framemd5 cross-check
+on an ACT clip matches **with `-cpuflags 0`** on Windows (C IDCT path =
+arm64 output). Default x86 SIMD differs by upstream IDCT rounding only —
+pre-existing FFmpeg behaviour, not the patches; FFmpeg-encoded DNxHR
+444 regression files decode bit-identical to the stock build either way.
+
+(Historical: 2026-06-24 → 2026-08-20 the tree was the official BtbN
+`latest` release zip, `n8.1.2-20260624`, fetched per the old
+Invoke-WebRequest recipe. That recipe is retired — it can't carry the
+local patches.)
 
 #### macOS: self-built GPL v3 (vendored, in-tree)
 
@@ -151,8 +201,8 @@ rebuilt from source on each dev machine / version bump.
   legal-range convention, mirroring what the ProRes decoder does for
   its own; explicit container tags win.
   **Re-apply after every FFmpeg clone** (step in the recipe below).
-  The Windows BtbN prebuilt does NOT carry it — Windows still shows the
-  artifacts until the fix is upstreamed or we self-build there.
+  Windows carries it too since 2026-08-20 (v2.2.7) via the patched
+  BtbN-recipe build — see the Windows section above.
 - **Local patch — MXF RGBA descriptor range (2026-08-20):**
   `external/patches/ffmpeg/0002-mxfdec-rgba-component-ref-color-range.patch`
   (tracked). Upstream mxfdec maps CDCI Black/White ref levels to
@@ -160,8 +210,8 @@ rebuilt from source on each dev machine / version bump.
   ComponentMaxRef (0x3407/0x3406), so RGB essence in MXF (Avid DNxHR
   444 RGB masters) always probed "unknown". The patch reads them:
   0 / 2^n−1 → full, 16·2^(n−8) / 235·2^(n−8) → limited. Feeds the
-  Inspector's Range-tag row and the Range pill's Auto. Same Windows
-  caveat as above.
+  Inspector's Range-tag row and the Range pill's Auto. Windows carries
+  it too since 2026-08-20 (v2.2.7), same as above.
 - **Codec deps** are pre-built **static** archives already in
   `external/install/lib` (`libx264/libx265/libdav1d/libvpx/libmp3lame/`
   `libopus/libSvtAv1Enc.a`) with matching `.pc` files in
@@ -566,7 +616,7 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 | Dep | Pin | Source | Category |
 |---|---|---|---|
 | Qt | 6.11.0 | installer | SDK |
-| FFmpeg | n8.1.2 (macOS self-built; Win: `n8.1.2-20260624`) | self-built / BtbN, both vendored in-tree | core |
+| FFmpeg | n8.1.2 (macOS self-built; Win self-built BtbN recipe: `n8.1.2-44-g7c533d0f86-20260820`) — both + 2 local patches | self-built on both, vendored in-tree | core |
 | OCIO | v2.5.0 | FetchContent | core |
 | OpenEXR | v3.4.7 | FetchContent | core |
 | ink-stroke-modeler | (commit TBD) | FetchContent | core |
@@ -589,5 +639,6 @@ If the bump touches OCIO's profile version, update Guide 05 §12's
 | 2026-04-24 | Initial pin manifest from port plan | Plan + Week-0 verification |
 | 2026-06-24 | Windows FFmpeg: BtbN GPL-Shared `n8.1-11-g75d37c499d` → `n8.1.2-20260624` (vendored in-tree at `external/ffmpeg-win64/`, gitignored). Security fix for CVE-2026-8461 "PixelSmash". See `dependencies-changelog.md`. | Chris |
 | 2026-06-24 | macOS FFmpeg: self-built `n8.1` → `n8.1.2` (rebuilt in-tree at `external/install/`, gitignored). Same CVE-2026-8461 fix; sonames unchanged (62/60/62), ABI-clean drop-in. Also dropped vestigial `--enable-nonfree`. See `dependencies-changelog.md`. | Chris |
+| 2026-08-20 | Windows FFmpeg: BtbN prebuilt `n8.1.2-20260624` → **self-built BtbN-recipe** `n8.1.2-44-g7c533d0f86-20260820` (WSL2+Docker, same toolchain image/flags/DLL majors) so Windows carries the two local patches (`external/patches/ffmpeg/`: DNxHR 444 ACT + untagged-limited convention, MXF RGBA range). Patches must be re-applied on every refresh — recipe in §Windows above. See `dependencies-changelog.md`. | Chris |
 
 (Append future bumps here.)
