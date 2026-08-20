@@ -290,6 +290,9 @@ private:
     // CPU fallback, or pure software). Cleared in open().
     bool    m_loggedMetalFormat     = false;
     bool    m_loggedCpuFormat       = false;
+    // One-shot diag for the RGB legal-range expansion state (re-logs on change).
+    bool m_loggedRgbExpand     = false;
+    bool m_loggedRgbExpandOnce = false;
     bool    m_loggedHwToCpuFallback = false;
     bool    m_loggedVulkanFormat    = false;
 

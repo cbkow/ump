@@ -1422,6 +1422,7 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("colorPrimaries")]   = it.video.colorPrimaries;
         v[QStringLiteral("colorTransfer")]    = it.video.colorTransfer;
         v[QStringLiteral("colorRange")]       = it.video.colorRange;
+        v[QStringLiteral("containerRangeTag")] = it.video.containerRangeTag;
         v[QStringLiteral("nclcTag")]          = it.video.nclcTag;
         v[QStringLiteral("isHdrContent")]     = it.video.isHdrContent;
         v[QStringLiteral("isRgb")]            = it.video.isRgb;
@@ -1667,6 +1668,7 @@ void ProjectManager::onContainerProbed(const QString &mediaId,
     patchStr(it.video.mxfOperationalPattern, probe.mxfOperationalPattern);
     patchStr(it.video.encoderTool,           probe.encoderTool);
     patchStr(it.video.codecProfile,          probe.codecProfile);
+    patchStr(it.video.containerRangeTag,     probe.containerRangeTag);
     patchRate(it.video.containerBitrate,     probe.containerBitrate);
     patchRate(it.video.videoBitrate,         probe.videoBitrate);
     if (!changed) return;

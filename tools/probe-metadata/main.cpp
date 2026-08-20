@@ -26,7 +26,8 @@ static void dump(const VideoMetadata &m)
                 m.width, m.height, m.frameRate, m.totalFrames, m.duration);
     std::printf("  pixfmt / depth    %s / %d-bit%s%s\n", s(m.pixelFormat).constData(), m.bitDepth,
                 m.hasAlpha ? " +alpha" : "", m.isRgb ? " (RGB)" : "");
-    std::printf("  range tag         %s\n", s(m.colorRange).constData());
+    std::printf("  range             container=%s effective=%s\n",
+                s(m.containerRangeTag).constData(), s(m.colorRange).constData());
     std::printf("  bitrate video     %.2f Mb/s\n", m.videoBitrate / 1e6);
     std::printf("  bitrate file avg  %.2f Mb/s\n", m.containerBitrate / 1e6);
     std::printf("  audio             %s %d Hz %dch (%d streams) %s\n",

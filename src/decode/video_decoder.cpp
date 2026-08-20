@@ -1036,6 +1036,16 @@ void VideoDecoder::publishCpuFrame(AVFrame *frame)
             const int rangeOv = m_rangeOverride.load(std::memory_order_acquire);
             const bool limited = (rangeOv == 2)
                 || (rangeOv == 0 && frame->color_range == AVCOL_RANGE_MPEG);
+            if (limited != m_loggedRgbExpand || !m_loggedRgbExpandOnce) {
+                qInfo("VideoDecoder[%s]: RGB source, legal-range expansion %s "
+                      "(override=%d, frame tag=%s)",
+                      qPrintable(QFileInfo(m_sourcePath).fileName()),
+                      limited ? "ON" : "off", rangeOv,
+                      frame->color_range == AVCOL_RANGE_MPEG ? "limited"
+                      : frame->color_range == AVCOL_RANGE_JPEG ? "full" : "none");
+                m_loggedRgbExpand = limited;
+                m_loggedRgbExpandOnce = true;
+            }
             if (limited) {
                 static const auto kLut = [] {
                     std::array<uint8_t, 256> t{};

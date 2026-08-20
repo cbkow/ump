@@ -21,13 +21,30 @@ namespace qcv {
 
 namespace {
 
-bool openFile(const QString &filePath, AVFormatContext **ctx)
+// `containerRange` (optional) receives the video stream's color_range
+// as the demuxer set it from container metadata alone — captured
+// between avformat_open_input and avformat_find_stream_info, because
+// the latter runs the decoder and folds bitstream tags / decoder
+// conventions into codecpar.
+bool openFile(const QString &filePath, AVFormatContext **ctx,
+              AVColorRange *containerRange = nullptr)
 {
     *ctx = avformat_alloc_context();
     if (!*ctx) return false;
     const QByteArray pathUtf8 = filePath.toUtf8();
     if (avformat_open_input(ctx, pathUtf8.constData(), nullptr, nullptr) < 0) {
         return false;
+    }
+    if (containerRange) {
+        *containerRange = AVCOL_RANGE_UNSPECIFIED;
+        for (unsigned i = 0; i < (*ctx)->nb_streams; ++i) {
+            const AVStream *s = (*ctx)->streams[i];
+            if (s && s->codecpar
+                && s->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                *containerRange = s->codecpar->color_range;
+                break;
+            }
+        }
     }
     if (avformat_find_stream_info(*ctx, nullptr) < 0) {
         avformat_close_input(ctx);
@@ -677,11 +694,13 @@ VideoMetadata FFmpegMetadataExtractor::extract(const QString &filePath)
     qInfo("FFmpegMetadataExtractor: begin '%s'", qPrintable(trimmedName));
 
     AVFormatContext *ctx = nullptr;
-    if (!openFile(filePath, &ctx)) {
+    AVColorRange containerRange = AVCOL_RANGE_UNSPECIFIED;
+    if (!openFile(filePath, &ctx, &containerRange)) {
         qInfo("FFmpegMetadataExtractor: end (open failed) '%s'",
               qPrintable(trimmedName));
         return m;
     }
+    m.containerRangeTag = rangeName(containerRange);
 
     QFileInfo info(filePath);
     if (info.exists()) m.fileSize = info.size();
@@ -744,7 +763,9 @@ VideoMetadata FFmpegMetadataExtractor::probeContainer(const QString &filePath)
     VideoMetadata m;
     if (filePath.isEmpty()) return m;
     AVFormatContext *ctx = nullptr;
-    if (!openFile(filePath, &ctx)) return m;   // loaded=false → retry later
+    AVColorRange containerRange = AVCOL_RANGE_UNSPECIFIED;
+    if (!openFile(filePath, &ctx, &containerRange)) return m;   // loaded=false → retry later
+    m.containerRangeTag = rangeName(containerRange);
 
     QFileInfo info(filePath);
     if (info.exists()) m.fileSize = info.size();

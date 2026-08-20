@@ -138,6 +138,7 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("nclcTag")]             = v.nclcTag;
     o[QStringLiteral("isHdrContent")]        = v.isHdrContent;
     o[QStringLiteral("isRgb")]               = v.isRgb;
+    o[QStringLiteral("containerRangeTag")]   = v.containerRangeTag;
     o[QStringLiteral("audioCodec")]          = v.audioCodec;
     o[QStringLiteral("audioSampleRate")]     = v.audioSampleRate;
     o[QStringLiteral("audioChannels")]       = v.audioChannels;
@@ -210,6 +211,10 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     v.colorPrimaries      = o.value(QStringLiteral("colorPrimaries")).toString();
     v.colorTransfer       = o.value(QStringLiteral("colorTransfer")).toString();
     v.colorRange          = o.value(QStringLiteral("colorRange")).toString();
+    // Pre-field caches: best effort = whatever the effective range was.
+    v.containerRangeTag   = o.contains(QStringLiteral("containerRangeTag"))
+        ? o.value(QStringLiteral("containerRangeTag")).toString()
+        : v.colorRange;
     v.nclcTag             = o.value(QStringLiteral("nclcTag")).toString();
     v.isHdrContent        = o.value(QStringLiteral("isHdrContent")).toBool();
     v.audioCodec          = o.value(QStringLiteral("audioCodec")).toString();

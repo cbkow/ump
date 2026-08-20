@@ -892,18 +892,27 @@ Rectangle {
             // What the container says about range, and — when it says
             // nothing — what Auto will assume for this pixel class.
             // Informational: the pill below is where the opinion lives.
+            // Value = the CONTAINER's tag (or "untagged"). Note = where
+            // the effective range came from when the container was
+            // silent: the bitstream / decoder convention (ProRes is
+            // video-range by definition, Avid DNx 4:4:4 is legal-range
+            // by convention), else what Auto will assume for the pixel
+            // class. Informational: the pill below is where the opinion
+            // lives.
             KvRow {
                 visible: root.itemType === 0 && content.vmeta !== null
                 label: qsTr("Range tag")
                 value: {
                     if (!content.vmeta) return "";
-                    const r = content.vmeta.colorRange || "";
-                    return r.length > 0 ? r : qsTr("untagged");
+                    const c = content.vmeta.containerRangeTag || "";
+                    return c.length > 0 ? c : qsTr("untagged");
                 }
                 note: {
                     if (!content.vmeta) return "";
-                    const r = content.vmeta.colorRange || "";
-                    if (r.length > 0) return "";
+                    const c = content.vmeta.containerRangeTag || "";
+                    if (c.length > 0) return "";
+                    const e = content.vmeta.colorRange || "";
+                    if (e.length > 0) return qsTr("decoder: ") + e;
                     return content.vmeta.isRgb === true
                         ? qsTr("Auto assumes full")
                         : qsTr("Auto assumes limited");
@@ -963,9 +972,16 @@ Rectangle {
                 // the VideoToolbox bridge and the Windows compositor.
                 readonly property string detectedLabel: {
                     if (!content.vmeta) return qsTr("Auto");
+                    const c = content.vmeta.containerRangeTag || "";
                     const r = content.vmeta.colorRange || "";
+                    // Container said so → plain. Decoder/bitstream said
+                    // so (ProRes, DNx convention, H.264 VUI) → plain
+                    // too, the Range-tag row explains the source. Only
+                    // when nothing said anything is it our assumption.
                     if (r === "full")    return qsTr("Auto (Full)");
                     if (r === "limited") return qsTr("Auto (Limited)");
+                    if (c === "full")    return qsTr("Auto (Full)");
+                    if (c === "limited") return qsTr("Auto (Limited)");
                     return content.vmeta.isRgb === true
                         ? qsTr("Auto (Full, assumed)")
                         : qsTr("Auto (Limited, assumed)");

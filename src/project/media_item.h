@@ -227,7 +227,14 @@ struct VideoMetadata {
     QString     colorspace;           // "bt709", "bt2020nc", …
     QString     colorPrimaries;       // "bt709", "bt2020", …
     QString     colorTransfer;        // "bt709", "smpte2084", …
-    QString     colorRange;           // "limited" | "full" | "unknown"
+    QString     colorRange;           // effective: "limited" | "full" | "" (container, bitstream or decoder convention)
+    // What the CONTAINER itself says about range, snapshotted before
+    // avformat_find_stream_info lets the decoder contribute (H.264 VUI,
+    // ProRes's video-range definition, our DNx legal-range convention
+    // all land in colorRange but not here). Empty = untagged. Lets the
+    // Inspector say "untagged · decoder: limited" instead of passing a
+    // convention off as a tag. Pre-field caches fall back to colorRange.
+    QString     containerRangeTag;
     QString     nclcTag;              // "1-1-1" etc.; empty if unset
     bool        isHdrContent = false; // PQ / HLG transfer
     // True when the decoded pixel format is an RGB family (gbrp*,
