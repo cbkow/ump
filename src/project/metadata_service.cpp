@@ -65,19 +65,19 @@ void MetadataService::requestRotationProbe(const QString &mediaId,
     });
 }
 
-void MetadataService::requestCodecProfileProbe(const QString &mediaId,
-                                               const QString &path)
+void MetadataService::requestContainerProbe(const QString &mediaId,
+                                            const QString &path)
 {
     if (mediaId.isEmpty() || path.isEmpty()) return;
 
     QPointer<MetadataService> guard(this);
     QThreadPool::globalInstance()->start([guard, mediaId, path]() {
-        const QString profile =
-            FFmpegMetadataExtractor::probeCodecProfile(path);
+        const VideoMetadata probe =
+            FFmpegMetadataExtractor::probeContainer(path);
         if (!guard) return;
-        QMetaObject::invokeMethod(guard.data(), [guard, mediaId, profile]() {
+        QMetaObject::invokeMethod(guard.data(), [guard, mediaId, probe]() {
             if (!guard) return;
-            Q_EMIT guard->codecProfileProbed(mediaId, profile);
+            Q_EMIT guard->containerProbed(mediaId, probe);
         }, Qt::QueuedConnection);
     });
 }

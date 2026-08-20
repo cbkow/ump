@@ -516,8 +516,8 @@ private:
     void onAdobeMetadataReady(const QString &mediaId,
                               const AdobeMetadata &metadata);
     void onRotationProbed(const QString &mediaId, int rotationDeg);
-    void onCodecProfileProbed(const QString &mediaId,
-                              const QString &profile);
+    void onContainerProbed(const QString &mediaId,
+                           const VideoMetadata &probe);
 };
 
 } // namespace qcv

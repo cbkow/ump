@@ -144,6 +144,17 @@ Rectangle {
         return bytes + " B";
     }
 
+    // Bits/s → "180.7 Mb/s" / "1.5 Gb/s" / "256 kb/s". Decimal
+    // (SI) units — bitrates are quoted that way everywhere in the
+    // industry, unlike file sizes.
+    function formatBitrate(bps) {
+        if (!bps || bps <= 0) return "";
+        if (bps >= 1e9) return (bps / 1e9).toFixed(2) + " Gb/s";
+        if (bps >= 1e6) return (bps / 1e6).toFixed(1) + " Mb/s";
+        if (bps >= 1e3) return (bps / 1e3).toFixed(0) + " kb/s";
+        return bps + " b/s";
+    }
+
     function formatDuration(seconds) {
         if (!seconds || seconds <= 0) return "";
         const h  = Math.floor(seconds / 3600);
@@ -406,6 +417,35 @@ Rectangle {
                 Item { Layout.fillWidth: true }
             }
 
+            // Container identity — demuxer family plus, for MXF, the
+            // operational pattern ("MXF · OP1a" / "MXF · OP-Atom").
+            // Empty on caches that predate the field until the
+            // header-only container re-probe lands (see
+            // ProjectManager::onContainerProbed); row hides meanwhile.
+            KvRow {
+                visible: content.vmeta !== undefined
+                         && content.vmeta !== null
+                         && (content.vmeta.containerFormat || "").length > 0
+                label: qsTr("Container")
+                value: {
+                    if (!content.vmeta) return "";
+                    const fmt = content.vmeta.containerFormat || "";
+                    const op  = content.vmeta.mxfOperationalPattern || "";
+                    return op.length > 0 ? fmt + " \u00b7 " + op : fmt;
+                }
+            }
+            // Authoring tool from the container's identification
+            // tags (MXF Identification set / MOV ©swr / MKV
+            // WritingApp). Hidden when the writer left none.
+            KvRow {
+                visible: content.vmeta !== undefined
+                         && content.vmeta !== null
+                         && (content.vmeta.encoderTool || "").length > 0
+                label: qsTr("Encoder")
+                value: content.vmeta ? (content.vmeta.encoderTool || "") : ""
+                monoValue: false
+            }
+
             // Path actions — the card edge provides the grouping the
             // old divider sandwich used to.
             RowLayout {
@@ -504,6 +544,23 @@ Rectangle {
                          && (content.vmeta.codecProfile || "").length > 0
                 label: qsTr("Profile")
                 value: content.vmeta ? content.vmeta.codecProfile : ""
+            }
+            // Video-stream bitrate when the container declares one
+            // (or DNxHD's fixed-frame nominal); otherwise the
+            // whole-file average, flagged as such. Hidden when
+            // neither is known (pre-field caches before the re-probe).
+            KvRow {
+                readonly property real vRate: content.vmeta
+                    ? (content.vmeta.videoBitrate || 0) : 0
+                readonly property real cRate: content.vmeta
+                    ? (content.vmeta.containerBitrate || 0) : 0
+                visible: vRate > 0 || cRate > 0
+                label: qsTr("Bitrate")
+                value: vRate > 0 ? root.formatBitrate(vRate)
+                                 : root.formatBitrate(cRate)
+                note: vRate > 0
+                    ? (cRate > 0 ? qsTr("file avg ") + root.formatBitrate(cRate) : "")
+                    : qsTr("file avg")
             }
             KvRow {
                 label: qsTr("Pixel format")

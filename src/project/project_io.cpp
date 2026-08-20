@@ -112,6 +112,11 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("duration")]            = v.duration;
     o[QStringLiteral("videoCodec")]          = v.videoCodec;
     o[QStringLiteral("codecProfile")]        = v.codecProfile;
+    o[QStringLiteral("containerFormat")]     = v.containerFormat;
+    o[QStringLiteral("mxfOperationalPattern")] = v.mxfOperationalPattern;
+    o[QStringLiteral("containerBitrate")]    = static_cast<qint64>(v.containerBitrate);
+    o[QStringLiteral("videoBitrate")]        = static_cast<qint64>(v.videoBitrate);
+    o[QStringLiteral("encoderTool")]         = v.encoderTool;
     o[QStringLiteral("pixelFormat")]         = v.pixelFormat;
     o[QStringLiteral("bitDepth")]            = v.bitDepth;
     o[QStringLiteral("hasAlpha")]            = v.hasAlpha;
@@ -152,6 +157,17 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
     // Empty for caches saved before the field existed — the
     // Inspector row hides; no re-probe (cosmetic only).
     v.codecProfile        = o.value(QStringLiteral("codecProfile")).toString();
+    // Container fields — empty containerFormat on caches saved before
+    // they existed is the sentinel ProjectManager uses to schedule
+    // the header-only container re-probe on open.
+    v.containerFormat     = o.value(QStringLiteral("containerFormat")).toString();
+    v.mxfOperationalPattern =
+        o.value(QStringLiteral("mxfOperationalPattern")).toString();
+    v.containerBitrate    = static_cast<qint64>(
+        o.value(QStringLiteral("containerBitrate")).toDouble());
+    v.videoBitrate        = static_cast<qint64>(
+        o.value(QStringLiteral("videoBitrate")).toDouble());
+    v.encoderTool         = o.value(QStringLiteral("encoderTool")).toString();
     v.pixelFormat         = o.value(QStringLiteral("pixelFormat")).toString();
     v.bitDepth            = o.value(QStringLiteral("bitDepth")).toInt(8);
     v.hasAlpha            = o.value(QStringLiteral("hasAlpha")).toBool();

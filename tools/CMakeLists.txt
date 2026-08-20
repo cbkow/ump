@@ -8,6 +8,7 @@ add_subdirectory(probe-video)
 add_subdirectory(probe-ocio)
 add_subdirectory(probe-ocio-shader)
 add_subdirectory(probe-exr-decode)
+add_subdirectory(probe-metadata)
 
 # probe-ocio-d3d11 (Phase F.1.a spike) builds standalone — see its own
 # CMakeLists.txt for the configure command. Not part of the main build.

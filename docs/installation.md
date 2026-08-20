@@ -48,6 +48,20 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What's new in 2.2.6
+
+- **Container & codec detail in the Inspector** — the File card now names
+  the container (QuickTime, MP4, MXF…) and, for MXF, the operational
+  pattern (**OP1a** vs **OP-Atom**), plus the authoring tool recorded in
+  the file.
+- **Avid DNx flavors** — DNxHD/DNxHR clips show their real bandwidth name
+  (DNxHD 36 / 115 / 145 / 175 / 220, the **x** 10-bit variants, DNxHD 444,
+  DNxHR LB / SQ / HQ / HQX / 444) instead of a generic "DNXHD".
+- **Bitrate row** — video-stream bitrate (or DNxHD's fixed nominal) with
+  the whole-file average alongside, for every container.
+- Existing projects pick the new fields up automatically on open via a
+  quick header re-probe — no re-import needed.
+
 What's new in 2.2.5
 
 - **Pointer tool for annotations** — select any stroke to move it, scale it

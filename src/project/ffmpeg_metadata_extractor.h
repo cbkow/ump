@@ -32,12 +32,17 @@ public:
     // sentinel and retries next launch.
     static int probeRotation(const QString &filePath);
 
-    // Header-only codec-profile probe for project caches that predate
-    // VideoMetadata::codecProfile. Returns the display name ("ProRes
-    // 422 HQ"), empty (non-null) when the stream carries no profile,
-    // or a null QString when the file can't be opened (offline
+    // Header-only container probe for project caches that predate
+    // VideoMetadata::containerFormat (empty = sentinel). Fills the
+    // container fields (containerFormat / mxfOperationalPattern /
+    // encoderTool / containerBitrate), the video stream's codecProfile
+    // (incl. the DNxHD/DNxHR flavor that older caches hold as FFmpeg's
+    // generic "DNXHD") and videoBitrate, and sets `loaded=true`.
+    // `loaded=false` means the file couldn't be opened (offline
     // volume) so the caller skips the patch and retries next launch.
-    static QString probeCodecProfile(const QString &filePath);
+    // Patches fields rather than re-running the full extraction so an
+    // offline volume can't clobber good cached metadata.
+    static VideoMetadata probeContainer(const QString &filePath);
 };
 
 } // namespace qcv

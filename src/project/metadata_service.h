@@ -50,11 +50,12 @@ public:
     // rotationProbed(); deg is -1 when the file couldn't be opened.
     void requestRotationProbe(const QString &mediaId, const QString &path);
 
-    // Same migration shape for VideoMetadata::codecProfile. Result
-    // lands on codecProfileProbed(); a null QString means the file
-    // couldn't be opened (skip the patch, retry next launch), empty
-    // means probed-but-no-profile.
-    void requestCodecProfileProbe(const QString &mediaId, const QString &path);
+    // Same migration shape for the container fields (containerFormat
+    // / mxfOperationalPattern / encoderTool / bitrates) + codecProfile
+    // (DNxHD/DNxHR flavor). Result lands on containerProbed(); the
+    // payload's `loaded` is false when the file couldn't be opened
+    // (skip the patch, retry next launch).
+    void requestContainerProbe(const QString &mediaId, const QString &path);
 
 Q_SIGNALS:
     // Fired on the owning thread when an extraction completes.
@@ -63,7 +64,7 @@ Q_SIGNALS:
     void metadataReady(const QString &mediaId, const VideoMetadata &metadata);
     void adobeMetadataReady(const QString &mediaId, const AdobeMetadata &metadata);
     void rotationProbed(const QString &mediaId, int rotationDeg);
-    void codecProfileProbed(const QString &mediaId, const QString &profile);
+    void containerProbed(const QString &mediaId, const VideoMetadata &probe);
 
 private:
     Q_DISABLE_COPY(MetadataService)

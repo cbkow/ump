@@ -158,12 +158,14 @@ struct VideoMetadata {
     double      duration = 0.0;       // seconds
     QString     videoCodec;
     // Display-ready codec flavor — "ProRes 422 HQ", "ProRes 4444",
-    // h264 "High 4:2:2", etc. ProRes maps the MOV fourcc / stream
-    // profile to Apple's marketing names (what export menus say);
-    // other codecs use FFmpeg's profile name. Empty when the
-    // container doesn't carry one (also: caches saved before this
-    // field — no re-probe, the row just stays hidden until the
-    // media is re-added).
+    // "DNxHD 175x", "DNxHR HQX", h264 "High 4:2:2", etc. ProRes maps
+    // the MOV fourcc / stream profile to Apple's marketing names (what
+    // export menus say); DNxHD/DNxHR reads the Compression ID from the
+    // first frame header and maps CID × fps to Avid's bandwidth names
+    // (the "x" suffix = 10-bit); other codecs use FFmpeg's profile
+    // name. Empty when the container doesn't carry one. Caches saved
+    // before the DNx mapping hold FFmpeg's generic "DNXHD" and get
+    // patched by the container re-probe (see containerFormat).
     QString     codecProfile;
     QString     pixelFormat;          // e.g. "yuv422p10le"
     int         bitDepth = 8;         // detected from pixelFormat
@@ -195,6 +197,31 @@ struct VideoMetadata {
     bool        unsupportedCodec = false;
     QString     cameraVendor;         // container company_name (e.g. "ARRI")
     QString     cameraModel;          // container product_name (e.g. "ALEXA 35")
+
+    // Container identity. containerFormat is the display-ready
+    // demuxer family ("MXF", "QuickTime", "MP4", "Matroska", …) and
+    // is ALWAYS set on extract (falls back to FFmpeg's long name), so
+    // an empty value is the "cache predates the field" sentinel that
+    // schedules the header-only container re-probe on project open.
+    // mxfOperationalPattern is "OP1a" / "OP-Atom" / "OP1b" … decoded
+    // from the header partition's OP UL (mxfdec exports it as the
+    // `operational_pattern_ul` tag); empty for non-MXF containers.
+    QString     containerFormat;
+    QString     mxfOperationalPattern;
+    // Bitrates in bits/s. containerBitrate = whole-file average
+    // (libavformat's estimate, else fileSize×8/duration). videoBitrate
+    // = the video stream's own rate when the container declares it
+    // (MOV/MP4 sample-table derived) or, for DNxHD, the exact rate from
+    // the fixed per-CID frame size × fps. 0 = unknown; the Inspector
+    // then shows the container average with a "(file avg)" note.
+    qint64      containerBitrate = 0;
+    qint64      videoBitrate = 0;
+    // Authoring tool from container tags: MXF Identification set
+    // (company_name / product_name / product_version /
+    // application_platform → "Adobe Media Encoder 13.0.2 (win32)"),
+    // else the MOV/MKV `encoder` tag ("Lavf61.1.100"). Empty when the
+    // container carries neither.
+    QString     encoderTool;
 
     // Color (Phase 3.E surfaces the auto-preset wiring)
     QString     colorspace;           // "bt709", "bt2020nc", …

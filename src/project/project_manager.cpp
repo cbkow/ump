@@ -81,8 +81,8 @@ ProjectManager::ProjectManager(QObject *parent)
             this, &ProjectManager::onAdobeMetadataReady);
     connect(m_metadataService, &MetadataService::rotationProbed,
             this, &ProjectManager::onRotationProbed);
-    connect(m_metadataService, &MetadataService::codecProfileProbed,
-            this, &ProjectManager::onCodecProfileProbed);
+    connect(m_metadataService, &MetadataService::containerProbed,
+            this, &ProjectManager::onContainerProbed);
 
     // Phase 7.6 — generate identity + timestamps so the manager is
     // never in an undefined "pre-newProject" state. Done after the
@@ -251,25 +251,19 @@ void ProjectManager::applyLoadedState(QList<MediaItem>  pool,
     // onRotationProbed; no markDirty (the key persists on the next
     // natural save).
     if (m_metadataService) {
-        // Same migration for VideoMetadata::codecProfile, gated to
-        // codecs that actually carry a profile — an empty profile on
-        // e.g. v210 / qtrle is the correct final answer, and probing
-        // those every launch would never converge.
-        static const QStringList kProfileBearingCodecs = {
-            QStringLiteral("prores"), QStringLiteral("h264"),
-            QStringLiteral("hevc"),   QStringLiteral("av1"),
-            QStringLiteral("vp9"),    QStringLiteral("mpeg2video"),
-            QStringLiteral("mpeg4"),  QStringLiteral("vc1"),
-            QStringLiteral("dnxhd"),  QStringLiteral("jpeg2000"),
-        };
+        // Same migration for the container fields (containerFormat /
+        // mxfOperationalPattern / encoderTool / bitrates) and the
+        // DNxHD/DNxHR codec flavor. containerFormat is always set by
+        // a current extract, so empty == pre-field cache; the probe
+        // converges after one successful open (subsumes the older
+        // codecProfile-only migration).
         for (const MediaItem &it : m_mediaPool) {
             if (it.type != MediaType::Video || !it.video.loaded) continue;
             if (it.video.rotationDeg < 0) {
                 m_metadataService->requestRotationProbe(it.id, it.path);
             }
-            if (it.video.codecProfile.isEmpty()
-                && kProfileBearingCodecs.contains(it.video.videoCodec)) {
-                m_metadataService->requestCodecProfileProbe(it.id, it.path);
+            if (it.video.containerFormat.isEmpty()) {
+                m_metadataService->requestContainerProbe(it.id, it.path);
             }
         }
     }
@@ -617,14 +611,15 @@ QString ProjectManager::addMediaFile(const QString &path)
     for (const MediaItem &existing : m_mediaPool) {
         if (existing.path == abs) {
             // Re-adding a cached item is a natural moment to backfill
-            // codecProfile on pre-field caches — cheaper than waiting
-            // for the next project open (single header probe, async).
+            // the container fields on pre-field caches — cheaper than
+            // waiting for the next project open (single header probe,
+            // async).
             if (m_metadataService
                 && existing.type == MediaType::Video
                 && existing.video.loaded
-                && existing.video.codecProfile.isEmpty()) {
-                m_metadataService->requestCodecProfileProbe(existing.id,
-                                                           existing.path);
+                && existing.video.containerFormat.isEmpty()) {
+                m_metadataService->requestContainerProbe(existing.id,
+                                                         existing.path);
             }
             return existing.id;
         }
@@ -1395,6 +1390,16 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("duration")]         = it.video.duration;
         v[QStringLiteral("videoCodec")]       = it.video.videoCodec;
         v[QStringLiteral("codecProfile")]     = it.video.codecProfile;
+        // Container identity + bitrates (bits/s; 0 = unknown) +
+        // authoring tool. Empty strings hide their Inspector rows.
+        v[QStringLiteral("containerFormat")]  = it.video.containerFormat;
+        v[QStringLiteral("mxfOperationalPattern")] =
+            it.video.mxfOperationalPattern;
+        v[QStringLiteral("containerBitrate")] =
+            static_cast<qlonglong>(it.video.containerBitrate);
+        v[QStringLiteral("videoBitrate")]     =
+            static_cast<qlonglong>(it.video.videoBitrate);
+        v[QStringLiteral("encoderTool")]      = it.video.encoderTool;
         v[QStringLiteral("pixelFormat")]      = it.video.pixelFormat;
         v[QStringLiteral("bitDepth")]         = it.video.bitDepth;
         v[QStringLiteral("hasAlpha")]         = it.video.hasAlpha;
@@ -1638,18 +1643,32 @@ void ProjectManager::onRotationProbed(const QString &mediaId, int rotationDeg)
     }
 }
 
-void ProjectManager::onCodecProfileProbed(const QString &mediaId,
-                                          const QString &profile)
+void ProjectManager::onContainerProbed(const QString &mediaId,
+                                       const VideoMetadata &probe)
 {
-    // Null = open failed (offline volume) → retry next launch.
-    // Empty = probed, stream carries no profile → nothing to patch
-    // (and the codec gate at scheduling keeps that case rare).
-    if (profile.isEmpty()) return;
+    // loaded=false = open failed (offline volume) → retry next
+    // launch. Otherwise patch only the probe's fields — never the
+    // full struct — so cached stream/color/audio data survives.
+    if (!probe.loaded) return;
     const int idx = findIndexInPool(mediaId);
     if (idx < 0) return;
     MediaItem &it = m_mediaPool[idx];
-    if (it.video.codecProfile == profile) return;
-    it.video.codecProfile = profile;
+    bool changed = false;
+    auto patchStr = [&](QString &dst, const QString &src) {
+        if (src.isEmpty() || dst == src) return;
+        dst = src; changed = true;
+    };
+    auto patchRate = [&](qint64 &dst, qint64 src) {
+        if (src <= 0 || dst == src) return;
+        dst = src; changed = true;
+    };
+    patchStr(it.video.containerFormat,       probe.containerFormat);
+    patchStr(it.video.mxfOperationalPattern, probe.mxfOperationalPattern);
+    patchStr(it.video.encoderTool,           probe.encoderTool);
+    patchStr(it.video.codecProfile,          probe.codecProfile);
+    patchRate(it.video.containerBitrate,     probe.containerBitrate);
+    patchRate(it.video.videoBitrate,         probe.videoBitrate);
+    if (!changed) return;
     // No markDirty — same rationale as onRotationProbed.
     emit binsChanged();
     if (m_activeItemId == mediaId || m_bSourceMediaId == mediaId) {
