@@ -146,7 +146,10 @@ rebuilt from source on each dev machine / version bump.
   re-orders the RGB MBs (planes R/G/B) into one `gbrp10/12` picture;
   all-transformed frames (what FFmpeg's own encoder writes) stay
   `yuv444p10/12` bit-identical to upstream. Derived empirically from
-  boundary fits on Avid material (see the patch header comment).
+  boundary fits on Avid material (see the patch header comment). Also
+  (v2.2.7) tags untagged 4:4:4 output `color_range = limited` — Avid's
+  legal-range convention, mirroring what the ProRes decoder does for
+  its own; explicit container tags win.
   **Re-apply after every FFmpeg clone** (step in the recipe below).
   The Windows BtbN prebuilt does NOT carry it — Windows still shows the
   artifacts until the fix is upstreamed or we self-build there.

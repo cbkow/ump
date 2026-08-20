@@ -1,5 +1,5 @@
 diff --git a/libavcodec/dnxhddec.c b/libavcodec/dnxhddec.c
-index 7ec61f9..fb57a25 100644
+index 7ec61f9..2b5572b 100644
 --- a/libavcodec/dnxhddec.c
 +++ b/libavcodec/dnxhddec.c
 @@ -74,6 +74,17 @@ typedef struct DNXHDContext {
@@ -20,7 +20,7 @@ index 7ec61f9..fb57a25 100644
      int (*decode_dct_block)(const struct DNXHDContext *ctx,
                              RowContext *row, int n);
  } DNXHDContext;
-@@ -248,17 +259,31 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
+@@ -248,17 +259,42 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
  
      ctx->is_444 = (buf[0x2C] >> 6) & 1;
      if (ctx->is_444) {
@@ -38,6 +38,17 @@ index 7ec61f9..fb57a25 100644
 +                         (ctx->act_mode == 0 &&
 +                          (ctx->avctx->pix_fmt == AV_PIX_FMT_YUV444P10 ||
 +                           ctx->avctx->pix_fmt == AV_PIX_FMT_YUV444P12)));
++        /* Avid 4:4:4 essence — RGB included — is video-level (legal
++         * range) by the codec's own convention: Media Composer and the
++         * Avid DNxHR codec write 16·2^(n-8)…235·2^(n-8) and Avid / After
++         * Effects read it back that way, and the frame header carries
++         * no range field. Mirror what the ProRes decoder does for its
++         * convention: when the container said nothing, tag the output
++         * limited so downstream range handling matches the encoder.
++         * An explicit container tag (MOV colr, MXF CDCI/RGBA ref
++         * levels) always wins. */
++        if (!yuv && ctx->avctx->color_range == AVCOL_RANGE_UNSPECIFIED)
++            ctx->avctx->color_range = AVCOL_RANGE_MPEG;
          if (bitdepth == 8) {
              avpriv_request_sample(ctx->avctx, "4:4:4 8 bits");
              return AVERROR_INVALIDDATA;
@@ -56,7 +67,7 @@ index 7ec61f9..fb57a25 100644
          }
      } else if (bitdepth == 12) {
          ctx->decode_dct_block = dnxhd_decode_dct_block_12;
-@@ -506,6 +531,8 @@ static int dnxhd_decode_macroblock(const DNXHDContext *ctx, RowContext *row,
+@@ -506,6 +542,8 @@ static int dnxhd_decode_macroblock(const DNXHDContext *ctx, RowContext *row,
          qscale = get_bits(&row->gb, 11);
      }
      act = get_bits1(&row->gb);
@@ -65,7 +76,7 @@ index 7ec61f9..fb57a25 100644
      if (act) {
          if (!ctx->act) {
              static int act_warned;
-@@ -617,6 +644,66 @@ static int dnxhd_decode_row(AVCodecContext *avctx, void *data,
+@@ -617,6 +655,66 @@ static int dnxhd_decode_row(AVCodecContext *avctx, void *data,
      return 0;
  }
  
@@ -132,7 +143,7 @@ index 7ec61f9..fb57a25 100644
  static int dnxhd_decode_frame(AVCodecContext *avctx, AVFrame *picture,
                                int *got_frame, AVPacket *avpkt)
  {
-@@ -652,6 +739,20 @@ decode_coding_unit:
+@@ -652,6 +750,20 @@ decode_coding_unit:
      if (ret < 0)
          return ret;
  
@@ -153,7 +164,7 @@ index 7ec61f9..fb57a25 100644
      if (first_field) {
          if ((ret = ff_thread_get_buffer(avctx, picture, 0)) < 0)
              return ret;
-@@ -674,33 +775,40 @@ decode_coding_unit:
+@@ -674,33 +786,40 @@ decode_coding_unit:
          ctx->rows[i].errors = 0;
      }
  
@@ -220,7 +231,7 @@ index 7ec61f9..fb57a25 100644
          }
      }
      avctx->pix_fmt = ctx->pix_fmt;
-@@ -717,6 +825,8 @@ static av_cold int dnxhd_decode_close(AVCodecContext *avctx)
+@@ -717,6 +836,8 @@ static av_cold int dnxhd_decode_close(AVCodecContext *avctx)
  {
      DNXHDContext *ctx = avctx->priv_data;
  
