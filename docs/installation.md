@@ -61,6 +61,16 @@ What's new in 2.2.6
   the whole-file average alongside, for every container.
 - Existing projects pick the new fields up automatically on open via a
   quick header re-probe — no re-import needed.
+- **Avid DNxHR 444 fix (macOS)** — DNxHR 444 12/10-bit files written by
+  the Avid codec (After Effects / Media Composer) with the adaptive
+  colour transform enabled decoded with green/magenta macroblock
+  speckle. QCView's FFmpeg now decodes them correctly.
+- **Range pill for RGB sources** — Auto now tells you what it resolved
+  to (tag, or the assumed convention: YCbCr → limited, RGB → full/as
+  stored), the Color card shows the container's range tag, and
+  **Limited** expands video-level RGB (16–235) for RGB codecs such as
+  DNxHR 444 RGB. MXF RGB essence now reads its range from the
+  descriptor.
 
 What's new in 2.2.5
 
