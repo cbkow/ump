@@ -574,6 +574,10 @@ void extractVideoStream(AVFormatContext *ctx, VideoMetadata &m)
     m.pixelFormat = pixName ? QString::fromUtf8(pixName) : QString{};
     m.bitDepth    = bitDepthFromPixFmtName(m.pixelFormat);
     m.hasAlpha    = hasAlphaFromPixFmtName(m.pixelFormat);
+    if (const AVPixFmtDescriptor *desc =
+            av_pix_fmt_desc_get(static_cast<AVPixelFormat>(cp->format))) {
+        m.isRgb = (desc->flags & AV_PIX_FMT_FLAG_RGB) != 0;
+    }
 
     m.colorspace      = colorspaceName(cp->color_space);
     m.colorPrimaries  = primariesName(cp->color_primaries);

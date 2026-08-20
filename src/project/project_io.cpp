@@ -21,6 +21,10 @@
 #include <QStringList>
 #include <QtLogging>
 
+extern "C" {
+#include <libavutil/pixdesc.h>
+}
+
 namespace qcv::ProjectIo {
 
 namespace {
@@ -133,6 +137,7 @@ QJsonObject videoMetadataToJson(const VideoMetadata &v)
     o[QStringLiteral("colorRange")]          = v.colorRange;
     o[QStringLiteral("nclcTag")]             = v.nclcTag;
     o[QStringLiteral("isHdrContent")]        = v.isHdrContent;
+    o[QStringLiteral("isRgb")]               = v.isRgb;
     o[QStringLiteral("audioCodec")]          = v.audioCodec;
     o[QStringLiteral("audioSampleRate")]     = v.audioSampleRate;
     o[QStringLiteral("audioChannels")]       = v.audioChannels;
@@ -169,6 +174,18 @@ VideoMetadata videoMetadataFromJson(const QJsonObject &o)
         o.value(QStringLiteral("videoBitrate")).toDouble());
     v.encoderTool         = o.value(QStringLiteral("encoderTool")).toString();
     v.pixelFormat         = o.value(QStringLiteral("pixelFormat")).toString();
+    // RGB-family flag. Pre-field caches: re-derive from the pixel
+    // format name so the Range pill's Auto label is right without a
+    // re-probe.
+    if (o.contains(QStringLiteral("isRgb"))) {
+        v.isRgb = o.value(QStringLiteral("isRgb")).toBool();
+    } else if (!v.pixelFormat.isEmpty()) {
+        const AVPixelFormat pf =
+            av_get_pix_fmt(v.pixelFormat.toUtf8().constData());
+        const AVPixFmtDescriptor *desc =
+            (pf != AV_PIX_FMT_NONE) ? av_pix_fmt_desc_get(pf) : nullptr;
+        v.isRgb = desc && (desc->flags & AV_PIX_FMT_FLAG_RGB);
+    }
     v.bitDepth            = o.value(QStringLiteral("bitDepth")).toInt(8);
     v.hasAlpha            = o.value(QStringLiteral("hasAlpha")).toBool();
     // Default 1/1 (square) when missing — old projects and the struct

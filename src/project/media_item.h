@@ -230,6 +230,13 @@ struct VideoMetadata {
     QString     colorRange;           // "limited" | "full" | "unknown"
     QString     nclcTag;              // "1-1-1" etc.; empty if unset
     bool        isHdrContent = false; // PQ / HLG transfer
+    // True when the decoded pixel format is an RGB family (gbrp*,
+    // rgb48, …) rather than YCbCr. Drives the Range pill's Auto
+    // semantics: Auto = follow the container tag, else the convention
+    // for the pixel class — YCbCr assumes limited (what every player
+    // and swscale assume), RGB assumes full = shown as stored. Derived
+    // from pixelFormat, so pre-field caches re-derive it on load.
+    bool        isRgb = false;
 
     // Audio (set when stream present)
     QString     audioCodec;           // empty if no audio

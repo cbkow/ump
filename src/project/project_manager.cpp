@@ -1424,6 +1424,7 @@ QVariantMap ProjectManager::mediaItemMap(const QString &id) const
         v[QStringLiteral("colorRange")]       = it.video.colorRange;
         v[QStringLiteral("nclcTag")]          = it.video.nclcTag;
         v[QStringLiteral("isHdrContent")]     = it.video.isHdrContent;
+        v[QStringLiteral("isRgb")]            = it.video.isRgb;
         v[QStringLiteral("audioCodec")]       = it.video.audioCodec;
         v[QStringLiteral("audioSampleRate")]  = it.video.audioSampleRate;
         v[QStringLiteral("audioChannels")]    = it.video.audioChannels;

@@ -565,15 +565,22 @@ D3D11VulkanDecodeBridge::consumeAVFrame(AVFrame *avFrame, int rangeOverride)
     // range when the user picked Full / Limited (otherwise Auto =
     // detect from the frame's color_range tag). Same logic as the
     // macOS path at metal_player_renderer.mm:1198-1204.
+    dp.isRgb      = (desc && (desc->flags & AV_PIX_FMT_FLAG_RGB)) ? 1 : 0;
     if (rangeOverride == 1) {
         dp.range = 1;   // Full / PC-range
     } else if (rangeOverride == 2) {
         dp.range = 0;   // Limited / TV-range
+    } else if (dp.isRgb) {
+        // Auto for RGB = follow the tag, else full (shown as stored).
+        // Untagged RGB is conventionally full; the YUV fallback below
+        // (untagged → limited) must NOT leak into the RGB branch or
+        // every untagged RGB source gets a levels stretch nobody asked
+        // for. Mirrors VideoDecoder::publishCpuFrame on the CPU path.
+        dp.range = (avFrame->color_range == AVCOL_RANGE_MPEG) ? 0 : 1;
     } else {
         dp.range = (avFrame->color_range == AVCOL_RANGE_JPEG) ? 1 : 0;
     }
     dp.hasAlpha   = hasAlpha ? 1 : 0;
-    dp.isRgb      = (desc && (desc->flags & AV_PIX_FMT_FLAG_RGB)) ? 1 : 0;
     dp.isBiplanar = isBiplanar ? 1 : 0;
 
     if (!m_impl->yuv->dispatch(dp)) {

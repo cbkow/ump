@@ -565,6 +565,10 @@ Rectangle {
             KvRow {
                 label: qsTr("Pixel format")
                 value: content.vmeta ? content.vmeta.pixelFormat : ""
+                // RGB-family sources get a marker — the Range pill's
+                // Auto fallback differs for them (full, not limited).
+                note: content.vmeta && content.vmeta.isRgb === true
+                    ? qsTr("RGB") : ""
             }
             KvRow {
                 label: qsTr("Bit depth")
@@ -854,9 +858,13 @@ Rectangle {
         // ---- COLOR ----
         InspectorCard {
             title: qsTr("Color")
+            // Always present for video — it hosts the Range pill and
+            // the tagged/untagged readout, which matter most precisely
+            // when the container carries no colour metadata at all.
             visible: content.videoLoaded
                      && content.vmeta
-                     && (content.vmeta.colorspace.length > 0
+                     && (root.itemType === 0
+                         || content.vmeta.colorspace.length > 0
                          || content.vmeta.colorPrimaries.length > 0
                          || content.vmeta.colorTransfer.length > 0
                          || content.vmeta.colorRange.length > 0)
@@ -880,6 +888,26 @@ Rectangle {
                 visible: content.vmeta && content.vmeta.nclcTag.length > 0
                 label: qsTr("NCLC tag")
                 value: content.vmeta ? content.vmeta.nclcTag : ""
+            }
+            // What the container says about range, and — when it says
+            // nothing — what Auto will assume for this pixel class.
+            // Informational: the pill below is where the opinion lives.
+            KvRow {
+                visible: root.itemType === 0 && content.vmeta !== null
+                label: qsTr("Range tag")
+                value: {
+                    if (!content.vmeta) return "";
+                    const r = content.vmeta.colorRange || "";
+                    return r.length > 0 ? r : qsTr("untagged");
+                }
+                note: {
+                    if (!content.vmeta) return "";
+                    const r = content.vmeta.colorRange || "";
+                    if (r.length > 0) return "";
+                    return content.vmeta.isRgb === true
+                        ? qsTr("Auto assumes full")
+                        : qsTr("Auto assumes limited");
+                }
             }
 
             // ---- Range override picker (Phase 3.G) ----
@@ -927,12 +955,20 @@ Rectangle {
                     rangeTargetItem
                         && rangeTargetItem.videoRangeOverride !== undefined
                         ? rangeTargetItem.videoRangeOverride : 0
+                // Auto's resolved value. Tagged → the tag. Untagged →
+                // the pixel-class convention, flagged "assumed" so the
+                // reviewer can see it's a fallback, not a fact from the
+                // file: YCbCr assumes limited, RGB assumes full (shown
+                // as stored). Same rule in VideoDecoder (CPU path),
+                // the VideoToolbox bridge and the Windows compositor.
                 readonly property string detectedLabel: {
-                    if (!content.vmeta || !content.vmeta.colorRange) return qsTr("Auto");
-                    const r = content.vmeta.colorRange;
+                    if (!content.vmeta) return qsTr("Auto");
+                    const r = content.vmeta.colorRange || "";
                     if (r === "full")    return qsTr("Auto (Full)");
                     if (r === "limited") return qsTr("Auto (Limited)");
-                    return qsTr("Auto");
+                    return content.vmeta.isRgb === true
+                        ? qsTr("Auto (Full, assumed)")
+                        : qsTr("Auto (Limited, assumed)");
                 }
 
                 Repeater {

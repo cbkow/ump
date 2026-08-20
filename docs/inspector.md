@@ -31,7 +31,7 @@ Projects saved before these fields existed are back-filled on open with a header
 
 Several properties are stored per media item and shown as togglable **pills** in the Inspector:
 
-- **Video range override** — force the decoder to interpret the source as limited or full range, overriding container metadata. Useful for sources that are mis-tagged.
+- **Video range override** — force the decoder to interpret the source as limited or full range, overriding container metadata. Useful for sources that are mis-tagged. **Auto** follows the container tag; when the file carries no tag, Auto falls back to the convention for the pixel class and says so on the pill — YCbCr sources assume **limited** (what every player assumes), RGB sources (DNxHR 444 RGB, uncompressed RGB, Animation…) assume **full** and are shown exactly as stored. Pick **Limited** on an RGB source to expand video-level RGB (16–235) to full — the interpretation Avid and After Effects apply to DNxHR 444 by default. The Color card's **Range tag** row shows whether the file was tagged at all.
 - **Timecode Origin** — pick which embedded timecode track drives the playhead readout (DV, TimeCode, MXF), or **From start** to ignore embedded timecode and count from frame 0.
 - **Broadcast Master Audio Mix** — pick which mix you want to preview. If QCView detects a broadcaster master with 6 or 8 tracks, it will perform a technical mix of the tracks for preview. If stereo tracks are on tracks 7 and 8, they will be automatically selected. Click on the 5.1 toggle to preview the 5.1 downmixed to stereo.
 
