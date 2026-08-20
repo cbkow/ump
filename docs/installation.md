@@ -48,6 +48,15 @@ Once installed in **Applications**, QCView keeps itself up to date — it checks
 
 ## Version History
 
+What's new in 2.2.7
+
+- **Avid DNx 4:4:4 levels** — untagged DNxHD/DNxHR 4:4:4 (RGB included)
+  is now read as video-level (legal range) by default, matching how Avid
+  and After Effects interpret it, so Avid RGB exports come up with true
+  black without touching the Range pill. Explicit container tags still
+  win, and the Inspector's Range-tag row now shows the container's tag
+  separately from what the decoder reported.
+
 What's new in 2.2.6
 
 - **Container & codec detail in the Inspector** — the File card now names
