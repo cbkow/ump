@@ -10,7 +10,7 @@ nav_order: 18
 
 [QCBridge](https://github.com/cbkow/QCBridge) is a Blender extension that gives you a remote "beauty window": you work in Blender on your own machine, while a second machine with a bigger GPU mirrors your scene, renders the full Cycles or Eevee preview, and streams it live into QCView. Your local Blender stays perfectly responsive; the remote render catches up to your edits in about a second.
 
-It's one extension with two roles — **Host** (the machine you work on) and **Replica** (the render box) — connected over your LAN or VPN. Sync is strictly one-way: the replica never edits anything and never touches your project files.
+It has two roles — **Host** (the machine you work on) and **Replica** (the render box) — connected over your LAN or VPN. Sync is strictly one-way: the replica never edits anything and never touches your project files.
 
 > QCBridge is a working experiment, developed for production but tested mainly with a macOS host and a Windows replica. Expect rough edges.
 
@@ -72,7 +72,7 @@ netsh advfirewall firewall add rule name="QCBridge SRT" dir=in action=allow prot
 
 ![QCBridge](images/qcbridge_004.png)
 
-Start Blender on both machines and press **Start Session** in the *QC Bridge* panel (sidebar of the 3D viewport, `N` key) — replica first, then host. The replica automatically loads whatever file the host has open and starts following: camera, timeline, lighting, materials, node edits, visibility — modeling changes take a moment longer. Opening a different project on the host? The replica follows that too. No further touching of the replica machine is needed; ending the session on the host drops the replica to an idle viewport, and the next session picks it back up.
+Start Blender on both machines and press **Start Session** in the *QC Bridge* panel (sidebar of the 3D viewport, `N` key) — replica first, then host. The replica automatically loads whatever file the host has open and starts following: camera, timeline, lighting, materials, node edits, visibility — modeling changes take a moment longer. 
 
 ![QCBridge](images/qcbridge_005.png)
 
@@ -84,8 +84,3 @@ From the host panel:
 - **Pause Sync** — holds your edits back (queued, not lost) while you try something messy; resume flushes them.
 - **Force Resync** — resyncs the whole file if something is updating naturally (there is a lot that hasn't been tested yet).
 
-The stream itself always tells you the truth: sync status, a sequence counter, and a clock are burned into the corner of the picture (`● live · seq 42 · 14:03:22.5`), so you can always tell live from stale — and measure your glass-to-glass latency against your own menu-bar clock.
-
-## If something's off
-
-The host panel names problems rather than hiding them: an unreachable or mistyped replica address, a token mismatch, a missing ffmpeg on the replica, or the replica's encoder state (`replica stream: streaming` / `restarting`). If QCView sits at "reconnecting" while the panel says the stream is running, it's almost always the replica's firewall (see the UDP rule above).
