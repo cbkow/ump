@@ -126,6 +126,11 @@ struct D3D11VulkanDecodeBridge::Impl {
     };
     SharedRgba    output;
 
+    // Phase I.D.2 — parked outputs, keyed (width<<32|height). See the
+    // park-and-reuse comment in consumeAVFrame. Destroyed only in
+    // reset()/shutdown.
+    std::unordered_map<uint64_t, SharedRgba> outputCache;
+
     // Per-frame VkImageView resolution — keyed by VkImage so FFmpeg's
     // ~26-image pool warms the cache in steady-state. Each decoder
     // instance has its own pool with distinct VkImage identities
@@ -432,6 +437,13 @@ D3D11VulkanDecodeBridge::consumeAVFrame(AVFrame *avFrame, int rangeOverride)
     // previous decoder's images can hit on a new decoder's image
     // → undefined sampling → green/magenta chroma corruption.
     if (hwfc != m_impl->lastHwfc) {
+        // Phase I.D — drain in-flight compute before destroying the
+        // old pool views: the PREVIOUS dispatch may still be executing
+        // with these VkImageViews bound (the timeline wait inside
+        // dispatch() happens after this point, not before it).
+        if (!m_impl->viewCache.empty()) {
+            qcv::VulkanDeviceManager::instance().waitForGpu();
+        }
         destroyCachedViews(*m_impl);
         m_impl->lastHwfc = hwfc;
         if (hwfc) {
@@ -454,8 +466,41 @@ D3D11VulkanDecodeBridge::consumeAVFrame(AVFrame *avFrame, int rangeOverride)
     }
 
     if (needRealloc) {
-        reset();
-        if (!allocateSharedRgba(avFrame->width, avFrame->height, m_impl->output)) {
+        // Phase I.D.2 (2026-09-01) — park-and-reuse instead of
+        // destroy-and-realloc. The old path called reset() here:
+        // device-wide idle + destroy of the (possibly still D3D11-
+        // referenced) shared texture + NT-handle close on EVERY
+        // resolution change. Mixed-resolution ProRes playlists churn
+        // that at every clip boundary, and the NVIDIA driver
+        // eventually faulted on it (nvlddmkm event 153 bursts at
+        // boundaries, then VK_ERROR_DEVICE_LOST; the pure-FFmpeg
+        // open/decode/close churn was proven clean standalone). Now
+        // the current output is PARKED per-resolution and revived on
+        // the next visit; nothing GPU-visible is destroyed until
+        // reset()/shutdown. Cost: one RGBA16F surface (9-17 MB) per
+        // distinct resolution in the session — bounded and tiny next
+        // to the decode pools.
+        const auto keyOf = [](int w, int h) {
+            return (static_cast<uint64_t>(static_cast<uint32_t>(w)) << 32)
+                 | static_cast<uint32_t>(h);
+        };
+        if (m_impl->output.d3dTex) {
+            m_impl->outputCache[keyOf(m_impl->output.width,
+                                        m_impl->output.height)]
+                = std::move(m_impl->output);
+            m_impl->output = {};
+        }
+        const uint64_t key = keyOf(avFrame->width, avFrame->height);
+        if (auto it = m_impl->outputCache.find(key);
+            it != m_impl->outputCache.end()) {
+            m_impl->output = std::move(it->second);
+            m_impl->outputCache.erase(it);
+            qInfo("D3D11VulkanDecodeBridge: output cache HIT %dx%d "
+                  "(%zu parked)",
+                  avFrame->width, avFrame->height,
+                  m_impl->outputCache.size());
+        } else if (!allocateSharedRgba(avFrame->width, avFrame->height,
+                                        m_impl->output)) {
             qWarning("D3D11VulkanDecodeBridge: shared RGBA16F alloc failed at "
                      "%dx%d — further frames at this dim will be dropped",
                      avFrame->width, avFrame->height);
@@ -464,15 +509,16 @@ D3D11VulkanDecodeBridge::consumeAVFrame(AVFrame *avFrame, int rangeOverride)
             m_impl->cachedH        = avFrame->height;
             m_impl->allocFailed    = true;
             return nullptr;
+        } else {
+            qInfo("D3D11VulkanDecodeBridge: shared RGBA16F allocated %dx%d "
+                  "(D3D11 owns → Vulkan import OK; sw_format=%s)",
+                  avFrame->width, avFrame->height,
+                  av_get_pix_fmt_name(sw_format));
         }
         m_impl->cachedSwFormat = sw_format;
         m_impl->cachedW        = avFrame->width;
         m_impl->cachedH        = avFrame->height;
         m_impl->allocFailed    = false;
-        qInfo("D3D11VulkanDecodeBridge: shared RGBA16F allocated %dx%d "
-              "(D3D11 owns → Vulkan import OK; sw_format=%s)",
-              avFrame->width, avFrame->height,
-              av_get_pix_fmt_name(sw_format));
     }
 
     if (m_impl->output.vkView == VK_NULL_HANDLE) {
@@ -617,22 +663,32 @@ void D3D11VulkanDecodeBridge::reset()
     auto &vkMgr = qcv::VulkanDeviceManager::instance();
     VkDevice device = vkMgr.isInitialized() ? vkMgr.device() : VK_NULL_HANDLE;
     if (device != VK_NULL_HANDLE) {
-        vkDeviceWaitIdle(device);
+        // Phase I.D — queue-locked wait-idle. reset() runs on the
+        // RENDER thread on every resolution change (needRealloc in
+        // consumeAVFrame) while the new clip decode thread is already
+        // submitting Vulkan work — an unsynchronized vkDeviceWaitIdle
+        // here was the mixed-resolution-playlist driver crash.
+        vkMgr.waitForGpu();
     }
     destroyCachedViews(*m_impl);
-    auto &o = m_impl->output;
-    if (device != VK_NULL_HANDLE) {
-        if (o.vkView   != VK_NULL_HANDLE) vkDestroyImageView(device, o.vkView, nullptr);
-        if (o.vkImage  != VK_NULL_HANDLE) vkDestroyImage(device, o.vkImage, nullptr);
-        if (o.vkMemory != VK_NULL_HANDLE) vkFreeMemory(device, o.vkMemory, nullptr);
-    }
-    o.vkView   = VK_NULL_HANDLE;
-    o.vkImage  = VK_NULL_HANDLE;
-    o.vkMemory = VK_NULL_HANDLE;
-    o.d3dSrv.Reset();
-    o.d3dTex.Reset();
-    if (o.ntHandle) { CloseHandle(o.ntHandle); o.ntHandle = nullptr; }
-    o.width = o.height = 0;
+    const auto destroyOutput = [device](Impl::SharedRgba &o) {
+        if (device != VK_NULL_HANDLE) {
+            if (o.vkView   != VK_NULL_HANDLE) vkDestroyImageView(device, o.vkView, nullptr);
+            if (o.vkImage  != VK_NULL_HANDLE) vkDestroyImage(device, o.vkImage, nullptr);
+            if (o.vkMemory != VK_NULL_HANDLE) vkFreeMemory(device, o.vkMemory, nullptr);
+        }
+        o.vkView   = VK_NULL_HANDLE;
+        o.vkImage  = VK_NULL_HANDLE;
+        o.vkMemory = VK_NULL_HANDLE;
+        o.d3dSrv.Reset();
+        o.d3dTex.Reset();
+        if (o.ntHandle) { CloseHandle(o.ntHandle); o.ntHandle = nullptr; }
+        o.width = o.height = 0;
+    };
+    destroyOutput(m_impl->output);
+    // Phase I.D.2 — parked per-resolution outputs die here too.
+    for (auto &kv : m_impl->outputCache) destroyOutput(kv.second);
+    m_impl->outputCache.clear();
 
     m_impl->cachedSwFormat = -1;
     m_impl->cachedW        = 0;

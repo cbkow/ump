@@ -499,7 +499,7 @@ void D3D11VulkanYuvCompositor::shutdown()
     // Drain any in-flight compute before destroying the pipeline.
     auto &vkMgr = qcv::VulkanDeviceManager::instance();
     VkDevice device = vkMgr.isInitialized() ? vkMgr.device() : VK_NULL_HANDLE;
-    if (device != VK_NULL_HANDLE) vkDeviceWaitIdle(device);
+    if (device != VK_NULL_HANDLE) vkMgr.waitForGpu();   // Phase I.D — queue-locked
 
     teardownTimelineFence(*m_impl);
     teardownComputePipeline(*m_impl);
@@ -648,7 +648,14 @@ bool D3D11VulkanYuvCompositor::dispatch(const DispatchParams &params)
         si.pCommandBuffers      = &impl.cmdBuf;
         si.signalSemaphoreCount = 1;
         si.pSignalSemaphores    = &impl.vkSemaphore;
-        if (vkQueueSubmit(impl.computeQueue, 1, &si, VK_NULL_HANDLE) != VK_SUCCESS) {
+        VkResult submitRes;
+        {
+            // Phase I.D — serialize with FFmpeg decode submits and any
+            // wait-idle (see VulkanDeviceManager::queueMutex).
+            std::lock_guard<std::recursive_mutex> qlock(vkMgr.queueMutex());
+            submitRes = vkQueueSubmit(impl.computeQueue, 1, &si, VK_NULL_HANDLE);
+        }
+        if (submitRes != VK_SUCCESS) {
             qWarning("D3D11VulkanYuvCompositor: vkQueueSubmit (timeline) failed");
             return false;
         }
@@ -661,7 +668,13 @@ bool D3D11VulkanYuvCompositor::dispatch(const DispatchParams &params)
     si.commandBufferCount = 1;
     si.pCommandBuffers    = &impl.cmdBuf;
     vkResetFences(device, 1, &impl.cmdFence);
-    if (vkQueueSubmit(impl.computeQueue, 1, &si, impl.cmdFence) != VK_SUCCESS) {
+    VkResult fbSubmitRes;
+    {
+        // Phase I.D — same serialization as the timeline path.
+        std::lock_guard<std::recursive_mutex> qlock(vkMgr.queueMutex());
+        fbSubmitRes = vkQueueSubmit(impl.computeQueue, 1, &si, impl.cmdFence);
+    }
+    if (fbSubmitRes != VK_SUCCESS) {
         qWarning("D3D11VulkanYuvCompositor: vkQueueSubmit (fallback) failed");
         return false;
     }

@@ -107,6 +107,29 @@ AVBufferRef *createSharedVulkanHwDeviceCtx()
            dm.videoDecodeCodecOps());
     vk->nb_qf = nq;
 
+    // Phase I.D (2026-09-01) — wire FFmpeg per-queue lock callbacks
+    // to the app-wide queue mutex. Left NULL, lavu installs its OWN
+    // internal mutex, which serializes FFmpeg against FFmpeg only —
+    // the renderer compositor dispatch and GUI-thread waitForGpu()
+    // still raced FFmpeg vkQueueSubmit (playlist-boundary nvoglv64
+    // crash on mixed-resolution ProRes playlists). Deprecated fields,
+    // but honored while FF_API_VULKAN_SYNC_QUEUES holds (libavutil 60).
+#if FF_API_VULKAN_SYNC_QUEUES
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996)
+#endif
+    vk->lock_queue = [](AVHWDeviceContext *, uint32_t, uint32_t) {
+        qcv::VulkanDeviceManager::instance().queueMutex().lock();
+    };
+    vk->unlock_queue = [](AVHWDeviceContext *, uint32_t, uint32_t) {
+        qcv::VulkanDeviceManager::instance().queueMutex().unlock();
+    };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+#endif // FF_API_VULKAN_SYNC_QUEUES
+
     const int initErr = av_hwdevice_ctx_init(ref);
     if (initErr < 0) {
         qWarning("createSharedVulkanHwDeviceCtx: av_hwdevice_ctx_init failed (%d)", initErr);

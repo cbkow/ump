@@ -132,6 +132,12 @@ void VulkanDeviceManager::shutdown()
 void VulkanDeviceManager::waitForGpu()
 {
     if (m_device != VK_NULL_HANDLE) {
+        // Phase I.D — vkDeviceWaitIdle must be externally synchronized
+        // against every queue submitter (Vulkan spec). Unsynchronized
+        // wait-idle vs. a concurrent vkQueueSubmit was the playlist-
+        // boundary nvoglv64 access violation (mixed-resolution ProRes
+        // playlists; see memory: prores-playlist-vulkan-crash).
+        std::lock_guard<std::recursive_mutex> lock(m_queueMutex);
         vkDeviceWaitIdle(m_device);
     }
 }

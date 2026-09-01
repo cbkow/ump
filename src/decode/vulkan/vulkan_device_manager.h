@@ -96,7 +96,24 @@ public:
     // Submit an empty buffer and wait for all prior GPU work. Used
     // before CPU readback in diagnostics + before destroying resources
     // that may still be referenced by in-flight command buffers.
+    // Takes queueMutex() internally — vkDeviceWaitIdle requires
+    // external synchronization against every queue submitter.
     void waitForGpu();
+
+    // Phase I.D (2026-09-01) — app-wide Vulkan queue/submission lock.
+    // vkQueueSubmit and vkDeviceWaitIdle require external sync, and
+    // three threads touch the ONE shared VkDevice: the FFmpeg decode
+    // thread (ProRes Vulkan hwaccel), the render thread (YUV
+    // compositor dispatch), and the GUI thread (decoder close() /
+    // bridge reset() wait-idle). Every submitter serializes here:
+    //   - waitForGpu() locks internally,
+    //   - D3D11VulkanYuvCompositor::dispatch() locks around submit,
+    //   - createSharedVulkanHwDeviceCtx wires FFmpeg lock_queue /
+    //     unlock_queue callbacks to this same mutex.
+    // Recursive as cheap insurance against a same-thread re-entry
+    // (e.g. a device-lost av_log callback firing inside a locked
+    // FFmpeg submit and walking into manager code).
+    std::recursive_mutex &queueMutex() { return m_queueMutex; }
 
     // Diagnostics. Pointer is owned by VkPhysicalDeviceProperties — do
     // not free; valid between initialize() and shutdown().
@@ -165,6 +182,9 @@ private:
 
     bool               m_initialized = false;
     mutable std::mutex m_mutex;
+
+    // Phase I.D — see queueMutex() accessor above.
+    mutable std::recursive_mutex m_queueMutex;
 
     // Phase I.B — see markDeviceLost / isDeviceLost / deviceGeneration
     // accessors above. Both atomics so the decoder thread + the
