@@ -312,7 +312,17 @@ void VideoDecoder::clearErrorState()
 void VideoDecoder::close()
 {
     m_stopRequested.store(true, std::memory_order_release);
-    m_isPlaying.store(false, std::memory_order_release);
+    // Emit the play->pause transition (2026-09-01). close() used to
+    // clear the flag with a silent store; the subsequent open()'s
+    // exchange(false) then found it already false and skipped ITS
+    // emit, so QML transport bindings never got a NOTIFY — the
+    // play/pause button stayed on "pause" after switching media
+    // mid-playback, and the WindowManager mirror (isPlayingChanged →
+    // timer play/pause) never paused the timeline timer, sticking the
+    // image-seq/audio branches of the same binding too.
+    if (m_isPlaying.exchange(false, std::memory_order_acq_rel)) {
+        emit isPlayingChanged();
+    }
     {
         std::lock_guard<std::mutex> lk(m_seekCondMutex);
     }
